@@ -51,6 +51,10 @@ export type Policies = {
 	[apiKey: string]: Policy; // key is an Ethereum-style address like '0x...'
 };
 
+// TODO: Why are Bybit and Binance so tightly integrated into this? Should we not simply have a dynamic conversion between CCXT interface and this node?
+// TODO: Otheriwse, we'll need to setup every integration supported by CCXT indidivually inside of this node?
+// TODO: Rename "broker" to "cexs" or "exchanges"...
+// ? The Node itself is a broker. The destination of requests is the CEX...
 export const BrokerList = ["BINANCE", "BYBIT"] as const;
 
 export type ISupportedBroker = (typeof BrokerList)[number];

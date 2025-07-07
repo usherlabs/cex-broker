@@ -17,6 +17,7 @@ import type { OrderDetailsResponse as _fietCexNode_OrderDetailsResponse, OrderDe
 import type { TransferRequest as _fietCexNode_TransferRequest, TransferRequest__Output as _fietCexNode_TransferRequest__Output } from '../fietCexNode/TransferRequest';
 import type { TransferResponse as _fietCexNode_TransferResponse, TransferResponse__Output as _fietCexNode_TransferResponse__Output } from '../fietCexNode/TransferResponse';
 
+// TODO: Is this file auto-generated? If so, can we gitignore it, and add protogen to the post-install script? Unless there's a reason not too..
 export interface CexServiceClient extends grpc.Client {
   CancelOrder(argument: _fietCexNode_CancelOrderRequest, metadata: grpc.Metadata, options: grpc.CallOptions, callback: grpc.requestCallback<_fietCexNode_CancelOrderResponse__Output>): grpc.ClientUnaryCall;
   CancelOrder(argument: _fietCexNode_CancelOrderRequest, metadata: grpc.Metadata, callback: grpc.requestCallback<_fietCexNode_CancelOrderResponse__Output>): grpc.ClientUnaryCall;

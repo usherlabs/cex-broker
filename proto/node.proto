@@ -1,5 +1,26 @@
 syntax = "proto3";
-package fietCexNode;
+package cex-broker; // TODO: I've renamed...
+
+// TODO: This whole file can be a simple message...
+// TODO: A single generic CCXT action/message to executing any CCXT function... This way the broker is dynamic ...
+// TODO: Maybe a second action to trigger a websocket/streaming response...
+// message CcxtActionRequest {
+//   string action = 1;                    // The CCXT method to call (e.g., "fetchBalance", "createOrder")
+//   map<string, string> parameters = 2;   // Parameters to pass to the CCXT method
+//   string cex = 3;                       // CEX identifier (e.g., "binance", "bybit")
+//   string symbol = 4;                    // Optional: trading pair symbol if needed
+}
+
+// message CcxtActionResponse {
+//   bool success = 1;                     // Whether the action was successful
+//   string result = 2;                    // JSON string of the result data
+//   string error = 3;                     // Error message if success is false
+// }
+// service CexService {
+//   rpc ExecuteCcxtAction(CcxtActionRequest) returns (CcxtActionResponse);
+// }
+
+
 // Mode enum for price direction
 enum OrderMode {
   BUY = 0;

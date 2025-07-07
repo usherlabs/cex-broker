@@ -47,6 +47,7 @@ async function main() {
 
 	const server = getServer(policy);
 
+	// TODO: Remove this...
 	console.log(
 		`BINANCE: Broker Balance ,${JSON.stringify(await brokers.BINANCE.fetchFreeBalance())}`,
 	);
@@ -81,6 +82,9 @@ function authenticateRequest<T, E>(call: grpc.ServerUnaryCall<T, E>): boolean {
 function getServer(policy: PolicyConfig) {
 	const server = new grpc.Server();
 	server.addService(fietCexNode.CexService.service, {
+		// TODO: Consolidate all of these calls into "ExecuteAction", "SubscribeToStream"...
+
+		// TODO: Getting optimal price is for the MM tech to decide...
 		GetOptimalPrice: async (
 			call: grpc.ServerUnaryCall<OptimalPriceRequest, OptimalPriceResponse>,
 			callback: grpc.sendUnaryData<OptimalPriceResponse>,
@@ -196,6 +200,9 @@ function getServer(policy: PolicyConfig) {
 			}
 
 			// Validate against policy
+
+			// TODO: I recognise that deposit/withdraw, etc. will need additional considerations as we validate against the policy...
+			// TODO: Therefore, either we can keep the standalone Deposit/Withdraw Methods, or we check the "ExecuteAction" method for the "deposit"/"withdraw"/"convert"/"cancelOrder"/"getOrderDetails"/"getBalance" actions... to determine extra validation.
 			const validation = validateDeposit(policy, chain, Number(amount));
 			if (!validation.valid) {
 				return callback(
@@ -207,6 +214,7 @@ function getServer(policy: PolicyConfig) {
 				);
 			}
 
+			// TODO: Where is CCXT used here?
 			try {
 				console.log(
 					`[${new Date().toISOString()}] ` +
@@ -299,6 +307,8 @@ function getServer(policy: PolicyConfig) {
 						null,
 					);
 				}
+
+				// TODO: My point is why can this not be agnostic to the CEX...
 				const transaction = await broker.withdraw(
 					token,
 					Number(amount),
@@ -319,6 +329,11 @@ function getServer(policy: PolicyConfig) {
 				);
 			}
 		},
+
+		// TODO: "Convert" and "createLimitOrder" are too extremely different things...
+		// TODO: "Convert" is a generic action that can be used to convert any token to any other token...
+		// TODO: "createLimitOrder" is a specific action that can be used to create a limit order on a specific CEX...
+		// TODO: "Convert" could be "createMarketOrder"... a differnt thing to "createLimitOrder"...
 		Convert: async (
 			call: grpc.ServerUnaryCall<ConvertRequest, ConvertResponse>,
 			callback: grpc.sendUnaryData<ConvertResponse>,

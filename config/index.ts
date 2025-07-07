@@ -6,10 +6,13 @@ dotenv.config();
 
 const baseConfig = {
 	port: process.env.PORT_NUM,
+	// TODO: We can make these environment variables more dynamic... eg. CEX_API_KEY_[EXCHANGE_NAMESPACE]_[NUMBER] - in case many exchanges for same exchange.
 	bybitApiKey: process.env.BYBIT_API_KEY,
 	bybitApiSecret: process.env.BYBIT_API_SECRET,
 	binanceApiKey: process.env.BINANCE_API_KEY,
 	binanceApiSecret: process.env.BINANCE_API_SECRET,
+	// TODO: Terrible naming convention? What is Rooch doing here...
+	// TODO: This "brokers" should be called "exchanges".... right?
 	brokers: (process.env.ROOCH_CHAIN_ID
 		? process.env.ROOCH_CHAIN_ID.split(",")
 		: BrokerList) as string[],

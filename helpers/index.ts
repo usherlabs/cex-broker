@@ -10,11 +10,14 @@ const ALLOWED_IPS = [
 	"127.0.0.1", // localhost
 	"::1", // IPv6 localhost
 	// Add your allowed IP addresses here
+	// TODO: Allowed IPs should be loaded via .env. Local ips are fine to keep hardcoded.
 ];
 
 export function isIpAllowed(ip: string): boolean {
 	return ALLOWED_IPS.includes(ip);
 }
+
+// TODO: This is still arb functionality... literally this node is "Package A to be sent to Binance, Package B sent to Kucoin, Package C sent to Coinjar."
 export async function buyAtOptimalPrice(
 	exchange: Exchange,
 	symbol: string,
@@ -61,6 +64,7 @@ export async function buyAtOptimalPrice(
  * Fetches the order book, computes the worst‐case fill price on the ask side for `size`,
  * and submits a single limit‐sell at that price.
  */
+// TODO: This is still arb functionality... literally this node is "Package A to be sent to Binance, Package B sent to Kucoin, Package C sent to Coinjar."
 export async function sellAtOptimalPrice(
 	exchange: Exchange,
 	symbol: string,
@@ -119,6 +123,8 @@ export function loadPolicy(): PolicyConfig {
 	try {
 		const fs = require("bun:fs");
 		const path = require("bun:path");
+		// TODO: Load the policy that we want from a hidden file in the root directory. We want to open source this Broker.
+		// TODO: Users can then copy the example policy.json file to root and run with it.
 		const policyPath = path.join(__dirname, "../policy/policy.json");
 		const policyData = fs.readFileSync(policyPath, "utf8");
 		return JSON.parse(policyData) as PolicyConfig;
@@ -131,6 +137,7 @@ export function loadPolicy(): PolicyConfig {
 /**
  * Validates withdraw request against policy rules
  */
+// TODO: Nice work on the policy engine, however, we'll need incorporate a mapping between how the CEX Broker recognises networks, and how different CEXs recognise networks - eg. Binance might have "BSC", but another chain will have BNB"
 export function validateWithdraw(
 	policy: PolicyConfig,
 	network: string,

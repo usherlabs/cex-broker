@@ -1,10 +1,10 @@
-# FietCexBroker
+# CEX Broker
 
 A high-performance gRPC-based cryptocurrency exchange broker service that provides unified access to multiple centralized exchanges (CEX) including Binance and Bybit. Built with TypeScript, Bun, and CCXT for reliable trading operations.
 
 ## Features
 
-- **Multi-Exchange Support**: Unified API for Binance and Bybit
+- **Multi-Exchange Support**: Unified API to any CEX supported by [CCXT](https://github.com/ccxt/ccxt)
 - **gRPC Interface**: High-performance RPC communication
 - **Real-time Pricing**: Optimal price discovery across exchanges
 - **Balance Management**: Real-time balance checking
@@ -23,17 +23,20 @@ A high-performance gRPC-based cryptocurrency exchange broker service that provid
 ## Installation
 
 1. Clone the repository:
+   
 ```bash
 git clone <repository-url>
-cd fietCexBroker
+cd cex-broker
 ```
 
-2. Install dependencies:
+1. Install dependencies:
+  
 ```bash
 bun install
 ```
 
-3. Generate protobuf types:
+1. Generate protobuf types:
+   
 ```bash
 bun run proto-gen
 ```
@@ -151,6 +154,7 @@ The service exposes a gRPC interface with the following methods:
 Get optimal buy/sell prices across supported exchanges.
 
 **Request:**
+
 ```protobuf
 message OptimalPriceRequest {
   string symbol = 1;            // Trading pair symbol, e.g. "ARB/USDT"
@@ -160,6 +164,7 @@ message OptimalPriceRequest {
 ```
 
 **Response:**
+
 ```protobuf
 message OptimalPriceResponse {
   map<string, PriceInfo> results = 1;
@@ -172,6 +177,7 @@ message PriceInfo {
 ```
 
 **Example:**
+
 ```typescript
 const request = {
   symbol: "ARB/USDT",
@@ -185,6 +191,7 @@ const request = {
 Get available balance for a specific currency on a specific exchange.
 
 **Request:**
+
 ```protobuf
 message BalanceRequest {
   string cex = 1;              // CEX identifier (e.g., "BINANCE", "BYBIT")
@@ -193,6 +200,7 @@ message BalanceRequest {
 ```
 
 **Response:**
+
 ```protobuf
 message BalanceResponse {
   double balance = 1;          // Available balance for the token
@@ -201,6 +209,7 @@ message BalanceResponse {
 ```
 
 **Example:**
+
 ```typescript
 const request = {
   cex: "BINANCE",
@@ -213,6 +222,7 @@ const request = {
 Confirm a deposit transaction.
 
 **Request:**
+
 ```protobuf
 message DepositConfirmationRequest {
   string chain = 1;
@@ -223,6 +233,7 @@ message DepositConfirmationRequest {
 ```
 
 **Response:**
+
 ```protobuf
 message DepositConfirmationResponse {
   double newBalance = 1;
@@ -234,6 +245,7 @@ message DepositConfirmationResponse {
 Execute a transfer/withdrawal to an external address.
 
 **Request:**
+
 ```protobuf
 message TransferRequest {
   string chain = 1;            // Network chain (e.g., "ARBITRUM", "BEP20")
@@ -245,6 +257,7 @@ message TransferRequest {
 ```
 
 **Response:**
+
 ```protobuf
 message TransferResponse {
   bool success = 1;
@@ -257,6 +270,7 @@ message TransferResponse {
 Convert between different tokens using limit orders.
 
 **Request:**
+
 ```protobuf
 message ConvertRequest {
   string from_token = 1;       // Source token
@@ -268,6 +282,7 @@ message ConvertRequest {
 ```
 
 **Response:**
+
 ```protobuf
 message ConvertResponse {
   string order_id = 3;
@@ -279,6 +294,7 @@ message ConvertResponse {
 Get details of a specific order.
 
 **Request:**
+
 ```protobuf
 message OrderDetailsRequest {
   string order_id = 1;         // Unique order identifier
@@ -287,6 +303,7 @@ message OrderDetailsRequest {
 ```
 
 **Response:**
+
 ```protobuf
 message OrderDetailsResponse {
   string order_id = 1;         // Unique order identifier
@@ -304,6 +321,7 @@ message OrderDetailsResponse {
 Cancel an existing order.
 
 **Request:**
+
 ```protobuf
 message CancelOrderRequest {
   string order_id = 1;         // Unique order identifier
@@ -312,6 +330,7 @@ message CancelOrderRequest {
 ```
 
 **Response:**
+
 ```protobuf
 message CancelOrderResponse {
   bool success = 1;            // Whether cancellation was successful
@@ -399,6 +418,7 @@ bun test --coverage
 ## Dependencies
 
 ### Core Dependencies
+
 - `@grpc/grpc-js`: gRPC server implementation
 - `@grpc/proto-loader`: Protocol buffer loading
 - `ccxt`: Cryptocurrency exchange library
@@ -406,6 +426,7 @@ bun test --coverage
 - `joi`: Configuration validation
 
 ### Development Dependencies
+
 - `@biomejs/biome`: Code formatting and linting
 - `@types/bun`: Bun type definitions
 - `bun-types`: Additional Bun types

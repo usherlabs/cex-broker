@@ -1,11 +1,16 @@
 {
-	"name": "fietCexBroker",
+	"name": "cex-broker",
+	"description": "Unified gRPC API to CEXs by Usher Labs",
+	"repository": "git@gitlab.com:usherlabs/cex-broker.git",
+	"homepage": "https://usher.so/",
+	"author": "Oki Ayobami <oki@usher.so>",
 	"module": "index.ts",
 	"type": "module",
 	"private": true,
+	"license": "MIT",
 	"devDependencies": {
 		"@biomejs/biome": "2.0.6",
-		"@types/bun": "latest",
+		"@types/bun": "^1.2.18",
 		"bun-types": "latest",
 		"husky": "^9.1.7"
 	},
