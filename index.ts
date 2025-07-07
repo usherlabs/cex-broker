@@ -208,10 +208,10 @@ function getServer(policy: PolicyConfig) {
 			}
 
 			try {
-        console.log(
-          `[${new Date().toISOString()}] ` +
-            `Amount ${amount} at ${transactionHash} on chain ${chain}. Paid to ${recipientAddress}`
-        );
+				console.log(
+					`[${new Date().toISOString()}] ` +
+						`Amount ${amount} at ${transactionHash} on chain ${chain}. Paid to ${recipientAddress}`,
+				);
 				callback(null, { newBalance: 0 });
 			} catch (error) {
 				console.error({ error });
