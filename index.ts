@@ -574,7 +574,7 @@ function getServer(policy: PolicyConfig) {
 				const cancelledOrder = await broker.cancelOrder(orderId);
 
 				callback(null, {
-					success: cancelledOrder.status === 'canceled',
+					success: cancelledOrder.status === "canceled",
 					finalStatus: cancelledOrder.status,
 				});
 			} catch (error) {
