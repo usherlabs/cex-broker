@@ -6,7 +6,8 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.0.6",
 		"@types/bun": "latest",
-		"bun-types": "latest"
+		"bun-types": "latest",
+		"husky": "^9.1.7"
 	},
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
@@ -15,7 +16,8 @@
 		"test": "bun test",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint --write",
-		"check": "bunx biome check --write"
+		"check": "bunx biome check --write",
+		"prepare": "husky"
 	},
 	"peerDependencies": {
 		"typescript": "^5"
