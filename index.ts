@@ -208,10 +208,11 @@ function getServer(policy: PolicyConfig) {
 			}
 
 			try {
-				// Placeholder for actual deposit confirmation logic
-				const newBalance = 1000; // Example balance update
-
-				callback(null, { new_balance: newBalance });
+				console.log(
+					`[${new Date().toISOString()}] ` +
+						`Amount ${amount} at ${transactionHash} on chain ${chain}. Paid to ${recipientAddress}`,
+				);
+				callback(null, { newBalance: 0 });
 			} catch (error) {
 				console.error({ error });
 				callback(
