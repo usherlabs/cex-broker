@@ -41,11 +41,11 @@ message CancelOrderRequest {
 }
 message CancelOrderResponse {
   bool success = 1;             // Whether cancellation was successful
-  OrderStatus final_status = 2; // Final status of the order
+  string final_status = 2; // Final status of the order
 }
 // Withdraw
 message DepositConfirmationRequest {
-  string chain = 1; s
+  string chain = 1; 
   string recipient_address = 2;
   double amount = 3;
   string transaction_hash = 4;

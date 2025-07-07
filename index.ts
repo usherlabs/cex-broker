@@ -25,6 +25,10 @@ import type { DepositConfirmationRequest } from "./proto/fietCexNode/DepositConf
 import type { DepositConfirmationResponse } from "./proto/fietCexNode/DepositConfirmationResponse";
 import type { ConvertRequest } from "./proto/fietCexNode/ConvertRequest";
 import type { ConvertResponse } from "./proto/fietCexNode/ConvertResponse";
+import type { OrderDetailsRequest } from "./proto/fietCexNode/OrderDetailsRequest";
+import type { OrderDetailsResponse } from "./proto/fietCexNode/OrderDetailsResponse";
+import type { CancelOrderRequest } from "./proto/fietCexNode/CancelOrderRequest";
+import type { CancelOrderResponse } from "./proto/fietCexNode/CancelOrderResponse";
 
 const PROTO_FILE = "./proto/node.proto";
 
@@ -458,6 +462,127 @@ function getServer(policy: PolicyConfig) {
 					{
 						code: grpc.status.INTERNAL,
 						message: `Failed to fetch balance from ${cex}`,
+					},
+					null,
+				);
+			}
+		},
+		GetOrderDetails: async (
+			call: grpc.ServerUnaryCall<OrderDetailsRequest, OrderDetailsResponse>,
+			callback: grpc.sendUnaryData<OrderDetailsResponse>,
+		) => {
+			// IP Authentication
+			if (!authenticateRequest(call)) {
+				return callback(
+					{
+						code: grpc.status.PERMISSION_DENIED,
+						message: "Access denied: Unauthorized IP",
+					},
+					null,
+				);
+			}
+
+			const { orderId, cex } = call.request;
+
+			// Validate required fields
+			if (!orderId || !cex) {
+				return callback(
+					{
+						code: grpc.status.INVALID_ARGUMENT,
+						message: "order_id and cex are required",
+					},
+					null,
+				);
+			}
+
+			try {
+				// Validate CEX key
+				const broker = brokers[cex as keyof typeof brokers];
+				if (!broker) {
+					return callback(
+						{
+							code: grpc.status.INVALID_ARGUMENT,
+							message: `Invalid CEX key: ${cex}. Supported keys: ${Object.keys(brokers).join(", ")}`,
+						},
+						null,
+					);
+				}
+
+				const orderDetails = await broker.fetchOrder(orderId);
+
+				callback(null, {
+					orderId: orderDetails.id,
+					status: orderDetails.status,
+					originalAmount: orderDetails.amount,
+					filledAmount: orderDetails.filled,
+					symbol: orderDetails.symbol,
+					mode: orderDetails.side,
+					price: orderDetails.price,
+				});
+			} catch (error) {
+				console.error(`Error fetching order details from ${cex}:`, error);
+				callback(
+					{
+						code: grpc.status.INTERNAL,
+						message: `Failed to fetch order details from ${cex}`,
+					},
+					null,
+				);
+			}
+		},
+		CancelOrder: async (
+			call: grpc.ServerUnaryCall<CancelOrderRequest, CancelOrderResponse>,
+			callback: grpc.sendUnaryData<CancelOrderResponse>,
+		) => {
+			// IP Authentication
+			if (!authenticateRequest(call)) {
+				return callback(
+					{
+						code: grpc.status.PERMISSION_DENIED,
+						message: "Access denied: Unauthorized IP",
+					},
+					null,
+				);
+			}
+
+			const { orderId, cex } = call.request;
+
+			// Validate required fields
+			if (!orderId || !cex) {
+				return callback(
+					{
+						code: grpc.status.INVALID_ARGUMENT,
+						message: "order_id and cex are required",
+					},
+					null,
+				);
+			}
+
+			try {
+				// Validate CEX key
+				const broker = brokers[cex as keyof typeof brokers];
+				if (!broker) {
+					return callback(
+						{
+							code: grpc.status.INVALID_ARGUMENT,
+							message: `Invalid CEX key: ${cex}. Supported keys: ${Object.keys(brokers).join(", ")}`,
+						},
+						null,
+					);
+				}
+
+				const cancelledOrder = await broker.cancelOrder(orderId);
+
+				callback(null, {
+					success: cancelledOrder.status === 'canceled',
+					finalStatus: cancelledOrder.status,
+				});
+			} catch (error) {
+				console.error(`Error cancelling order from ${cex}:`, error);
+				callback(
+					{
+						code: grpc.status.INTERNAL,
+						message: `Failed to cancel order from ${cex}`,
 					},
 					null,
 				);
