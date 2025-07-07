@@ -1,0 +1,30 @@
+{
+	"name": "fietCexBroker",
+	"module": "index.ts",
+	"type": "module",
+	"private": true,
+	"devDependencies": {
+		"@biomejs/biome": "2.0.6",
+		"@types/bun": "latest",
+		"bun-types": "latest"
+	},
+	"scripts": {
+		"proto-gen": "./proto-gen.sh",
+		"start": "bun run index.ts",
+		"build": "bun build ./index.ts --outdir ./build --target bun",
+		"test": "bun test",
+		"format": "bunx biome format --write",
+		"lint": "bunx biome lint --write",
+		"check": "bunx biome check --write"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"dependencies": {
+		"@grpc/grpc-js": "^1.13.4",
+		"@grpc/proto-loader": "^0.7.15",
+		"ccxt": "^4.4.91",
+		"dotenv": "^17.0.0",
+		"joi": "^17.13.3"
+	}
+}

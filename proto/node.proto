@@ -1,0 +1,97 @@
+syntax = "proto3";
+package fietCexNode;
+// Mode enum for price direction
+enum OrderMode {
+  BUY = 0;
+  SELL = 1;
+}
+// Optimal price query
+message OptimalPriceRequest {
+  string symbol = 1;            // Trading pair symbol, e.g. "ARB/USDT"
+  double quantity = 2;          // Quantity to buy or sell
+  OrderMode mode = 3;           // Buy or Sell mode
+}
+// Single‐symbol price info
+message PriceInfo {
+  double avgPrice  = 1;  // Volume‑weighted average price
+  double fillPrice = 2;  // Worst‑case fill price
+}
+// The new response: a map of symbol→PriceInfo
+message OptimalPriceResponse {
+  map<string, PriceInfo> results = 1;
+}
+// Order details query
+message OrderDetailsRequest {
+  string order_id = 1;          // Unique order identifier
+  string cex = 2;               // CEX identifier
+}
+message OrderDetailsResponse {
+  string order_id = 1;          // Unique order identifier
+  string status = 2;       // Current order status
+  double original_amount = 3;   // Original order amount
+  double filled_amount = 4;     // Amount that has been filled
+  string symbol = 5;            // Trading pair symbol
+  string mode = 6;           // Buy or Sell mode
+  double price = 7;             // Order price
+}
+// Cancel order request
+message CancelOrderRequest {
+  string order_id = 1;          // Unique order identifier
+  string cex = 2;               // CEX identifier
+}
+message CancelOrderResponse {
+  bool success = 1;             // Whether cancellation was successful
+  OrderStatus final_status = 2; // Final status of the order
+}
+// Withdraw
+message DepositConfirmationRequest {
+  string chain = 1; s
+  string recipient_address = 2;
+  double amount = 3;
+  string transaction_hash = 4;
+}
+message DepositConfirmationResponse {
+  double new_balance = 1;
+}
+// Transfer
+message TransferRequest {
+  string chain = 1;
+  string recipient_address = 2;
+  double amount = 3;
+  string cex=4;
+  string token = 5;
+}
+message TransferResponse {
+  bool success = 1;
+  string transaction_id= 2;
+}
+// Convert
+message ConvertRequest {
+  string from_token = 1;
+  string to_token = 2;
+  double amount = 3;
+  double price= 4;
+  string cex=5;
+}
+message ConvertResponse {
+  string order_id= 3;
+}
+// Balance
+message BalanceRequest {
+  string cex = 1;          // CEX identifier (e.g., "BINANCE", "BYBIT")
+  string token = 2;           // Trading pair symbol, e.g. "USDT"
+}
+message BalanceResponse {
+  double balance = 1;          // Available balance for the symbol
+  string currency = 2;         // Currency of the balance
+}
+// CEX service definition
+service CexService {
+  rpc Deposit(DepositConfirmationRequest) returns (DepositConfirmationResponse);
+  rpc Transfer(TransferRequest) returns (TransferResponse);
+  rpc Convert(ConvertRequest) returns (ConvertResponse);
+  rpc GetOptimalPrice(OptimalPriceRequest) returns (OptimalPriceResponse);
+  rpc GetBalance(BalanceRequest) returns (BalanceResponse);
+  rpc GetOrderDetails(OrderDetailsRequest) returns (OrderDetailsResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+}
