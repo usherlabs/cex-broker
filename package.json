@@ -19,6 +19,7 @@
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run index.ts",
 		"build": "bun build ./index.ts --outdir ./build --target bun",
+		"build:ts": "bun run ./build.ts",
 		"test": "bun test",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint --write",
@@ -35,7 +36,6 @@
 		"dotenv": "^17.0.0",
 		"joi": "^17.13.3"
 	},
-	"homepage": "https://github.com/usherlabs/cex-broker#readme",
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org"
 	},
