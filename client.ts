@@ -1,4 +1,4 @@
-import path from "bun:path";
+import path from "path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "./proto/node";
@@ -27,18 +27,7 @@ client.waitForReady(deadline, (err) => {
 });
 
 function onClientReady() {
-	client.getOptimalPrice(
-		{ mode: 0, symbol: "ARB/USDT", quantity: 200 },
-		(err, result) => {
-			if (err) {
-				console.error({ err });
-				return;
-			}
-			console.log({ x: result?.results });
-		},
-	);
-
-	client.getBalance({ cex: "BYBIT", token: "USDT" }, (err, result) => {
+	client.getBalance({ cex: "bybit", token: "USDT" }, (err, result) => {
 		if (err) {
 			console.error({ err });
 			return;
@@ -46,11 +35,11 @@ function onClientReady() {
 		console.log({ x: result });
 	});
 
-  client.Transfer({cex:"BINANCE",amount:1,token:"USDT",chain:"BEP20",recipientAddress:"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"},(err,result)=>{
-    if (err) {
-			console.error({ err });
-			return;
-		}
-		console.log({ x: result });
-  })
+//   client.Transfer({cex:"binance",amount:1,token:"USDT",chain:"BEP20",recipientAddress:"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"},(err,result)=>{
+//     if (err) {
+// 			console.error({ err });
+// 			return;
+// 		}
+// 		console.log({ x: result });
+//   })
 }

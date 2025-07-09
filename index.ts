@@ -1,21 +1,16 @@
-import ccxt from "ccxt";
-import path from "bun:path";
+import ccxt, { type Exchange } from "ccxt";
+import path from "path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "./proto/node";
 import config from "./config";
-import brokers from "./config/broker";
-import type { OptimalPriceRequest } from "./proto/fietCexNode/OptimalPriceRequest";
 import {
-	buyAtOptimalPrice,
-	sellAtOptimalPrice,
 	loadPolicy,
 	validateOrder,
 	validateWithdraw,
 	validateDeposit,
 	isIpAllowed,
 } from "./helpers";
-import type { OptimalPriceResponse } from "./proto/fietCexNode/OptimalPriceResponse";
 import type { BalanceRequest } from "./proto/fietCexNode/BalanceRequest";
 import type { BalanceResponse } from "./proto/fietCexNode/BalanceResponse";
 import type { PolicyConfig } from "./types";
@@ -29,6 +24,7 @@ import type { OrderDetailsRequest } from "./proto/fietCexNode/OrderDetailsReques
 import type { OrderDetailsResponse } from "./proto/fietCexNode/OrderDetailsResponse";
 import type { CancelOrderRequest } from "./proto/fietCexNode/CancelOrderRequest";
 import type { CancelOrderResponse } from "./proto/fietCexNode/CancelOrderResponse";
+import { watchFile, unwatchFile } from "fs";
 
 const PROTO_FILE = "./proto/node.proto";
 
@@ -40,32 +36,158 @@ const fietCexNode = grpcObj.fietCexNode;
 
 console.log("CCXT Version:", ccxt.version);
 
-async function main() {
-	// Load policy configuration
-	const policy = loadPolicy();
-	console.log("Policy loaded successfully");
+type BrokerCredentials = {
+	apiKey: string;
+	apiSecret: string;
+};
 
-	const server = getServer(policy);
+export default class CEXBroker {
+	private brokerConfig: Record<string, BrokerCredentials> = {};
+	#policyFilePath?: string;
+	private policy: PolicyConfig;
+	private brokers: Record<string, Exchange> = {};
+	private server: grpc.Server | null = null;
 
-	// TODO: Remove this...
-	console.log(
-		`BINANCE: Broker Balance ,${JSON.stringify(await brokers.BINANCE.fetchFreeBalance())}`,
-	);
-	console.log(
-		`BYBIT: Broker Balance ,${JSON.stringify(await brokers.BYBIT.fetchFreeBalance())}`,
-	);
+	/**
+	 * Loads environment variables prefixed with CEX_BROKER_
+	 * Expected format:
+	 *   CEX_BROKER_<BROKER_NAME>_API_KEY
+	 *   CEX_BROKER_<BROKER_NAME>_API_SECRET
+	 */
+	private loadEnvConfig(): void {
+		console.log("🔧 Loading CEX_BROKER_ environment variables:");
+		const configMap: Record<string, Partial<BrokerCredentials>> = {};
 
-	server.bindAsync(
-		`0.0.0.0:${config.port}`,
-		grpc.ServerCredentials.createInsecure(),
-		(err, port) => {
-			if (err) {
-				console.error(err);
-				return;
+		for (const [key, value] of Object.entries(process.env)) {
+			if (!key.startsWith("CEX_BROKER_")) continue;
+
+			const match: any = key.match(/^CEX_BROKER_(\w+)_API_(KEY|SECRET)$/);
+			if (!match) {
+				console.warn(`⚠️ Skipping unrecognized env var: ${key}`);
+				continue;
 			}
-			console.log(`Your server as started on port ${port}`);
-		},
-	);
+
+			const broker = match[1].toLowerCase(); // normalize to lowercase
+			const type = match[2].toLowerCase(); // 'key' or 'secret'
+
+			if (!configMap[broker]) {
+				configMap[broker] = {};
+			}
+
+			if (type === "key") {
+				configMap[broker].apiKey = value || "";
+			} else if (type === "secret") {
+				configMap[broker].apiSecret = value || "";
+			}
+		}
+
+		if (Object.keys(configMap).length === 0) {
+			console.error(`❌ NO CEX Broker Key Found`);
+		}
+
+		// Finalize config and print result per broker
+		for (const [broker, creds] of Object.entries(configMap)) {
+			const hasKey = !!creds.apiKey;
+			const hasSecret = !!creds.apiSecret;
+
+			if (hasKey && hasSecret) {
+				this.brokerConfig[broker] = {
+					apiKey: creds.apiKey ?? "",
+					apiSecret: creds.apiSecret ?? "",
+				};
+				console.log(
+					`✅ Loaded credentials for broker "${broker.toUpperCase()}"`,
+				);
+				const ExchangeClass = (ccxt as any)[broker];
+				const client = new ExchangeClass({
+					apiKey: creds.apiKey,
+					secret: creds.apiSecret,
+					enableRateLimit: true,
+					defaultType: "spot",
+				});
+				this.brokers[broker] = client;
+			} else {
+				const missing = [];
+				if (!hasKey) missing.push("API_KEY");
+				if (!hasSecret) missing.push("API_SECRET");
+				console.warn(
+					`❌ Missing ${missing.join(" and ")} for broker "${broker.toUpperCase()}"`,
+				);
+			}
+		}
+	}
+
+	constructor(policies: string | PolicyConfig) {
+		if (typeof policies === "string") {
+			this.#policyFilePath = policies;
+			this.policy = loadPolicy(policies);
+		} else {
+			this.policy = policies;
+		}
+
+		// If monitoring a file, start watcher
+		if (this.#policyFilePath) {
+			this.watchPolicyFile(this.#policyFilePath);
+		}
+
+		this.loadEnvConfig();
+	}
+
+	/**
+	 * Watches the policy JSON file for changes, reloads policies, and reruns broker.
+	 * @param filePath
+	 */
+	private watchPolicyFile(filePath: string): void {
+		watchFile(filePath, { interval: 1000 }, (curr, prev) => {
+			if (curr.mtime > prev.mtime) {
+				try {
+					const updated = loadPolicy(filePath);
+					this.policy = updated;
+					console.log(
+						`Policies reloaded from ${filePath} at ${new Date().toISOString()}`,
+					);
+					// Rerun broker with updated policies
+					this.run();
+				} catch (err) {
+					console.error(`Error reloading policies: ${err}`);
+				}
+			}
+		});
+	}
+
+	/**
+	 * Stops watching the policy file, if applicable.
+	 */
+	public stopWatchingPolicies(): void {
+		if (this.#policyFilePath) {
+			unwatchFile(this.#policyFilePath);
+			console.log(`Stopped watching policy file: ${this.#policyFilePath}`);
+		}
+	}
+
+	/**
+	 * Starts the broker, applying policies then running appropriate tasks.
+	 */
+	public async run(): Promise<grpc.Server> {
+		if (this.server) {
+			await this.server.forceShutdown();
+		}
+		console.log(`Running CEXBroker at ${new Date().toISOString()}`);
+		this.server = getServer(this.policy, this.brokers);
+
+		this.server.bindAsync(
+			`0.0.0.0:${config.port}`,
+			grpc.ServerCredentials.createInsecure(),
+			(err, port) => {
+				if (err) {
+					console.error(err);
+					return;
+				}
+				console.log(`Your server as started on port ${port}`);
+			},
+		);
+		return this.server;
+	}
 }
 
 function authenticateRequest<T, E>(call: grpc.ServerUnaryCall<T, E>): boolean {
@@ -79,93 +201,10 @@ function authenticateRequest<T, E>(call: grpc.ServerUnaryCall<T, E>): boolean {
 	return true;
 }
 
-function getServer(policy: PolicyConfig) {
+function getServer(policy: PolicyConfig, brokers: Record<string, Exchange>) {
 	const server = new grpc.Server();
 	server.addService(fietCexNode.CexService.service, {
 		// TODO: Consolidate all of these calls into "ExecuteAction", "SubscribeToStream"...
-
-		// TODO: Getting optimal price is for the MM tech to decide...
-		GetOptimalPrice: async (
-			call: grpc.ServerUnaryCall<OptimalPriceRequest, OptimalPriceResponse>,
-			callback: grpc.sendUnaryData<OptimalPriceResponse>,
-		) => {
-			// IP Authentication
-			if (!authenticateRequest(call)) {
-				return callback(
-					{
-						code: grpc.status.PERMISSION_DENIED,
-						message: "Access denied: Unauthorized IP",
-					},
-					null,
-				);
-			}
-
-			const { mode, symbol, quantity } =
-				call.request as Required<OptimalPriceRequest>;
-
-			// Validate required fields
-			if (mode === undefined || mode === null) {
-				// Return a gRPC error
-				const error = {
-					code: grpc.status.INVALID_ARGUMENT,
-					message: "Mode is required and must be BUY or SELL",
-				};
-				return callback(error, null);
-			}
-
-			if (!symbol) {
-				const error = {
-					code: grpc.status.INVALID_ARGUMENT,
-					message: "Symbol is required",
-				};
-				return callback(error, null);
-			}
-
-			if (!quantity || Number(quantity) <= 0) {
-				const error = {
-					code: grpc.status.INVALID_ARGUMENT,
-					message: "Quantity must be a positive number",
-				};
-				return callback(error, null);
-			}
-			// Extract tokens from symbol (e.g., "ARB/USDT" -> fromToken: "ARB", toToken: "USDT")
-			const tokens = symbol.split("/");
-			if (tokens.length !== 2) {
-				return callback(
-					{
-						code: grpc.status.INVALID_ARGUMENT,
-						message: "Invalid symbol format. Expected format: TOKEN1/TOKEN2",
-					},
-					null,
-				);
-			}
-
-			if (mode === 1) {
-				const BINANCE = await sellAtOptimalPrice(
-					brokers.BINANCE,
-					symbol,
-					Number(quantity),
-				);
-				const BYBIT = await sellAtOptimalPrice(
-					brokers.BYBIT,
-					symbol,
-					Number(quantity),
-				);
-				return callback(null, { results: { BINANCE, BYBIT } });
-			} else {
-				const BINANCE = await buyAtOptimalPrice(
-					brokers.BINANCE,
-					symbol,
-					Number(quantity),
-				);
-				const BYBIT = await buyAtOptimalPrice(
-					brokers.BYBIT,
-					symbol,
-					Number(quantity),
-				);
-				return callback(null, { results: { BINANCE, BYBIT } });
-			}
-		},
 		Deposit: async (
 			call: grpc.ServerUnaryCall<
 				DepositConfirmationRequest,
@@ -293,6 +332,16 @@ function getServer(policy: PolicyConfig) {
 
 				// Validate CEX key
 				const broker = brokers[cex as keyof typeof brokers];
+				if (!broker) {
+					return callback(
+						{
+							code: grpc.status.INVALID_ARGUMENT,
+							message: `Invalid CEX key: ${cex}. Supported keys: ${Object.keys(brokers).join(", ")}`,
+						},
+						null,
+					);
+				}
+
 				const data = await broker.fetchCurrencies("USDT");
 				const networks = Object.keys(
 					(data[token] ?? { networks: [] }).networks,
@@ -391,6 +440,16 @@ function getServer(policy: PolicyConfig) {
 				);
 				const symbol = market?.split(":")[1] ?? "";
 				const [from, _to] = symbol.split("/");
+
+				if (!broker) {
+					return callback(
+						{
+							code: grpc.status.INVALID_ARGUMENT,
+							message: `Invalid CEX key: ${cex}. Supported keys: ${Object.keys(brokers).join(", ")}`,
+						},
+						null,
+					);
+				}
 
 				const order = await broker.createLimitOrder(
 					symbol,
@@ -587,7 +646,7 @@ function getServer(policy: PolicyConfig) {
 					);
 				}
 
-				const cancelledOrder = await broker.cancelOrder(orderId);
+				const cancelledOrder: any = await broker.cancelOrder(orderId);
 
 				callback(null, {
 					success: cancelledOrder.status === "canceled",
@@ -607,5 +666,6 @@ function getServer(policy: PolicyConfig) {
 	});
 	return server;
 }
-
-main();
+// const policyPath = "./policy/policy.json"
+// const broker = new CEXBroker(policyPath);
+// broker.run().then(e=>console.log({e}))

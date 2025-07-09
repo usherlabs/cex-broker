@@ -1,5 +1,7 @@
 import type { Exchange } from "ccxt";
 import type { PolicyConfig } from "../types";
+import fs from "fs";
+
 /**
  * Fetches the order book, computes the worst‐case fill price for `size`,
  * and submits a single limit‐buy at that price.
@@ -119,13 +121,8 @@ export async function sellAtOptimalPrice(
 /**
  * Loads and validates policy configuration
  */
-export function loadPolicy(): PolicyConfig {
+export function loadPolicy(policyPath: string): PolicyConfig {
 	try {
-		const fs = require("bun:fs");
-		const path = require("bun:path");
-		// TODO: Load the policy that we want from a hidden file in the root directory. We want to open source this Broker.
-		// TODO: Users can then copy the example policy.json file to root and run with it.
-		const policyPath = path.join(__dirname, "../policy/policy.json");
 		const policyData = fs.readFileSync(policyPath, "utf8");
 		return JSON.parse(policyData) as PolicyConfig;
 	} catch (error) {

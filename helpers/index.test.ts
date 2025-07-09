@@ -150,7 +150,7 @@ describe("Helper Functions", () => {
 		test("should load policy successfully", () => {
 			// This test will use the actual policy file
 			const { loadPolicy } = require("./index");
-			const policy = loadPolicy();
+			const policy = loadPolicy("./policy/policy.json");
 
 			expect(policy).toBeDefined();
 			expect(policy.withdraw.rule.networks).toContain("ARBITRUM");

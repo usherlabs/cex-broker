@@ -31,18 +31,18 @@ const isRequiredWhenBrokerInclude = (
 
 const envVarsSchema = Joi.object({
 	port: Joi.number().default(8082),
-	bybitApiKey: isRequiredWhenBrokerInclude(Joi.string(), SupportedBroker.BYBIT),
+	bybitApiKey: isRequiredWhenBrokerInclude(Joi.string(), SupportedBroker.bybit),
 	bybitApiSecret: isRequiredWhenBrokerInclude(
 		Joi.string(),
-		SupportedBroker.BYBIT,
+		SupportedBroker.bybit,
 	),
 	binanceApiKey: isRequiredWhenBrokerInclude(
 		Joi.string(),
-		SupportedBroker.BINANCE,
+		SupportedBroker.binance,
 	),
 	binanceApiSecret: isRequiredWhenBrokerInclude(
 		Joi.string(),
-		SupportedBroker.BINANCE,
+		SupportedBroker.binance,
 	),
 }).unknown();
 
