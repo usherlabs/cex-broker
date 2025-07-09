@@ -18,12 +18,9 @@ export interface ProtoGrpcType {
     ConvertResponse: MessageTypeDefinition
     DepositConfirmationRequest: MessageTypeDefinition
     DepositConfirmationResponse: MessageTypeDefinition
-    OptimalPriceRequest: MessageTypeDefinition
-    OptimalPriceResponse: MessageTypeDefinition
     OrderDetailsRequest: MessageTypeDefinition
     OrderDetailsResponse: MessageTypeDefinition
     OrderMode: EnumTypeDefinition
-    PriceInfo: MessageTypeDefinition
     TransferRequest: MessageTypeDefinition
     TransferResponse: MessageTypeDefinition
   }

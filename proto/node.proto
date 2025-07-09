@@ -27,20 +27,7 @@ enum OrderMode {
   SELL = 1;
 }
 // Optimal price query
-message OptimalPriceRequest {
-  string symbol = 1;            // Trading pair symbol, e.g. "ARB/USDT"
-  double quantity = 2;          // Quantity to buy or sell
-  OrderMode mode = 3;           // Buy or Sell mode
-}
-// Single‐symbol price info
-message PriceInfo {
-  double avgPrice  = 1;  // Volume‑weighted average price
-  double fillPrice = 2;  // Worst‑case fill price
-}
-// The new response: a map of symbol→PriceInfo
-message OptimalPriceResponse {
-  map<string, PriceInfo> results = 1;
-}
+
 // Order details query
 message OrderDetailsRequest {
   string order_id = 1;          // Unique order identifier
