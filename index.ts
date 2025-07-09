@@ -11,19 +11,19 @@ import {
 	validateDeposit,
 	isIpAllowed,
 } from "./helpers";
-import type { BalanceRequest } from "./proto/fietCexNode/BalanceRequest";
-import type { BalanceResponse } from "./proto/fietCexNode/BalanceResponse";
+import type { BalanceRequest } from "./proto/cexBroker/BalanceRequest";
+import type { BalanceResponse } from "./proto/cexBroker/BalanceResponse";
 import type { PolicyConfig } from "./types";
-import type { TransferRequest } from "./proto/fietCexNode/TransferRequest";
-import type { TransferResponse } from "./proto/fietCexNode/TransferResponse";
-import type { DepositConfirmationRequest } from "./proto/fietCexNode/DepositConfirmationRequest";
-import type { DepositConfirmationResponse } from "./proto/fietCexNode/DepositConfirmationResponse";
-import type { ConvertRequest } from "./proto/fietCexNode/ConvertRequest";
-import type { ConvertResponse } from "./proto/fietCexNode/ConvertResponse";
-import type { OrderDetailsRequest } from "./proto/fietCexNode/OrderDetailsRequest";
-import type { OrderDetailsResponse } from "./proto/fietCexNode/OrderDetailsResponse";
-import type { CancelOrderRequest } from "./proto/fietCexNode/CancelOrderRequest";
-import type { CancelOrderResponse } from "./proto/fietCexNode/CancelOrderResponse";
+import type { TransferRequest } from "./proto/cexBroker/TransferRequest";
+import type { TransferResponse } from "./proto/cexBroker/TransferResponse";
+import type { DepositConfirmationRequest } from "./proto/cexBroker/DepositConfirmationRequest";
+import type { DepositConfirmationResponse } from "./proto/cexBroker/DepositConfirmationResponse";
+import type { ConvertRequest } from "./proto/cexBroker/ConvertRequest";
+import type { ConvertResponse } from "./proto/cexBroker/ConvertResponse";
+import type { OrderDetailsRequest } from "./proto/cexBroker/OrderDetailsRequest";
+import type { OrderDetailsResponse } from "./proto/cexBroker/OrderDetailsResponse";
+import type { CancelOrderRequest } from "./proto/cexBroker/CancelOrderRequest";
+import type { CancelOrderResponse } from "./proto/cexBroker/CancelOrderResponse";
 import { watchFile, unwatchFile } from "fs";
 
 const PROTO_FILE = "./proto/node.proto";
@@ -32,7 +32,7 @@ const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE));
 const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
-const fietCexNode = grpcObj.fietCexNode;
+const fietCexNode = grpcObj.cexBroker;
 
 console.log("CCXT Version:", ccxt.version);
 

@@ -11,7 +11,7 @@ const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
 
-const client = new grpcObj.fietCexNode.CexService(
+const client = new grpcObj.cexBroker.CexService(
 	`0.0.0.0:${config.port}`,
 	grpc.credentials.createInsecure(),
 );

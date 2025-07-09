@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cex-broker; // TODO: I've renamed...
+package cexBroker; // TODO: I've renamed...
 
 // TODO: This whole file can be a simple message...
 // TODO: A single generic CCXT action/message to executing any CCXT function... This way the broker is dynamic ...
@@ -9,7 +9,7 @@ package cex-broker; // TODO: I've renamed...
 //   map<string, string> parameters = 2;   // Parameters to pass to the CCXT method
 //   string cex = 3;                       // CEX identifier (e.g., "binance", "bybit")
 //   string symbol = 4;                    // Optional: trading pair symbol if needed
-}
+// }
 
 // message CcxtActionResponse {
 //   bool success = 1;                     // Whether the action was successful
@@ -111,7 +111,6 @@ service CexService {
   rpc Deposit(DepositConfirmationRequest) returns (DepositConfirmationResponse);
   rpc Transfer(TransferRequest) returns (TransferResponse);
   rpc Convert(ConvertRequest) returns (ConvertResponse);
-  rpc GetOptimalPrice(OptimalPriceRequest) returns (OptimalPriceResponse);
   rpc GetBalance(BalanceRequest) returns (BalanceResponse);
   rpc GetOrderDetails(OrderDetailsRequest) returns (OrderDetailsResponse);
   rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
