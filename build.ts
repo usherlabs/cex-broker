@@ -9,4 +9,14 @@ await Bun.build({
   ],
 })
 
+await Bun.build({
+  entrypoints: ["./cli.ts"],
+  outdir: './dist/commands',
+  target:"node",
+  plugins: [
+    dts()
+  ],
+})
+
+
 // Generates `dist/index.d.ts` and `dist/other/foo.d.ts`

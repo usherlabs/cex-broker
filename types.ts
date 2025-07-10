@@ -159,6 +159,7 @@ export const BrokerList = [
   ] as const;
   
 export type ISupportedBroker = (typeof BrokerList)[number];
+export type SupportedBrokers =  typeof BrokerList[number]
 
 export const SupportedBroker = BrokerList.reduce(
 	(acc, value) => {
@@ -167,3 +168,13 @@ export const SupportedBroker = BrokerList.reduce(
 	},
 	{} as Record<(typeof BrokerList)[number], string>,
 );
+
+
+export type BrokerCredentials = {
+	apiKey: string;
+	apiSecret: string;
+};
+
+export interface ExchangeCredentials {
+	[exchange: string]: BrokerCredentials
+}

@@ -104,7 +104,6 @@ import type { alpaca,
 } from "ccxt"
 import { SupportedBroker } from "../types";
 import type { ISupportedBroker } from "../types";
-import config from "./index";
 
 // Map each broker key to its specific CCXT class
 type BrokerInstanceMap = {

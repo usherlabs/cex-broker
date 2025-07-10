@@ -3,7 +3,6 @@ import path from "path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "./proto/node";
-import config from "./config";
 import {
 	loadPolicy,
 	validateOrder,
@@ -13,7 +12,7 @@ import {
 } from "./helpers";
 import type { BalanceRequest } from "./proto/cexBroker/BalanceRequest";
 import type { BalanceResponse } from "./proto/cexBroker/BalanceResponse";
-import type { PolicyConfig } from "./types";
+import { BrokerList, type BrokerCredentials, type ExchangeCredentials, type PolicyConfig } from "./types";
 import type { TransferRequest } from "./proto/cexBroker/TransferRequest";
 import type { TransferResponse } from "./proto/cexBroker/TransferResponse";
 import type { DepositConfirmationRequest } from "./proto/cexBroker/DepositConfirmationRequest";
@@ -25,6 +24,7 @@ import type { OrderDetailsResponse } from "./proto/cexBroker/OrderDetailsRespons
 import type { CancelOrderRequest } from "./proto/cexBroker/CancelOrderRequest";
 import type { CancelOrderResponse } from "./proto/cexBroker/CancelOrderResponse";
 import { watchFile, unwatchFile } from "fs";
+import Joi from "joi";
 
 const PROTO_FILE = "./proto/node.proto";
 
@@ -36,14 +36,11 @@ const fietCexNode = grpcObj.cexBroker;
 
 console.log("CCXT Version:", ccxt.version);
 
-type BrokerCredentials = {
-	apiKey: string;
-	apiSecret: string;
-};
 
 export default class CEXBroker {
-	private brokerConfig: Record<string, BrokerCredentials> = {};
+	#brokerConfig: Record<string, BrokerCredentials> = {};
 	#policyFilePath?: string;
+	port = 8086;
 	private policy: PolicyConfig;
 	private brokers: Record<string, Exchange> = {};
 	private server: grpc.Server | null = null;
@@ -54,7 +51,7 @@ export default class CEXBroker {
 	 *   CEX_BROKER_<BROKER_NAME>_API_KEY
 	 *   CEX_BROKER_<BROKER_NAME>_API_SECRET
 	 */
-	private loadEnvConfig(): void {
+	public loadEnvConfig(): void {
 		console.log("🔧 Loading CEX_BROKER_ environment variables:");
 		const configMap: Record<string, Partial<BrokerCredentials>> = {};
 
@@ -91,12 +88,12 @@ export default class CEXBroker {
 			const hasSecret = !!creds.apiSecret;
 
 			if (hasKey && hasSecret) {
-				this.brokerConfig[broker] = {
+				this.#brokerConfig[broker] = {
 					apiKey: creds.apiKey ?? "",
 					apiSecret: creds.apiSecret ?? "",
 				};
 				console.log(
-					`✅ Loaded credentials for broker "${broker.toUpperCase()}"`,
+					`✅ Loaded credentials for broker "${broker}"`,
 				);
 				const ExchangeClass = (ccxt as any)[broker];
 				const client = new ExchangeClass({
@@ -111,16 +108,52 @@ export default class CEXBroker {
 				if (!hasKey) missing.push("API_KEY");
 				if (!hasSecret) missing.push("API_SECRET");
 				console.warn(
-					`❌ Missing ${missing.join(" and ")} for broker "${broker.toUpperCase()}"`,
+					`❌ Missing ${missing.join(" and ")} for broker "${broker}"`,
 				);
 			}
 		}
 	}
 
-	constructor(policies: string | PolicyConfig) {
+	/**
+   * Validates an exc hange credential object structure.
+   */
+	public loadExchangeCredentials(creds: unknown): asserts creds is ExchangeCredentials {
+		const schema = Joi.object<Record<string, BrokerCredentials>>()
+			.pattern(
+				Joi.string().allow(...BrokerList).required(),
+				Joi.object({
+					apiKey: Joi.string().required(),
+					apiSecret: Joi.string().required(),
+				})
+			)
+			.required();
+
+		const { value, error } = schema.validate(creds);
+		if (error) {
+			throw new Error(`Invalid credentials format: ${error.message}`);
+		}
+
+		// Finalize config and print result per broker
+		for (const [broker, creds] of Object.entries(value)) {
+			console.log(
+				`✅ Loaded credentials for broker "${broker}"`,
+			);
+			const ExchangeClass = (ccxt as any)[broker];
+			const client = new ExchangeClass({
+				apiKey: creds.apiKey,
+				secret: creds.apiSecret,
+				enableRateLimit: true,
+				defaultType: "spot",
+			});
+			this.brokers[broker] = client;
+		}
+	}
+
+	constructor(apiCredentials: ExchangeCredentials, policies: string | PolicyConfig,config?:{port:number}) {
 		if (typeof policies === "string") {
 			this.#policyFilePath = policies;
 			this.policy = loadPolicy(policies);
+			this.port= config?.port??8086
 		} else {
 			this.policy = policies;
 		}
@@ -130,7 +163,7 @@ export default class CEXBroker {
 			this.watchPolicyFile(this.#policyFilePath);
 		}
 
-		this.loadEnvConfig();
+		this.loadExchangeCredentials(apiCredentials);
 	}
 
 	/**
@@ -163,15 +196,15 @@ export default class CEXBroker {
 			unwatchFile(this.#policyFilePath);
 			console.log(`Stopped watching policy file: ${this.#policyFilePath}`);
 		}
-		if (this.server){
-			this.server?.forceShutdown()
+		if (this.server) {
+			this.server.forceShutdown();
 		}
 	}
 
 	/**
 	 * Starts the broker, applying policies then running appropriate tasks.
 	 */
-	public async run(): Promise<grpc.Server> {
+	public async run(): Promise<CEXBroker> {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
@@ -179,7 +212,7 @@ export default class CEXBroker {
 		this.server = getServer(this.policy, this.brokers);
 
 		this.server.bindAsync(
-			`0.0.0.0:${config.port}`,
+			`0.0.0.0:${this.port}`,
 			grpc.ServerCredentials.createInsecure(),
 			(err, port) => {
 				if (err) {
@@ -189,7 +222,7 @@ export default class CEXBroker {
 				console.log(`Your server as started on port ${port}`);
 			},
 		);
-		return this.server;
+		return this;
 	}
 }
 
@@ -260,7 +293,7 @@ function getServer(policy: PolicyConfig, brokers: Record<string, Exchange>) {
 			try {
 				console.log(
 					`[${new Date().toISOString()}] ` +
-						`Amount ${amount} at ${transactionHash} on chain ${chain}. Paid to ${recipientAddress}`,
+					`Amount ${amount} at ${transactionHash} on chain ${chain}. Paid to ${recipientAddress}`,
 				);
 				callback(null, { newBalance: 0 });
 			} catch (error) {
@@ -670,5 +703,5 @@ function getServer(policy: PolicyConfig, brokers: Record<string, Exchange>) {
 	return server;
 }
 // const policyPath = "./policy/policy.json"
-// const broker = new CEXBroker(policyPath);
-// broker.run().then(e=>console.log({e}))
+// const broker = new CEXBroker({},policyPath,{port:8096});
+// broker.run().then(e => console.log({ e }))
