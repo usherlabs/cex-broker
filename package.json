@@ -8,6 +8,8 @@
 	"type": "module",
 	"private": true,
 	"license": "MIT",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
 	"devDependencies": {
 		"@biomejs/biome": "2.0.6",
 		"@types/bun": "latest",
@@ -15,6 +17,9 @@
 		"bun-types": "latest",
 		"husky": "^9.1.7"
 	},
+	"files": [
+		"dist"
+	  ],
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run index.ts",

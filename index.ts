@@ -156,12 +156,15 @@ export default class CEXBroker {
 	}
 
 	/**
-	 * Stops watching the policy file, if applicable.
+	 * Stops Server and Stop watching the policy file, if applicable.
 	 */
-	public stopWatchingPolicies(): void {
+	public stop(): void {
 		if (this.#policyFilePath) {
 			unwatchFile(this.#policyFilePath);
 			console.log(`Stopped watching policy file: ${this.#policyFilePath}`);
+		}
+		if (this.server){
+			this.server?.forceShutdown()
 		}
 	}
 
