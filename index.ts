@@ -12,7 +12,12 @@ import {
 } from "./helpers";
 import type { BalanceRequest } from "./proto/cexBroker/BalanceRequest";
 import type { BalanceResponse } from "./proto/cexBroker/BalanceResponse";
-import { BrokerList, type BrokerCredentials, type ExchangeCredentials, type PolicyConfig } from "./types";
+import {
+	BrokerList,
+	type BrokerCredentials,
+	type ExchangeCredentials,
+	type PolicyConfig,
+} from "./types";
 import type { TransferRequest } from "./proto/cexBroker/TransferRequest";
 import type { TransferResponse } from "./proto/cexBroker/TransferResponse";
 import type { DepositConfirmationRequest } from "./proto/cexBroker/DepositConfirmationRequest";
@@ -35,7 +40,6 @@ const grpcObj = grpc.loadPackageDefinition(
 const fietCexNode = grpcObj.cexBroker;
 
 console.log("CCXT Version:", ccxt.version);
-
 
 export default class CEXBroker {
 	#brokerConfig: Record<string, BrokerCredentials> = {};
@@ -92,9 +96,7 @@ export default class CEXBroker {
 					apiKey: creds.apiKey ?? "",
 					apiSecret: creds.apiSecret ?? "",
 				};
-				console.log(
-					`✅ Loaded credentials for broker "${broker}"`,
-				);
+				console.log(`✅ Loaded credentials for broker "${broker}"`);
 				const ExchangeClass = (ccxt as any)[broker];
 				const client = new ExchangeClass({
 					apiKey: creds.apiKey,
@@ -115,16 +117,20 @@ export default class CEXBroker {
 	}
 
 	/**
-   * Validates an exc hange credential object structure.
-   */
-	public loadExchangeCredentials(creds: unknown): asserts creds is ExchangeCredentials {
+	 * Validates an exc hange credential object structure.
+	 */
+	public loadExchangeCredentials(
+		creds: unknown,
+	): asserts creds is ExchangeCredentials {
 		const schema = Joi.object<Record<string, BrokerCredentials>>()
 			.pattern(
-				Joi.string().allow(...BrokerList).required(),
+				Joi.string()
+					.allow(...BrokerList)
+					.required(),
 				Joi.object({
 					apiKey: Joi.string().required(),
 					apiSecret: Joi.string().required(),
-				})
+				}),
 			)
 			.required();
 
@@ -135,9 +141,7 @@ export default class CEXBroker {
 
 		// Finalize config and print result per broker
 		for (const [broker, creds] of Object.entries(value)) {
-			console.log(
-				`✅ Loaded credentials for broker "${broker}"`,
-			);
+			console.log(`✅ Loaded credentials for broker "${broker}"`);
 			const ExchangeClass = (ccxt as any)[broker];
 			const client = new ExchangeClass({
 				apiKey: creds.apiKey,
@@ -149,11 +153,15 @@ export default class CEXBroker {
 		}
 	}
 
-	constructor(apiCredentials: ExchangeCredentials, policies: string | PolicyConfig,config?:{port:number}) {
+	constructor(
+		apiCredentials: ExchangeCredentials,
+		policies: string | PolicyConfig,
+		config?: { port: number },
+	) {
 		if (typeof policies === "string") {
 			this.#policyFilePath = policies;
 			this.policy = loadPolicy(policies);
-			this.port= config?.port??8086
+			this.port = config?.port ?? 8086;
 		} else {
 			this.policy = policies;
 		}
@@ -293,7 +301,7 @@ function getServer(policy: PolicyConfig, brokers: Record<string, Exchange>) {
 			try {
 				console.log(
 					`[${new Date().toISOString()}] ` +
-					`Amount ${amount} at ${transactionHash} on chain ${chain}. Paid to ${recipientAddress}`,
+						`Amount ${amount} at ${transactionHash} on chain ${chain}. Paid to ${recipientAddress}`,
 				);
 				callback(null, { newBalance: 0 });
 			} catch (error) {

@@ -21,7 +21,7 @@
 		"dist"
 	],
 	"bin": {
-		"cex-broker": "./cli.ts"
+		"cex-broker": "dist/commands/cli.js"
 	},
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
