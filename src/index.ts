@@ -87,9 +87,7 @@ export default class CEXBroker {
 				const missing = [];
 				if (!hasKey) missing.push("API_KEY");
 				if (!hasSecret) missing.push("API_SECRET");
-				warn(
-					`❌ Missing ${missing.join(" and ")} for broker "${broker}"`,
-				);
+				warn(`❌ Missing ${missing.join(" and ")} for broker "${broker}"`);
 			}
 		}
 	}

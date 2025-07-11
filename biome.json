@@ -7,7 +7,14 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["proto/", "src/index.ts", "helpers/", "config/", "policy/"]
+		"includes": [
+			"proto/",
+			"src/index.ts",
+			"src/helpers/*.ts",
+			"config/",
+			"./src/commands",
+			"policy/"
+		]
 	},
 	"formatter": {
 		"enabled": true,

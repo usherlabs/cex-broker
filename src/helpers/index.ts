@@ -112,58 +112,58 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 
 		// Joi schema for WithdrawRule
 		const withdrawRuleSchema = Joi.object({
-		networks: Joi.array().items(Joi.string()).required(),
-		whitelist: Joi.array().items(Joi.string()).required(),
-		amounts: Joi.array()
-			.items(
-			Joi.object({
-				ticker: Joi.string().required(),
-				max: Joi.number().required(),
-				min: Joi.number().required(),
-			})
-			)
-			.required(),
+			networks: Joi.array().items(Joi.string()).required(),
+			whitelist: Joi.array().items(Joi.string()).required(),
+			amounts: Joi.array()
+				.items(
+					Joi.object({
+						ticker: Joi.string().required(),
+						max: Joi.number().required(),
+						min: Joi.number().required(),
+					}),
+				)
+				.required(),
 		});
 
 		// Joi schema for OrderRule
 		const orderRuleSchema = Joi.object({
-		markets: Joi.array().items(Joi.string()).required(),
-		limits: Joi.array()
-			.items(
-			Joi.object({
-				from: Joi.string().required(),
-				to: Joi.string().required(),
-				min: Joi.number().required(),
-				max: Joi.number().required(),
-			})
-			)
-			.required(),
+			markets: Joi.array().items(Joi.string()).required(),
+			limits: Joi.array()
+				.items(
+					Joi.object({
+						from: Joi.string().required(),
+						to: Joi.string().required(),
+						min: Joi.number().required(),
+						max: Joi.number().required(),
+					}),
+				)
+				.required(),
 		});
 
 		// Full PolicyConfig schema
 		const policyConfigSchema = Joi.object({
-		withdraw: Joi.object({
-			rule: withdrawRuleSchema.required(),
-		}).required(),
+			withdraw: Joi.object({
+				rule: withdrawRuleSchema.required(),
+			}).required(),
 
-		deposit: Joi.object()
-			.pattern(Joi.string(), Joi.valid(null)) // Record<string, null>
-			.required(),
+			deposit: Joi.object()
+				.pattern(Joi.string(), Joi.valid(null)) // Record<string, null>
+				.required(),
 
-		order: Joi.object({
-			rule: orderRuleSchema.required(),
-		}).required(),
+			order: Joi.object({
+				rule: orderRuleSchema.required(),
+			}).required(),
 		});
 
-		const { error, value } = policyConfigSchema.validate(JSON.parse(policyData));
+		const { error, value } = policyConfigSchema.validate(
+			JSON.parse(policyData),
+		);
 
 		if (error) {
-		console.error('Validation failed:', error.details);
+			console.error("Validation failed:", error.details);
 		}
 
 		return value as PolicyConfig;
-
-		
 	} catch (error) {
 		console.error("Failed to load policy:", error);
 		throw new Error("Policy configuration could not be loaded");
