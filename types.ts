@@ -50,14 +50,116 @@ export type Policy = {
 export type Policies = {
 	[apiKey: string]: Policy; // key is an Ethereum-style address like '0x...'
 };
-
-// TODO: Why are Bybit and Binance so tightly integrated into this? Should we not simply have a dynamic conversion between CCXT interface and this node?
-// TODO: Otheriwse, we'll need to setup every integration supported by CCXT indidivually inside of this node?
-// TODO: Rename "broker" to "cexs" or "exchanges"...
-// ? The Node itself is a broker. The destination of requests is the CEX...
-export const BrokerList = ["BINANCE", "BYBIT"] as const;
-
+export const BrokerList = [
+	"alpaca",
+	"apex",
+	"ascendex",
+	"bequant",
+	"bigone",
+	"binance",
+	"binancecoinm",
+	"binanceus",
+	"binanceusdm",
+	"bingx",
+	"bit2c",
+	"bitbank",
+	"bitbns",
+	"bitfinex",
+	"bitflyer",
+	"bitget",
+	"bithumb",
+	"bitmart",
+	"bitmex",
+	"bitopro",
+	"bitrue",
+	"bitso",
+	"bitstamp",
+	"bitteam",
+	"bittrade",
+	"bitvavo",
+	"blockchaincom",
+	"blofin",
+	"btcalpha",
+	"btcbox",
+	"btcmarkets",
+	"btcturk",
+	"bybit",
+	"cex",
+	"coinbase",
+	"coinbaseadvanced",
+	"coinbaseexchange",
+	"coinbaseinternational",
+	"coincatch",
+	"coincheck",
+	"coinex",
+	"coinmate",
+	"coinmetro",
+	"coinone",
+	"coinsph",
+	"coinspot",
+	"cryptocom",
+	"cryptomus",
+	"defx",
+	"delta",
+	"deribit",
+	"derive",
+	"digifinex",
+	"ellipx",
+	"exmo",
+	"fmfwio",
+	"gate",
+	"gateio",
+	"gemini",
+	"hashkey",
+	"hitbtc",
+	"hollaex",
+	"htx",
+	"huobi",
+	"hyperliquid",
+	"independentreserve",
+	"indodax",
+	"kraken",
+	"krakenfutures",
+	"kucoin",
+	"kucoinfutures",
+	"latoken",
+	"lbank",
+	"luno",
+	"mercado",
+	"mexc",
+	"modetrade",
+	"myokx",
+	"ndax",
+	"novadax",
+	"oceanex",
+	"okcoin",
+	"okx",
+	"okxus",
+	"onetrading",
+	"oxfun",
+	"p2b",
+	"paradex",
+	"paymium",
+	"phemex",
+	"poloniex",
+	"probit",
+	"timex",
+	"tokocrypto",
+	"tradeogre",
+	"upbit",
+	"vertex",
+	"wavesexchange",
+	"whitebit",
+	"woo",
+	"woofipro",
+	"xt",
+	"yobit",
+	"zaif",
+	"zonda"
+  ] as const;
+  
 export type ISupportedBroker = (typeof BrokerList)[number];
+export type SupportedBrokers =  typeof BrokerList[number]
 
 export const SupportedBroker = BrokerList.reduce(
 	(acc, value) => {
@@ -66,3 +168,13 @@ export const SupportedBroker = BrokerList.reduce(
 	},
 	{} as Record<(typeof BrokerList)[number], string>,
 );
+
+
+export type BrokerCredentials = {
+	apiKey: string;
+	apiSecret: string;
+};
+
+export interface ExchangeCredentials {
+	[exchange: string]: BrokerCredentials
+}

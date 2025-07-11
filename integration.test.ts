@@ -44,7 +44,7 @@ describe("Integration Tests", () => {
 			const { validateWithdraw } = require("./helpers");
 			const { loadPolicy } = require("./helpers");
 
-			const policy = loadPolicy();
+			const policy = loadPolicy("./policy/policy.json");
 
 			// Test valid withdrawal
 			const validResult = validateWithdraw(
@@ -73,7 +73,7 @@ describe("Integration Tests", () => {
 			const { validateOrder } = require("./helpers");
 			const { loadPolicy } = require("./helpers");
 
-			const policy = loadPolicy();
+			const policy = loadPolicy("./policy/policy.json");
 
 			// Test valid order
 			const validResult = validateOrder(policy, "USDT", "ETH", 1, "BINANCE");
@@ -142,7 +142,7 @@ describe("Integration Tests", () => {
 			const { validateOrder } = require("./helpers");
 			const { loadPolicy } = require("./helpers");
 
-			const policy = loadPolicy();
+			const policy = loadPolicy("./policy/policy.json");
 
 			// Test with invalid symbol format
 			const result = validateOrder(

@@ -1,15 +1,15 @@
 // Original file: proto/node.proto
 
-import type { OrderMode as _fietCexNode_OrderMode, OrderMode__Output as _fietCexNode_OrderMode__Output } from '../fietCexNode/OrderMode';
+import type { OrderMode as _cexBroker_OrderMode, OrderMode__Output as _cexBroker_OrderMode__Output } from '../cexBroker/OrderMode';
 
 export interface OptimalPriceRequest {
   'symbol'?: (string);
   'quantity'?: (number | string);
-  'mode'?: (_fietCexNode_OrderMode);
+  'mode'?: (_cexBroker_OrderMode);
 }
 
 export interface OptimalPriceRequest__Output {
   'symbol'?: (string);
   'quantity'?: (number);
-  'mode'?: (_fietCexNode_OrderMode__Output);
+  'mode'?: (_cexBroker_OrderMode__Output);
 }

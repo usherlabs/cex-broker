@@ -1,5 +1,8 @@
 import type { Exchange } from "ccxt";
 import type { PolicyConfig } from "../types";
+import fs from "fs";
+import Joi from "joi";
+
 /**
  * Fetches the order book, computes the worst‐case fill price for `size`,
  * and submits a single limit‐buy at that price.
@@ -119,15 +122,64 @@ export async function sellAtOptimalPrice(
 /**
  * Loads and validates policy configuration
  */
-export function loadPolicy(): PolicyConfig {
+export function loadPolicy(policyPath: string): PolicyConfig {
 	try {
-		const fs = require("bun:fs");
-		const path = require("bun:path");
-		// TODO: Load the policy that we want from a hidden file in the root directory. We want to open source this Broker.
-		// TODO: Users can then copy the example policy.json file to root and run with it.
-		const policyPath = path.join(__dirname, "../policy/policy.json");
 		const policyData = fs.readFileSync(policyPath, "utf8");
-		return JSON.parse(policyData) as PolicyConfig;
+
+		// Joi schema for WithdrawRule
+		const withdrawRuleSchema = Joi.object({
+		networks: Joi.array().items(Joi.string()).required(),
+		whitelist: Joi.array().items(Joi.string()).required(),
+		amounts: Joi.array()
+			.items(
+			Joi.object({
+				ticker: Joi.string().required(),
+				max: Joi.number().required(),
+				min: Joi.number().required(),
+			})
+			)
+			.required(),
+		});
+
+		// Joi schema for OrderRule
+		const orderRuleSchema = Joi.object({
+		markets: Joi.array().items(Joi.string()).required(),
+		limits: Joi.array()
+			.items(
+			Joi.object({
+				from: Joi.string().required(),
+				to: Joi.string().required(),
+				min: Joi.number().required(),
+				max: Joi.number().required(),
+			})
+			)
+			.required(),
+		});
+
+		// Full PolicyConfig schema
+		const policyConfigSchema = Joi.object({
+		withdraw: Joi.object({
+			rule: withdrawRuleSchema.required(),
+		}).required(),
+
+		deposit: Joi.object()
+			.pattern(Joi.string(), Joi.valid(null)) // Record<string, null>
+			.required(),
+
+		order: Joi.object({
+			rule: orderRuleSchema.required(),
+		}).required(),
+		});
+
+		const { error, value } = policyConfigSchema.validate(JSON.parse(policyData));
+
+		if (error) {
+		console.error('Validation failed:', error.details);
+		}
+
+		return value as PolicyConfig;
+
+		
 	} catch (error) {
 		console.error("Failed to load policy:", error);
 		throw new Error("Policy configuration could not be loaded");
