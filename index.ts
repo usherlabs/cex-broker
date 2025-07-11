@@ -710,5 +710,3 @@ function getServer(policy: PolicyConfig, brokers: Record<string, Exchange>) {
 	});
 	return server;
 }
-
-console.log({ x: Object.keys(ccxt) });

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { isIpAllowed } from "./helpers";
+import { isIpAllowed } from "../helpers";
 
 describe("RPC Server Logic Tests", () => {
 	describe("IP Authentication", () => {
