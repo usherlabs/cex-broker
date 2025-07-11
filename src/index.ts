@@ -10,8 +10,9 @@ import {
 	type PolicyConfig,
 } from "../types";
 import { getServer } from "./server";
+import { log } from "./helpers/logger";
 
-console.log("CCXT Version:", ccxt.version);
+log("CCXT Version:", ccxt.version);
 
 export default class CEXBroker {
 	#brokerConfig: Record<string, BrokerCredentials> = {};
@@ -33,7 +34,7 @@ export default class CEXBroker {
 	 *   CEX_BROKER_<BROKER_NAME>_API_SECRET
 	 */
 	public loadEnvConfig(): void {
-		console.log("🔧 Loading CEX_BROKER_ environment variables:");
+		log("🔧 Loading CEX_BROKER_ environment variables:");
 		const configMap: Record<string, Partial<BrokerCredentials>> = {};
 
 		for (const [key, value] of Object.entries(process.env)) {
@@ -41,7 +42,7 @@ export default class CEXBroker {
 
 			const match: any = key.match(/^CEX_BROKER_(\w+)_API_(KEY|SECRET)$/);
 			if (!match) {
-				console.warn(`⚠️ Skipping unrecognized env var: ${key}`);
+				warn(`⚠️ Skipping unrecognized env var: ${key}`);
 				continue;
 			}
 
@@ -60,7 +61,7 @@ export default class CEXBroker {
 		}
 
 		if (Object.keys(configMap).length === 0) {
-			console.error(`❌ NO CEX Broker Key Found`);
+			error(`❌ NO CEX Broker Key Found`);
 		}
 
 		// Finalize config and print result per broker
@@ -73,7 +74,7 @@ export default class CEXBroker {
 					apiKey: creds.apiKey ?? "",
 					apiSecret: creds.apiSecret ?? "",
 				};
-				console.log(`✅ Loaded credentials for broker "${broker}"`);
+				log(`✅ Loaded credentials for broker "${broker}"`);
 				const ExchangeClass = (ccxt as any)[broker];
 				const client = new ExchangeClass({
 					apiKey: creds.apiKey,
@@ -86,7 +87,7 @@ export default class CEXBroker {
 				const missing = [];
 				if (!hasKey) missing.push("API_KEY");
 				if (!hasSecret) missing.push("API_SECRET");
-				console.warn(
+				warn(
 					`❌ Missing ${missing.join(" and ")} for broker "${broker}"`,
 				);
 			}
@@ -118,7 +119,7 @@ export default class CEXBroker {
 
 		// Finalize config and print result per broker
 		for (const [broker, creds] of Object.entries(value)) {
-			console.log(`✅ Loaded credentials for broker "${broker}"`);
+			log(`✅ Loaded credentials for broker "${broker}"`);
 			const ExchangeClass = (ccxt as any)[broker];
 			const client = new ExchangeClass({
 				apiKey: creds.apiKey,
@@ -165,13 +166,13 @@ export default class CEXBroker {
 				try {
 					const updated = loadPolicy(filePath);
 					this.policy = updated;
-					console.log(
+					log.info(
 						`Policies reloaded from ${filePath} at ${new Date().toISOString()}`,
 					);
 					// Rerun broker with updated policies
 					this.run();
 				} catch (err) {
-					console.error(`Error reloading policies: ${err}`);
+					log.error(`Error reloading policies: ${err}`);
 				}
 			}
 		});
@@ -183,7 +184,7 @@ export default class CEXBroker {
 	public stop(): void {
 		if (this.#policyFilePath) {
 			unwatchFile(this.#policyFilePath);
-			console.log(`Stopped watching policy file: ${this.#policyFilePath}`);
+			log.info(`Stopped watching policy file: ${this.#policyFilePath}`);
 		}
 		if (this.server) {
 			this.server.forceShutdown();
@@ -197,7 +198,7 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
-		console.log(`Running CEXBroker at ${new Date().toISOString()}`);
+		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
 		this.server = getServer(this.policy, this.brokers, this.whitelistIps);
 
 		this.server.bindAsync(
@@ -205,10 +206,10 @@ export default class CEXBroker {
 			grpc.ServerCredentials.createInsecure(),
 			(err, port) => {
 				if (err) {
-					console.error(err);
+					log.error(err);
 					return;
 				}
-				console.log(`Your server as started on port ${port}`);
+				log.info(`Your server as started on port ${port}`);
 			},
 		);
 		return this;

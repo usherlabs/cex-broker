@@ -4,6 +4,7 @@ import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "../proto/node";
 import { Action } from "../proto/cexBroker/Action";
 import {config} from "dotenv"
+import { log } from "./helpers/logger";
 
 const PROTO_FILE = "../proto/node.proto";
 const port= 8086
@@ -28,7 +29,7 @@ const deadline = new Date();
 deadline.setSeconds(deadline.getSeconds() + 5);
 client.waitForReady(deadline, (err) => {
 	if (err) {
-		console.error(err);
+		log.error(err);
 		return;
 	}
 	onClientReady();
@@ -37,10 +38,10 @@ client.waitForReady(deadline, (err) => {
 function onClientReady() {
 	client.executeCcxtAction({ cex: "bybit", symbol: "USDT",payload:{},action: Action.FetchBalance },metadata, (err, result) => {
 		if (err) {
-			console.error({ err });
+			log.error({ err });
 			return;
 		}
-		console.log({ x: result });
+		log.info({ x: result });
 	});
 
 }

@@ -2,6 +2,7 @@ import type { Exchange } from "ccxt";
 import type { PolicyConfig } from "../../types";
 import fs from "fs";
 import Joi from "joi";
+import { log } from "./logger";
 
 // TODO: This is still arb functionality... literally this node is "Package A to be sent to Binance, Package B sent to Kucoin, Package C sent to Coinjar."
 export async function buyAtOptimalPrice(
@@ -38,7 +39,7 @@ export async function buyAtOptimalPrice(
 	}
 
 	const avgPrice = cumCost / size;
-	console.log(
+	log.info(
 		`[${new Date().toISOString()}] ` +
 			`Will buy ${size} ${symbol.split("/")[0]} at limit ${fillPrice.toFixed(6)} ` +
 			`(VWAP ≃ ${avgPrice.toFixed(6)})`,
@@ -93,7 +94,7 @@ export async function sellAtOptimalPrice(
 	}
 
 	const avgPrice = cumProceeds / size;
-	console.log(
+	log.info(
 		`[${new Date().toISOString()}] ` +
 			`Will sell ${size} ${symbol.split("/")[0]} at limit ${fillPrice.toFixed(6)} ` +
 			`(VWAP ≃ ${avgPrice.toFixed(6)})`,

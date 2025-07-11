@@ -14,6 +14,7 @@ import type { CcxtActionResponse } from "../proto/cexBroker/CcxtActionResponse";
 import { Action } from "../proto/cexBroker/Action";
 import Joi from "joi";
 import ccxt from "ccxt";
+import { log } from "./helpers/logger";
 
 
 const PROTO_FILE = "../proto/node.proto";
@@ -129,7 +130,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
                         const deposit = deposits.find(deposit => deposit.id == value.transactionHash || deposit.txid == value.transactionHash)
 
                         if (deposit) {
-                            console.log(
+                            log.info(
                                 `[${new Date().toISOString()}] ` +
                                 `Amount ${value.amount} at ${value.transactionHash} . Paid to ${value.recipientAddress}`,
                             );
@@ -144,7 +145,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
                             null,
                         );
                     } catch (error) {
-                        console.error({ error });
+                        log.error({ error });
                         callback(
                             {
                                 code: grpc.status.INTERNAL,
