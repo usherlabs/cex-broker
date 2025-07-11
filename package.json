@@ -26,13 +26,13 @@
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run index.ts",
-		"build": "bun build ./index.ts --outdir ./build --target node",
 		"build:ts": "bun run ./build.ts",
 		"test": "bun test",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint --write",
 		"check": "bunx biome check --write",
-		"prepare": "bunx husky"
+		"prepare": "bunx husky",
+		"postinstall": "./proto-gen.sh"
 	},
 	"peerDependencies": {
 		"typescript": "^5"
