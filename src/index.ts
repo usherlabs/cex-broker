@@ -150,8 +150,8 @@ export default class CEXBroker {
 
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
-			...this.whitelistIps,
 			...(config ?? { whitelistIps: [] }).whitelistIps,
+			...this.whitelistIps,
 		];
 	}
 

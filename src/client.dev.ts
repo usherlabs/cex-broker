@@ -2,6 +2,8 @@ import path from "path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "../proto/node";
+import { Action } from "../proto/cexBroker/Action";
+import {config} from "dotenv"
 
 const PROTO_FILE = "../proto/node.proto";
 const port= 8086
@@ -16,9 +18,11 @@ const client = new grpcObj.cexBroker.CexService(
 	grpc.credentials.createInsecure(),
 );
 
+config()
+
 const metadata = new grpc.Metadata();
-metadata.add('authorization', 'Bearer your_token_here'); // Example header
-metadata.add('custom-header', 'custom_value');
+metadata.add('api-key', process.env.BYBIT_API_KEY??""); // Example header
+metadata.add('api-secret', process.env.BYBIT_API_SECRET??"");
 
 const deadline = new Date();
 deadline.setSeconds(deadline.getSeconds() + 5);
@@ -31,7 +35,7 @@ client.waitForReady(deadline, (err) => {
 });
 
 function onClientReady() {
-	client.executeCcxtAction({ cex: "bybit", token: "USDT" },metadata, (err, result) => {
+	client.executeCcxtAction({ cex: "bybit", symbol: "USDT",payload:{},action: Action.FetchBalance },metadata, (err, result) => {
 		if (err) {
 			console.error({ err });
 			return;

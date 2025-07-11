@@ -15,6 +15,7 @@
 		"@types/bun": "latest",
 		"bun-plugin-dts": "latest",
 		"bun-types": "latest",
+		"dotenv": "^17.2.0",
 		"husky": "^9.1.7"
 	},
 	"files": [

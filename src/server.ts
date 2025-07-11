@@ -26,7 +26,7 @@ const cexNode = grpcObj.cexBroker;
 
 function authenticateRequest<T, E>(call: grpc.ServerUnaryCall<T, E>, whitelistIps: string[]): boolean {
     const clientIp = call.getPeer().split(":")[0];
-    if (!clientIp || whitelistIps.includes(clientIp)) {
+    if (!clientIp || !whitelistIps.includes(clientIp)) {
         console.warn(
             `Blocked access from unauthorized IP: ${clientIp || "unknown"}`,
         );
@@ -35,11 +35,16 @@ function authenticateRequest<T, E>(call: grpc.ServerUnaryCall<T, E>, whitelistIp
     return true;
 }
 
-function createBroker(cex: string, metadata: grpc.Metadata): Exchange {
+function createBroker(cex: string, metadata: grpc.Metadata): Exchange |null{
     const api_key = metadata.get('api-key');
     const api_secret = metadata.get('api-secret');
     const ExchangeClass = (ccxt as any)[cex];
 
+    metadata.remove('api-key');
+    metadata.remove('api-secret');
+    if (api_secret.length==0 || api_key.length==0){
+        return null
+    }
     return new ExchangeClass({
         apiKey: api_key[0],
         secret: api_secret[0],
@@ -73,7 +78,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
             const metadata = call.metadata;
             const { action, payload, cex, symbol } = call.request
             // Validate required fields
-            if (!action || !cex || !symbol || !cex || !payload) {
+            if (!action || !cex || !symbol ) {
                 return callback(
                     {
                         code: grpc.status.INVALID_ARGUMENT,
@@ -88,6 +93,16 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
 
             const broker = brokers[cex as keyof typeof brokers]
                 ?? createBroker(cex, metadata);
+
+            if(!broker){
+                callback(
+                    {
+                        code: grpc.status.UNAUTHENTICATED,
+                        message: `This Exchange is not registered and No API metadata ws found`,
+                    },
+                    null,
+                );
+            }
 
             switch (action) {
                 case Action.Deposit:
