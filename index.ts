@@ -710,6 +710,5 @@ function getServer(policy: PolicyConfig, brokers: Record<string, Exchange>) {
 	});
 	return server;
 }
-// const policyPath = "./policy/policy.json"
-// const broker = new CEXBroker({},policyPath,{port:8096});
-// broker.run().then(e => console.log({ e }))
+
+console.log({x:Object.keys(ccxt)})

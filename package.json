@@ -13,7 +13,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.0.6",
 		"@types/bun": "latest",
-		"bun-plugin-dts":"latest",
+		"bun-plugin-dts": "latest",
 		"bun-types": "latest",
 		"husky": "^9.1.7"
 	},
@@ -42,7 +42,6 @@
 		"@grpc/proto-loader": "^0.7.15",
 		"ccxt": "^4.4.91",
 		"commander": "^14.0.0",
-		"dotenv": "^17.0.0",
 		"joi": "^17.13.3"
 	},
 	"publishConfig": {

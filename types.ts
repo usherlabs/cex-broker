@@ -1,3 +1,5 @@
+import  ccxt from "ccxt";
+
 // Policy types based on the policy.json structure
 export type WithdrawRule = {
 	networks: string[];
@@ -47,9 +49,17 @@ export type Policy = {
 	}>;
 };
 
-export type Policies = {
-	[apiKey: string]: Policy; // key is an Ethereum-style address like '0x...'
+// Dynamic type mapping using CCXT's exchange classes
+type BrokerInstanceMap = {
+	[K in ISupportedBroker]:  InstanceType<typeof ccxt[K]>;
 };
+
+
+// Dynamic BrokerMap: each key maps to the correct broker type
+export type BrokerMap = Partial<{
+	[K in ISupportedBroker]: BrokerInstanceMap[K];
+}>;
+
 export const BrokerList = [
 	"alpaca",
 	"apex",
@@ -157,6 +167,8 @@ export const BrokerList = [
 	"zaif",
 	"zonda"
   ] as const;
+  
+export type brokers = Required<BrokerMap>;
   
 export type ISupportedBroker = (typeof BrokerList)[number];
 export type SupportedBrokers =  typeof BrokerList[number]
