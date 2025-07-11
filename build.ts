@@ -1,7 +1,7 @@
 import dts from 'bun-plugin-dts'
 
 await Bun.build({
-  entrypoints: ['./index.ts'],
+  entrypoints: ['./src/index.ts'],
   outdir: './dist',
   target:"node",
   plugins: [
@@ -10,7 +10,7 @@ await Bun.build({
 })
 
 await Bun.build({
-  entrypoints: ["./cli.ts"],
+  entrypoints: ["./src/cli.ts"],
   outdir: './dist/commands',
   target:"node",
   plugins: [
