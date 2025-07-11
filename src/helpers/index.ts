@@ -1,24 +1,7 @@
 import type { Exchange } from "ccxt";
-import type { PolicyConfig } from "../types";
+import type { PolicyConfig } from "../../types";
 import fs from "fs";
 import Joi from "joi";
-
-/**
- * Fetches the order book, computes the worst‐case fill price for `size`,
- * and submits a single limit‐buy at that price.
- */
-
-// IP Whitelist configuration
-const ALLOWED_IPS = [
-	"127.0.0.1", // localhost
-	"::1", // IPv6 localhost
-	// Add your allowed IP addresses here
-	// TODO: Allowed IPs should be loaded via .env. Local ips are fine to keep hardcoded.
-];
-
-export function isIpAllowed(ip: string): boolean {
-	return ALLOWED_IPS.includes(ip);
-}
 
 // TODO: This is still arb functionality... literally this node is "Package A to be sent to Binance, Package B sent to Kucoin, Package C sent to Coinjar."
 export async function buyAtOptimalPrice(

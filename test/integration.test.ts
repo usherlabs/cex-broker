@@ -41,8 +41,8 @@ describe("Integration Tests", () => {
 
 	describe("Helper Functions Integration", () => {
 		test("should validate withdraw policy correctly", () => {
-			const { validateWithdraw } = require("../helpers");
-			const { loadPolicy } = require("../helpers");
+			const { validateWithdraw } = require("../src/helpers");
+			const { loadPolicy } = require("../src/helpers");
 
 			const policy = loadPolicy("./policy/policy.json");
 
@@ -70,8 +70,8 @@ describe("Integration Tests", () => {
 		});
 
 		test("should validate order policy correctly", () => {
-			const { validateOrder } = require("../helpers");
-			const { loadPolicy } = require("../helpers");
+			const { validateOrder } = require("../src/helpers");
+			const { loadPolicy } = require("../src/helpers");
 
 			const policy = loadPolicy("./policy/policy.json");
 
@@ -89,7 +89,7 @@ describe("Integration Tests", () => {
 
 	describe("Price Calculation Integration", () => {
 		test("should calculate optimal prices correctly", async () => {
-			const { buyAtOptimalPrice, sellAtOptimalPrice } = require("../helpers");
+			const { buyAtOptimalPrice, sellAtOptimalPrice } = require("../src/helpers");
 
 			// Create a mock exchange with realistic order book data
 			const mockExchange = {
@@ -125,7 +125,7 @@ describe("Integration Tests", () => {
 
 	describe("Error Handling Integration", () => {
 		test("should handle insufficient depth correctly", async () => {
-			const { buyAtOptimalPrice } = require("../helpers");
+			const { buyAtOptimalPrice } = require("../src/helpers");
 
 			const insufficientExchange = {
 				fetchOrderBook: async () => ({
@@ -139,8 +139,8 @@ describe("Integration Tests", () => {
 		});
 
 		test("should handle invalid symbol format", () => {
-			const { validateOrder } = require("../helpers");
-			const { loadPolicy } = require("../helpers");
+			const { validateOrder } = require("../src/helpers");
+			const { loadPolicy } = require("../src/helpers");
 
 			const policy = loadPolicy("./policy/policy.json");
 

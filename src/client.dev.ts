@@ -16,6 +16,10 @@ const client = new grpcObj.cexBroker.CexService(
 	grpc.credentials.createInsecure(),
 );
 
+const metadata = new grpc.Metadata();
+metadata.add('authorization', 'Bearer your_token_here'); // Example header
+metadata.add('custom-header', 'custom_value');
+
 const deadline = new Date();
 deadline.setSeconds(deadline.getSeconds() + 5);
 client.waitForReady(deadline, (err) => {
@@ -27,7 +31,7 @@ client.waitForReady(deadline, (err) => {
 });
 
 function onClientReady() {
-	client.getBalance({ cex: "bybit", token: "USDT" }, (err, result) => {
+	client.executeCcxtAction({ cex: "bybit", token: "USDT" },metadata, (err, result) => {
 		if (err) {
 			console.error({ err });
 			return;
