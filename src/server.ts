@@ -228,6 +228,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
 
                 case Action.CreateOrder:
                     const createOrderSchema = Joi.object({
+                        orderType: Joi.string().valid("market","limit").default("limit"),
                         amount: Joi.number().positive().required(),     // Must be a positive number
                         fromToken: Joi.string().required(),
                         toToken: Joi.string().required(),
@@ -281,8 +282,9 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
                             );
                         }
 
-                        const order = await broker.createLimitOrder(
+                        const order = await broker.createOrder(
                             symbol,
+                            orderValue.orderType,
                             from === orderValue.fromToken ? "sell" : "buy",
                             Number(orderValue.amount),
                             Number(orderValue.price),
