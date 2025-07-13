@@ -9,8 +9,8 @@ import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "../proto/node";
 import path from "path";
 import type { Exchange } from "ccxt";
-import type { CcxtActionRequest, CcxtActionRequest__Output } from "../proto/cexBroker/CcxtActionRequest";
-import type { CcxtActionResponse } from "../proto/cexBroker/CcxtActionResponse";
+import type { ActionRequest, ActionRequest__Output } from "../proto/cexBroker/ActionRequest";
+import type { ActionResponse } from "../proto/cexBroker/ActionResponse";
 import { Action } from "../proto/cexBroker/Action";
 import Joi from "joi";
 import ccxt from "ccxt";
@@ -58,12 +58,12 @@ function createBroker(cex: string, metadata: grpc.Metadata): Exchange |null{
 export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange>, whitelistIps: string[]) {
     const server = new grpc.Server();
     server.addService(cexNode.CexService.service, {
-        ExecuteCcxtAction: async (
+        ExecuteAction: async (
             call: grpc.ServerUnaryCall<
-                CcxtActionRequest,
-                CcxtActionResponse
+                ActionRequest,
+                ActionResponse
             >,
-            callback: grpc.sendUnaryData<CcxtActionResponse>,
+            callback: grpc.sendUnaryData<ActionResponse>,
         ) => {
             // IP Authentication
             if (!authenticateRequest(call, whitelistIps)) {

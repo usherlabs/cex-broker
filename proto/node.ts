@@ -10,9 +10,12 @@ type SubtypeConstructor<Constructor extends new (...args: any) => any, Subtype> 
 export interface ProtoGrpcType {
   cexBroker: {
     Action: EnumTypeDefinition
-    CcxtActionRequest: MessageTypeDefinition
-    CcxtActionResponse: MessageTypeDefinition
+    ActionRequest: MessageTypeDefinition
+    ActionResponse: MessageTypeDefinition
     CexService: SubtypeConstructor<typeof grpc.Client, _cexBroker_CexServiceClient> & { service: _cexBroker_CexServiceDefinition }
+    SubscribeRequest: MessageTypeDefinition
+    SubscribeResponse: MessageTypeDefinition
+    SubscriptionType: EnumTypeDefinition
   }
 }
 
