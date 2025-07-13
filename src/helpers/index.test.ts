@@ -1,9 +1,5 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import {
-	validateWithdraw,
-	validateOrder,
-	validateDeposit,
-} from "./index";
+import { validateWithdraw, validateOrder, validateDeposit } from "./index";
 import type { Exchange } from "ccxt";
 import type { PolicyConfig } from "../../types";
 
