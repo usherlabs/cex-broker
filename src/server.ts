@@ -96,7 +96,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
                 ?? createBroker(cex, metadata);
 
             if(!broker){
-                callback(
+                return callback(
                     {
                         code: grpc.status.UNAUTHENTICATED,
                         message: `This Exchange is not registered and No API metadata ws found`,
@@ -124,7 +124,6 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
                             null,
                         );
                     }
-                    // TODO: Where is CCXT used here?
                     try {
                         const deposits = await broker.fetchDeposits(symbol, 50)
                         const deposit = deposits.find(deposit => deposit.id == value.transactionHash || deposit.txid == value.transactionHash)
@@ -206,8 +205,6 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
                                 null,
                             );
                         }
-
-                        // TODO: My point is why can this not be agnostic to the CEX...
                         const transaction = await broker.withdraw(
                             symbol,
                             Number(transferValue.amount),
