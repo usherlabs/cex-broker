@@ -213,7 +213,3 @@ export default class CEXBroker {
 		return this;
 	}
 }
-
-const policy = loadPolicy("./policy/policy.json");
-const broker =new CEXBroker({},policy)
-broker.run()
