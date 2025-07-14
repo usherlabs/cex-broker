@@ -12,8 +12,12 @@ import type { Exchange } from "ccxt";
 import type { ActionRequest, ActionRequest__Output } from "../proto/cexBroker/ActionRequest";
 import type { ActionResponse } from "../proto/cexBroker/ActionResponse";
 import { Action } from "../proto/cexBroker/Action";
+import type { SubscribeRequest } from "../proto/cexBroker/SubscribeRequest";
+import type { SubscribeResponse } from "../proto/cexBroker/SubscribeResponse";
+import { SubscriptionType } from "../proto/cexBroker/SubscriptionType";
 import Joi from "joi";
 import ccxt from "ccxt";
+import from "ws"
 import { log } from "./helpers/logger";
 
 
@@ -28,7 +32,7 @@ const cexNode = grpcObj.cexBroker;
 function authenticateRequest<T, E>(call: grpc.ServerUnaryCall<T, E>, whitelistIps: string[]): boolean {
     const clientIp = call.getPeer().split(":")[0];
     if (!clientIp || !whitelistIps.includes(clientIp)) {
-        console.warn(
+        log.warn(
             `Blocked access from unauthorized IP: ${clientIp || "unknown"}`,
         );
         return false;
@@ -36,14 +40,14 @@ function authenticateRequest<T, E>(call: grpc.ServerUnaryCall<T, E>, whitelistIp
     return true;
 }
 
-function createBroker(cex: string, metadata: grpc.Metadata): Exchange |null{
+function createBroker(cex: string, metadata: grpc.Metadata): Exchange | null {
     const api_key = metadata.get('api-key');
     const api_secret = metadata.get('api-secret');
-    const ExchangeClass = (ccxt as any)[cex];
+    const ExchangeClass = (ccxt.pro as any)[cex];
 
     metadata.remove('api-key');
     metadata.remove('api-secret');
-    if (api_secret.length==0 || api_key.length==0){
+    if (api_secret.length == 0 || api_key.length == 0) {
         return null
     }
     return new ExchangeClass({
@@ -79,7 +83,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
             const metadata = call.metadata;
             const { action, payload, cex, symbol } = call.request
             // Validate required fields
-            if (!action || !cex || !symbol ) {
+            if (!action || !cex || !symbol) {
                 return callback(
                     {
                         code: grpc.status.INVALID_ARGUMENT,
@@ -95,7 +99,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
             const broker = brokers[cex as keyof typeof brokers]
                 ?? createBroker(cex, metadata);
 
-            if(!broker){
+            if (!broker) {
                 return callback(
                     {
                         code: grpc.status.UNAUTHENTICATED,
@@ -215,7 +219,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
 
                         callback(null, { result: JSON.stringify({ ...transaction }) });
                     } catch (error) {
-                        console.error({ error });
+                        log.error({ error });
                         callback(
                             {
                                 code: grpc.status.INTERNAL,
@@ -228,7 +232,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
 
                 case Action.CreateOrder:
                     const createOrderSchema = Joi.object({
-                        orderType: Joi.string().valid("market","limit").default("limit"),
+                        orderType: Joi.string().valid("market", "limit").default("limit"),
                         amount: Joi.number().positive().required(),     // Must be a positive number
                         fromToken: Joi.string().required(),
                         toToken: Joi.string().required(),
@@ -292,7 +296,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
 
                         callback(null, { result: JSON.stringify({ ...order }) });
                     } catch (error) {
-                        console.error({ error });
+                        log.error({ error });
                         callback(
                             {
                                 code: grpc.status.INTERNAL,
@@ -347,7 +351,7 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
                             })
                         });
                     } catch (error) {
-                        console.error(`Error fetching order details from ${cex}:`, error);
+                        log.error(`Error fetching order details from ${cex}:`, error);
                         callback(
                             {
                                 code: grpc.status.INTERNAL,
@@ -377,23 +381,23 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
                     const cancelledOrder = await broker.cancelOrder(cancelOrderValue.orderId);
 
                     callback(null, {
-                        result:JSON.stringify({...cancelledOrder})
-                    });   
+                        result: JSON.stringify({ ...cancelledOrder })
+                    });
                     break;
                 case Action.FetchBalance:
                     try {
                         // Fetch balance from the specified CEX
                         const balance = (await broker.fetchFreeBalance()) as any;
                         const currencyBalance = balance[symbol];
-        
+
                         callback(null, {
                             result: JSON.stringify({
-                            balance: currencyBalance || 0,
-                            currency: symbol
-                        })
+                                balance: currencyBalance || 0,
+                                currency: symbol
+                            })
                         });
                     } catch (error) {
-                        console.error(`Error fetching balance from ${cex}:`, error);
+                        log.error(`Error fetching balance from ${cex}:`, error);
                         callback(
                             {
                                 code: grpc.status.INTERNAL,
@@ -413,6 +417,205 @@ export function getServer(policy: PolicyConfig, brokers: Record<string, Exchange
                         },
                     )
             }
+        },
+
+        Subscribe: async (
+            call: grpc.ServerWritableStream<SubscribeRequest, SubscribeResponse>,
+        ) => {
+            // IP Authentication
+            const clientIp = call.getPeer().split(":")[0];
+            if (!clientIp || !whitelistIps.includes(clientIp)) {
+                log.warn(
+                    `Blocked access from unauthorized IP: ${clientIp || "unknown"}`,
+                );
+                call.destroy(new Error("Access denied: Unauthorized IP"));
+                return;
+            }
+
+            // Read incoming metadata
+            const metadata = call.metadata;
+            let broker: Exchange | null = null;
+
+            try {
+                // For ServerWritableStream, we need to get the request from the call
+                // The request should be available in the call object
+                const request = call.request as SubscribeRequest;
+                const { cex, symbol, type, options } = request;
+
+                // Validate required fields
+                if (!cex || !symbol || type === undefined) {
+                    call.write({
+                        data: JSON.stringify({ error: "cex, symbol, and type are required" }),
+                        timestamp: Date.now(),
+                        symbol: symbol || "",
+                        type: type || SubscriptionType.ORDERBOOK,
+                    });
+                    call.end();
+                    return;
+                }
+
+                // Get or create broker
+                broker = brokers[cex as keyof typeof brokers] ?? createBroker(cex, metadata);
+
+                if (!broker) {
+                    call.write({
+                        data: JSON.stringify({ error: "Exchange not registered and no API metadata found" }),
+                        timestamp: Date.now(),
+                        symbol,
+                        type,
+                    });
+                    call.end();
+                    return;
+                }
+
+                // Handle different subscription types
+                switch (type) {
+                    case SubscriptionType.ORDERBOOK:
+                        try {
+                            const orderbook = await broker.watchOrderBook(symbol);
+                            call.write({
+                                data: JSON.stringify(orderbook),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        } catch (error:any) {
+                            log.error(`Error fetching orderbook for ${symbol} on ${cex}:`, error);
+                            call.write({
+                                data: JSON.stringify({ error: `Failed to fetch orderbook: ${error.message}` }),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        }
+                        break;
+
+                    case SubscriptionType.TRADES:
+                        try {
+                            const trades = await broker.watchTrades(symbol);
+                            call.write({
+                                data: JSON.stringify(trades),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        } catch (error:any) {
+                            log.error(`Error fetching trades for ${symbol} on ${cex}:`, error.message);
+                            call.write({
+                                data: JSON.stringify({ error: `Failed to fetch trades: ${error.message}` }),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        }
+                        break;
+
+                    case SubscriptionType.TICKER:
+                        try {
+                            const ticker = await broker.watchTicker(symbol);
+                            call.write({
+                                data: JSON.stringify(ticker),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        } catch (error:any) {
+                            log.error(`Error fetching ticker for ${symbol} on ${cex}:`, error.message);
+                            call.write({
+                                data: JSON.stringify({ error: `Failed to fetch ticker: ${error.message}` }),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        }
+                        break;
+
+                    case SubscriptionType.OHLCV:
+                        try {
+                            const timeframe = options?.timeframe || '1m';
+                            const ohlcv = await broker.watchOHLCV(symbol, timeframe);
+                            call.write({
+                                data: JSON.stringify(ohlcv),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        } catch (error:any) {
+                            log.error(`Error fetching OHLCV for ${symbol} on ${cex}:`, error.message);
+                            call.write({
+                                data: JSON.stringify({ error: `Failed to fetch OHLCV: ${error.message}` }),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        }
+                        break;
+
+                    case SubscriptionType.BALANCE:
+                        try {
+                            const balance = await broker.watchBalance();
+                            call.write({
+                                data: JSON.stringify(balance),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        } catch (error:any) {
+                            log.error(`Error fetching balance for ${cex}:`, error.message);
+                            call.write({
+                                data: JSON.stringify({ error: `Failed to fetch balance: ${error.message}` }),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        }
+                        break;
+
+                    case SubscriptionType.ORDERS:
+                        try {
+                            const orders = await broker.watchOrders(symbol);
+                            call.write({
+                                data: JSON.stringify(orders),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        } catch (error:any) {
+                            log.error(`Error fetching orders for ${symbol} on ${cex}:`, error);
+                            call.write({
+                                data: JSON.stringify({ error: `Failed to fetch orders: ${error.message}` }),
+                                timestamp: Date.now(),
+                                symbol,
+                                type,
+                            });
+                        }
+                        break;
+
+                    default:
+                        call.write({
+                            data: JSON.stringify({ error: "Invalid subscription type" }),
+                            timestamp: Date.now(),
+                            symbol,
+                            type,
+                        });
+                }
+            } catch (error) {
+                log.error("Error in Subscribe stream:", error);
+                call.write({
+                    data: JSON.stringify({ error: `Internal server error: ${error}` }),
+                    timestamp: Date.now(),
+                    symbol: "",
+                    type: SubscriptionType.ORDERBOOK,
+                });
+            }
+
+            call.on('end', () => {
+                log.info("Subscribe stream ended");
+            });
+
+            call.on('error', (error) => {
+                log.error("Subscribe stream error:", error);
+            });
         },
     });
     return server;

@@ -12,7 +12,7 @@ import {
 import { getServer } from "./server";
 import { log } from "./helpers/logger";
 
-log("CCXT Version:", ccxt.version);
+log.info("CCXT Version:", ccxt.version);
 
 export default class CEXBroker {
 	#brokerConfig: Record<string, BrokerCredentials> = {};
@@ -34,7 +34,7 @@ export default class CEXBroker {
 	 *   CEX_BROKER_<BROKER_NAME>_API_SECRET
 	 */
 	public loadEnvConfig(): void {
-		log("🔧 Loading CEX_BROKER_ environment variables:");
+		log.info("🔧 Loading CEX_BROKER_ environment variables:");
 		const configMap: Record<string, Partial<BrokerCredentials>> = {};
 
 		for (const [key, value] of Object.entries(process.env)) {
@@ -42,7 +42,7 @@ export default class CEXBroker {
 
 			const match: any = key.match(/^CEX_BROKER_(\w+)_API_(KEY|SECRET)$/);
 			if (!match) {
-				warn(`⚠️ Skipping unrecognized env var: ${key}`);
+				log.warn(`⚠️ Skipping unrecognized env var: ${key}`);
 				continue;
 			}
 
@@ -61,7 +61,7 @@ export default class CEXBroker {
 		}
 
 		if (Object.keys(configMap).length === 0) {
-			error(`❌ NO CEX Broker Key Found`);
+			log.error(`❌ NO CEX Broker Key Found`);
 		}
 
 		// Finalize config and print result per broker
@@ -74,7 +74,7 @@ export default class CEXBroker {
 					apiKey: creds.apiKey ?? "",
 					apiSecret: creds.apiSecret ?? "",
 				};
-				log(`✅ Loaded credentials for broker "${broker}"`);
+				log.info(`✅ Loaded credentials for broker "${broker}"`);
 				const ExchangeClass = (ccxt as any)[broker];
 				const client = new ExchangeClass({
 					apiKey: creds.apiKey,
@@ -87,7 +87,7 @@ export default class CEXBroker {
 				const missing = [];
 				if (!hasKey) missing.push("API_KEY");
 				if (!hasSecret) missing.push("API_SECRET");
-				warn(`❌ Missing ${missing.join(" and ")} for broker "${broker}"`);
+				log.warn(`❌ Missing ${missing.join(" and ")} for broker "${broker}"`);
 			}
 		}
 	}
@@ -117,7 +117,7 @@ export default class CEXBroker {
 
 		// Finalize config and print result per broker
 		for (const [broker, creds] of Object.entries(value)) {
-			log(`✅ Loaded credentials for broker "${broker}"`);
+			log.info(`✅ Loaded credentials for broker "${broker}"`);
 			const ExchangeClass = (ccxt as any)[broker];
 			const client = new ExchangeClass({
 				apiKey: creds.apiKey,
@@ -213,3 +213,7 @@ export default class CEXBroker {
 		return this;
 	}
 }
+
+const policy = loadPolicy("./policy/policy.json");
+const broker =new CEXBroker({},policy)
+broker.run()
