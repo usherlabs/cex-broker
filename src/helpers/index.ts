@@ -1,4 +1,4 @@
-import type { PolicyConfig } from "../../types";
+import type { PolicyConfig } from "../types";
 import fs from "fs";
 import Joi from "joi";
 

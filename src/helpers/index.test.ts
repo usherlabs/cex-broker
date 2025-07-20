@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { validateWithdraw, validateOrder, validateDeposit } from "./index";
-import type { Exchange } from "ccxt";
-import type { PolicyConfig } from "../../types";
+import type { Exchange } from "@usherlabs/ccxt";
+import type { PolicyConfig } from "../types";
 
 describe("Helper Functions", () => {
 	let mockExchange: Exchange;

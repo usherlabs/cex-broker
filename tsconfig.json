@@ -5,9 +5,9 @@
 		"target": "ESNext",
 		"module": "Preserve",
 		"moduleDetection": "force",
-		"jsx": "react-jsx",
 		"allowJs": true,
 		"types": ["@types/bun",  "bun-types" ],
+		
 
 		// Bundler mode
 		"moduleResolution": "bundler",

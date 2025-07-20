@@ -15,7 +15,7 @@ await Bun.build({
   outdir: './dist',
   target:"node",
   plugins: [
-    dts()
+    // dts()
   ],
 })
 

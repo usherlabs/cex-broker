@@ -1,4 +1,4 @@
-import  ccxt from "ccxt";
+import  ccxt from "@usherlabs/ccxt";
 
 // Policy types based on the policy.json structure
 export type WithdrawRule = {
@@ -186,7 +186,10 @@ export type BrokerCredentials = {
 	apiKey: string;
 	apiSecret: string;
 };
+export type SecondaryKeys<T>={
+	secondaryKeys: Array<T>
+} 
 
 export interface ExchangeCredentials {
-	[exchange: string]: BrokerCredentials
+	[exchange: string]: BrokerCredentials & SecondaryKeys<BrokerCredentials>
 }

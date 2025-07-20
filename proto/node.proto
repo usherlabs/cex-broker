@@ -49,4 +49,5 @@ enum Action {
   GetOrderDetails=4;
   CancelOrder=5;
   FetchBalance=6;
+  FetchDepositAddresses=7;
 }
