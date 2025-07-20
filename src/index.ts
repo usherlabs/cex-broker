@@ -14,11 +14,10 @@ import { log } from "./helpers/logger";
 
 log.info("CCXT Version:", ccxt.version);
 
-
 export default class CEXBroker {
 	#brokerConfig: ExchangeCredentials = {};
 	#policyFilePath?: string;
-	#verityProverUrl: string ="http://localhost:8080";
+	#verityProverUrl: string = "http://localhost:8080";
 	port = 8086;
 	private policy: PolicyConfig;
 	private brokers: Record<
@@ -263,7 +262,12 @@ export default class CEXBroker {
 	constructor(
 		apiCredentials: ExchangeCredentials,
 		policies: string | PolicyConfig,
-		config?: { port?: number; whitelistIps?: string[]; useVerity?: boolean, verityProverUrl?: string },
+		config?: {
+			port?: number;
+			whitelistIps?: string[];
+			useVerity?: boolean;
+			verityProverUrl?: string;
+		},
 	) {
 		this.useVerity = config?.useVerity || false;
 
@@ -279,7 +283,7 @@ export default class CEXBroker {
 		if (this.#policyFilePath) {
 			this.watchPolicyFile(this.#policyFilePath);
 		}
-		this.#verityProverUrl = config?.verityProverUrl || "http://localhost:8080"
+		this.#verityProverUrl = config?.verityProverUrl || "http://localhost:8080";
 
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
@@ -337,7 +341,6 @@ export default class CEXBroker {
 			this.whitelistIps,
 			this.useVerity,
 			this.#verityProverUrl,
-
 		);
 
 		this.server.bindAsync(
@@ -354,4 +357,3 @@ export default class CEXBroker {
 		return this;
 	}
 }
-

@@ -1,22 +1,28 @@
 # CEX Broker
 
-A high-performance gRPC-based cryptocurrency exchange broker service that provides unified access to multiple centralized exchanges (CEX) through the CCXT library. Built with TypeScript, Bun, and designed for reliable trading operations with policy enforcement.
+A high-performance gRPC-based cryptocurrency exchange broker service that provides unified access to multiple centralized exchanges (CEX) through the CCXT library. Built with TypeScript, Bun, and designed for reliable trading operations with policy enforcement, real-time streaming, and zero-knowledge proof integration.
 
 ## 🚀 Features
 
 - **Multi-Exchange Support**: Unified API to any CEX supported by [CCXT](https://github.com/ccxt/ccxt) (100+ exchanges)
 - **gRPC Interface**: High-performance RPC communication with type safety
+- **Real-time Streaming**: Live orderbook, trades, ticker, OHLCV, balance, and order updates
 - **Policy Enforcement**: Configurable trading and withdrawal limits with real-time policy updates
 - **IP Authentication**: Security through IP whitelisting
+- **Zero-Knowledge Proofs**: Optional Verity integration for privacy-preserving operations
+- **Secondary Broker Support**: Multiple API keys per exchange for load balancing and redundancy
 - **Real-time Policy Updates**: Hot-reload policy changes without server restart
 - **Type Safety**: Full TypeScript support with generated protobuf types
 - **Comprehensive Logging**: Built-in logging with tslog
 - **CLI Support**: Command-line interface for easy management
+- **Deposit Address Management**: Fetch deposit addresses for supported networks
+- **Advanced Order Management**: Create, fetch, and cancel orders with full details
 
 ## 📋 Prerequisites
 
 - [Bun](https://bun.sh) (v1.2.17 or higher)
 - API keys for supported exchanges (e.g., Binance, Bybit, etc.)
+- Optional: Verity prover URL for zero-knowledge proof integration
 
 ## 🛠️ Installation
 
@@ -46,13 +52,19 @@ The broker loads configuration from environment variables with the `CEX_BROKER_`
 # Server Configuration
 PORT_NUM=8086
 
-# Exchange API Keys (format: CEX_BROKER_<EXCHANGE>_API_KEY/SECRET)
+# Primary Exchange API Keys (format: CEX_BROKER_<EXCHANGE>_API_KEY/SECRET)
 CEX_BROKER_BINANCE_API_KEY=your_binance_api_key
 CEX_BROKER_BINANCE_API_SECRET=your_binance_api_secret
 CEX_BROKER_BYBIT_API_KEY=your_bybit_api_key
 CEX_BROKER_BYBIT_API_SECRET=your_bybit_api_secret
 CEX_BROKER_KRAKEN_API_KEY=your_kraken_api_key
 CEX_BROKER_KRAKEN_API_SECRET=your_kraken_api_secret
+
+# Secondary Exchange API Keys (for load balancing and redundancy)
+CEX_BROKER_BINANCE_API_KEY_1=your_secondary_binance_api_key
+CEX_BROKER_BINANCE_API_SECRET_1=your_secondary_binance_api_secret
+CEX_BROKER_BINANCE_API_KEY_2=your_tertiary_binance_api_key
+CEX_BROKER_BINANCE_API_SECRET_2=your_tertiary_binance_api_secret
 ```
 
 **Note**: Only configure API keys for exchanges you plan to use. The system will automatically detect and initialize configured exchanges.
@@ -106,12 +118,27 @@ Configure trading policies in `policy/policy.json`:
 ### Starting the Server
 
 ```bash
+# Using the CLI (recommended)
+bun run start-broker --policy policy/policy.json --port 8086 --whitelist 127.0.0.1 192.168.1.100 --verityProverUrl http://localhost:8080
+
 # Development mode
 bun run start
 
 # Production build
 bun run build:ts
 bun run ./build/index.js
+```
+
+### CLI Options
+
+```bash
+cex-broker --help
+
+Options:
+  -p, --policy <path>                    Policy JSON file (required)
+  --port <number>                        Port number (default: 8086)
+  -w, --whitelist <addresses...>         IPv4 address whitelist (space-separated list)
+  -vu, --verityProverUrl <url>           Verity Prover URL for zero-knowledge proofs
 ```
 
 ### Available Scripts
@@ -141,37 +168,38 @@ bun run check
 
 ## 📡 API Reference
 
-The service exposes a gRPC interface with the following method:
+The service exposes a gRPC interface with two main methods:
 
-### ExecuteCcxtAction
+### ExecuteAction
 
-Execute any CCXT method on supported exchanges.
+Execute trading operations on supported exchanges.
 
 **Request:**
 ```protobuf
-message CcxtActionRequest {
-  Action action = 1;                        // The CCXT method to call
-  map<string, string> payload = 2;          // Parameters to pass to the CCXT method
+message ActionRequest {
+  Action action = 1;                        // The action to perform
+  map<string, string> payload = 2;          // Parameters for the action
   string cex = 3;                           // CEX identifier (e.g., "binance", "bybit")
-  string symbol = 4;                        // Optional: trading pair symbol if needed
+  string symbol = 4;                        // Trading pair symbol if needed
 }
 ```
 
 **Response:**
 ```protobuf
-message CcxtActionResponse {
-  string result = 2;                        // JSON string of the result data
+message ActionResponse {
+  string result = 2;                        // JSON string of the result data or ZK proof
 }
 ```
 
 **Available Actions:**
 - `NoAction` (0): No operation
-- `Deposit` (1): Deposit funds
+- `Deposit` (1): Confirm deposit transaction
 - `Transfer` (2): Transfer/withdraw funds
 - `CreateOrder` (3): Create a new order
 - `GetOrderDetails` (4): Get order information
 - `CancelOrder` (5): Cancel an existing order
 - `FetchBalance` (6): Get account balance
+- `FetchDepositAddresses` (7): Get deposit addresses for a token/network
 
 **Example Usage:**
 
@@ -181,21 +209,85 @@ const balanceRequest = {
   action: 6, // FetchBalance
   payload: {},
   cex: "binance",
-  symbol: ""
+  symbol: "USDT"
 };
 
 // Create order
 const orderRequest = {
   action: 3, // CreateOrder
   payload: {
-    symbol: "BTC/USDT",
-    type: "limit",
-    side: "buy",
+    orderType: "limit",
     amount: "0.001",
+    fromToken: "BTC",
+    toToken: "USDT",
     price: "50000"
   },
   cex: "binance",
   symbol: "BTC/USDT"
+};
+
+// Fetch deposit addresses
+const depositAddressRequest = {
+  action: 7, // FetchDepositAddresses
+  payload: {
+    chain: "BEP20"
+  },
+  cex: "binance",
+  symbol: "USDT"
+};
+```
+
+### Subscribe (Streaming)
+
+Real-time streaming of market data and account updates.
+
+**Request:**
+```protobuf
+message SubscribeRequest {
+  string cex = 1;                          // CEX identifier
+  string symbol = 2;                        // Trading pair symbol
+  SubscriptionType type = 3;                // Type of subscription
+  map<string, string> options = 4;          // Additional options (e.g., timeframe)
+}
+```
+
+**Response Stream:**
+```protobuf
+message SubscribeResponse {
+  string data = 1;                         // JSON string of the streaming data
+  int64 timestamp = 2;                     // Unix timestamp
+  string symbol = 3;                       // Trading pair symbol
+  SubscriptionType type = 4;               // Type of subscription
+}
+```
+
+**Available Subscription Types:**
+- `ORDERBOOK` (0): Real-time order book updates
+- `TRADES` (1): Live trade feed
+- `TICKER` (2): Ticker information updates
+- `OHLCV` (3): Candlestick data (configurable timeframe)
+- `BALANCE` (4): Account balance updates
+- `ORDERS` (5): Order status updates
+
+**Example Usage:**
+
+```typescript
+// Subscribe to orderbook updates
+const orderbookRequest = {
+  cex: "binance",
+  symbol: "BTC/USDT",
+  type: 0, // ORDERBOOK
+  options: {}
+};
+
+// Subscribe to OHLCV with custom timeframe
+const ohlcvRequest = {
+  cex: "binance",
+  symbol: "BTC/USDT",
+  type: 3, // OHLCV
+  options: {
+    timeframe: "1h"
+  }
 };
 ```
 
@@ -203,9 +295,13 @@ const orderRequest = {
 
 ### IP Authentication
 
-All API calls require IP authentication. Configure allowed IPs in the broker initialization:
+All API calls require IP authentication. Configure allowed IPs via CLI or broker initialization:
 
-```typescript
+```bash
+# Via CLI
+cex-broker --policy policy.json --whitelist 127.0.0.1 192.168.1.100
+
+# Via code
 const config = {
   port: 8086,
   whitelistIps: [
@@ -216,12 +312,54 @@ const config = {
 };
 ```
 
+### Secondary Broker Support
+
+For high-availability and load balancing, you can configure multiple API keys per exchange:
+
+```env
+# Primary keys
+CEX_BROKER_BINANCE_API_KEY=primary_key
+CEX_BROKER_BINANCE_API_SECRET=primary_secret
+
+# Secondary keys (numbered)
+CEX_BROKER_BINANCE_API_KEY_1=secondary_key_1
+CEX_BROKER_BINANCE_API_SECRET_1=secondary_secret_1
+CEX_BROKER_BINANCE_API_KEY_2=secondary_key_2
+CEX_BROKER_BINANCE_API_SECRET_2=secondary_secret_2
+```
+
+To use secondary brokers, include the `use-secondary-key` metadata in your gRPC calls:
+
+```typescript
+const metadata = new grpc.Metadata();
+metadata.set('use-secondary-key', '1'); // Use secondary broker 1
+metadata.set('use-secondary-key', '2'); // Use secondary broker 2
+```
+
+### Zero-Knowledge Proof Integration
+
+Enable privacy-preserving operations with Verity integration:
+
+```bash
+# Start with Verity integration
+cex-broker --policy policy.json --verityProverUrl http://localhost:8080
+```
+
+When Verity is enabled, responses include zero-knowledge proofs instead of raw data:
+
+```typescript
+// With Verity enabled
+const response = await client.ExecuteAction(request, metadata);
+// response.result contains ZK proof instead of raw data
+```
+
 ### API Key Management
 
 - Store API keys securely in environment variables
 - Use read-only API keys when possible
 - Regularly rotate API keys
 - Monitor API usage and set appropriate rate limits
+- Use secondary brokers for redundancy and load distribution
 
 ## 🏗️ Architecture
 
@@ -231,10 +369,14 @@ const config = {
 fietCexBroker/
 ├── src/                    # Source code
 │   ├── commands/          # CLI commands
+│   │   └── start-broker.ts # Broker startup command
 │   ├── helpers/           # Utility functions
+│   │   ├── index.ts       # Policy validation helpers
+│   │   └── logger.ts      # Logging configuration
 │   ├── index.ts           # Main broker class
 │   ├── server.ts          # gRPC server implementation
-│   └── cli.ts             # CLI entry point
+│   ├── cli.ts             # CLI entry point
+│   └── types.ts           # TypeScript type definitions
 ├── proto/                 # Protocol buffer definitions
 │   ├── node.proto         # Service definition
 │   └── node.ts            # Type exports
@@ -242,7 +384,7 @@ fietCexBroker/
 │   └── policy.json        # Trading and withdrawal rules
 ├── scripts/               # Build scripts
 ├── test/                  # Test files
-├── types.ts               # TypeScript type definitions
+├── patches/               # Dependency patches
 ├── build.ts               # Build configuration
 └── package.json           # Dependencies and scripts
 ```
@@ -251,8 +393,10 @@ fietCexBroker/
 
 - **CEXBroker**: Main broker class that manages exchange connections and policy enforcement
 - **Policy System**: Real-time policy validation and enforcement
-- **gRPC Server**: High-performance RPC interface
+- **gRPC Server**: High-performance RPC interface with streaming support
 - **CCXT Integration**: Unified access to 100+ cryptocurrency exchanges
+- **Verity Integration**: Zero-knowledge proof generation for privacy
+- **Secondary Broker Management**: Load balancing and redundancy support
 
 ## 🧪 Development
 
@@ -269,6 +413,22 @@ The broker automatically supports all exchanges available in CCXT. To add a new 
 2. Update policy configuration if needed for the new exchange
 
 3. The broker will automatically detect and initialize the exchange
+
+### Using Secondary Brokers
+
+Secondary brokers provide redundancy and load balancing:
+
+1. Configure secondary API keys:
+   ```env
+   CEX_BROKER_BINANCE_API_KEY_1=secondary_key_1
+   CEX_BROKER_BINANCE_API_SECRET_1=secondary_secret_1
+   ```
+
+2. Use secondary brokers in your gRPC calls:
+   ```typescript
+   const metadata = new grpc.Metadata();
+   metadata.set('use-secondary-key', '1'); // Use secondary broker
+   ```
 
 ### Querying Supported Networks
 
@@ -367,7 +527,7 @@ bun run check
 
 - `@grpc/grpc-js`: gRPC server implementation
 - `@grpc/proto-loader`: Protocol buffer loading
-- `ccxt`: Cryptocurrency exchange library (100+ exchanges)
+- `@usherlabs/ccxt`: Enhanced CCXT library with Verity support
 - `commander`: CLI framework
 - `joi`: Configuration validation
 - `tslog`: TypeScript logging
@@ -409,6 +569,7 @@ For issues and questions:
 - [CCXT](https://github.com/ccxt/ccxt) for providing unified access to cryptocurrency exchanges
 - [Bun](https://bun.sh) for the fast JavaScript runtime
 - [gRPC](https://grpc.io/) for high-performance RPC communication
+- [Verity](https://usher.so/) for zero-knowledge proof integration
 
 ---
 
