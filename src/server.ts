@@ -49,12 +49,13 @@ export function getServer(
 	verityProverUrl: string,
 ) {
 	const server = new grpc.Server();
-	function createBroker(cex: string,  metadata: grpc.Metadata, secondaryBrokers: Exchange[]): Exchange | null {
+	function createBroker(cex: string, metadata: grpc.Metadata, secondaryBrokers: Exchange[]): Exchange | null {
 		const api_key = metadata.get("api-key");
 		const api_secret = metadata.get("api-secret");
 		const use_secondary_key = metadata.get("use-secondary-key");
 		if (use_secondary_key.length > 0) {
-			return secondaryBrokers[use_secondary_key.length - 1] ?? null
+			const keyIndex = Number.isInteger(+(use_secondary_key[use_secondary_key.length - 1] ?? "0"))
+			return secondaryBrokers[+keyIndex] ?? null
 		}
 
 		const ExchangeClass = (ccxt.pro as any)[cex];
@@ -131,7 +132,7 @@ export function getServer(
 						transactionHash: Joi.string().required(),
 					});
 					const { value, error } = transactionSchema.validate(
-						call.request.payload??{},
+						call.request.payload ?? {},
 					);
 					if (error) {
 						return callback(
@@ -180,13 +181,13 @@ export function getServer(
 						chain: Joi.string().required(),
 					})
 					const { value: fetchDepositAddresses, error: errorFetchDepositAddresses } = fetchDepositAddressesSchema.validate(
-						call.request.payload??{},
+						call.request.payload ?? {},
 					);
 					if (errorFetchDepositAddresses) {
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError: " +  errorFetchDepositAddresses?.message,
+								message: "ValidationError: " + errorFetchDepositAddresses?.message,
 							},
 							null,
 						);
@@ -222,7 +223,7 @@ export function getServer(
 						chain: Joi.string().required(),
 					});
 					const { value: transferValue, error: transferError } =
-						transferSchema.validate(call.request.payload??{})
+						transferSchema.validate(call.request.payload ?? {})
 					if (transferError) {
 						return callback(
 							{
@@ -296,7 +297,7 @@ export function getServer(
 						price: Joi.number().positive().required(),
 					});
 					const { value: orderValue, error: orderError } =
-						createOrderSchema.validate(call.request.payload??{});
+						createOrderSchema.validate(call.request.payload ?? {});
 					if (orderError) {
 						return callback(
 							{
@@ -373,7 +374,7 @@ export function getServer(
 						orderId: Joi.string().required(),
 					});
 					const { value: getOrderValue, error: getOrderError } =
-						getOrderSchema.validate(call.request.payload??{})
+						getOrderSchema.validate(call.request.payload ?? {})
 					// Validate required fields
 					if (getOrderError) {
 						return callback(
@@ -426,7 +427,7 @@ export function getServer(
 						orderId: Joi.string().required(),
 					});
 					const { value: cancelOrderValue, error: cancelOrderError } =
-						cancelOrderSchema.validate(call.request.payload??{});
+						cancelOrderSchema.validate(call.request.payload ?? {});
 					// Validate required fields
 					if (cancelOrderError) {
 						return callback(
