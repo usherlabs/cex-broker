@@ -314,7 +314,7 @@ const config = {
 
 ### Secondary Broker Support
 
-For high-availability and load balancing, you can configure multiple API keys per exchange:
+For high-availability, load balancing and compartmentalized capital management, **you can configure multiple API keys per exchange**:
 
 ```env
 # Primary keys
@@ -338,7 +338,7 @@ metadata.set('use-secondary-key', '2'); // Use secondary broker 2
 
 ### Zero-Knowledge Proof Integration
 
-Enable privacy-preserving operations with Verity integration:
+**Enable privacy-preserving proof over CEX data** with [Verity zkTLS integration](https://github.com/usherlabs/verity-dp):
 
 ```bash
 # Start with Verity integration
