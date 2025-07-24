@@ -1,104 +1,53 @@
 syntax = "proto3";
-package cexBroker; // TODO: I've renamed...
+package cexBroker; 
 
-// TODO: This whole file can be a simple message...
-// TODO: A single generic CCXT action/message to executing any CCXT function... This way the broker is dynamic ...
-// TODO: Maybe a second action to trigger a websocket/streaming response...
-// message CcxtActionRequest {
-//   string action = 1;                    // The CCXT method to call (e.g., "fetchBalance", "createOrder")
-//   map<string, string> parameters = 2;   // Parameters to pass to the CCXT method
-//   string cex = 3;                       // CEX identifier (e.g., "binance", "bybit")
-//   string symbol = 4;                    // Optional: trading pair symbol if needed
-// }
+message ActionRequest {
+  Action action = 1;                        // The CCXT method to call (e.g., "fetchBalance", "createOrder")
+  map<string, string> payload = 2;          // Parameters to pass to the CCXT method
+  string cex = 3;     // CEX identifier (e.g., "binance", "bybit")
+  string symbol = 4;  // Optional: trading pair symbol if needed
+}
 
-// message CcxtActionResponse {
-//   bool success = 1;                     // Whether the action was successful
-//   string result = 2;                    // JSON string of the result data
-//   string error = 3;                     // Error message if success is false
-// }
-// service CexService {
-//   rpc ExecuteCcxtAction(CcxtActionRequest) returns (CcxtActionResponse);
-// }
+message ActionResponse {
+  string result = 2;       // JSON string of the result data
+}
 
+message SubscribeRequest {
+  string cex = 1;                          // CEX identifier (e.g., "binance", "bybit")
+  string symbol = 2;                        // Trading pair symbol (e.g., "BTC/USDT")
+  SubscriptionType type = 3;                // Type of subscription (orderbook, trades, etc.)
+  map<string, string> options = 4;          // Additional subscription options
+}
+
+message SubscribeResponse {
+  string data = 1;                         // JSON string of the streaming data
+  int64 timestamp = 2;                     // Unix timestamp of the data
+  string symbol = 3;                       // Trading pair symbol
+  SubscriptionType type = 4;               // Type of subscription
+}
+
+enum SubscriptionType {
+  ORDERBOOK = 0;                           // Order book updates
+  TRADES = 1;                              // Recent trades
+  TICKER = 2;                              // Ticker information
+  OHLCV = 3;                               // OHLCV candlestick data
+  BALANCE = 4;                             // Balance updates
+  ORDERS = 5;                              // Order updates
+}
+
+service CexService {
+  rpc ExecuteAction(ActionRequest) returns (ActionResponse);
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
+}
 
 // Mode enum for price direction
-enum OrderMode {
-  BUY = 0;
-  SELL = 1;
-}
-// Optimal price query
-
-// Order details query
-message OrderDetailsRequest {
-  string order_id = 1;          // Unique order identifier
-  string cex = 2;               // CEX identifier
-}
-message OrderDetailsResponse {
-  string order_id = 1;          // Unique order identifier
-  string status = 2;       // Current order status
-  double original_amount = 3;   // Original order amount
-  double filled_amount = 4;     // Amount that has been filled
-  string symbol = 5;            // Trading pair symbol
-  string mode = 6;           // Buy or Sell mode
-  double price = 7;             // Order price
-}
-// Cancel order request
-message CancelOrderRequest {
-  string order_id = 1;          // Unique order identifier
-  string cex = 2;               // CEX identifier
-}
-message CancelOrderResponse {
-  bool success = 1;             // Whether cancellation was successful
-  string final_status = 2; // Final status of the order
-}
-// Withdraw
-message DepositConfirmationRequest {
-  string chain = 1; 
-  string recipient_address = 2;
-  double amount = 3;
-  string transaction_hash = 4;
-}
-message DepositConfirmationResponse {
-  double new_balance = 1;
-}
-// Transfer
-message TransferRequest {
-  string chain = 1;
-  string recipient_address = 2;
-  double amount = 3;
-  string cex=4;
-  string token = 5;
-}
-message TransferResponse {
-  bool success = 1;
-  string transaction_id= 2;
-}
-// Convert
-message ConvertRequest {
-  string from_token = 1;
-  string to_token = 2;
-  double amount = 3;
-  double price= 4;
-  string cex=5;
-}
-message ConvertResponse {
-  string order_id= 3;
-}
-// Balance
-message BalanceRequest {
-  string cex = 1;          // CEX identifier (e.g., "BINANCE", "BYBIT")
-  string token = 2;           // Trading pair symbol, e.g. "USDT"
-}
-message BalanceResponse {
-  double balance = 1;          // Available balance for the symbol
-  string currency = 2;         // Currency of the balance
-}
-// CEX service definition
-service CexService {
-  rpc Deposit(DepositConfirmationRequest) returns (DepositConfirmationResponse);
-  rpc Transfer(TransferRequest) returns (TransferResponse);
-  rpc Convert(ConvertRequest) returns (ConvertResponse);
-  rpc GetBalance(BalanceRequest) returns (BalanceResponse);
-  rpc GetOrderDetails(OrderDetailsRequest) returns (OrderDetailsResponse);
-  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+enum Action {
+  NoAction=0;
+  Deposit = 1;
+  Transfer = 2;
+  CreateOrder= 3;
+  GetOrderDetails=4;
+  CancelOrder=5;
+  FetchBalance=6;
+  FetchDepositAddresses=7;
 }

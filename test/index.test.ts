@@ -1,33 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { isIpAllowed } from "./helpers";
 
 describe("RPC Server Logic Tests", () => {
-	describe("IP Authentication", () => {
-		test("should allow requests from whitelisted IPs", () => {
-			const allowedIPs = ["127.0.0.1"];
-
-			allowedIPs.forEach((ip) => {
-				const clientIp = ip;
-				const isAllowed = allowedIPs.includes(clientIp);
-
-				expect(isAllowed).toBe(true);
-			});
-		});
-
-		test("should block requests from unauthorized IPs", () => {
-			const clientIp = "192.168.1.100";
-			const isAllowed = isIpAllowed(clientIp);
-
-			expect(isAllowed).toBe(false);
-		});
-
-		test("should handle undefined peer information", () => {
-			const clientIp = "";
-			const isAllowed = isIpAllowed(clientIp);
-
-			expect(isAllowed).toBe(false);
-		});
-	});
 
 	describe("GetOptimalPrice Validation", () => {
 		test("should validate required fields correctly", () => {

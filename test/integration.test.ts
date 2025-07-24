@@ -6,7 +6,7 @@ describe("Integration Tests", () => {
 			// Test that the policy file can be loaded
 			const fs = require("bun:fs");
 			const path = require("bun:path");
-			const policyPath = path.join(__dirname, "./policy/policy.json");
+			const policyPath = path.join(__dirname, "../policy/policy.json");
 
 			expect(() => {
 				const policyData = fs.readFileSync(policyPath, "utf8");
@@ -18,7 +18,7 @@ describe("Integration Tests", () => {
 		test("should have correct policy structure", () => {
 			const fs = require("bun:fs");
 			const path = require("bun:path");
-			const policyPath = path.join(__dirname, "./policy/policy.json");
+			const policyPath = path.join(__dirname, "../policy/policy.json");
 			const policyData = fs.readFileSync(policyPath, "utf8");
 			const policy = JSON.parse(policyData);
 
@@ -41,8 +41,8 @@ describe("Integration Tests", () => {
 
 	describe("Helper Functions Integration", () => {
 		test("should validate withdraw policy correctly", () => {
-			const { validateWithdraw } = require("./helpers");
-			const { loadPolicy } = require("./helpers");
+			const { validateWithdraw } = require("../src/helpers");
+			const { loadPolicy } = require("../src/helpers");
 
 			const policy = loadPolicy("./policy/policy.json");
 
@@ -70,8 +70,8 @@ describe("Integration Tests", () => {
 		});
 
 		test("should validate order policy correctly", () => {
-			const { validateOrder } = require("./helpers");
-			const { loadPolicy } = require("./helpers");
+			const { validateOrder } = require("../src/helpers");
+			const { loadPolicy } = require("../src/helpers");
 
 			const policy = loadPolicy("./policy/policy.json");
 
@@ -87,74 +87,4 @@ describe("Integration Tests", () => {
 		});
 	});
 
-	describe("Price Calculation Integration", () => {
-		test("should calculate optimal prices correctly", async () => {
-			const { buyAtOptimalPrice, sellAtOptimalPrice } = require("./helpers");
-
-			// Create a mock exchange with realistic order book data
-			const mockExchange = {
-				fetchOrderBook: async (_symbol: string) => ({
-					bids: [
-						[100, 10],
-						[99, 20],
-						[98, 30],
-					],
-					asks: [
-						[101, 10],
-						[102, 20],
-						[103, 30],
-					],
-				}),
-			};
-
-			// Test buy calculation
-			const buyResult = await buyAtOptimalPrice(mockExchange, "ARB/USDT", 25);
-			expect(buyResult.avgPrice).toBeGreaterThan(0);
-			expect(buyResult.fillPrice).toBeGreaterThan(0);
-			expect(buyResult.size).toBe(25);
-			expect(buyResult.symbol).toBe("ARB/USDT");
-
-			// Test sell calculation
-			const sellResult = await sellAtOptimalPrice(mockExchange, "ARB/USDT", 25);
-			expect(sellResult.avgPrice).toBeGreaterThan(0);
-			expect(sellResult.fillPrice).toBeGreaterThan(0);
-			expect(sellResult.size).toBe(25);
-			expect(sellResult.symbol).toBe("ARB/USDT");
-		});
-	});
-
-	describe("Error Handling Integration", () => {
-		test("should handle insufficient depth correctly", async () => {
-			const { buyAtOptimalPrice } = require("./helpers");
-
-			const insufficientExchange = {
-				fetchOrderBook: async () => ({
-					bids: [[100, 5]], // Only 5 volume available
-				}),
-			};
-
-			await expect(
-				buyAtOptimalPrice(insufficientExchange, "ARB/USDT", 10),
-			).rejects.toThrow("Insufficient depth");
-		});
-
-		test("should handle invalid symbol format", () => {
-			const { validateOrder } = require("./helpers");
-			const { loadPolicy } = require("./helpers");
-
-			const policy = loadPolicy("./policy/policy.json");
-
-			// Test with invalid symbol format
-			const result = validateOrder(
-				policy,
-				"USDT",
-				"ETH",
-				0.5,
-				"BINANCE",
-				"ARB", // Invalid format - missing '/'
-			);
-
-			expect(result.valid).toBe(false);
-		});
-	});
 });

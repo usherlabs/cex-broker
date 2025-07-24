@@ -1,11 +1,11 @@
 {
-	"name": "cex-broker",
+	"name": "@usherlabs/cex-broker",
 	"version": "0.0.1",
 	"description": "Unified gRPC API to CEXs by Usher Labs",
 	"repository": "git@gitlab.com:usherlabs/cex-broker.git",
 	"homepage": "https://usher.so/",
 	"author": "Oki Ayobami <oki@usher.so>",
-	"module": "index.ts",
+	"module": "src/index.ts",
 	"type": "module",
 	"license": "MIT",
 	"main": "dist/index.js",
@@ -13,8 +13,9 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.0.6",
 		"@types/bun": "latest",
-		"bun-plugin-dts":"latest",
+		"bun-plugin-dts": "latest",
 		"bun-types": "latest",
+		"dotenv": "^17.2.0",
 		"husky": "^9.1.7"
 	},
 	"files": [
@@ -25,14 +26,14 @@
 	},
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
-		"start": "bun run index.ts",
-		"build": "bun build ./index.ts --outdir ./build --target node",
-		"build:ts": "bun run ./build.ts",
+		"start": "bun run ./src/index.ts",
+		"build:ts": "bun run ./src/build.ts",
 		"test": "bun test",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint --write",
 		"check": "bunx biome check --write",
-		"prepare": "bunx husky"
+		"prepare": "bunx husky",
+		"postinstall": "./proto-gen.sh"
 	},
 	"peerDependencies": {
 		"typescript": "^5"
@@ -40,10 +41,10 @@
 	"dependencies": {
 		"@grpc/grpc-js": "^1.13.4",
 		"@grpc/proto-loader": "^0.7.15",
-		"ccxt": "^4.4.91",
+		"@usherlabs/ccxt": "^0.0.4",
 		"commander": "^14.0.0",
-		"dotenv": "^17.0.0",
-		"joi": "^17.13.3"
+		"joi": "^17.13.3",
+		"tslog": "^4.9.3"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org"
