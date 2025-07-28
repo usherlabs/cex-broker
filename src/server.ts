@@ -1,4 +1,4 @@
-import { validateDeposit, validateOrder, validateWithdraw } from "./helpers";
+import { authenticateRequest, validateDeposit, validateOrder, validateWithdraw } from "./helpers";
 import type { PolicyConfig } from "./types";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
@@ -7,17 +7,15 @@ import path from "path";
 import type { Exchange } from "@usherlabs/ccxt";
 import type {
 	ActionRequest,
-	ActionRequest__Output,
 } from "../proto/cexBroker/ActionRequest";
 import type { ActionResponse } from "../proto/cexBroker/ActionResponse";
 import { Action } from "../proto/cexBroker/Action";
 import type { SubscribeRequest } from "../proto/cexBroker/SubscribeRequest";
 import type { SubscribeResponse } from "../proto/cexBroker/SubscribeResponse";
 import { SubscriptionType } from "../proto/cexBroker/SubscriptionType";
-import Joi, { options } from "joi";
+import Joi from "joi";
 import ccxt from "@usherlabs/ccxt";
 import { log } from "./helpers/logger";
-import { Network } from "inspector/promises";
 
 const PROTO_FILE = "../proto/node.proto";
 
@@ -26,18 +24,6 @@ const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
 const cexNode = grpcObj.cexBroker;
-
-function authenticateRequest<T, E>(
-	call: grpc.ServerUnaryCall<T, E>,
-	whitelistIps: string[],
-): boolean {
-	const clientIp = call.getPeer().split(":")[0];
-	if (!clientIp || !whitelistIps.includes(clientIp)) {
-		log.warn(`Blocked access from unauthorized IP: ${clientIp || "unknown"}`);
-		return false;
-	}
-	return true;
-}
 
 
 

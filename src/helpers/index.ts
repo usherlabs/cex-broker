@@ -1,6 +1,20 @@
 import type { PolicyConfig } from "../types";
 import fs from "fs";
 import Joi from "joi";
+import { log } from "./logger";
+import type { ServerUnaryCall } from "@grpc/grpc-js";
+
+export function authenticateRequest<T, E>(
+	call: ServerUnaryCall<T, E>,
+	whitelistIps: string[],
+): boolean {
+	const clientIp = call.getPeer().split(":")[0];
+	if (!clientIp || !whitelistIps.includes(clientIp)) {
+		log.warn(`Blocked access from unauthorized IP: ${clientIp || "unknown"}`);
+		return false;
+	}
+	return true;
+}
 
 /**
  * Loads and validates policy configuration
