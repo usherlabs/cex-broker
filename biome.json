@@ -7,7 +7,7 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["proto/*", "src/*", "config/*", "policy/*"]
+		"includes": ["src/*", "config/*", "policy/*"]
 	},
 	"formatter": {
 		"enabled": true,

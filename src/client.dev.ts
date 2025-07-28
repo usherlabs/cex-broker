@@ -3,7 +3,6 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "../proto/node";
 import { Action } from "../proto/cexBroker/Action";
-import { SubscriptionType } from "../proto/cexBroker/SubscriptionType";
 import { config } from "dotenv";
 import { log } from "./helpers/logger";
 import CEXBroker from ".";

@@ -2,7 +2,6 @@ import {
 	authenticateRequest,
 	createBroker,
 	selectBroker,
-	validateDeposit,
 	validateOrder,
 	validateWithdraw,
 } from "./helpers";
@@ -19,7 +18,6 @@ import type { SubscribeRequest } from "../proto/cexBroker/SubscribeRequest";
 import type { SubscribeResponse } from "../proto/cexBroker/SubscribeResponse";
 import { SubscriptionType } from "../proto/cexBroker/SubscriptionType";
 import Joi from "joi";
-import ccxt from "@usherlabs/ccxt";
 import { log } from "./helpers/logger";
 
 const PROTO_FILE = "../proto/node.proto";
@@ -56,7 +54,7 @@ export function getServer(
 			}
 			// Read incoming metadata
 			const metadata = call.metadata;
-			const { action, payload, cex, symbol } = call.request;
+			const { action, cex, symbol } = call.request;
 			// Validate required fields
 			if (!action || !cex || !symbol) {
 				return callback(
@@ -96,7 +94,7 @@ export function getServer(
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + error.message,
+								message: `ValidationError: ${error.message}`,
 							},
 							null,
 						);
@@ -105,8 +103,8 @@ export function getServer(
 						const deposits = await broker.fetchDeposits(symbol, 50);
 						const deposit = deposits.find(
 							(deposit) =>
-								deposit.id == value.transactionHash ||
-								deposit.txid == value.transactionHash,
+								deposit.id === value.transactionHash ||
+								deposit.txid === value.transactionHash,
 						);
 
 						if (deposit) {
@@ -151,15 +149,14 @@ export function getServer(
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message:
-									"ValidationError: " + errorFetchDepositAddresses?.message,
+								message: `ValidationError: ${errorFetchDepositAddresses?.message}`,
 							},
 							null,
 						);
 					}
 					try {
 						const depositAddresses =
-							broker.has.fetchDepositAddress == true
+							broker.has.fetchDepositAddress === true
 								? await broker.fetchDepositAddress(symbol, {
 										network: fetchDepositAddresses.chain,
 									})
@@ -181,14 +178,19 @@ export function getServer(
 							},
 							null,
 						);
-					} catch (error: any) {
+					} catch (error: unknown) {
 						log.error({ error });
+						const message =
+							error instanceof Error
+								? error.message
+								: typeof error === "string"
+									? error
+									: "Unknown error";
 						callback(
 							{
 								code: grpc.status.INTERNAL,
 								message:
-									"Fetch Deposit Addresses confirmation failed: " +
-									error.message,
+									"Fetch Deposit Addresses confirmation failed: " + message,
 							},
 							null,
 						);
@@ -207,7 +209,7 @@ export function getServer(
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + transferError?.message,
+								message: `ValidationError:" ${transferError?.message}`,
 							},
 							null,
 						);
@@ -251,7 +253,7 @@ export function getServer(
 							undefined,
 							{ network: transferValue.chain },
 						);
-						log.info("Transfer Transfer" + JSON.stringify(transaction));
+						log.info(`Transfer Transfer: ${JSON.stringify(transaction)}`);
 
 						callback(null, {
 							result: useVerity
@@ -285,7 +287,7 @@ export function getServer(
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + orderError.message,
+								message: `ValidationError:" ${orderError.message}`,
 							},
 							null,
 						);
@@ -364,7 +366,7 @@ export function getServer(
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + getOrderError.message,
+								message: `ValidationError: ${getOrderError.message}`,
 							},
 							null,
 						);
@@ -418,7 +420,7 @@ export function getServer(
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + cancelOrderError.message,
+								message: `ValidationError:  ${cancelOrderError.message}`,
 							},
 							null,
 						);
@@ -436,6 +438,7 @@ export function getServer(
 				case Action.FetchBalance:
 					try {
 						// Fetch balance from the specified CEX
+						// biome-ignore lint/suspicious/noExplicitAny: fetchFreeBalance
 						const balance = (await broker.fetchFreeBalance()) as any;
 						const currencyBalance = balance[symbol];
 
@@ -537,14 +540,20 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
+						} catch (error: unknown) {
 							log.error(
 								`Error fetching orderbook for ${symbol} on ${cex}:`,
 								error,
 							);
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch orderbook: ${error.message}`,
+									error: `Failed to fetch orderbook: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -564,14 +573,20 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
+						} catch (error: unknown) {
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							log.error(
 								`Error fetching trades for ${symbol} on ${cex}:`,
-								error.message,
+								error,
 							);
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch trades: ${error.message}`,
+									error: `Failed to fetch trades: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -591,14 +606,20 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
+						} catch (error: unknown) {
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							log.error(
 								`Error fetching ticker for ${symbol} on ${cex}:`,
-								error.message,
+								error,
 							);
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch ticker: ${error.message}`,
+									error: `Failed to fetch ticker: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -619,14 +640,17 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
-							log.error(
-								`Error fetching OHLCV for ${symbol} on ${cex}:`,
-								error.message,
-							);
+						} catch (error: unknown) {
+							log.error(`Error fetching OHLCV for ${symbol} on ${cex}:`, error);
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch OHLCV: ${error.message}`,
+									error: `Failed to fetch OHLCV: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -646,11 +670,17 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
-							log.error(`Error fetching balance for ${cex}:`, error.message);
+						} catch (error: unknown) {
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
+							log.error(`Error fetching balance for ${cex}:`, error);
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch balance: ${error.message}`,
+									error: `Failed to fetch balance: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -670,14 +700,20 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
+						} catch (error: unknown) {
 							log.error(
 								`Error fetching orders for ${symbol} on ${cex}:`,
 								error,
 							);
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch orders: ${error.message}`,
+									error: `Failed to fetch orders: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -696,8 +732,14 @@ export function getServer(
 				}
 			} catch (error) {
 				log.error("Error in Subscribe stream:", error);
+				const message =
+					error instanceof Error
+						? error.message
+						: typeof error === "string"
+							? error
+							: "Unknown error";
 				call.write({
-					data: JSON.stringify({ error: `Internal server error: ${error}` }),
+					data: JSON.stringify({ error: `Internal server error: ${message}` }),
 					timestamp: Date.now(),
 					symbol: "",
 					type: SubscriptionType.ORDERBOOK,
