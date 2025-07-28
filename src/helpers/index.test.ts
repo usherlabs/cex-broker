@@ -1,30 +1,11 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { validateWithdraw, validateOrder, validateDeposit } from "./index";
-import type { Exchange } from "@usherlabs/ccxt";
 import type { PolicyConfig } from "../types";
 
 describe("Helper Functions", () => {
-	let mockExchange: Exchange;
 	let testPolicy: PolicyConfig;
 
 	beforeEach(() => {
-		// Create mock exchange
-		mockExchange = {
-			fetchOrderBook: mock(async (symbol: string) => ({
-				bids: [
-					[100, 10], // price, volume
-					[99, 20],
-					[98, 30],
-					[97, 40],
-				],
-				asks: [
-					[101, 10],
-					[102, 20],
-					[103, 30],
-					[104, 40],
-				],
-			})),
-		} as any;
 
 		// Test policy configuration
 		testPolicy = {
