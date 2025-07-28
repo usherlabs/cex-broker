@@ -1,6 +1,6 @@
-import { describe, test, expect, beforeEach } from "bun:test";
-import { validateWithdraw, validateOrder, validateDeposit } from "./index";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { PolicyConfig } from "../types";
+import { validateDeposit, validateOrder, validateWithdraw } from "./index";
 
 describe("Helper Functions", () => {
 	let testPolicy: PolicyConfig;

@@ -111,7 +111,7 @@ export function getServer(
 			}
 
 			switch (action) {
-				case Action.Deposit:
+				case Action.Deposit: {
 					const transactionSchema = Joi.object({
 						recipientAddress: Joi.string().required(),
 						amount: Joi.number().positive().required(), // Must be a positive number
@@ -161,8 +161,9 @@ export function getServer(
 						);
 					}
 					break;
+				}
 
-				case Action.FetchDepositAddresses:
+				case Action.FetchDepositAddresses: {
 					const fetchDepositAddressesSchema = Joi.object({
 						chain: Joi.string().required(),
 					})
@@ -202,7 +203,8 @@ export function getServer(
 						);
 					}
 					break;
-				case Action.Transfer:
+				}
+				case Action.Transfer: {
 					const transferSchema = Joi.object({
 						recipientAddress: Joi.string().required(),
 						amount: Joi.number().positive().required(), // Must be a positive number
@@ -273,8 +275,9 @@ export function getServer(
 						);
 					}
 					break;
+				}
 
-				case Action.CreateOrder:
+				case Action.CreateOrder: {
 					const createOrderSchema = Joi.object({
 						orderType: Joi.string().valid("market", "limit").default("limit"),
 						amount: Joi.number().positive().required(), // Must be a positive number
@@ -354,8 +357,9 @@ export function getServer(
 					}
 
 					break;
+				}
 
-				case Action.GetOrderDetails:
+				case Action.GetOrderDetails: {
 					const getOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
 					});
@@ -408,7 +412,8 @@ export function getServer(
 						);
 					}
 					break;
-				case Action.CancelOrder:
+				}
+				case Action.CancelOrder: {
 					const cancelOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
 					});
@@ -433,6 +438,7 @@ export function getServer(
 						result: JSON.stringify({ ...cancelledOrder }),
 					});
 					break;
+				}
 				case Action.FetchBalance:
 					try {
 						// Fetch balance from the specified CEX

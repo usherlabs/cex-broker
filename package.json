@@ -30,8 +30,10 @@
 		"build:ts": "bun run ./src/build.ts",
 		"test": "bun test",
 		"format": "bunx biome format --write",
-		"lint": "bunx biome lint --write",
-		"check": "bunx biome check --write",
+		"lint": "bunx biome lint",
+		"lint:fix": "bunx biome lint --write",
+		"check": "bunx biome check",
+		"check:fix": "bunx biome check --write",
 		"prepare": "bunx husky",
 		"postinstall": "./proto-gen.sh"
 	},

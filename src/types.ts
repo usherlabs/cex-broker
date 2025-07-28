@@ -1,4 +1,4 @@
-import  ccxt from "@usherlabs/ccxt";
+import  type ccxt from "@usherlabs/ccxt";
 
 // Policy types based on the policy.json structure
 export type WithdrawRule = {

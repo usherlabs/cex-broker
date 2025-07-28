@@ -8,12 +8,10 @@
 	"files": {
 		"ignoreUnknown": true,
 		"includes": [
-			"proto/",
-			"src/index.ts",
-			"src/helpers/*.ts",
-			"config/",
-			"./src/commands",
-			"policy/"
+			"proto/*",
+			"src/*",
+			"config/*",
+			"policy/*"
 		]
 	},
 	"formatter": {
@@ -26,6 +24,10 @@
 			"recommended": true,
 			"style": {
 				"useNodejsImportProtocol": "off"
+			},
+			"correctness": {
+				"noUnusedImports": "warn",
+				"noUnusedVariables": "warn"
 			}
 		}
 	},

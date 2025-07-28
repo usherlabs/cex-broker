@@ -1,16 +1,16 @@
-import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import * as grpc from "@grpc/grpc-js";
-import { watchFile, unwatchFile } from "fs";
+import ccxt, { type Exchange } from "@usherlabs/ccxt";
+import { unwatchFile, watchFile } from "fs";
 import Joi from "joi";
 import { loadPolicy } from "./helpers";
+import { log } from "./helpers/logger";
+import { getServer } from "./server";
 import {
-	BrokerList,
 	type BrokerCredentials,
+	BrokerList,
 	type ExchangeCredentials,
 	type PolicyConfig,
 } from "./types";
-import { getServer } from "./server";
-import { log } from "./helpers/logger";
 
 log.info("CCXT Version:", ccxt.version);
 

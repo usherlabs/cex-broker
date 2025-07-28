@@ -1,8 +1,8 @@
-import type { PolicyConfig } from "../types";
+import type { ServerUnaryCall } from "@grpc/grpc-js";
 import fs from "fs";
 import Joi from "joi";
+import type { PolicyConfig } from "../types";
 import { log } from "./logger";
-import type { ServerUnaryCall } from "@grpc/grpc-js";
 
 export function authenticateRequest<T, E>(
 	call: ServerUnaryCall<T, E>,
