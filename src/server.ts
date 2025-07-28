@@ -1,13 +1,18 @@
-import { authenticateRequest, createBroker, selectBroker, validateDeposit, validateOrder, validateWithdraw } from "./helpers";
+import {
+	authenticateRequest,
+	createBroker,
+	selectBroker,
+	validateDeposit,
+	validateOrder,
+	validateWithdraw,
+} from "./helpers";
 import type { PolicyConfig } from "./types";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "../proto/node";
 import path from "path";
 import type { Exchange } from "@usherlabs/ccxt";
-import type {
-	ActionRequest,
-} from "../proto/cexBroker/ActionRequest";
+import type { ActionRequest } from "../proto/cexBroker/ActionRequest";
 import type { ActionResponse } from "../proto/cexBroker/ActionResponse";
 import { Action } from "../proto/cexBroker/Action";
 import type { SubscribeRequest } from "../proto/cexBroker/SubscribeRequest";
@@ -24,8 +29,6 @@ const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
 const cexNode = grpcObj.cexBroker;
-
-
 
 export function getServer(
 	policy: PolicyConfig,
@@ -65,9 +68,9 @@ export function getServer(
 				);
 			}
 
-			const broker = selectBroker(brokers[cex as keyof typeof brokers],metadata )?? createBroker(cex, metadata,useVerity,verityProverUrl);
-
-
+			const broker =
+				selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
+				createBroker(cex, metadata, useVerity, verityProverUrl);
 
 			if (!broker) {
 				return callback(
@@ -110,7 +113,11 @@ export function getServer(
 							log.info(
 								`Amount ${value.amount} at ${value.transactionHash} . Paid to ${value.recipientAddress}`,
 							);
-							return callback(null, { result: useVerity ? broker.last_proof : JSON.stringify({ ...deposit }) });
+							return callback(null, {
+								result: useVerity
+									? broker.last_proof
+									: JSON.stringify({ ...deposit }),
+							});
 						}
 						callback(
 							{
@@ -135,24 +142,37 @@ export function getServer(
 				case Action.FetchDepositAddresses: {
 					const fetchDepositAddressesSchema = Joi.object({
 						chain: Joi.string().required(),
-					})
-					const { value: fetchDepositAddresses, error: errorFetchDepositAddresses } = fetchDepositAddressesSchema.validate(
-						call.request.payload ?? {},
-					);
+					});
+					const {
+						value: fetchDepositAddresses,
+						error: errorFetchDepositAddresses,
+					} = fetchDepositAddressesSchema.validate(call.request.payload ?? {});
 					if (errorFetchDepositAddresses) {
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError: " + errorFetchDepositAddresses?.message,
+								message:
+									"ValidationError: " + errorFetchDepositAddresses?.message,
 							},
 							null,
 						);
 					}
 					try {
-						const depositAddresses = broker.has.fetchDepositAddress == true ? await broker.fetchDepositAddress(symbol, { network: fetchDepositAddresses.chain }) : await broker.fetchDepositAddressesByNetwork(symbol, { network: fetchDepositAddresses.chain });
+						const depositAddresses =
+							broker.has.fetchDepositAddress == true
+								? await broker.fetchDepositAddress(symbol, {
+										network: fetchDepositAddresses.chain,
+									})
+								: await broker.fetchDepositAddressesByNetwork(symbol, {
+										network: fetchDepositAddresses.chain,
+									});
 
 						if (depositAddresses) {
-							return callback(null, { result: useVerity ? broker.last_proof : JSON.stringify({ ...depositAddresses }) });
+							return callback(null, {
+								result: useVerity
+									? broker.last_proof
+									: JSON.stringify({ ...depositAddresses }),
+							});
 						}
 						callback(
 							{
@@ -166,7 +186,9 @@ export function getServer(
 						callback(
 							{
 								code: grpc.status.INTERNAL,
-								message: "Fetch Deposit Addresses confirmation failed: " + error.message,
+								message:
+									"Fetch Deposit Addresses confirmation failed: " +
+									error.message,
 							},
 							null,
 						);
@@ -180,7 +202,7 @@ export function getServer(
 						chain: Joi.string().required(),
 					});
 					const { value: transferValue, error: transferError } =
-						transferSchema.validate(call.request.payload ?? {})
+						transferSchema.validate(call.request.payload ?? {});
 					if (transferError) {
 						return callback(
 							{
@@ -229,10 +251,13 @@ export function getServer(
 							undefined,
 							{ network: transferValue.chain },
 						);
-						log.info("Transfer Transfer" + JSON.stringify(transaction)
-						);
+						log.info("Transfer Transfer" + JSON.stringify(transaction));
 
-						callback(null, { result: useVerity ? broker.last_proof : JSON.stringify({ ...transaction }) });
+						callback(null, {
+							result: useVerity
+								? broker.last_proof
+								: JSON.stringify({ ...transaction }),
+						});
 					} catch (error) {
 						log.error({ error });
 						callback(
@@ -333,7 +358,7 @@ export function getServer(
 						orderId: Joi.string().required(),
 					});
 					const { value: getOrderValue, error: getOrderError } =
-						getOrderSchema.validate(call.request.payload ?? {})
+						getOrderSchema.validate(call.request.payload ?? {});
 					// Validate required fields
 					if (getOrderError) {
 						return callback(
@@ -415,10 +440,12 @@ export function getServer(
 						const currencyBalance = balance[symbol];
 
 						callback(null, {
-							result: useVerity ? broker.last_proof : JSON.stringify({
-								balance: currencyBalance || 0,
-								currency: symbol,
-							}),
+							result: useVerity
+								? broker.last_proof
+								: JSON.stringify({
+										balance: currencyBalance || 0,
+										currency: symbol,
+									}),
 						});
 					} catch (error) {
 						log.error(`Error fetching balance from ${cex}:`, error);
@@ -445,14 +472,15 @@ export function getServer(
 		) => {
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
-				call.emit('error',
+				call.emit(
+					"error",
 					{
 						code: grpc.status.PERMISSION_DENIED,
 						message: "Access denied: Unauthorized IP",
 					},
 					null,
 				);
-				call.destroy(new Error("Access denied: Unauthorized IP")); 
+				call.destroy(new Error("Access denied: Unauthorized IP"));
 			}
 			// Read incoming metadata
 			const metadata = call.metadata;
@@ -479,7 +507,9 @@ export function getServer(
 				}
 
 				// Get or create broker
-				broker = selectBroker(brokers[cex as keyof typeof brokers],metadata )?? createBroker(cex, metadata,useVerity,verityProverUrl);
+				broker =
+					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
+					createBroker(cex, metadata, useVerity, verityProverUrl);
 
 				if (!broker) {
 					call.write({
@@ -526,7 +556,6 @@ export function getServer(
 					case SubscriptionType.TRADES:
 						try {
 							while (true) {
-
 								const trades = await broker.watchTrades(symbol);
 								call.write({
 									data: JSON.stringify(trades),

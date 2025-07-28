@@ -11,13 +11,11 @@ program
 	.requiredOption("-p, --policy <path>", "Policy JSON file")
 	.option("--port <number>", "Port number (default: 8086)", "8086")
 	.option(
-		"-w","--whitelist <addresses...>",
+		"-w",
+		"--whitelist <addresses...>",
 		"IPv4 address whitelist (space-separated list)",
 	)
-	.option(
-		"-vu","--verityProverUrl <url>",
-		"Verity Prover Url",
-	)
+	.option("-vu", "--verityProverUrl <url>", "Verity Prover Url")
 	.action(async (options) => {
 		try {
 			// Optional: Validate IPv4 addresses
@@ -40,7 +38,7 @@ program
 				options.policy,
 				parseInt(options.port, 10),
 				options.whitelist ?? [], // Pass whitelist to your command,
-				options.verityProverUrl
+				options.verityProverUrl,
 			);
 		} catch (err) {
 			console.error("❌ Failed to start broker:", err);

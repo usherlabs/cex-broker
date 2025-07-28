@@ -1,4 +1,4 @@
-import  type ccxt from "@usherlabs/ccxt";
+import type ccxt from "@usherlabs/ccxt";
 
 // Policy types based on the policy.json structure
 export type WithdrawRule = {
@@ -51,9 +51,8 @@ export type Policy = {
 
 // Dynamic type mapping using CCXT's exchange classes
 type BrokerInstanceMap = {
-	[K in ISupportedBroker]:  InstanceType<typeof ccxt[K]>;
+	[K in ISupportedBroker]: InstanceType<(typeof ccxt)[K]>;
 };
-
 
 // Dynamic BrokerMap: each key maps to the correct broker type
 export type BrokerMap = Partial<{
@@ -165,13 +164,13 @@ export const BrokerList = [
 	"xt",
 	"yobit",
 	"zaif",
-	"zonda"
-  ] as const;
-  
+	"zonda",
+] as const;
+
 export type brokers = Required<BrokerMap>;
-  
+
 export type ISupportedBroker = (typeof BrokerList)[number];
-export type SupportedBrokers =  typeof BrokerList[number]
+export type SupportedBrokers = (typeof BrokerList)[number];
 
 export const SupportedBroker = BrokerList.reduce(
 	(acc, value) => {
@@ -181,15 +180,14 @@ export const SupportedBroker = BrokerList.reduce(
 	{} as Record<(typeof BrokerList)[number], string>,
 );
 
-
 export type BrokerCredentials = {
 	apiKey: string;
 	apiSecret: string;
 };
-export type SecondaryKeys<T>={
-	secondaryKeys: Array<T>
-} 
+export type SecondaryKeys<T> = {
+	secondaryKeys: Array<T>;
+};
 
 export interface ExchangeCredentials {
-	[exchange: string]: BrokerCredentials & SecondaryKeys<BrokerCredentials>
+	[exchange: string]: BrokerCredentials & SecondaryKeys<BrokerCredentials>;
 }
