@@ -17,7 +17,12 @@ export function authenticateRequest<T, E>(
 	return true;
 }
 
-export function createBroker(cex: string, metadata: Metadata, useVerity: boolean, verityProverUrl: string): Exchange | null {
+export function createBroker(
+	cex: string,
+	metadata: Metadata,
+	useVerity: boolean,
+	verityProverUrl: string,
+): Exchange | null {
 	const api_key = metadata.get("api-key");
 	const api_secret = metadata.get("api-secret");
 
@@ -38,32 +43,37 @@ export function createBroker(cex: string, metadata: Metadata, useVerity: boolean
 		timeout: 150 * 1000,
 		options: {
 			adjustForTimeDifference: true,
-			recvWindow: 60000
-		}
+			recvWindow: 60000,
+		},
 	});
 	exchange.options.recvWindow = 60000;
 	return exchange;
 }
 
-export function selectBroker(brokers: {
-	primary: Exchange;
-	secondaryBrokers: Exchange[];
-} | undefined, metadata: Metadata): Exchange | null {
+export function selectBroker(
+	brokers:
+		| {
+				primary: Exchange;
+				secondaryBrokers: Exchange[];
+		  }
+		| undefined,
+	metadata: Metadata,
+): Exchange | null {
 	if (!brokers) {
-		return null
+		return null;
 	} else {
 		const use_secondary_key = metadata.get("use-secondary-key");
 		if (!use_secondary_key || use_secondary_key.length === 0) {
-			return brokers.primary
-		}
-		else if (use_secondary_key.length > 0) {
-			const keyIndex = Number.isInteger(+(use_secondary_key[use_secondary_key.length - 1] ?? "0"))
-			return brokers.secondaryBrokers[+keyIndex] ?? null
-		}else{
-			return null
+			return brokers.primary;
+		} else if (use_secondary_key.length > 0) {
+			const keyIndex = Number.isInteger(
+				+(use_secondary_key[use_secondary_key.length - 1] ?? "0"),
+			);
+			return brokers.secondaryBrokers[+keyIndex] ?? null;
+		} else {
+			return null;
 		}
 	}
-
 }
 
 /**
