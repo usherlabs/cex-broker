@@ -469,15 +469,16 @@ export function getServer(
 			call: grpc.ServerWritableStream<SubscribeRequest, SubscribeResponse>,
 		) => {
 			// IP Authentication
-			const clientIp = call.getPeer().split(":")[0];
-			if (!clientIp || !whitelistIps.includes(clientIp)) {
-				log.warn(
-					`Blocked access from unauthorized IP: ${clientIp || "unknown"}`,
+			if (!authenticateRequest(call, whitelistIps)) {
+				call.emit('error',
+					{
+						code: grpc.status.PERMISSION_DENIED,
+						message: "Access denied: Unauthorized IP",
+					},
+					null,
 				);
-				call.destroy(new Error("Access denied: Unauthorized IP"));
-				return;
+				call.destroy(new Error("Access denied: Unauthorized IP")); 
 			}
-
 			// Read incoming metadata
 			const metadata = call.metadata;
 			let broker: Exchange | null = null;
