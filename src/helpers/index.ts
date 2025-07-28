@@ -1,8 +1,9 @@
-import type { ServerUnaryCall } from "@grpc/grpc-js";
 import fs from "fs";
 import Joi from "joi";
 import type { PolicyConfig } from "../types";
 import { log } from "./logger";
+import type { Metadata, ServerUnaryCall } from "@grpc/grpc-js";
+import ccxt, { type Exchange } from "@usherlabs/ccxt";
 
 export function authenticateRequest<T, E>(
 	call: ServerUnaryCall<T, E>,
@@ -14,6 +15,55 @@ export function authenticateRequest<T, E>(
 		return false;
 	}
 	return true;
+}
+
+export function createBroker(cex: string, metadata: Metadata, useVerity: boolean, verityProverUrl: string): Exchange | null {
+	const api_key = metadata.get("api-key");
+	const api_secret = metadata.get("api-secret");
+
+	const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[cex];
+
+	metadata.remove("api-key");
+	metadata.remove("api-secret");
+	if (api_secret.length === 0 || api_key.length === 0 || !ExchangeClass) {
+		return null;
+	}
+	const exchange = new ExchangeClass({
+		apiKey: api_key[0]?.toString(),
+		secret: api_secret[0]?.toString(),
+		enableRateLimit: true,
+		defaultType: "spot",
+		useVerity: useVerity,
+		verityProverUrl: verityProverUrl,
+		timeout: 150 * 1000,
+		options: {
+			adjustForTimeDifference: true,
+			recvWindow: 60000
+		}
+	});
+	exchange.options.recvWindow = 60000;
+	return exchange;
+}
+
+export function selectBroker(brokers: {
+	primary: Exchange;
+	secondaryBrokers: Exchange[];
+} | undefined, metadata: Metadata): Exchange | null {
+	if (!brokers) {
+		return null
+	} else {
+		const use_secondary_key = metadata.get("use-secondary-key");
+		if (!use_secondary_key || use_secondary_key.length === 0) {
+			return brokers.primary
+		}
+		else if (use_secondary_key.length > 0) {
+			const keyIndex = Number.isInteger(+(use_secondary_key[use_secondary_key.length - 1] ?? "0"))
+			return brokers.secondaryBrokers[+keyIndex] ?? null
+		}else{
+			return null
+		}
+	}
+
 }
 
 /**

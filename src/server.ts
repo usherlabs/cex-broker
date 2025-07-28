@@ -1,4 +1,4 @@
-import { authenticateRequest, validateDeposit, validateOrder, validateWithdraw } from "./helpers";
+import { authenticateRequest, createBroker, selectBroker, validateDeposit, validateOrder, validateWithdraw } from "./helpers";
 import type { PolicyConfig } from "./types";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
@@ -35,38 +35,7 @@ export function getServer(
 	verityProverUrl: string,
 ) {
 	const server = new grpc.Server();
-	function createBroker(cex: string, metadata: grpc.Metadata, secondaryBrokers: Exchange[]): Exchange | null {
-		const api_key = metadata.get("api-key");
-		const api_secret = metadata.get("api-secret");
-		const use_secondary_key = metadata.get("use-secondary-key");
-		if (use_secondary_key.length > 0) {
-			const keyIndex = Number.isInteger(+(use_secondary_key[use_secondary_key.length - 1] ?? "0"))
-			return secondaryBrokers[+keyIndex] ?? null
-		}
 
-		const ExchangeClass = (ccxt.pro as any)[cex];
-
-		metadata.remove("api-key");
-		metadata.remove("api-secret");
-		if (api_secret.length == 0 || api_key.length == 0) {
-			return null;
-		}
-		const exchange = new ExchangeClass({
-			apiKey: api_key[0],
-			secret: api_secret[0],
-			enableRateLimit: true,
-			defaultType: "spot",
-			useVerity: useVerity,
-			verityProverUrl: verityProverUrl,
-			timeout: 150 * 1000,
-			options: {
-				adjustForTimeDifference: true,
-				recvWindow: 60000
-			}
-		});
-		exchange.options['recvWindow'] = 60000;
-		return exchange;
-	}
 	server.addService(cexNode.CexService.service, {
 		ExecuteAction: async (
 			call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>,
@@ -96,8 +65,8 @@ export function getServer(
 				);
 			}
 
-			const broker =
-				brokers[cex as keyof typeof brokers]?.primary ?? createBroker(cex, metadata, brokers[cex as keyof typeof brokers]?.secondaryBrokers ?? []);
+			const broker = selectBroker(brokers[cex as keyof typeof brokers],metadata )?? createBroker(cex, metadata,useVerity,verityProverUrl);
+
 
 
 			if (!broker) {
@@ -510,8 +479,7 @@ export function getServer(
 				}
 
 				// Get or create broker
-				broker =
-					brokers[cex as keyof typeof brokers]?.primary ?? createBroker(cex, metadata, brokers[cex as keyof typeof brokers]?.secondaryBrokers ?? []);
+				broker = selectBroker(brokers[cex as keyof typeof brokers],metadata )?? createBroker(cex, metadata,useVerity,verityProverUrl);
 
 				if (!broker) {
 					call.write({
