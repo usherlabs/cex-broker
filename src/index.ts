@@ -1,16 +1,16 @@
-import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import * as grpc from "@grpc/grpc-js";
-import { watchFile, unwatchFile } from "fs";
+import ccxt, { type Exchange } from "@usherlabs/ccxt";
+import { unwatchFile, watchFile } from "fs";
 import Joi from "joi";
 import { loadPolicy } from "./helpers";
+import { log } from "./helpers/logger";
+import { getServer } from "./server";
 import {
-	BrokerList,
 	type BrokerCredentials,
+	BrokerList,
 	type ExchangeCredentials,
 	type PolicyConfig,
 } from "./types";
-import { getServer } from "./server";
-import { log } from "./helpers/logger";
 
 log.info("CCXT Version:", ccxt.version);
 
@@ -51,11 +51,11 @@ export default class CEXBroker {
 			if (!key.startsWith("CEX_BROKER_")) continue;
 
 			// Match secondary keys like API_KEY_1, API_SECRET_1
-			let match: any = key.match(/^CEX_BROKER_(\w+)_API_(KEY|SECRET)_(\d+)$/);
+			let match = key.match(/^CEX_BROKER_(\w+)_API_(KEY|SECRET)_(\d+)$/);
 			if (match) {
-				const broker = match[1].toLowerCase();
-				const type = match[2].toLowerCase();
-				const index = +match[3];
+				const broker = match[1]?.toLowerCase() ?? "";
+				const type = match[2]?.toLowerCase();
+				const index = Number(match[3]?.toLowerCase());
 
 				if (!configMap[broker]) configMap[broker] = {};
 				if (!configMap[broker]._secondaryMap)
@@ -77,8 +77,8 @@ export default class CEXBroker {
 				continue;
 			}
 
-			const broker = match[1].toLowerCase(); // normalize to lowercase
-			const type = match[2].toLowerCase(); // 'key' or 'secret'
+			const broker = match[1]?.toLowerCase() ?? ""; // normalize to lowercase
+			const type = match[2]?.toLowerCase() ?? ""; // 'key' or 'secret'
 
 			if (!configMap[broker]) {
 				configMap[broker] = {};
@@ -99,7 +99,13 @@ export default class CEXBroker {
 		for (const [broker, creds] of Object.entries(configMap)) {
 			const hasKey = !!creds.apiKey;
 			const hasSecret = !!creds.apiSecret;
-			const ExchangeClass = (ccxt.pro as any)[broker];
+			const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[
+				broker
+			];
+
+			if (!ExchangeClass) {
+				throw new Error(`Invalid Broker : ${broker}`);
+			}
 
 			if (hasKey && hasSecret) {
 				const secondaryKeys: { apiKey: string; apiSecret: string }[] = [];
@@ -201,7 +207,13 @@ export default class CEXBroker {
 
 		// Finalize config and print result per broker
 		for (const [broker, creds] of Object.entries(value)) {
-			const ExchangeClass = (ccxt.pro as any)[broker];
+			const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[
+				broker
+			];
+
+			if (!ExchangeClass) {
+				throw new Error(`Invalid Broker : ${broker}`);
+			}
 
 			log.info(
 				`✅ Loaded credentials for broker "${broker}" (${1 + (creds.secondaryKeys?.length || 0)} key sets)`,

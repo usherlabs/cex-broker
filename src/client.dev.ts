@@ -3,7 +3,6 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "../proto/node";
 import { Action } from "../proto/cexBroker/Action";
-import { SubscriptionType } from "../proto/cexBroker/SubscriptionType";
 import { config } from "dotenv";
 import { log } from "./helpers/logger";
 import CEXBroker from ".";
@@ -30,7 +29,6 @@ const broker = new CEXBroker({}, loadPolicy("./policy/policy.json"), {
 broker.loadEnvConfig();
 broker.run();
 
-
 const metadata = new grpc.Metadata();
 metadata.add("api-key", process.env.BYBIT_API_KEY ?? ""); // Example header
 metadata.add("api-secret", process.env.BYBIT_API_SECRET ?? "");
@@ -55,14 +53,23 @@ function onClientReady() {
 	// 	log.info("ExecuteAction Balance Result:", { result });
 	// });
 
-		// Test ExecuteAction for balance
-	client.executeAction({ cex: "bybit", symbol: "USDT",payload:{chain:"TRC20"},action: Action.FetchDepositAddresses },metadata, (err, result) => {
-		if (err) {
-			log.error({ err });
-			return;
-		}
-		log.info("ExecuteAction Balance Result:", { result });
-	});
+	// Test ExecuteAction for balance
+	client.executeAction(
+		{
+			cex: "bybit",
+			symbol: "USDT",
+			payload: { chain: "TRC20" },
+			action: Action.FetchDepositAddresses,
+		},
+		metadata,
+		(err, result) => {
+			if (err) {
+				log.error({ err });
+				return;
+			}
+			log.info("ExecuteAction Balance Result:", { result });
+		},
+	);
 
 	// // Test Subscribe for balance streaming
 	// log.info("Starting balance subscription test...");

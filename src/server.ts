@@ -1,23 +1,24 @@
-import { validateDeposit, validateOrder, validateWithdraw } from "./helpers";
+import {
+	authenticateRequest,
+	createBroker,
+	selectBroker,
+	validateOrder,
+	validateWithdraw,
+} from "./helpers";
 import type { PolicyConfig } from "./types";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "../proto/node";
 import path from "path";
 import type { Exchange } from "@usherlabs/ccxt";
-import type {
-	ActionRequest,
-	ActionRequest__Output,
-} from "../proto/cexBroker/ActionRequest";
+import type { ActionRequest } from "../proto/cexBroker/ActionRequest";
 import type { ActionResponse } from "../proto/cexBroker/ActionResponse";
 import { Action } from "../proto/cexBroker/Action";
 import type { SubscribeRequest } from "../proto/cexBroker/SubscribeRequest";
 import type { SubscribeResponse } from "../proto/cexBroker/SubscribeResponse";
 import { SubscriptionType } from "../proto/cexBroker/SubscriptionType";
-import Joi, { options } from "joi";
-import ccxt from "@usherlabs/ccxt";
+import Joi from "joi";
 import { log } from "./helpers/logger";
-import { Network } from "inspector/promises";
 
 const PROTO_FILE = "../proto/node.proto";
 
@@ -27,20 +28,6 @@ const grpcObj = grpc.loadPackageDefinition(
 ) as unknown as ProtoGrpcType;
 const cexNode = grpcObj.cexBroker;
 
-function authenticateRequest<T, E>(
-	call: grpc.ServerUnaryCall<T, E>,
-	whitelistIps: string[],
-): boolean {
-	const clientIp = call.getPeer().split(":")[0];
-	if (!clientIp || !whitelistIps.includes(clientIp)) {
-		log.warn(`Blocked access from unauthorized IP: ${clientIp || "unknown"}`);
-		return false;
-	}
-	return true;
-}
-
-
-
 export function getServer(
 	policy: PolicyConfig,
 	brokers: Record<string, { primary: Exchange; secondaryBrokers: Exchange[] }>,
@@ -49,38 +36,7 @@ export function getServer(
 	verityProverUrl: string,
 ) {
 	const server = new grpc.Server();
-	function createBroker(cex: string, metadata: grpc.Metadata, secondaryBrokers: Exchange[]): Exchange | null {
-		const api_key = metadata.get("api-key");
-		const api_secret = metadata.get("api-secret");
-		const use_secondary_key = metadata.get("use-secondary-key");
-		if (use_secondary_key.length > 0) {
-			const keyIndex = Number.isInteger(+(use_secondary_key[use_secondary_key.length - 1] ?? "0"))
-			return secondaryBrokers[+keyIndex] ?? null
-		}
 
-		const ExchangeClass = (ccxt.pro as any)[cex];
-
-		metadata.remove("api-key");
-		metadata.remove("api-secret");
-		if (api_secret.length == 0 || api_key.length == 0) {
-			return null;
-		}
-		const exchange = new ExchangeClass({
-			apiKey: api_key[0],
-			secret: api_secret[0],
-			enableRateLimit: true,
-			defaultType: "spot",
-			useVerity: useVerity,
-			verityProverUrl: verityProverUrl,
-			timeout: 150 * 1000,
-			options: {
-				adjustForTimeDifference: true,
-				recvWindow: 60000
-			}
-		});
-		exchange.options['recvWindow'] = 60000;
-		return exchange;
-	}
 	server.addService(cexNode.CexService.service, {
 		ExecuteAction: async (
 			call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>,
@@ -98,7 +54,7 @@ export function getServer(
 			}
 			// Read incoming metadata
 			const metadata = call.metadata;
-			const { action, payload, cex, symbol } = call.request;
+			const { action, cex, symbol } = call.request;
 			// Validate required fields
 			if (!action || !cex || !symbol) {
 				return callback(
@@ -111,8 +67,8 @@ export function getServer(
 			}
 
 			const broker =
-				brokers[cex as keyof typeof brokers]?.primary ?? createBroker(cex, metadata, brokers[cex as keyof typeof brokers]?.secondaryBrokers ?? []);
-
+				selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
+				createBroker(cex, metadata, useVerity, verityProverUrl);
 
 			if (!broker) {
 				return callback(
@@ -125,7 +81,7 @@ export function getServer(
 			}
 
 			switch (action) {
-				case Action.Deposit:
+				case Action.Deposit: {
 					const transactionSchema = Joi.object({
 						recipientAddress: Joi.string().required(),
 						amount: Joi.number().positive().required(), // Must be a positive number
@@ -138,7 +94,7 @@ export function getServer(
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + error.message,
+								message: `ValidationError: ${error.message}`,
 							},
 							null,
 						);
@@ -147,15 +103,19 @@ export function getServer(
 						const deposits = await broker.fetchDeposits(symbol, 50);
 						const deposit = deposits.find(
 							(deposit) =>
-								deposit.id == value.transactionHash ||
-								deposit.txid == value.transactionHash,
+								deposit.id === value.transactionHash ||
+								deposit.txid === value.transactionHash,
 						);
 
 						if (deposit) {
 							log.info(
 								`Amount ${value.amount} at ${value.transactionHash} . Paid to ${value.recipientAddress}`,
 							);
-							return callback(null, { result: useVerity ? broker.last_proof : JSON.stringify({ ...deposit }) });
+							return callback(null, {
+								result: useVerity
+									? broker.last_proof
+									: JSON.stringify({ ...deposit }),
+							});
 						}
 						callback(
 							{
@@ -175,28 +135,41 @@ export function getServer(
 						);
 					}
 					break;
+				}
 
-				case Action.FetchDepositAddresses:
+				case Action.FetchDepositAddresses: {
 					const fetchDepositAddressesSchema = Joi.object({
 						chain: Joi.string().required(),
-					})
-					const { value: fetchDepositAddresses, error: errorFetchDepositAddresses } = fetchDepositAddressesSchema.validate(
-						call.request.payload ?? {},
-					);
+					});
+					const {
+						value: fetchDepositAddresses,
+						error: errorFetchDepositAddresses,
+					} = fetchDepositAddressesSchema.validate(call.request.payload ?? {});
 					if (errorFetchDepositAddresses) {
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError: " + errorFetchDepositAddresses?.message,
+								message: `ValidationError: ${errorFetchDepositAddresses?.message}`,
 							},
 							null,
 						);
 					}
 					try {
-						const depositAddresses = broker.has.fetchDepositAddress == true ? await broker.fetchDepositAddress(symbol, { network: fetchDepositAddresses.chain }) : await broker.fetchDepositAddressesByNetwork(symbol, { network: fetchDepositAddresses.chain });
+						const depositAddresses =
+							broker.has.fetchDepositAddress === true
+								? await broker.fetchDepositAddress(symbol, {
+										network: fetchDepositAddresses.chain,
+									})
+								: await broker.fetchDepositAddressesByNetwork(symbol, {
+										network: fetchDepositAddresses.chain,
+									});
 
 						if (depositAddresses) {
-							return callback(null, { result: useVerity ? broker.last_proof : JSON.stringify({ ...depositAddresses }) });
+							return callback(null, {
+								result: useVerity
+									? broker.last_proof
+									: JSON.stringify({ ...depositAddresses }),
+							});
 						}
 						callback(
 							{
@@ -205,30 +178,38 @@ export function getServer(
 							},
 							null,
 						);
-					} catch (error: any) {
+					} catch (error: unknown) {
 						log.error({ error });
+						const message =
+							error instanceof Error
+								? error.message
+								: typeof error === "string"
+									? error
+									: "Unknown error";
 						callback(
 							{
 								code: grpc.status.INTERNAL,
-								message: "Fetch Deposit Addresses confirmation failed: " + error.message,
+								message:
+									"Fetch Deposit Addresses confirmation failed: " + message,
 							},
 							null,
 						);
 					}
 					break;
-				case Action.Transfer:
+				}
+				case Action.Transfer: {
 					const transferSchema = Joi.object({
 						recipientAddress: Joi.string().required(),
 						amount: Joi.number().positive().required(), // Must be a positive number
 						chain: Joi.string().required(),
 					});
 					const { value: transferValue, error: transferError } =
-						transferSchema.validate(call.request.payload ?? {})
+						transferSchema.validate(call.request.payload ?? {});
 					if (transferError) {
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + transferError?.message,
+								message: `ValidationError:" ${transferError?.message}`,
 							},
 							null,
 						);
@@ -272,10 +253,13 @@ export function getServer(
 							undefined,
 							{ network: transferValue.chain },
 						);
-						log.info("Transfer Transfer" + JSON.stringify(transaction)
-						);
+						log.info(`Transfer Transfer: ${JSON.stringify(transaction)}`);
 
-						callback(null, { result: useVerity ? broker.last_proof : JSON.stringify({ ...transaction }) });
+						callback(null, {
+							result: useVerity
+								? broker.last_proof
+								: JSON.stringify({ ...transaction }),
+						});
 					} catch (error) {
 						log.error({ error });
 						callback(
@@ -287,8 +271,9 @@ export function getServer(
 						);
 					}
 					break;
+				}
 
-				case Action.CreateOrder:
+				case Action.CreateOrder: {
 					const createOrderSchema = Joi.object({
 						orderType: Joi.string().valid("market", "limit").default("limit"),
 						amount: Joi.number().positive().required(), // Must be a positive number
@@ -302,7 +287,7 @@ export function getServer(
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + orderError.message,
+								message: `ValidationError:" ${orderError.message}`,
 							},
 							null,
 						);
@@ -368,19 +353,20 @@ export function getServer(
 					}
 
 					break;
+				}
 
-				case Action.GetOrderDetails:
+				case Action.GetOrderDetails: {
 					const getOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
 					});
 					const { value: getOrderValue, error: getOrderError } =
-						getOrderSchema.validate(call.request.payload ?? {})
+						getOrderSchema.validate(call.request.payload ?? {});
 					// Validate required fields
 					if (getOrderError) {
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + getOrderError.message,
+								message: `ValidationError: ${getOrderError.message}`,
 							},
 							null,
 						);
@@ -422,7 +408,8 @@ export function getServer(
 						);
 					}
 					break;
-				case Action.CancelOrder:
+				}
+				case Action.CancelOrder: {
 					const cancelOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
 					});
@@ -433,7 +420,7 @@ export function getServer(
 						return callback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: "ValidationError:" + cancelOrderError.message,
+								message: `ValidationError:  ${cancelOrderError.message}`,
 							},
 							null,
 						);
@@ -447,17 +434,21 @@ export function getServer(
 						result: JSON.stringify({ ...cancelledOrder }),
 					});
 					break;
+				}
 				case Action.FetchBalance:
 					try {
 						// Fetch balance from the specified CEX
+						// biome-ignore lint/suspicious/noExplicitAny: fetchFreeBalance
 						const balance = (await broker.fetchFreeBalance()) as any;
 						const currencyBalance = balance[symbol];
 
 						callback(null, {
-							result: useVerity ? broker.last_proof : JSON.stringify({
-								balance: currencyBalance || 0,
-								currency: symbol,
-							}),
+							result: useVerity
+								? broker.last_proof
+								: JSON.stringify({
+										balance: currencyBalance || 0,
+										currency: symbol,
+									}),
 						});
 					} catch (error) {
 						log.error(`Error fetching balance from ${cex}:`, error);
@@ -483,15 +474,17 @@ export function getServer(
 			call: grpc.ServerWritableStream<SubscribeRequest, SubscribeResponse>,
 		) => {
 			// IP Authentication
-			const clientIp = call.getPeer().split(":")[0];
-			if (!clientIp || !whitelistIps.includes(clientIp)) {
-				log.warn(
-					`Blocked access from unauthorized IP: ${clientIp || "unknown"}`,
+			if (!authenticateRequest(call, whitelistIps)) {
+				call.emit(
+					"error",
+					{
+						code: grpc.status.PERMISSION_DENIED,
+						message: "Access denied: Unauthorized IP",
+					},
+					null,
 				);
 				call.destroy(new Error("Access denied: Unauthorized IP"));
-				return;
 			}
-
 			// Read incoming metadata
 			const metadata = call.metadata;
 			let broker: Exchange | null = null;
@@ -518,7 +511,8 @@ export function getServer(
 
 				// Get or create broker
 				broker =
-					brokers[cex as keyof typeof brokers]?.primary ?? createBroker(cex, metadata, brokers[cex as keyof typeof brokers]?.secondaryBrokers ?? []);
+					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
+					createBroker(cex, metadata, useVerity, verityProverUrl);
 
 				if (!broker) {
 					call.write({
@@ -546,14 +540,20 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
+						} catch (error: unknown) {
 							log.error(
 								`Error fetching orderbook for ${symbol} on ${cex}:`,
 								error,
 							);
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch orderbook: ${error.message}`,
+									error: `Failed to fetch orderbook: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -565,7 +565,6 @@ export function getServer(
 					case SubscriptionType.TRADES:
 						try {
 							while (true) {
-
 								const trades = await broker.watchTrades(symbol);
 								call.write({
 									data: JSON.stringify(trades),
@@ -574,14 +573,20 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
+						} catch (error: unknown) {
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							log.error(
 								`Error fetching trades for ${symbol} on ${cex}:`,
-								error.message,
+								error,
 							);
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch trades: ${error.message}`,
+									error: `Failed to fetch trades: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -601,14 +606,20 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
+						} catch (error: unknown) {
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							log.error(
 								`Error fetching ticker for ${symbol} on ${cex}:`,
-								error.message,
+								error,
 							);
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch ticker: ${error.message}`,
+									error: `Failed to fetch ticker: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -629,14 +640,17 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
-							log.error(
-								`Error fetching OHLCV for ${symbol} on ${cex}:`,
-								error.message,
-							);
+						} catch (error: unknown) {
+							log.error(`Error fetching OHLCV for ${symbol} on ${cex}:`, error);
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch OHLCV: ${error.message}`,
+									error: `Failed to fetch OHLCV: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -656,11 +670,17 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
-							log.error(`Error fetching balance for ${cex}:`, error.message);
+						} catch (error: unknown) {
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
+							log.error(`Error fetching balance for ${cex}:`, error);
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch balance: ${error.message}`,
+									error: `Failed to fetch balance: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -680,14 +700,20 @@ export function getServer(
 									type,
 								});
 							}
-						} catch (error: any) {
+						} catch (error: unknown) {
 							log.error(
 								`Error fetching orders for ${symbol} on ${cex}:`,
 								error,
 							);
+							const message =
+								error instanceof Error
+									? error.message
+									: typeof error === "string"
+										? error
+										: "Unknown error";
 							call.write({
 								data: JSON.stringify({
-									error: `Failed to fetch orders: ${error.message}`,
+									error: `Failed to fetch orders: ${message}`,
 								}),
 								timestamp: Date.now(),
 								symbol,
@@ -706,8 +732,14 @@ export function getServer(
 				}
 			} catch (error) {
 				log.error("Error in Subscribe stream:", error);
+				const message =
+					error instanceof Error
+						? error.message
+						: typeof error === "string"
+							? error
+							: "Unknown error";
 				call.write({
-					data: JSON.stringify({ error: `Internal server error: ${error}` }),
+					data: JSON.stringify({ error: `Internal server error: ${message}` }),
 					timestamp: Date.now(),
 					symbol: "",
 					type: SubscriptionType.ORDERBOOK,
