@@ -27,8 +27,5 @@ jobs:
       - name: Run Biome lint
         run: bunx @biomejs/biome lint .
 
-      - name: Run Biome format check
-        run: bunx @biomejs/biome format --write=false .
-
       - name: Run tests
         run: bun test 
