@@ -6,7 +6,6 @@ describe("Helper Functions", () => {
 	let testPolicy: PolicyConfig;
 
 	beforeEach(() => {
-
 		// Test policy configuration
 		testPolicy = {
 			withdraw: {

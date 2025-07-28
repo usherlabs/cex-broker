@@ -53,7 +53,7 @@ export default class CEXBroker {
 			// Match secondary keys like API_KEY_1, API_SECRET_1
 			let match = key.match(/^CEX_BROKER_(\w+)_API_(KEY|SECRET)_(\d+)$/);
 			if (match) {
-				const broker = match[1]?.toLowerCase()??"";
+				const broker = match[1]?.toLowerCase() ?? "";
 				const type = match[2]?.toLowerCase();
 				const index = Number(match[3]?.toLowerCase());
 
@@ -77,8 +77,8 @@ export default class CEXBroker {
 				continue;
 			}
 
-			const broker = match[1]?.toLowerCase()??""; // normalize to lowercase
-			const type = match[2]?.toLowerCase()??""; // 'key' or 'secret'
+			const broker = match[1]?.toLowerCase() ?? ""; // normalize to lowercase
+			const type = match[2]?.toLowerCase() ?? ""; // 'key' or 'secret'
 
 			if (!configMap[broker]) {
 				configMap[broker] = {};
@@ -99,12 +99,13 @@ export default class CEXBroker {
 		for (const [broker, creds] of Object.entries(configMap)) {
 			const hasKey = !!creds.apiKey;
 			const hasSecret = !!creds.apiSecret;
-			const ExchangeClass = (ccxt.pro as Record<string,typeof Exchange>)[broker];
+			const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[
+				broker
+			];
 
-			if(!ExchangeClass){
+			if (!ExchangeClass) {
 				throw new Error(`Invalid Broker : ${broker}`);
 			}
-
 
 			if (hasKey && hasSecret) {
 				const secondaryKeys: { apiKey: string; apiSecret: string }[] = [];
@@ -206,9 +207,11 @@ export default class CEXBroker {
 
 		// Finalize config and print result per broker
 		for (const [broker, creds] of Object.entries(value)) {
-			const ExchangeClass = (ccxt.pro as Record<string,typeof Exchange>)[broker];
+			const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[
+				broker
+			];
 
-			if(!ExchangeClass){
+			if (!ExchangeClass) {
 				throw new Error(`Invalid Broker : ${broker}`);
 			}
 
