@@ -20,3 +20,5 @@ await Bun.build({
 })
 
 // Generates `dist/index.d.ts` and `dist/other/foo.d.ts`
+
+console.log('Build complete.')
