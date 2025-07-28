@@ -25,7 +25,8 @@
 				"BYBIT:ARB/USDC",
 				"UPBIT:ETH/USDC",
 				"BINANCE:ETH/USDT",
-				"BINANCE:BTC/ETH"
+				"BINANCE:BTC/ETH",
+				"BINANCE:BTC/USDC"
 			],
 			"limits": [
 				{ "from": "USDT", "to": "ETH", "min": 1, "max": 100000 },

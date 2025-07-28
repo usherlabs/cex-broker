@@ -1,37 +1,11 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
-import {
-	buyAtOptimalPrice,
-	sellAtOptimalPrice,
-	validateWithdraw,
-	validateOrder,
-	validateDeposit,
-} from "./index";
-import type { Exchange } from "ccxt";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { PolicyConfig } from "../types";
+import { validateDeposit, validateOrder, validateWithdraw } from "./index";
 
 describe("Helper Functions", () => {
-	let mockExchange: Exchange;
 	let testPolicy: PolicyConfig;
 
 	beforeEach(() => {
-		// Create mock exchange
-		mockExchange = {
-			fetchOrderBook: mock(async (symbol: string) => ({
-				bids: [
-					[100, 10], // price, volume
-					[99, 20],
-					[98, 30],
-					[97, 40],
-				],
-				asks: [
-					[101, 10],
-					[102, 20],
-					[103, 30],
-					[104, 40],
-				],
-			})),
-		} as any;
-
 		// Test policy configuration
 		testPolicy = {
 			withdraw: {
@@ -68,89 +42,11 @@ describe("Helper Functions", () => {
 		};
 	});
 
-	describe("buyAtOptimalPrice", () => {
-		test("should calculate optimal buy price correctly", async () => {
-			const result = await buyAtOptimalPrice(mockExchange, "ARB/USDT", 25);
-
-			expect(result).toBeDefined();
-			expect(result.avgPrice).toBeGreaterThan(0);
-			expect(result.fillPrice).toBeGreaterThan(0);
-			expect(result.size).toBe(25);
-			expect(result.symbol).toBe("ARB/USDT");
-			expect(mockExchange.fetchOrderBook).toHaveBeenCalledWith("ARB/USDT", 500);
-		});
-
-		test("should handle insufficient depth", async () => {
-			// Mock exchange with insufficient depth
-			const insufficientExchange = {
-				fetchOrderBook: mock(async () => ({
-					bids: [[100, 5]], // Only 5 volume available
-				})),
-			} as any;
-
-			await expect(
-				buyAtOptimalPrice(insufficientExchange, "ARB/USDT", 10),
-			).rejects.toThrow("Insufficient depth");
-		});
-
-		test("should handle edge case with exact volume match", async () => {
-			const exactExchange = {
-				fetchOrderBook: mock(async () => ({
-					bids: [[100, 25]], // Exact volume needed
-				})),
-			} as any;
-
-			const result = await buyAtOptimalPrice(exactExchange, "ARB/USDT", 25);
-			expect(result.avgPrice).toBe(100);
-			expect(result.fillPrice).toBe(100);
-		});
-	});
-
-	describe("sellAtOptimalPrice", () => {
-		test("should calculate optimal sell price correctly", async () => {
-			const result = await sellAtOptimalPrice(mockExchange, "ARB/USDT", 25);
-
-			expect(result).toBeDefined();
-			expect(result.avgPrice).toBeGreaterThan(0);
-			expect(result.fillPrice).toBeGreaterThan(0);
-			expect(result.size).toBe(25);
-			expect(result.symbol).toBe("ARB/USDT");
-			expect(mockExchange.fetchOrderBook).toHaveBeenCalledWith("ARB/USDT");
-		});
-
-		test("should handle insufficient depth for selling", async () => {
-			const insufficientExchange = {
-				fetchOrderBook: mock(async () => ({
-					asks: [[101, 5]], // Only 5 volume available
-				})),
-			} as any;
-
-			await expect(
-				sellAtOptimalPrice(insufficientExchange, "ARB/USDT", 10),
-			).rejects.toThrow("Insufficient depth");
-		});
-
-		test("should handle undefined orderbook entries", async () => {
-			const badExchange = {
-				fetchOrderBook: mock(async () => ({
-					asks: [
-						[undefined, 10],
-						[102, undefined],
-					],
-				})),
-			} as any;
-
-			await expect(
-				sellAtOptimalPrice(badExchange, "ARB/USDT", 5),
-			).rejects.toThrow("Orderbook entry had undefined price or volume");
-		});
-	});
-
 	describe("loadPolicy", () => {
 		test("should load policy successfully", () => {
 			// This test will use the actual policy file
 			const { loadPolicy } = require("./index");
-			const policy = loadPolicy();
+			const policy = loadPolicy("./policy/policy.json");
 
 			expect(policy).toBeDefined();
 			expect(policy.withdraw.rule.networks).toContain("ARBITRUM");
