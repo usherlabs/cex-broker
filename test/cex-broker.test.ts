@@ -162,16 +162,6 @@ describe("CEXBroker", () => {
 			expect(broker).toBeDefined();
 		});
 
-		test("should validate policy structure", () => {
-			const invalidPolicy = {
-				withdraw: {},
-				// Missing order policy
-			};
-
-			// Test that invalid policy is handled
-			expect(invalidPolicy.order).toBeUndefined();
-		});
-
 		test("should handle policy file watching", () => {
 			broker = new CEXBroker({}, "./policy/policy.json");
 			expect(broker).toBeDefined();
@@ -179,35 +169,18 @@ describe("CEXBroker", () => {
 	});
 
 	describe("Exchange Credentials", () => {
-		test("should validate exchange credentials structure", () => {
-			const validCredentials = {
-				binance: {
-					apiKey: "test_key",
-					apiSecret: "test_secret",
-				},
-			};
-
-			const invalidCredentials = {
-				binance: {
-					apiKey: "test_key",
-					// Missing apiSecret
-				},
-			};
-
-			// Test validation logic
-			expect(validCredentials.binance.apiSecret).toBeDefined();
-			expect(invalidCredentials.binance.apiSecret).toBeUndefined();
-		});
 
 		test("should handle multiple exchanges", () => {
 			const credentials = {
 				binance: {
 					apiKey: "binance_key",
 					apiSecret: "binance_secret",
+					secondaryKeys:[]
 				},
 				bybit: {
 					apiKey: "bybit_key",
 					apiSecret: "bybit_secret",
+					secondaryKeys:[]
 				},
 			};
 
@@ -220,6 +193,7 @@ describe("CEXBroker", () => {
 				binance: {
 					apiKey: "primary_key",
 					apiSecret: "primary_secret",
+					secondaryKeys:[]
 				},
 			};
 
@@ -324,6 +298,7 @@ describe("CEXBroker", () => {
 				nonexistent: {
 					apiKey: "invalid_key",
 					apiSecret: "invalid_secret",
+					secondaryKeys:[]
 				},
 			};
 
@@ -353,6 +328,7 @@ describe("CEXBroker", () => {
 				binance: {
 					apiKey: "primary_key",
 					apiSecret: "primary_secret",
+					secondaryKeys:[]
 				},
 			};
 

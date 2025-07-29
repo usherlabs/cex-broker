@@ -5,15 +5,18 @@
 		"target": "ESNext",
 		"module": "Preserve",
 		"moduleDetection": "force",
+		"declaration": true,
+		"emitDeclarationOnly": true,
+		"esModuleInterop": true,
 		"allowJs": true,
+		"outDir": "./build",
 		"types": ["@types/bun",  "bun-types" ],
-		
 
 		// Bundler mode
 		"moduleResolution": "bundler",
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
-		"noEmit": true,
+		"noEmit": false,
 
 		// Best practices
 		"strict": true,
@@ -26,5 +29,12 @@
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false
-	}
+	},
+	"exclude": [
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "node_modules",
+    "dist"
+  ],
+"include": ["src/index.ts"]
 }
