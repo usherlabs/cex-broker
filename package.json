@@ -15,6 +15,7 @@
 		"@types/bun": "latest",
 		"bun-plugin-dts": "latest",
 		"bun-types": "latest",
+		"cpx": "^1.5.0",
 		"dotenv": "^17.2.0",
 		"husky": "^9.1.7"
 	},
@@ -27,7 +28,7 @@
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
-		"build": "bun run ./build.ts",
+		"build": "bun run ./build.ts && bun run build:ts && bun run copy:dts",
 		"build:ts": "bunx tsc",
 		"test": "bun test",
 		"format": "bunx biome format --write",
@@ -35,6 +36,7 @@
 		"lint:fix": "bunx biome lint --write",
 		"check": "bunx biome check",
 		"check:fix": "bunx biome check --write",
+		"copy:dts": "cpx \"build/src/*.d.ts\" ./dist/",
 		"prepare": "bunx husky",
 		"postinstall": "./proto-gen.sh"
 	},
