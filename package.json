@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"description": "Unified gRPC API to CEXs by Usher Labs",
 	"repository": "git@gitlab.com:usherlabs/cex-broker.git",
 	"homepage": "https://usher.so/",
@@ -15,6 +15,7 @@
 		"@types/bun": "latest",
 		"bun-plugin-dts": "latest",
 		"bun-types": "latest",
+		"cpx": "^1.5.0",
 		"dotenv": "^17.2.0",
 		"husky": "^9.1.7"
 	},
@@ -27,12 +28,15 @@
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
+		"build": "bun run ./build.ts && bun run build:ts && bun run copy:dts",
+		"build:ts": "bunx tsc",
 		"test": "bun test",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint",
 		"lint:fix": "bunx biome lint --write",
 		"check": "bunx biome check",
 		"check:fix": "bunx biome check --write",
+		"copy:dts": "cpx \"build/src/*.d.ts\" ./dist/",
 		"prepare": "bunx husky",
 		"postinstall": "./proto-gen.sh"
 	},
