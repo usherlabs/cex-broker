@@ -58,8 +58,8 @@ function onClientReady() {
 		{
 			cex: "bybit",
 			symbol: "USDT",
-			payload: { chain: "TRC20" },
-			action: Action.FetchDepositAddresses,
+			payload: { type: "spot" },
+			action: Action.FetchBalance,
 		},
 		metadata,
 		(err, result) => {
