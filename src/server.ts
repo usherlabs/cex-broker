@@ -108,7 +108,7 @@ export function getServer(
 							symbol,
 							value.since,
 							50,
-							{ ...value.params??{} },
+							{ ...(value.params ?? {}) },
 						);
 						const deposit = deposits.find(
 							(deposit) =>
@@ -171,11 +171,11 @@ export function getServer(
 							broker.has.fetchDepositAddress === true
 								? await broker.fetchDepositAddress(symbol, {
 										network: fetchDepositAddresses.chain,
-										...fetchDepositAddresses.params??{},
+										...(fetchDepositAddresses.params ?? {}),
 									})
 								: await broker.fetchDepositAddressesByNetwork(symbol, {
 										network: fetchDepositAddresses.chain,
-										...fetchDepositAddresses.params??{},
+										...(fetchDepositAddresses.params ?? {}),
 									});
 
 						if (depositAddresses) {
