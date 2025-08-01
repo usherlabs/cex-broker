@@ -87,6 +87,7 @@ export function getServer(
 						amount: Joi.number().positive().required(), // Must be a positive number
 						transactionHash: Joi.string().required(),
 						since: Joi.number(),
+						params: Joi.object().pattern(Joi.string(), Joi.string()).default({}),
 					});
 					const { value, error } = transactionSchema.validate(
 						call.request.payload ?? {},
@@ -105,7 +106,7 @@ export function getServer(
 							symbol,
 							value.since,
 							50,
-							{ ...value },
+							{ ...value.params },
 						);
 						const deposit = deposits.find(
 							(deposit) =>
@@ -146,6 +147,7 @@ export function getServer(
 				case Action.FetchDepositAddresses: {
 					const fetchDepositAddressesSchema = Joi.object({
 						chain: Joi.string().required(),
+						params: Joi.object().pattern(Joi.string(), Joi.string()).default({}),
 					});
 					const {
 						value: fetchDepositAddresses,
@@ -165,7 +167,7 @@ export function getServer(
 							broker.has.fetchDepositAddress === true
 								? await broker.fetchDepositAddress(symbol, {
 										network: fetchDepositAddresses.chain,
-										...fetchDepositAddresses,
+										...fetchDepositAddresses.params,
 									})
 								: await broker.fetchDepositAddressesByNetwork(symbol, {
 										network: fetchDepositAddresses.chain,
@@ -210,6 +212,7 @@ export function getServer(
 						recipientAddress: Joi.string().required(),
 						amount: Joi.number().positive().required(), // Must be a positive number
 						chain: Joi.string().required(),
+						params: Joi.object().pattern(Joi.string(), Joi.string()).default({}),
 					});
 					const { value: transferValue, error: transferError } =
 						transferSchema.validate(call.request.payload ?? {});
@@ -288,6 +291,7 @@ export function getServer(
 						fromToken: Joi.string().required(),
 						toToken: Joi.string().required(),
 						price: Joi.number().positive().required(),
+						params: Joi.object().pattern(Joi.string(), Joi.string()).default({}),
 					});
 					const { value: orderValue, error: orderError } =
 						createOrderSchema.validate(call.request.payload ?? {});
@@ -347,7 +351,7 @@ export function getServer(
 							Number(orderValue.amount),
 							Number(orderValue.price),
 							{
-								...orderValue,
+								...orderValue.params,
 							},
 						);
 
@@ -369,6 +373,8 @@ export function getServer(
 				case Action.GetOrderDetails: {
 					const getOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
+						params: Joi.object().pattern(Joi.string(), Joi.string()).default({}),
+
 					});
 					const { value: getOrderValue, error: getOrderError } =
 						getOrderSchema.validate(call.request.payload ?? {});
@@ -397,7 +403,7 @@ export function getServer(
 
 						const orderDetails = await broker.fetchOrder(
 							getOrderValue.orderId,
-							{ ...getOrderValue },
+							{ ...getOrderValue.params },
 						);
 
 						callback(null, {
@@ -426,6 +432,8 @@ export function getServer(
 				case Action.CancelOrder: {
 					const cancelOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
+						params: Joi.object().pattern(Joi.string(), Joi.string()).default({}),
+
 					});
 					const { value: cancelOrderValue, error: cancelOrderError } =
 						cancelOrderSchema.validate(call.request.payload ?? {});
@@ -442,6 +450,7 @@ export function getServer(
 
 					const cancelledOrder = await broker.cancelOrder(
 						cancelOrderValue.orderId,
+						cancelOrderValue.params??{}
 					);
 
 					callback(null, {
@@ -454,7 +463,7 @@ export function getServer(
 						// Fetch balance from the specified CEX
 						// biome-ignore lint/suspicious/noExplicitAny: fetchFreeBalance
 						const balance = (await broker.fetchFreeBalance({
-							...call.request.payload,
+							...call.request.payload??{},
 						})) as any;
 						const currencyBalance = balance[symbol];
 
