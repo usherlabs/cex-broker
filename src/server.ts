@@ -86,7 +86,7 @@ export function getServer(
 						recipientAddress: Joi.string().required(),
 						amount: Joi.number().positive().required(), // Must be a positive number
 						transactionHash: Joi.string().required(),
-						since: Joi.number()
+						since: Joi.number(),
 					});
 					const { value, error } = transactionSchema.validate(
 						call.request.payload ?? {},
@@ -101,7 +101,12 @@ export function getServer(
 						);
 					}
 					try {
-						const deposits = await broker.fetchDeposits(symbol,value.since, 50,{...value});
+						const deposits = await broker.fetchDeposits(
+							symbol,
+							value.since,
+							50,
+							{ ...value },
+						);
 						const deposit = deposits.find(
 							(deposit) =>
 								deposit.id === value.transactionHash ||
@@ -164,7 +169,7 @@ export function getServer(
 									})
 								: await broker.fetchDepositAddressesByNetwork(symbol, {
 										network: fetchDepositAddresses.chain,
-										...fetchDepositAddresses
+										...fetchDepositAddresses,
 									});
 
 						if (depositAddresses) {
@@ -342,8 +347,8 @@ export function getServer(
 							Number(orderValue.amount),
 							Number(orderValue.price),
 							{
-								...orderValue
-							}
+								...orderValue,
+							},
 						);
 
 						callback(null, { result: JSON.stringify({ ...order }) });
@@ -390,7 +395,10 @@ export function getServer(
 							);
 						}
 
-						const orderDetails = await broker.fetchOrder(getOrderValue.orderId,{...getOrderValue});
+						const orderDetails = await broker.fetchOrder(
+							getOrderValue.orderId,
+							{ ...getOrderValue },
+						);
 
 						callback(null, {
 							result: JSON.stringify({
@@ -445,7 +453,9 @@ export function getServer(
 					try {
 						// Fetch balance from the specified CEX
 						// biome-ignore lint/suspicious/noExplicitAny: fetchFreeBalance
-						const balance = (await broker.fetchFreeBalance({...call.request.payload})) as any;
+						const balance = (await broker.fetchFreeBalance({
+							...call.request.payload,
+						})) as any;
 						const currencyBalance = balance[symbol];
 
 						callback(null, {
