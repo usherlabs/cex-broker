@@ -358,9 +358,7 @@ export function getServer(
 							from === orderValue.fromToken ? "sell" : "buy",
 							Number(orderValue.amount),
 							Number(orderValue.price),
-							{
-								...orderValue.params,
-							},
+							orderValue.params??{},
 						);
 
 						callback(null, { result: JSON.stringify({ ...order }) });
