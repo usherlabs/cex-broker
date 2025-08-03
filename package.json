@@ -36,8 +36,8 @@
 		"lint:fix": "bunx biome lint --write",
 		"check": "bunx biome check",
 		"check:fix": "bunx biome check --write",
-		"copy:dts": "cpx \"build/src/*.d.ts\" ./dist/",
-		"copy:proto": "cpx \"proto/*.proto\" ./dist/proto",
+		"copy:dts": "cpx \"build/*.d.ts\" ./dist/",
+		"copy:proto": "cpx \"src/proto/*.proto\" ./dist/proto",
 
 		"prepare": "bunx husky",
 		"postinstall": "./proto-gen.sh"

@@ -8,20 +8,28 @@ import {
 import type { PolicyConfig } from "./types";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import type { ProtoGrpcType } from "../proto/node";
+import type { ProtoGrpcType } from "./proto/node";
 import type { Exchange } from "@usherlabs/ccxt";
-import type { ActionRequest } from "../proto/cex_broker/ActionRequest";
-import type { ActionResponse } from "../proto/cex_broker/ActionResponse";
-import { Action } from "../proto/cex_broker/Action";
-import type { SubscribeRequest } from "../proto/cex_broker/SubscribeRequest";
-import type { SubscribeResponse } from "../proto/cex_broker/SubscribeResponse";
-import { SubscriptionType } from "../proto/cex_broker/SubscriptionType";
+import type { ActionRequest } from "./proto/cex_broker/ActionRequest";
+import type { ActionResponse } from "./proto/cex_broker/ActionResponse";
+import { Action } from "./proto/cex_broker/Action";
+import type { SubscribeRequest } from "./proto/cex_broker/SubscribeRequest";
+import type { SubscribeResponse } from "./proto/cex_broker/SubscribeResponse";
+import { SubscriptionType } from "./proto/cex_broker/SubscriptionType";
 import Joi from "joi";
 import { log } from "./helpers/logger";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const PROTO_FILE = "./proto/node.proto";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const packageDef = protoLoader.loadSync(PROTO_FILE);
+
+// Safe absolute path to proto
+const protoPath = path.join(__dirname, ".", "proto", "node.proto");
+
+
+const packageDef = protoLoader.loadSync(protoPath);
 const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
@@ -468,9 +476,9 @@ export function getServer(
 				case Action.FetchBalance:
 					try {
 						// Fetch balance from the specified CEX
-						// biome-ignore lint/suspicious/noExplicitAny: fetchFreeBalance
 						const balance = (await broker.fetchFreeBalance({
 							...(call.request.payload ?? {}),
+						// biome-ignore lint/suspicious/noExplicitAny: invalid typing
 						})) as any;
 						const currencyBalance = balance[symbol];
 
