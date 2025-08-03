@@ -10,10 +10,8 @@ import { log } from "./helpers/logger";
 import CEXBroker from "../dist/index";
 import { loadPolicy } from "./helpers";
 
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 
 // Safe absolute path to proto
 const protoPath = path.join(__dirname, ".", "proto", "node.proto");
@@ -70,5 +68,4 @@ function onClientReady() {
 			log.info("ExecuteAction Balance Result:", { result });
 		},
 	);
-
 }

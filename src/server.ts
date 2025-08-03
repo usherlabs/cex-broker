@@ -24,10 +24,8 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-
 // Safe absolute path to proto
 const protoPath = path.join(__dirname, ".", "proto", "node.proto");
-
 
 const packageDef = protoLoader.loadSync(protoPath);
 const grpcObj = grpc.loadPackageDefinition(
@@ -478,7 +476,7 @@ export function getServer(
 						// Fetch balance from the specified CEX
 						const balance = (await broker.fetchFreeBalance({
 							...(call.request.payload ?? {}),
-						// biome-ignore lint/suspicious/noExplicitAny: invalid typing
+							// biome-ignore lint/suspicious/noExplicitAny: invalid typing
 						})) as any;
 						const currencyBalance = balance[symbol];
 
