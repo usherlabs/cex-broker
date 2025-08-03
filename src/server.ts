@@ -9,24 +9,23 @@ import type { PolicyConfig } from "./types";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "../proto/node";
-import path from "path";
 import type { Exchange } from "@usherlabs/ccxt";
-import type { ActionRequest } from "../proto/cexBroker/ActionRequest";
-import type { ActionResponse } from "../proto/cexBroker/ActionResponse";
-import { Action } from "../proto/cexBroker/Action";
-import type { SubscribeRequest } from "../proto/cexBroker/SubscribeRequest";
-import type { SubscribeResponse } from "../proto/cexBroker/SubscribeResponse";
-import { SubscriptionType } from "../proto/cexBroker/SubscriptionType";
+import type { ActionRequest } from "../proto/cex_broker/ActionRequest";
+import type { ActionResponse } from "../proto/cex_broker/ActionResponse";
+import { Action } from "../proto/cex_broker/Action";
+import type { SubscribeRequest } from "../proto/cex_broker/SubscribeRequest";
+import type { SubscribeResponse } from "../proto/cex_broker/SubscribeResponse";
+import { SubscriptionType } from "../proto/cex_broker/SubscriptionType";
 import Joi from "joi";
 import { log } from "./helpers/logger";
 
-const PROTO_FILE = "../proto/node.proto";
+const PROTO_FILE = "./proto/node.proto";
 
-const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE));
+const packageDef = protoLoader.loadSync(PROTO_FILE);
 const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
-const cexNode = grpcObj.cexBroker;
+const cexNode = grpcObj.cex_broker;
 
 export function getServer(
 	policy: PolicyConfig,
@@ -37,7 +36,7 @@ export function getServer(
 ) {
 	const server = new grpc.Server();
 
-	server.addService(cexNode.CexService.service, {
+	server.addService(cexNode.cex_service.service, {
 		ExecuteAction: async (
 			call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>,
 			callback: grpc.sendUnaryData<ActionResponse>,

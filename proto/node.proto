@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cexBroker; 
+package cex_broker; 
 
 message ActionRequest {
   Action action = 1;                        // The CCXT method to call (e.g., "fetchBalance", "createOrder")
@@ -35,7 +35,7 @@ enum SubscriptionType {
   ORDERS = 5;                              // Order updates
 }
 
-service CexService {
+service cex_service {
   rpc ExecuteAction(ActionRequest) returns (ActionResponse);
   rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
 }

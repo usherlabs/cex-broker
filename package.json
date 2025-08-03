@@ -28,7 +28,7 @@
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
-		"build": "bun run ./build.ts && bun run build:ts && bun run copy:dts",
+		"build": "bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
 		"build:ts": "bunx tsc",
 		"test": "bun test",
 		"format": "bunx biome format --write",
@@ -37,6 +37,8 @@
 		"check": "bunx biome check",
 		"check:fix": "bunx biome check --write",
 		"copy:dts": "cpx \"build/src/*.d.ts\" ./dist/",
+		"copy:proto": "cpx \"proto/*.proto\" ./dist/proto",
+
 		"prepare": "bunx husky",
 		"postinstall": "./proto-gen.sh"
 	},

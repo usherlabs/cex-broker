@@ -1,22 +1,22 @@
-import path from "path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { ProtoGrpcType } from "../proto/node";
-import { Action } from "../proto/cexBroker/Action";
+import { Action } from "../proto/cex_broker/Action";
 import { config } from "dotenv";
 import { log } from "./helpers/logger";
-import CEXBroker from ".";
+// import CEXBroker from ".";
+import CEXBroker from "../dist/index";
 import { loadPolicy } from "./helpers";
 
-const PROTO_FILE = "../proto/node.proto";
+const PROTO_FILE = "./proto/node.proto";
 const port = 8086;
 
-const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE));
+const packageDef = protoLoader.loadSync(PROTO_FILE);
 const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
 
-const client = new grpcObj.cexBroker.CexService(
+const client = new grpcObj.cex_broker.cex_service(
 	`0.0.0.0:${port}`,
 	grpc.credentials.createInsecure(),
 );
