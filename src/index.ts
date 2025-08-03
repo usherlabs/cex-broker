@@ -132,7 +132,7 @@ export default class CEXBroker {
 									recvWindow: 60000,
 								},
 							});
-							secondaryBrokers[+index] = exchange
+							secondaryBrokers[+index] = exchange;
 						} else {
 							log.warn(
 								`⚠️ Incomplete secondary credentials for broker "${broker}" at index ${index}`,
