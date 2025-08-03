@@ -34,7 +34,8 @@
     "**/*.test.ts",
     "**/*.spec.ts",
     "node_modules",
-    "dist"
+    "dist",
+	"build"
   ],
 "include": ["src/index.ts"]
 }

@@ -1,7 +1,6 @@
-import { describe, test, expect, beforeEach, mock, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import CEXBroker from "../src/index";
 import type { PolicyConfig } from "../src/types";
-import * as grpc from "@grpc/grpc-js";
 
 describe("CEXBroker", () => {
 	let broker: CEXBroker;
