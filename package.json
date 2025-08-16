@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.1.7",
+	"version": "0.1.8",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
 	"repository": "git@gitlab.com:usherlabs/cex-broker.git",
 	"homepage": "https://usher.so/",
@@ -48,7 +48,7 @@
 	"dependencies": {
 		"@grpc/grpc-js": "^1.13.4",
 		"@grpc/proto-loader": "^0.7.15",
-		"@usherlabs/ccxt": "^0.0.7",
+		"@usherlabs/ccxt": "latest",
 		"commander": "^14.0.0",
 		"joi": "^17.13.3",
 		"tslog": "^4.9.3"
