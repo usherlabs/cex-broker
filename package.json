@@ -28,6 +28,7 @@
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
+		"start-broker": "bun run ./src/cli.ts",
 		"build": "bun run ./build.ts && bun run build:ts && bun run copy:dts",
 		"build:ts": "bunx tsc",
 		"test": "bun test",
