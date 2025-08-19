@@ -29,6 +29,7 @@
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
 		"start-broker": "bun run ./src/cli.ts",
+		"start-broker-server": " bun run start-broker --policy policy/policy.json --port 8086 --whitelist 127.0.0.1 192.168.1.100 --verityProverUrl http://localhost:8080",
 		"build": "bun run ./build.ts && bun run build:ts && bun run copy:dts",
 		"build:ts": "bunx tsc",
 		"test": "bun test",
