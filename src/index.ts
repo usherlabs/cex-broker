@@ -159,6 +159,11 @@ export default class CEXBroker {
 						recvWindow: 60000,
 					},
 				});
+				
+				if (process.env.CEX_BROKER_SANDBOX_MODE === 'true') {
+			      client.setSandboxMode(true);
+  			}
+
 				this.brokers[broker] = {
 					primary: client,
 					secondaryBrokers: secondaryBrokers,
