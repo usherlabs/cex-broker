@@ -46,6 +46,10 @@ export function createBroker(
 			recvWindow: 60000,
 		},
 	});
+	
+	if (process.env.CEX_BROKER_SANDBOX_MODE === 'true') {
+      exchange.setSandboxMode(true);
+  }
 	exchange.options.recvWindow = 60000;
 	return exchange;
 }
