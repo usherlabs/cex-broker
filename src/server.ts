@@ -8,25 +8,30 @@ import {
 import type { PolicyConfig } from "./types";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import type { ProtoGrpcType } from "../proto/node";
-import path from "path";
+import type { ProtoGrpcType } from "./proto/node";
 import type { Exchange } from "@usherlabs/ccxt";
-import type { ActionRequest } from "../proto/cexBroker/ActionRequest";
-import type { ActionResponse } from "../proto/cexBroker/ActionResponse";
-import { Action } from "../proto/cexBroker/Action";
-import type { SubscribeRequest } from "../proto/cexBroker/SubscribeRequest";
-import type { SubscribeResponse } from "../proto/cexBroker/SubscribeResponse";
-import { SubscriptionType } from "../proto/cexBroker/SubscriptionType";
+import type { ActionRequest } from "./proto/cex_broker/ActionRequest";
+import type { ActionResponse } from "./proto/cex_broker/ActionResponse";
+import { Action } from "./proto/cex_broker/Action";
+import type { SubscribeRequest } from "./proto/cex_broker/SubscribeRequest";
+import type { SubscribeResponse } from "./proto/cex_broker/SubscribeResponse";
+import { SubscriptionType } from "./proto/cex_broker/SubscriptionType";
 import Joi from "joi";
 import { log } from "./helpers/logger";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const PROTO_FILE = "../proto/node.proto";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE));
+// Safe absolute path to proto
+const protoPath = path.join(__dirname, ".", "proto", "node.proto");
+
+const packageDef = protoLoader.loadSync(protoPath);
 const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
-const cexNode = grpcObj.cexBroker;
+const cexNode = grpcObj.cex_broker;
 
 export function getServer(
 	policy: PolicyConfig,
@@ -37,17 +42,19 @@ export function getServer(
 ) {
 	const server = new grpc.Server();
 
-	server.addService(cexNode.CexService.service, {
+	server.addService(cexNode.cex_service.service, {
 		ExecuteAction: async (
 			call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>,
 			callback: grpc.sendUnaryData<ActionResponse>,
 		) => {
 			// Log incoming request
-			log.info(`Request - ExecuteAction: ${JSON.stringify({
-				action: call.request.action,
-				cex: call.request.cex,
-				symbol: call.request.symbol,
-			})}`);
+			log.info(
+				`Request - ExecuteAction: ${JSON.stringify({
+					action: call.request.action,
+					cex: call.request.cex,
+					symbol: call.request.symbol,
+				})}`,
+			);
 
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
@@ -365,9 +372,7 @@ export function getServer(
 							from === orderValue.fromToken ? "sell" : "buy",
 							Number(orderValue.amount),
 							Number(orderValue.price),
-							{
-								...orderValue.params,
-							},
+							orderValue.params ?? {},
 						);
 
 						callback(null, { result: JSON.stringify({ ...order }) });
@@ -478,9 +483,9 @@ export function getServer(
 				case Action.FetchBalance:
 					try {
 						// Fetch balance from the specified CEX
-						// biome-ignore lint/suspicious/noExplicitAny: fetchFreeBalance
 						const balance = (await broker.fetchFreeBalance({
 							...(call.request.payload ?? {}),
+							// biome-ignore lint/suspicious/noExplicitAny: invalid typing
 						})) as any;
 						const currencyBalance = balance[symbol];
 
@@ -491,6 +496,29 @@ export function getServer(
 										balance: currencyBalance || 0,
 										currency: symbol,
 									}),
+						});
+					} catch (error) {
+						log.error(`Error fetching balance from ${cex}:`, error);
+						callback(
+							{
+								code: grpc.status.INTERNAL,
+								message: `Failed to fetch balance from ${cex}`,
+							},
+							null,
+						);
+					}
+					break;
+
+				case Action.FetchBalances:
+					try {
+						// Fetch balance from the specified CEX
+						const balance = (await broker.fetchFreeBalance({
+							...(call.request.payload ?? {}),
+							// biome-ignore lint/suspicious/noExplicitAny: invalid typing
+						})) as any;
+
+						callback(null, {
+							result: useVerity ? broker.last_proof : JSON.stringify(balance),
 						});
 					} catch (error) {
 						log.error(`Error fetching balance from ${cex}:`, error);
@@ -541,13 +569,16 @@ export function getServer(
 				const { cex, symbol, type, options } = request;
 
 				// Handle protobuf default value issue: type=0 (ORDERBOOK) gets omitted during serialization
-				const subscriptionType = type !== undefined ? type : SubscriptionType.ORDERBOOK;
-				
-				log.info(`Request - Subscribe: ${JSON.stringify({
-					cex: request.cex,
-					symbol: request.symbol,
-					type: subscriptionType,
-				})}`);
+				const subscriptionType =
+					type !== undefined ? type : SubscriptionType.ORDERBOOK;
+
+				log.info(
+					`Request - Subscribe: ${JSON.stringify({
+						cex: request.cex,
+						symbol: request.symbol,
+						type: subscriptionType,
+					})}`,
+				);
 
 				// Validate required fields
 				if (!cex || !symbol) {

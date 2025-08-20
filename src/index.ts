@@ -119,7 +119,7 @@ export default class CEXBroker {
 								apiKey: sec.apiKey,
 								apiSecret: sec.apiSecret,
 							};
-							secondaryBrokers[+index] = new ExchangeClass({
+							const exchange = new ExchangeClass({
 								apiKey: sec.apiKey,
 								secret: sec.apiSecret,
 								enableRateLimit: true,
@@ -132,6 +132,7 @@ export default class CEXBroker {
 									recvWindow: 60000,
 								},
 							});
+							secondaryBrokers[+index] = exchange;
 						} else {
 							log.warn(
 								`⚠️ Incomplete secondary credentials for broker "${broker}" at index ${index}`,
@@ -159,10 +160,10 @@ export default class CEXBroker {
 						recvWindow: 60000,
 					},
 				});
-				
-				if (process.env.CEX_BROKER_SANDBOX_MODE === 'true') {
-			      client.setSandboxMode(true);
-  			}
+
+				if (process.env.CEX_BROKER_SANDBOX_MODE === "true") {
+					client.setSandboxMode(true);
+				}
 
 				this.brokers[broker] = {
 					primary: client,

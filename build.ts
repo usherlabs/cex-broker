@@ -13,7 +13,8 @@ await Bun.build({
 await Bun.build({
   entrypoints: ['./src/index.ts'],
   outdir: './dist',
-  target:"node",
+  target:"bun",
+  sourcemap:"external",
   plugins: [
     // dts()
   ],
