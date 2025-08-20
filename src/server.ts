@@ -47,6 +47,13 @@ export function getServer(
 			call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>,
 			callback: grpc.sendUnaryData<ActionResponse>,
 		) => {
+			// Log incoming request
+			log.info(`Request - ExecuteAction: ${JSON.stringify({
+				action: call.request.action,
+				cex: call.request.cex,
+				symbol: call.request.symbol,
+			})}`);
+
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
 				return callback(
@@ -511,6 +518,9 @@ export function getServer(
 		Subscribe: async (
 			call: grpc.ServerWritableStream<SubscribeRequest, SubscribeResponse>,
 		) => {
+			// Log incoming subscription request
+			const request = call.request as SubscribeRequest;
+
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
 				call.emit(
@@ -533,15 +543,24 @@ export function getServer(
 				const request = call.request as SubscribeRequest;
 				const { cex, symbol, type, options } = request;
 
+				// Handle protobuf default value issue: type=0 (ORDERBOOK) gets omitted during serialization
+				const subscriptionType = type !== undefined ? type : SubscriptionType.ORDERBOOK;
+				
+				log.info(`Request - Subscribe: ${JSON.stringify({
+					cex: request.cex,
+					symbol: request.symbol,
+					type: subscriptionType,
+				})}`);
+
 				// Validate required fields
-				if (!cex || !symbol || type === undefined) {
+				if (!cex || !symbol) {
 					call.write({
 						data: JSON.stringify({
 							error: "cex, symbol, and type are required",
 						}),
 						timestamp: Date.now(),
 						symbol: symbol || "",
-						type: type || SubscriptionType.ORDERBOOK,
+						type: subscriptionType,
 					});
 					call.end();
 					return;
@@ -559,14 +578,14 @@ export function getServer(
 						}),
 						timestamp: Date.now(),
 						symbol,
-						type,
+						type: subscriptionType,
 					});
 					call.end();
 					return;
 				}
 
 				// Handle different subscription types
-				switch (type) {
+				switch (subscriptionType) {
 					case SubscriptionType.ORDERBOOK:
 						try {
 							while (true) {
@@ -575,7 +594,7 @@ export function getServer(
 									data: JSON.stringify(orderbook),
 									timestamp: Date.now(),
 									symbol,
-									type,
+									type: subscriptionType,
 								});
 							}
 						} catch (error: unknown) {
@@ -595,7 +614,7 @@ export function getServer(
 								}),
 								timestamp: Date.now(),
 								symbol,
-								type,
+								type: subscriptionType,
 							});
 						}
 						break;
@@ -608,7 +627,7 @@ export function getServer(
 									data: JSON.stringify(trades),
 									timestamp: Date.now(),
 									symbol,
-									type,
+									type: subscriptionType,
 								});
 							}
 						} catch (error: unknown) {
@@ -628,7 +647,7 @@ export function getServer(
 								}),
 								timestamp: Date.now(),
 								symbol,
-								type,
+								type: subscriptionType,
 							});
 						}
 						break;
@@ -661,7 +680,7 @@ export function getServer(
 								}),
 								timestamp: Date.now(),
 								symbol,
-								type,
+								type: subscriptionType,
 							});
 						}
 						break;
@@ -692,7 +711,7 @@ export function getServer(
 								}),
 								timestamp: Date.now(),
 								symbol,
-								type,
+								type: subscriptionType,
 							});
 						}
 						break;
@@ -722,7 +741,7 @@ export function getServer(
 								}),
 								timestamp: Date.now(),
 								symbol,
-								type,
+								type: subscriptionType,
 							});
 						}
 						break;
@@ -755,7 +774,7 @@ export function getServer(
 								}),
 								timestamp: Date.now(),
 								symbol,
-								type,
+								type: subscriptionType,
 							});
 						}
 						break;
