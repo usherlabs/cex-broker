@@ -48,11 +48,13 @@ export function getServer(
 			callback: grpc.sendUnaryData<ActionResponse>,
 		) => {
 			// Log incoming request
-			log.info(`Request - ExecuteAction: ${JSON.stringify({
-				action: call.request.action,
-				cex: call.request.cex,
-				symbol: call.request.symbol,
-			})}`);
+			log.info(
+				`Request - ExecuteAction: ${JSON.stringify({
+					action: call.request.action,
+					cex: call.request.cex,
+					symbol: call.request.symbol,
+				})}`,
+			);
 
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
@@ -516,9 +518,7 @@ export function getServer(
 						})) as any;
 
 						callback(null, {
-							result: useVerity
-								? broker.last_proof
-								: JSON.stringify(balance),
+							result: useVerity ? broker.last_proof : JSON.stringify(balance),
 						});
 					} catch (error) {
 						log.error(`Error fetching balance from ${cex}:`, error);
@@ -569,13 +569,16 @@ export function getServer(
 				const { cex, symbol, type, options } = request;
 
 				// Handle protobuf default value issue: type=0 (ORDERBOOK) gets omitted during serialization
-				const subscriptionType = type !== undefined ? type : SubscriptionType.ORDERBOOK;
-				
-				log.info(`Request - Subscribe: ${JSON.stringify({
-					cex: request.cex,
-					symbol: request.symbol,
-					type: subscriptionType,
-				})}`);
+				const subscriptionType =
+					type !== undefined ? type : SubscriptionType.ORDERBOOK;
+
+				log.info(
+					`Request - Subscribe: ${JSON.stringify({
+						cex: request.cex,
+						symbol: request.symbol,
+						type: subscriptionType,
+					})}`,
+				);
 
 				// Validate required fields
 				if (!cex || !symbol) {
