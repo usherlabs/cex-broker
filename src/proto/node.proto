@@ -27,12 +27,13 @@ message SubscribeResponse {
 }
 
 enum SubscriptionType {
-  ORDERBOOK = 0;                           // Order book updates
-  TRADES = 1;                              // Recent trades
-  TICKER = 2;                              // Ticker information
-  OHLCV = 3;                               // OHLCV candlestick data
-  BALANCE = 4;                             // Balance updates
-  ORDERS = 5;                              // Order updates
+  NO_ACTION=0;
+  ORDERBOOK = 1;                           // Order book updates
+  TRADES = 2;                              // Recent trades
+  TICKER = 3;                              // Ticker information
+  OHLCV = 4;                               // OHLCV candlestick data
+  BALANCE = 5;                             // Balance updates
+  ORDERS = 6;                              // Order updates
 }
 
 service cex_service {
@@ -49,5 +50,6 @@ enum Action {
   GetOrderDetails=4;
   CancelOrder=5;
   FetchBalance=6;
-  FetchDepositAddresses=7;
+  FetchBalances=7;
+  FetchDepositAddresses=8;
 }

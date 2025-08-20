@@ -507,6 +507,31 @@ export function getServer(
 					}
 					break;
 
+				case Action.FetchBalances:
+					try {
+						// Fetch balance from the specified CEX
+						const balance = (await broker.fetchFreeBalance({
+							...(call.request.payload ?? {}),
+							// biome-ignore lint/suspicious/noExplicitAny: invalid typing
+						})) as any;
+
+						callback(null, {
+							result: useVerity
+								? broker.last_proof
+								: JSON.stringify(balance),
+						});
+					} catch (error) {
+						log.error(`Error fetching balance from ${cex}:`, error);
+						callback(
+							{
+								code: grpc.status.INTERNAL,
+								message: `Failed to fetch balance from ${cex}`,
+							},
+							null,
+						);
+					}
+					break;
+
 				default:
 					return callback({
 						code: grpc.status.INVALID_ARGUMENT,

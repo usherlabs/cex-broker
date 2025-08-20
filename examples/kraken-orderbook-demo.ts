@@ -3,8 +3,10 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import path from "path";
+import { SubscriptionType } from "../src/proto/cex_broker/SubscriptionType";
 
-const PROTO_FILE = "../proto/node.proto";
+
+const PROTO_FILE = "../src/proto/node.proto";
 
 console.log('CEX Broker - Kraken Orderbook Demo');
 console.log('━'.repeat(55));
@@ -24,7 +26,7 @@ const client = new proto.cexBroker.CexService('localhost:8088', grpc.credentials
 const subscribeRequest = {
     cex: "kraken",
     symbol: "ETH/USDT",
-    type: 0, // ORDERBOOK
+    type: SubscriptionType.ORDERBOOK, // ORDERBOOK
     options: {}
 };
 
