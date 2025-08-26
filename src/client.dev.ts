@@ -6,8 +6,8 @@ import type { ProtoGrpcType } from "./proto/node";
 import { Action } from "./proto/cex_broker/Action";
 import { config } from "dotenv";
 import { log } from "./helpers/logger";
-// import CEXBroker from ".";
-import CEXBroker from "../dist/index";
+import CEXBroker from ".";
+// import CEXBroker from "../dist/index";
 import { loadPolicy } from "./helpers";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,7 +31,7 @@ const client = new grpcObj.cex_broker.cex_service(
 config();
 
 const broker = new CEXBroker({}, loadPolicy("./policy/policy.json"), {
-	useVerity: true,
+	useVerity: false,
 });
 broker.loadEnvConfig();
 broker.run();
