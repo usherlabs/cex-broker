@@ -135,9 +135,8 @@ export function getServer(
 								`Amount ${value.amount} at ${value.transactionHash} . Paid to ${value.recipientAddress}`,
 							);
 							return callback(null, {
-								result: useVerity
-									? broker.last_proof
-									: JSON.stringify({ ...deposit }),
+								proof: broker.last_proof|| "",
+								result: JSON.stringify({ ...deposit }),
 							});
 						}
 						callback(
@@ -194,9 +193,8 @@ export function getServer(
 
 						if (depositAddresses) {
 							return callback(null, {
-								result: useVerity
-									? broker.last_proof
-									: JSON.stringify({ ...depositAddresses }),
+								proof: broker.last_proof|| "",
+								result: JSON.stringify({ ...depositAddresses }),
 							});
 						}
 						callback(
@@ -287,9 +285,8 @@ export function getServer(
 						log.info(`Transfer Transfer: ${JSON.stringify(transaction)}`);
 
 						callback(null, {
-							result: useVerity
-								? broker.last_proof
-								: JSON.stringify({ ...transaction }),
+							proof: broker.last_proof|| "",
+							result: JSON.stringify({ ...transaction }),
 						});
 					} catch (error) {
 						log.error({ error });
@@ -490,8 +487,8 @@ export function getServer(
 						const currencyBalance = balance[symbol];
 
 						callback(null, {
-							result: useVerity
-								? broker.last_proof
+							proof: broker.last_proof|| "",
+							result
 								: JSON.stringify({
 										balance: currencyBalance || 0,
 										currency: symbol,
@@ -518,7 +515,8 @@ export function getServer(
 						})) as any;
 
 						callback(null, {
-							result: useVerity ? broker.last_proof : JSON.stringify(balance),
+							proof: broker.last_proof|| "",
+							result: JSON.stringify(balance),
 						});
 					} catch (error) {
 						log.error(`Error fetching balance from ${cex}:`, error);

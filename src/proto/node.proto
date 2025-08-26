@@ -9,7 +9,8 @@ message ActionRequest {
 }
 
 message ActionResponse {
-  string result = 2;       // JSON string of the result data
+  string result = 1;       // JSON string of the result data
+  string proof = 2; 
 }
 
 message SubscribeRequest {
