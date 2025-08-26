@@ -540,9 +540,6 @@ export function getServer(
 		Subscribe: async (
 			call: grpc.ServerWritableStream<SubscribeRequest, SubscribeResponse>,
 		) => {
-			// Log incoming subscription request
-			const request = call.request as SubscribeRequest;
-
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
 				call.emit(
