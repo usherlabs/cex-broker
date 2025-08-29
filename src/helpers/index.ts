@@ -10,7 +10,9 @@ export function authenticateRequest<T, E>(
 	whitelistIps: string[],
 ): boolean {
 	const clientIp = call.getPeer().split(":")[0];
-	if (!clientIp || !whitelistIps.includes(clientIp)) {
+	if (whitelistIps.includes("*")){
+		return true
+	}else if (!clientIp || !whitelistIps.includes(clientIp)) {
 		log.warn(`Blocked access from unauthorized IP: ${clientIp || "unknown"}`);
 		return false;
 	}
