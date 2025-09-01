@@ -529,6 +529,25 @@ export function getServer(
 					}
 					break;
 
+				case Action.FetchTicker:
+					try {
+						const ticker = await broker.fetchTicker(symbol);
+						callback(null, {
+							proof: broker.last_proof || "",
+							result: JSON.stringify(ticker),
+						});
+					} catch (error) {
+						log.error(`Error fetching ticker from ${cex}:`, error);
+						callback(
+							{
+								code: grpc.status.INTERNAL,
+								message: `Failed to fetch ticker from ${cex}`,
+							},
+							null,
+						);
+					}
+					break;
+
 				default:
 					return callback({
 						code: grpc.status.INVALID_ARGUMENT,
