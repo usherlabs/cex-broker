@@ -51,6 +51,23 @@ client.waitForReady(deadline, (err) => {
 });
 
 function onClientReady() {
+	// Test ExecuteAction for ticker
+	client.executeAction(
+		{
+			cex: "binance",
+			symbol: "ETHUSDT",
+			action: Action.FetchTicker,
+		},
+		metadata,
+		(err, result) => {
+			if (err) {
+				log.error({ err });
+				return;
+			}
+			log.info("ExecuteAction Ticker Result:", { result });
+		},
+	);
+
 	// Test ExecuteAction for balance
 	client.executeAction(
 		{

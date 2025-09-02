@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.1.10",
+	"version": "0.1.11",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
 	"repository": "git@gitlab.com:usherlabs/cex-broker.git",
 	"homepage": "https://usher.so/",
@@ -30,7 +30,7 @@
 		"start": "bun run ./src/index.ts",
 		"build": "bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
 		"start-broker": "bun run ./src/cli.ts",
-		"start-broker-server": " bun run start-broker --policy policy/policy.json --port 8086 --whitelist 127.0.0.1 192.168.1.100 --verityProverUrl http://localhost:8080",
+		"start-broker-server": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelist * --verityProverUrl http://localhost:8080'",
 		"build:ts": "bunx tsc",
 		"test": "bun test",
 		"format": "bunx biome format --write",
