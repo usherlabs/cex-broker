@@ -53,7 +53,7 @@ export function createBroker(
 		exchange.setSandboxMode(true);
 	}
 	exchange.options.recvWindow = 60000;
-	exchange.redact_exclusion="key"; //Exclude api-key and apikey
+	exchange.redact_exclusion = "key"; //Exclude api-key and apikey
 	return exchange;
 }
 
