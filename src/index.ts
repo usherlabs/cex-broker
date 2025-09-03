@@ -132,6 +132,7 @@ export default class CEXBroker {
 									recvWindow: 60000,
 								},
 							});
+							exchange.redact_exclusion = "key";
 							secondaryBrokers[+index] = exchange;
 						} else {
 							log.warn(
@@ -229,7 +230,7 @@ export default class CEXBroker {
 			for (const index of Object.keys(creds.secondaryKeys)) {
 				const sec = creds.secondaryKeys[+index];
 				if (!!sec?.apiKey && !!sec?.apiSecret) {
-					secondaryBroker[+index] = new ExchangeClass({
+					const exchange = new ExchangeClass({
 						apiKey: sec.apiKey,
 						secret: sec.apiSecret,
 						enableRateLimit: true,
@@ -242,6 +243,8 @@ export default class CEXBroker {
 							recvWindow: 60000,
 						},
 					});
+					exchange.redact_exclusion = "key"; //Exclude api-key and apikey
+					secondaryBroker[+index] = exchange;
 				} else {
 					log.warn(
 						`⚠️ Incomplete secondary credentials for broker "${broker}" at index ${index}`,
@@ -269,6 +272,7 @@ export default class CEXBroker {
 					recvWindow: 60000,
 				},
 			});
+			client.redact_exclusion = "key"; //Exclude api-key and apikey
 
 			this.brokers[broker] = {
 				primary: client,

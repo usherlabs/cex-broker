@@ -10,9 +10,9 @@ export function authenticateRequest<T, E>(
 	whitelistIps: string[],
 ): boolean {
 	const clientIp = call.getPeer().split(":")[0];
-	if (whitelistIps.includes("*")){
+	if (whitelistIps.includes("*")) {
 		return true
-	}else if (!clientIp || !whitelistIps.includes(clientIp)) {
+	} else if (!clientIp || !whitelistIps.includes(clientIp)) {
 		log.warn(`Blocked access from unauthorized IP: ${clientIp || "unknown"}`);
 		return false;
 	}
@@ -48,20 +48,21 @@ export function createBroker(
 			recvWindow: 60000,
 		},
 	});
-	
+
 	if (process.env.CEX_BROKER_SANDBOX_MODE === 'true') {
-      exchange.setSandboxMode(true);
-  }
+		exchange.setSandboxMode(true);
+	}
 	exchange.options.recvWindow = 60000;
+	exchange.redact_exclusion="key"; //Exclude api-key and apikey
 	return exchange;
 }
 
 export function selectBroker(
 	brokers:
 		| {
-				primary: Exchange;
-				secondaryBrokers: Exchange[];
-		  }
+			primary: Exchange;
+			secondaryBrokers: Exchange[];
+		}
 		| undefined,
 	metadata: Metadata,
 ): Exchange | null {
