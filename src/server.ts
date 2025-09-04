@@ -502,7 +502,7 @@ export function getServer(
 							...(call.request.payload ?? {}),
 							// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
 						})) as any;
-						const currencyBalance = balance[symbol];
+						const currencyBalance =symbol? balance[symbol]: balance;
 
 						callback(null, {
 							proof: broker.last_proof || "",
