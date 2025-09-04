@@ -70,7 +70,7 @@ export function getServer(
 			const metadata = call.metadata;
 			const { action, cex, symbol } = call.request;
 			// Validate required fields
-			if (!action || !cex ) {
+			if (!action || !cex) {
 				return callback(
 					{
 						code: grpc.status.INVALID_ARGUMENT,
