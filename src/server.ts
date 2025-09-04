@@ -160,6 +160,15 @@ export function getServer(
 				}
 
 				case Action.FetchDepositAddresses: {
+					if (!symbol) {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: Symbol requied`,
+							},
+							null,
+						);
+					}
 					const fetchDepositAddressesSchema = Joi.object({
 						chain: Joi.string().required(),
 						params: Joi.object()
@@ -224,6 +233,15 @@ export function getServer(
 					break;
 				}
 				case Action.Transfer: {
+					if (!symbol) {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: Symbol requied`,
+							},
+							null,
+						);
+					}
 					const transferSchema = Joi.object({
 						recipientAddress: Joi.string().required(),
 						amount: Joi.number().positive().required(), // Must be a positive number
@@ -482,7 +500,7 @@ export function getServer(
 						// Fetch balance from the specified CEX
 						const balance = (await broker.fetchFreeBalance({
 							...(call.request.payload ?? {}),
-							// biome-ignore lint/suspicious/noExplicitAny: invalid typing
+							// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
 						})) as any;
 						const currencyBalance = balance[symbol];
 
@@ -508,10 +526,9 @@ export function getServer(
 				case Action.FetchBalances:
 					try {
 						// Fetch balance from the specified CEX
-						const balance = (await broker.fetchFreeBalance({
+						const balance = await broker.fetchFreeBalance({
 							...(call.request.payload ?? {}),
-							// biome-ignore lint/suspicious/noExplicitAny: invalid typing
-						})) as any;
+						});
 
 						callback(null, {
 							proof: broker.last_proof || "",
@@ -530,6 +547,15 @@ export function getServer(
 					break;
 
 				case Action.FetchTicker:
+					if (!symbol) {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: Symbol requied`,
+							},
+							null,
+						);
+					}
 					try {
 						const ticker = await broker.fetchTicker(symbol);
 						callback(null, {
