@@ -49,11 +49,12 @@ export function getServer(
 		) => {
 			// Log incoming request
 			log.info(
-				`Request - ExecuteAction: ${JSON.stringify({
+				`Request - ExecuteAction:`,
+				{
 					action: call.request.action,
 					cex: call.request.cex,
 					symbol: call.request.symbol,
-				})}`,
+				}
 			);
 
 			// IP Authentication
@@ -70,11 +71,11 @@ export function getServer(
 			const metadata = call.metadata;
 			const { action, cex, symbol } = call.request;
 			// Validate required fields
-			if (!action || !cex || !symbol) {
+			if (!action || !cex) {
 				return callback(
 					{
 						code: grpc.status.INVALID_ARGUMENT,
-						message: "action, cex, symbol, and cex are required",
+						message: "`action` AND `cex` fields are required",
 					},
 					null,
 				);
@@ -92,6 +93,15 @@ export function getServer(
 					},
 					null,
 				);
+			}
+
+			// Check if Verity is set. If so, set options based on metadata.
+			if (useVerity && broker.useVerity) {
+				const redact = metadata.get("verity-t-redacted")?.[0]?.toString() || "";
+				log.info(`Verity Options: Redact`, { redact });
+				broker.addVerityRequestOptions({
+					redact,
+				});
 			}
 
 			switch (action) {
@@ -160,6 +170,15 @@ export function getServer(
 				}
 
 				case Action.FetchDepositAddresses: {
+					if (!symbol) {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: Symbol requied`,
+							},
+							null,
+						);
+					}
 					const fetchDepositAddressesSchema = Joi.object({
 						chain: Joi.string().required(),
 						params: Joi.object()
@@ -224,6 +243,15 @@ export function getServer(
 					break;
 				}
 				case Action.Transfer: {
+					if (!symbol) {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: Symbol requied`,
+							},
+							null,
+						);
+					}
 					const transferSchema = Joi.object({
 						recipientAddress: Joi.string().required(),
 						amount: Joi.number().positive().required(), // Must be a positive number
@@ -482,9 +510,9 @@ export function getServer(
 						// Fetch balance from the specified CEX
 						const balance = (await broker.fetchFreeBalance({
 							...(call.request.payload ?? {}),
-							// biome-ignore lint/suspicious/noExplicitAny: invalid typing
+							// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
 						})) as any;
-						const currencyBalance = balance[symbol];
+						const currencyBalance = symbol ? balance[symbol] : balance;
 
 						callback(null, {
 							proof: broker.last_proof || "",
@@ -508,10 +536,9 @@ export function getServer(
 				case Action.FetchBalances:
 					try {
 						// Fetch balance from the specified CEX
-						const balance = (await broker.fetchFreeBalance({
+						const balance = await broker.fetchFreeBalance({
 							...(call.request.payload ?? {}),
-							// biome-ignore lint/suspicious/noExplicitAny: invalid typing
-						})) as any;
+						});
 
 						callback(null, {
 							proof: broker.last_proof || "",
@@ -530,6 +557,15 @@ export function getServer(
 					break;
 
 				case Action.FetchTicker:
+					if (!symbol) {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: Symbol requied`,
+							},
+							null,
+						);
+					}
 					try {
 						const ticker = await broker.fetchTicker(symbol);
 						callback(null, {

@@ -10,9 +10,9 @@ export function authenticateRequest<T, E>(
 	whitelistIps: string[],
 ): boolean {
 	const clientIp = call.getPeer().split(":")[0];
-	if (whitelistIps.includes("*")){
-		return true
-	}else if (!clientIp || !whitelistIps.includes(clientIp)) {
+	if (whitelistIps.includes("*")) {
+		return true;
+	} else if (!clientIp || !whitelistIps.includes(clientIp)) {
 		log.warn(`Blocked access from unauthorized IP: ${clientIp || "unknown"}`);
 		return false;
 	}
@@ -48,10 +48,10 @@ export function createBroker(
 			recvWindow: 60000,
 		},
 	});
-	
-	if (process.env.CEX_BROKER_SANDBOX_MODE === 'true') {
-      exchange.setSandboxMode(true);
-  }
+
+	if (process.env.CEX_BROKER_SANDBOX_MODE === "true") {
+		exchange.setSandboxMode(true);
+	}
 	exchange.options.recvWindow = 60000;
 	return exchange;
 }

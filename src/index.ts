@@ -92,7 +92,7 @@ export default class CEXBroker {
 		}
 
 		if (Object.keys(configMap).length === 0) {
-			log.error(`❌ NO CEX Broker Key Found`);
+			log.warn(`❌ NO CEX Broker Key Found`);
 		}
 
 		// Finalize config and print result per broker
@@ -229,7 +229,7 @@ export default class CEXBroker {
 			for (const index of Object.keys(creds.secondaryKeys)) {
 				const sec = creds.secondaryKeys[+index];
 				if (!!sec?.apiKey && !!sec?.apiSecret) {
-					secondaryBroker[+index] = new ExchangeClass({
+					const exchange = new ExchangeClass({
 						apiKey: sec.apiKey,
 						secret: sec.apiSecret,
 						enableRateLimit: true,
@@ -242,6 +242,7 @@ export default class CEXBroker {
 							recvWindow: 60000,
 						},
 					});
+					secondaryBroker[+index] = exchange;
 				} else {
 					log.warn(
 						`⚠️ Incomplete secondary credentials for broker "${broker}" at index ${index}`,

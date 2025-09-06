@@ -31,14 +31,14 @@ const client = new grpcObj.cex_broker.cex_service(
 config();
 
 const broker = new CEXBroker({}, loadPolicy("./policy/policy.json"), {
-	useVerity: false,
+	useVerity: true,
 });
 broker.loadEnvConfig();
 broker.run();
 
 const metadata = new grpc.Metadata();
-metadata.add("api-key", process.env.BYBIT_API_KEY ?? ""); // Example header
-metadata.add("api-secret", process.env.BYBIT_API_SECRET ?? "");
+// metadata.add("api-key", process.env.BYBIT_API_KEY ?? ""); // Example header
+// metadata.add("api-secret", process.env.BYBIT_API_SECRET ?? "");
 
 const deadline = new Date();
 deadline.setSeconds(deadline.getSeconds() + 5);
@@ -54,7 +54,7 @@ function onClientReady() {
 	// Test ExecuteAction for ticker
 	client.executeAction(
 		{
-			cex: "binance",
+			cex: "mexc",
 			symbol: "ETHUSDT",
 			action: Action.FetchTicker,
 		},
@@ -71,10 +71,10 @@ function onClientReady() {
 	// Test ExecuteAction for balance
 	client.executeAction(
 		{
-			cex: "bybit",
-			symbol: "USDT",
+			cex: "binance",
+			symbol: "USDT,BTC,ETH",
 			payload: { type: "spot" },
-			action: Action.FetchBalance,
+			action: Action.FetchBalances,
 		},
 		metadata,
 		(err, result) => {

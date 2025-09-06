@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.1.11",
+	"version": "0.1.14",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
 	"repository": "git@gitlab.com:usherlabs/cex-broker.git",
 	"homepage": "https://usher.so/",
@@ -30,7 +30,8 @@
 		"start": "bun run ./src/index.ts",
 		"build": "bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
 		"start-broker": "bun run ./src/cli.ts",
-		"start-broker-server": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelist * --verityProverUrl http://localhost:8080'",
+		"start-broker-server": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll'",
+		"start-broker-server-with-verity": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll --verityProverUrl http://localhost:8080'",
 		"build:ts": "bunx tsc",
 		"test": "bun test",
 		"format": "bunx biome format --write",
@@ -40,7 +41,6 @@
 		"check:fix": "bunx biome check --write",
 		"copy:dts": "cpx \"build/*.d.ts\" ./dist/",
 		"copy:proto": "cpx \"src/proto/*.proto\" ./dist/proto",
-
 		"prepare": "bunx husky",
 		"postinstall": "./proto-gen.sh"
 	},
@@ -50,7 +50,6 @@
 	"dependencies": {
 		"@grpc/grpc-js": "^1.13.4",
 		"@grpc/proto-loader": "^0.7.15",
-		"@usherlabs/ccxt": "latest",
 		"commander": "^14.0.0",
 		"joi": "^17.13.3",
 		"tslog": "^4.9.3"
