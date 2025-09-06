@@ -92,7 +92,7 @@ export default class CEXBroker {
 		}
 
 		if (Object.keys(configMap).length === 0) {
-			log.error(`❌ NO CEX Broker Key Found`);
+			log.warn(`❌ NO CEX Broker Key Found`);
 		}
 
 		// Finalize config and print result per broker
@@ -132,7 +132,6 @@ export default class CEXBroker {
 									recvWindow: 60000,
 								},
 							});
-							exchange.redact_exclusion = "key";
 							secondaryBrokers[+index] = exchange;
 						} else {
 							log.warn(
@@ -243,7 +242,6 @@ export default class CEXBroker {
 							recvWindow: 60000,
 						},
 					});
-					exchange.redact_exclusion = "key"; //Exclude api-key and apikey
 					secondaryBroker[+index] = exchange;
 				} else {
 					log.warn(
@@ -272,7 +270,6 @@ export default class CEXBroker {
 					recvWindow: 60000,
 				},
 			});
-			client.redact_exclusion = "key"; //Exclude api-key and apikey
 
 			this.brokers[broker] = {
 				primary: client,

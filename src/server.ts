@@ -49,11 +49,12 @@ export function getServer(
 		) => {
 			// Log incoming request
 			log.info(
-				`Request - ExecuteAction: ${JSON.stringify({
+				`Request - ExecuteAction:`,
+				{
 					action: call.request.action,
 					cex: call.request.cex,
 					symbol: call.request.symbol,
-				})}`,
+				}
 			);
 
 			// IP Authentication
@@ -74,7 +75,7 @@ export function getServer(
 				return callback(
 					{
 						code: grpc.status.INVALID_ARGUMENT,
-						message: "action, cex, symbol, and cex are required",
+						message: "`action` AND `cex` fields are required",
 					},
 					null,
 				);
@@ -92,6 +93,15 @@ export function getServer(
 					},
 					null,
 				);
+			}
+
+			// Check if Verity is set. If so, set options based on metadata.
+			if (useVerity && broker.useVerity) {
+				const redact = metadata.get("verity-t-redacted")?.[0]?.toString() || "";
+				log.info(`Verity Options: Redact`, { redact });
+				broker.addVerityRequestOptions({
+					redact,
+				});
 			}
 
 			switch (action) {
