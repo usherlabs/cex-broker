@@ -50,6 +50,7 @@
 	"dependencies": {
 		"@grpc/grpc-js": "^1.13.4",
 		"@grpc/proto-loader": "^0.7.15",
+		"@usherlabs/ccxt": "^0.0.10",
 		"commander": "^14.0.0",
 		"joi": "^17.13.3",
 		"tslog": "^4.9.3"
