@@ -48,14 +48,11 @@ export function getServer(
 			callback: grpc.sendUnaryData<ActionResponse>,
 		) => {
 			// Log incoming request
-			log.info(
-				`Request - ExecuteAction:`,
-				{
-					action: call.request.action,
-					cex: call.request.cex,
-					symbol: call.request.symbol,
-				}
-			);
+			log.info(`Request - ExecuteAction:`, {
+				action: call.request.action,
+				cex: call.request.cex,
+				symbol: call.request.symbol,
+			});
 
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
