@@ -207,8 +207,8 @@ message ActionResponse {
 - `CreateOrder` (3): Create a new order
 - `GetOrderDetails` (4): Get order information
 - `CancelOrder` (5): Cancel an existing order
-- `FetchBalance` (6): Get account balance (free by default, supports type: "free", "used", "total")
-- `FetchBalances` (7): Get all account balances (free by default, supports type: "free", "used", "total")
+- `FetchBalance` (6): Get account balance (free by default, supports balanceType: "free", "used", "total")
+- `FetchBalances` (7): Get all account balances (free by default, supports balanceType: "free", "used", "total")
 - `FetchDepositAddresses` (8): Get deposit addresses for a token/network
 - `FetchTicker` (9): Get ticker information
 - `Call` (10): Generic method invocation on the underlying broker instance. Provide `functionName`, optional `args` array, and optional `params` object.
@@ -227,7 +227,7 @@ const balanceRequest = {
 // Fetch used balance
 const usedBalanceRequest = {
   action: 6, // FetchBalance
-  payload: { type: "used" },
+  payload: { balanceType: "used" },
   cex: "binance",
   symbol: "USDT"
 };
@@ -235,7 +235,7 @@ const usedBalanceRequest = {
 // Fetch total balance
 const totalBalanceRequest = {
   action: 6, // FetchBalance
-  payload: { type: "total" },
+  payload: { balanceType: "total" },
   cex: "binance",
   symbol: "USDT"
 };
@@ -250,7 +250,7 @@ const allBalancesRequest = {
 // Fetch all used balances
 const allUsedBalancesRequest = {
   action: 7, // FetchBalances
-  payload: { type: "used" },
+  payload: { balanceType: "used" },
   cex: "binance"
 };
 

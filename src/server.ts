@@ -608,15 +608,15 @@ export function getServer(
 						// Determine balance type: free (default), used, or total
 						const payload =
 							(call.request.payload as Record<string, unknown>) || {};
-						const balanceType = (payload.type as string) || "free";
+						const balanceType = (payload.balanceType as string) || "free";
 						const params = { ...payload };
-						delete params.type; // Remove type from params before passing to CCXT
+						delete params.balanceType; // Remove type from params before passing to CCXT
 
 						let balance: Record<string, number>;
 						switch (balanceType) {
 							case "used":
 								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchFreeBalance(params)) as any;
+								balance = (await broker.fetchUsedBalance(params)) as any;
 								break;
 							case "total":
 								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
@@ -643,7 +643,7 @@ export function getServer(
 							result: JSON.stringify({
 								balance: currencyBalance || 0,
 								currency: symbol,
-								type: balanceType,
+								balanceType: balanceType,
 							}),
 						});
 					} catch (error) {
@@ -663,9 +663,9 @@ export function getServer(
 						// Determine balance type: free (default), used, or total
 						const payload =
 							(call.request.payload as Record<string, unknown>) || {};
-						const balanceType = (payload.type as string) || "free";
+						const balanceType = (payload.balanceType as string) || "free";
 						const params = { ...payload };
-						delete params.type; // Remove type from params before passing to CCXT
+						delete params.balanceType; // Remove balanceType from params before passing to CCXT
 
 						let balance: Record<string, number>;
 						switch (balanceType) {
@@ -695,7 +695,7 @@ export function getServer(
 							proof: broker.last_proof || "",
 							result: JSON.stringify({
 								balances: balance,
-								type: balanceType,
+								balanceType: balanceType,
 							}),
 						});
 					} catch (error) {
