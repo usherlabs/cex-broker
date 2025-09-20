@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cex_broker; 
+package cex_broker;
 
 message ActionRequest {
   Action action = 1;                        // The CCXT method to call (e.g., "fetchBalance", "createOrder")
@@ -10,7 +10,7 @@ message ActionRequest {
 
 message ActionResponse {
   string result = 1;       // JSON string of the result data
-  string proof = 2; 
+  string proof = 2;
 }
 
 message SubscribeRequest {
