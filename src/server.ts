@@ -166,6 +166,105 @@ export function getServer(
 					break;
 				}
 
+				case Action.Call: {
+					const callSchema = Joi.object({
+						functionName: Joi.string()
+							.pattern(/^[A-Za-z][A-Za-z0-9]*$/)
+							.required(),
+						args: Joi.array()
+							.items(
+								Joi.alternatives(
+									Joi.string(),
+									Joi.number(),
+									Joi.boolean(),
+									Joi.object(),
+									Joi.array(),
+								),
+							)
+							.default([]),
+						params: Joi.object().default({}),
+					});
+
+					const { value: callValue, error: callError } = callSchema.validate(
+						call.request.payload ?? {},
+					);
+
+					if (callError) {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: ${callError.message}`,
+							},
+							null,
+						);
+					}
+
+					try {
+						// Ensure function exists and is callable on the broker
+						const fn = (broker as unknown as Record<string, unknown>)[
+							callValue.functionName
+						];
+						if (typeof fn !== "function") {
+							return callback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `Function not found on broker: ${callValue.functionName}`,
+								},
+								null,
+							);
+						}
+
+						// Prevent access to dangerous names
+						if (
+							callValue.functionName.startsWith("_") ||
+							callValue.functionName.includes("constructor") ||
+							callValue.functionName.includes("prototype")
+						) {
+							return callback(
+								{
+									code: grpc.status.PERMISSION_DENIED,
+									message: "Access to the requested function is denied",
+								},
+								null,
+							);
+						}
+
+						// Prepare arguments
+						const argsArray: unknown[] = Array.isArray(callValue.args)
+							? [...callValue.args]
+							: [];
+						const paramsObject = callValue.params ?? {};
+						if (Object.keys(paramsObject).length > 0) {
+							argsArray.push(paramsObject);
+						}
+
+						// Invoke
+						// biome-ignore lint/suspicious/noExplicitAny: dynamic call required for generic broker methods
+						const result = await (fn as any).apply(broker, argsArray);
+
+						callback(null, {
+							proof: broker.last_proof || "",
+							result: JSON.stringify(result),
+						});
+					} catch (error: unknown) {
+						log.error({ error });
+						const message =
+							error instanceof Error
+								? error.message
+								: typeof error === "string"
+									? error
+									: "Unknown error";
+						callback(
+							{
+								code: grpc.status.INTERNAL,
+								message: `Call failed: ${message}`,
+							},
+							null,
+						);
+					}
+					break;
+				}
+
 				case Action.FetchDepositAddresses: {
 					if (!symbol) {
 						return callback(
@@ -198,19 +297,21 @@ export function getServer(
 					try {
 						const depositAddresses =
 							broker.has.fetchDepositAddress === true
-								? await broker.fetchDepositAddress(symbol, {
-										network: fetchDepositAddresses.chain,
-										...(fetchDepositAddresses.params ?? {}),
-									})
+								? [
+										await broker.fetchDepositAddress(symbol, {
+											network: fetchDepositAddresses.chain,
+											...(fetchDepositAddresses.params ?? {}),
+										}),
+									]
 								: await broker.fetchDepositAddressesByNetwork(symbol, {
 										network: fetchDepositAddresses.chain,
 										...(fetchDepositAddresses.params ?? {}),
 									});
 
-						if (depositAddresses) {
+						if (depositAddresses.length > 0) {
 							return callback(null, {
 								proof: broker.last_proof || "",
-								result: JSON.stringify({ ...depositAddresses }),
+								result: JSON.stringify(depositAddresses),
 							});
 						}
 						callback(
@@ -239,7 +340,7 @@ export function getServer(
 					}
 					break;
 				}
-				case Action.Transfer: {
+				case Action.Withdraw: {
 					if (!symbol) {
 						return callback(
 							{
@@ -286,9 +387,9 @@ export function getServer(
 						);
 					}
 					try {
-						const data = await broker.fetchCurrencies("USDT");
+						const tokenData = await broker.fetchCurrencies(symbol);
 						const networks = Object.keys(
-							(data[symbol] ?? { networks: [] }).networks,
+							(tokenData[symbol] ?? { networks: [] }).networks,
 						);
 
 						if (!networks.includes(transferValue.chain)) {
@@ -307,7 +408,7 @@ export function getServer(
 							undefined,
 							{ network: transferValue.chain },
 						);
-						log.info(`Transfer Transfer: ${JSON.stringify(transaction)}`);
+						log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 
 						callback(null, {
 							proof: broker.last_proof || "",
@@ -318,7 +419,7 @@ export function getServer(
 						callback(
 							{
 								code: grpc.status.INTERNAL,
-								message: "Transfer failed",
+								message: "Withdraw failed",
 							},
 							null,
 						);
@@ -504,11 +605,36 @@ export function getServer(
 				}
 				case Action.FetchBalance:
 					try {
-						// Fetch balance from the specified CEX
-						const balance = (await broker.fetchFreeBalance({
-							...(call.request.payload ?? {}),
-							// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-						})) as any;
+						// Determine balance type: free (default), used, or total
+						const payload = call.request.payload as Record<string, unknown> || {};
+						const balanceType = (payload.type as string) || 'free';
+						const params = { ...payload };
+						delete params.type; // Remove type from params before passing to CCXT
+
+						let balance: Record<string, number>;
+						switch (balanceType) {
+							case 'used':
+								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
+								balance = (await broker.fetchFreeBalance(params)) as any;
+								break;
+							case 'total':
+								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
+								balance = (await broker.fetchTotalBalance(params)) as any;
+								break;
+							case 'free':
+								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
+								balance = (await broker.fetchFreeBalance(params)) as any;
+								break;
+							default:
+								return callback(
+									{
+										code: grpc.status.INVALID_ARGUMENT,
+										message: `Error:  Invalid balance type`,
+									},
+									null,
+								);
+						}
+
 						const currencyBalance = symbol ? balance[symbol] : balance;
 
 						callback(null, {
@@ -516,6 +642,7 @@ export function getServer(
 							result: JSON.stringify({
 								balance: currencyBalance || 0,
 								currency: symbol,
+								type: balanceType,
 							}),
 						});
 					} catch (error) {
@@ -532,14 +659,42 @@ export function getServer(
 
 				case Action.FetchBalances:
 					try {
-						// Fetch balance from the specified CEX
-						const balance = await broker.fetchFreeBalance({
-							...(call.request.payload ?? {}),
-						});
+						// Determine balance type: free (default), used, or total
+						const payload = call.request.payload as Record<string, unknown> || {};
+						const balanceType = (payload.type as string) || 'free';
+						const params = { ...payload };
+						delete params.type; // Remove type from params before passing to CCXT
+
+						let balance: Record<string, number>;
+						switch (balanceType) {
+							case 'used':
+								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
+								balance = (await broker.fetchUsedBalance(params)) as any;
+								break;
+							case 'total':
+								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
+								balance = (await broker.fetchTotalBalance(params)) as any;
+								break;
+							case 'free':
+								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
+								balance = (await broker.fetchFreeBalance(params)) as any;
+								break;
+							default:
+								return callback(
+									{
+										code: grpc.status.INVALID_ARGUMENT,
+										message: `Error:  Invalid balance type`,
+									},
+									null,
+								);
+						}
 
 						callback(null, {
 							proof: broker.last_proof || "",
-							result: JSON.stringify(balance),
+							result: JSON.stringify({
+								balances: balance,
+								type: balanceType,
+							}),
 						});
 					} catch (error) {
 						log.error(`Error fetching balance from ${cex}:`, error);

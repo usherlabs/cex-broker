@@ -86,5 +86,4 @@ describe("Integration Tests", () => {
 			expect(invalidResult.valid).toBe(false);
 		});
 	});
-
 });

@@ -46,7 +46,7 @@ service cex_service {
 enum Action {
   NoAction=0;
   Deposit = 1;
-  Transfer = 2;
+  Withdraw = 2;
   CreateOrder= 3;
   GetOrderDetails=4;
   CancelOrder=5;
@@ -54,4 +54,5 @@ enum Action {
   FetchBalances=7;
   FetchDepositAddresses=8;
   FetchTicker=9;
+  Call=10;
 }
