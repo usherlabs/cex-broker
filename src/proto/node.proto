@@ -55,4 +55,5 @@ enum Action {
   FetchDepositAddresses=8;
   FetchTicker=9;
   Call=10;
+  FetchCurrency=11;
 }

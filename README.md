@@ -212,6 +212,7 @@ message ActionResponse {
 - `FetchDepositAddresses` (8): Get deposit addresses for a token/network
 - `FetchTicker` (9): Get ticker information
 - `Call` (10): Generic method invocation on the underlying broker instance. Provide `functionName`, optional `args` array, and optional `params` object.
+- `FetchCurrency` (11): Get currency metadata (networks, fees, etc.) for a symbol
 
 **Example Usage:**
 
@@ -274,6 +275,14 @@ const depositAddressRequest = {
   payload: {
     chain: "BEP20"
   },
+  cex: "binance",
+  symbol: "USDT"
+};
+
+// Fetch currency metadata
+const fetchCurrencyRequest = {
+  action: 11, // FetchCurrency
+  payload: {},
   cex: "binance",
   symbol: "USDT"
 };

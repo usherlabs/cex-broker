@@ -166,6 +166,45 @@ export function getServer(
 					break;
 				}
 
+				case Action.FetchCurrency: {
+					if (!symbol) {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: Symbol requied`,
+							},
+							null,
+						);
+					}
+					try {
+						const currencies = await broker.fetchCurrencies(symbol);
+						const currencyInfo = currencies[symbol];
+						if (!currencyInfo) {
+							return callback(
+								{
+									code: grpc.status.NOT_FOUND,
+									message: `Currency not found for ${symbol}`,
+								},
+								null,
+							);
+						}
+						callback(null, {
+							proof: broker.last_proof || "",
+							result: JSON.stringify(currencyInfo),
+						});
+					} catch (error) {
+						log.error(`Error fetching currency ${symbol} from ${cex}:`, error);
+						callback(
+							{
+								code: grpc.status.INTERNAL,
+								message: `Failed to fetch currency for ${symbol} from ${cex}`,
+							},
+							null,
+						);
+					}
+					break;
+				}
+
 				case Action.Call: {
 					const callSchema = Joi.object({
 						functionName: Joi.string()
@@ -187,14 +226,19 @@ export function getServer(
 
 					// Normalise payload coming from protobuf map<string, string>
 					// to support JSON-encoded complex types for args/params
-					const rawPayload = (call.request.payload ?? {}) as Record<string, unknown>;
+					const rawPayload = (call.request.payload ?? {}) as Record<
+						string,
+						unknown
+					>;
 					const preparedPayload: Record<string, unknown> = { ...rawPayload };
 					try {
 						if (typeof preparedPayload.args === "string") {
 							preparedPayload.args = JSON.parse(preparedPayload.args as string);
 						}
 						if (typeof preparedPayload.params === "string") {
-							preparedPayload.params = JSON.parse(preparedPayload.params as string);
+							preparedPayload.params = JSON.parse(
+								preparedPayload.params as string,
+							);
 						}
 					} catch {
 						return callback(
@@ -207,9 +251,8 @@ export function getServer(
 						);
 					}
 
-					const { value: callValue, error: callError } = callSchema.validate(
-						preparedPayload,
-					);
+					const { value: callValue, error: callError } =
+						callSchema.validate(preparedPayload);
 
 					if (callError) {
 						return callback(
@@ -226,7 +269,10 @@ export function getServer(
 						const fn = (broker as unknown as Record<string, unknown>)[
 							callValue.functionName
 						];
-						if (typeof fn !== "function" || !broker.has[callValue.functionName]) {
+						if (
+							typeof fn !== "function" ||
+							!broker.has[callValue.functionName]
+						) {
 							return callback(
 								{
 									code: grpc.status.INVALID_ARGUMENT,
@@ -797,13 +843,11 @@ export function getServer(
 				const subscriptionType =
 					type !== undefined ? type : SubscriptionType.ORDERBOOK;
 
-				log.info(
-					`Request - Subscribe:`, {
-						cex: request.cex,
-						symbol: request.symbol,
-						type: subscriptionType,
-					}
-				);
+				log.info(`Request - Subscribe:`, {
+					cex: request.cex,
+					symbol: request.symbol,
+					type: subscriptionType,
+				});
 
 				// Validate required fields
 				if (!cex || !symbol) {
