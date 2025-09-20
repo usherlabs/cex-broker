@@ -606,22 +606,23 @@ export function getServer(
 				case Action.FetchBalance:
 					try {
 						// Determine balance type: free (default), used, or total
-						const payload = call.request.payload as Record<string, unknown> || {};
-						const balanceType = (payload.type as string) || 'free';
+						const payload =
+							(call.request.payload as Record<string, unknown>) || {};
+						const balanceType = (payload.type as string) || "free";
 						const params = { ...payload };
 						delete params.type; // Remove type from params before passing to CCXT
 
 						let balance: Record<string, number>;
 						switch (balanceType) {
-							case 'used':
+							case "used":
 								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
 								balance = (await broker.fetchFreeBalance(params)) as any;
 								break;
-							case 'total':
+							case "total":
 								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
 								balance = (await broker.fetchTotalBalance(params)) as any;
 								break;
-							case 'free':
+							case "free":
 								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
 								balance = (await broker.fetchFreeBalance(params)) as any;
 								break;
@@ -660,22 +661,23 @@ export function getServer(
 				case Action.FetchBalances:
 					try {
 						// Determine balance type: free (default), used, or total
-						const payload = call.request.payload as Record<string, unknown> || {};
-						const balanceType = (payload.type as string) || 'free';
+						const payload =
+							(call.request.payload as Record<string, unknown>) || {};
+						const balanceType = (payload.type as string) || "free";
 						const params = { ...payload };
 						delete params.type; // Remove type from params before passing to CCXT
 
 						let balance: Record<string, number>;
 						switch (balanceType) {
-							case 'used':
+							case "used":
 								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
 								balance = (await broker.fetchUsedBalance(params)) as any;
 								break;
-							case 'total':
+							case "total":
 								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
 								balance = (await broker.fetchTotalBalance(params)) as any;
 								break;
-							case 'free':
+							case "free":
 								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
 								balance = (await broker.fetchFreeBalance(params)) as any;
 								break;
