@@ -185,8 +185,30 @@ export function getServer(
 						params: Joi.object().default({}),
 					});
 
+					// Normalise payload coming from protobuf map<string, string>
+					// to support JSON-encoded complex types for args/params
+					const rawPayload = (call.request.payload ?? {}) as Record<string, unknown>;
+					const preparedPayload: Record<string, unknown> = { ...rawPayload };
+					try {
+						if (typeof preparedPayload.args === "string") {
+							preparedPayload.args = JSON.parse(preparedPayload.args as string);
+						}
+						if (typeof preparedPayload.params === "string") {
+							preparedPayload.params = JSON.parse(preparedPayload.params as string);
+						}
+					} catch {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message:
+									"ValidationError: Failed to parse JSON for 'args' or 'params'",
+							},
+							null,
+						);
+					}
+
 					const { value: callValue, error: callError } = callSchema.validate(
-						call.request.payload ?? {},
+						preparedPayload,
 					);
 
 					if (callError) {
@@ -204,7 +226,7 @@ export function getServer(
 						const fn = (broker as unknown as Record<string, unknown>)[
 							callValue.functionName
 						];
-						if (typeof fn !== "function") {
+						if (typeof fn !== "function" || !broker.has[callValue.functionName]) {
 							return callback(
 								{
 									code: grpc.status.INVALID_ARGUMENT,
@@ -776,11 +798,11 @@ export function getServer(
 					type !== undefined ? type : SubscriptionType.ORDERBOOK;
 
 				log.info(
-					`Request - Subscribe: ${JSON.stringify({
+					`Request - Subscribe:`, {
 						cex: request.cex,
 						symbol: request.symbol,
 						type: subscriptionType,
-					})}`,
+					}
 				);
 
 				// Validate required fields
