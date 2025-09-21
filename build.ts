@@ -35,8 +35,8 @@ await Bun.build({
 // Copy descriptor alongside dist output for runtime import
 await Bun.spawn({ cmd: ["mkdir", "-p", "./dist/proto"] }).exited;
 await Bun.write(
-    './dist/proto/node.descriptor.ts',
-    await Bun.file('./src/proto/node.descriptor.ts').text(),
+	"./dist/proto/node.descriptor.ts",
+	await Bun.file("./src/proto/node.descriptor.ts").text(),
 );
 
 // Generates `dist/index.d.ts` and `dist/other/foo.d.ts`

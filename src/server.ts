@@ -20,7 +20,9 @@ import Joi from "joi";
 import { log } from "./helpers/logger";
 import descriptor from "./proto/node.descriptor.ts";
 
-const packageDef = protoLoader.fromJSON(descriptor as unknown as Record<string, unknown>);
+const packageDef = protoLoader.fromJSON(
+	descriptor as unknown as Record<string, unknown>,
+);
 const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
