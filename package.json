@@ -28,7 +28,7 @@
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
-		"build": "bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
+		"build": "bun run proto-gen && bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
 		"start-broker": "bun run ./src/cli.ts",
 		"start-broker-server": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll'",
 		"start-broker-server-with-verity": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll --verityProverUrl http://localhost:8080'",
@@ -53,7 +53,8 @@
 		"@usherlabs/ccxt": "^0.0.10",
 		"commander": "^14.0.0",
 		"joi": "^17.13.3",
-		"tslog": "^4.9.3"
+		"tslog": "^4.9.3",
+		"protobufjs": "^7.4.0"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org"

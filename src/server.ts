@@ -18,16 +18,9 @@ import type { SubscribeResponse } from "./proto/cex_broker/SubscribeResponse";
 import { SubscriptionType } from "./proto/cex_broker/SubscriptionType";
 import Joi from "joi";
 import { log } from "./helpers/logger";
-import path from "path";
-import { fileURLToPath } from "url";
+import descriptor from "./proto/node.descriptor.ts";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Safe absolute path to proto
-const protoPath = path.join(__dirname, ".", "proto", "node.proto");
-
-const packageDef = protoLoader.loadSync(protoPath);
+const packageDef = protoLoader.fromJSON(descriptor as unknown as Record<string, unknown>);
 const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
