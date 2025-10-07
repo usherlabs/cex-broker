@@ -1,7 +1,6 @@
 import { describe, test, expect } from "bun:test";
 
 describe("RPC Server Logic Tests", () => {
-
 	describe("GetOptimalPrice Validation", () => {
 		test("should validate required fields correctly", () => {
 			// Test missing mode
@@ -36,7 +35,7 @@ describe("RPC Server Logic Tests", () => {
 		});
 	});
 
-	describe("Transfer Validation", () => {
+	describe("Withdraw Validation", () => {
 		test("should validate required fields correctly", () => {
 			// Test missing fields
 			const request1: any = { chain: "ARB", recipient_address: "0x123" };

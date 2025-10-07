@@ -29,7 +29,7 @@ A high-performance gRPC-based cryptocurrency exchange broker service that provid
 1. **Clone the repository:**
    ```bash
    git clone <repository-url>
-   cd fietCexBroker
+   cd cex-broker
    ```
 
 2. **Install dependencies:**
@@ -147,7 +147,14 @@ Options:
 # Start the server
 bun run start
 
+# Start broker server (development)
+bun run start-broker
+
+# Start broker server with Verity
+bun run start-broker-server-with-verity
+
 # Build for production
+bun run build
 bun run build:ts
 
 # Run tests
@@ -161,9 +168,11 @@ bun run format
 
 # Lint code
 bun run lint
+bun run lint:fix
 
 # Check code (format + lint)
 bun run check
+bun run check:fix
 ```
 
 ## 📡 API Reference
@@ -194,22 +203,56 @@ message ActionResponse {
 **Available Actions:**
 - `NoAction` (0): No operation
 - `Deposit` (1): Confirm deposit transaction
-- `Transfer` (2): Transfer/withdraw funds
+- `Withdraw` (2): Withdraw funds
 - `CreateOrder` (3): Create a new order
 - `GetOrderDetails` (4): Get order information
 - `CancelOrder` (5): Cancel an existing order
-- `FetchBalance` (6): Get account balance
-- `FetchDepositAddresses` (7): Get deposit addresses for a token/network
+- `FetchBalance` (6): Get account balance (free by default, supports balanceType: "free", "used", "total")
+- `FetchBalances` (7): Get all account balances (free by default, supports balanceType: "free", "used", "total")
+- `FetchDepositAddresses` (8): Get deposit addresses for a token/network
+- `FetchTicker` (9): Get ticker information
+- `Call` (10): Generic method invocation on the underlying broker instance. Provide `functionName`, optional `args` array, and optional `params` object.
+- `FetchCurrency` (11): Get currency metadata (networks, fees, etc.) for a symbol
 
 **Example Usage:**
 
 ```typescript
-// Fetch balance
+// Fetch balance (free by default)
 const balanceRequest = {
   action: 6, // FetchBalance
   payload: {},
   cex: "binance",
   symbol: "USDT"
+};
+
+// Fetch used balance
+const usedBalanceRequest = {
+  action: 6, // FetchBalance
+  payload: { balanceType: "used" },
+  cex: "binance",
+  symbol: "USDT"
+};
+
+// Fetch total balance
+const totalBalanceRequest = {
+  action: 6, // FetchBalance
+  payload: { balanceType: "total" },
+  cex: "binance",
+  symbol: "USDT"
+};
+
+// Fetch all balances (free by default)
+const allBalancesRequest = {
+  action: 7, // FetchBalances
+  payload: {},
+  cex: "binance"
+};
+
+// Fetch all used balances
+const allUsedBalancesRequest = {
+  action: 7, // FetchBalances
+  payload: { balanceType: "used" },
+  cex: "binance"
 };
 
 // Create order
@@ -232,6 +275,14 @@ const depositAddressRequest = {
   payload: {
     chain: "BEP20"
   },
+  cex: "binance",
+  symbol: "USDT"
+};
+
+// Fetch currency metadata
+const fetchCurrencyRequest = {
+  action: 11, // FetchCurrency
+  payload: {},
   cex: "binance",
   symbol: "USDT"
 };
@@ -366,26 +417,40 @@ const response = await client.ExecuteAction(request, metadata);
 ### Project Structure
 
 ```
-fietCexBroker/
+cex-broker/
 ├── src/                    # Source code
+│   ├── cli.ts             # CLI entry point
+│   ├── client.dev.ts      # Development client
 │   ├── commands/          # CLI commands
 │   │   └── start-broker.ts # Broker startup command
 │   ├── helpers/           # Utility functions
 │   │   ├── index.ts       # Policy validation helpers
+│   │   ├── index.test.ts  # Helper tests
 │   │   └── logger.ts      # Logging configuration
 │   ├── index.ts           # Main broker class
+│   ├── proto/             # Generated protobuf types
+│   │   ├── cex_broker/    # Generated broker types
+│   │   ├── node.proto     # Service definition
+│   │   └── node.ts        # Type exports
 │   ├── server.ts          # gRPC server implementation
-│   ├── cli.ts             # CLI entry point
 │   └── types.ts           # TypeScript type definitions
 ├── proto/                 # Protocol buffer definitions
-│   ├── node.proto         # Service definition
-│   └── node.ts            # Type exports
+│   ├── cexBroker/         # Legacy generated types
+│   └── node.proto         # Service definition
 ├── policy/                # Policy configuration
 │   └── policy.json        # Trading and withdrawal rules
 ├── scripts/               # Build scripts
+│   └── patch-protobufjs.js # Protobuf patching script
 ├── test/                  # Test files
 ├── patches/               # Dependency patches
+├── examples/              # Example usage
+│   └── kraken-orderbook-demo.ts
 ├── build.ts               # Build configuration
+├── proto-gen.sh           # Proto generation script
+├── test-setup.ts          # Test setup
+├── tsconfig.json          # TypeScript configuration
+├── biome.json             # Code formatting/linting
+├── bunfig.toml            # Bun configuration
 └── package.json           # Dependencies and scripts
 ```
 

@@ -23,7 +23,7 @@ describe("Start Broker Command", () => {
 		test("should validate whitelist IPs", () => {
 			const whitelistIps = ["127.0.0.1", "192.168.1.100"];
 			expect(Array.isArray(whitelistIps)).toBe(true);
-			whitelistIps.forEach(ip => {
+			whitelistIps.forEach((ip) => {
 				expect(typeof ip).toBe("string");
 			});
 		});
@@ -120,14 +120,18 @@ describe("Start Broker Command", () => {
 		});
 
 		test("should handle large number of whitelist IPs", () => {
-			const whitelistIps = Array.from({ length: 100 }, (_, i) => `192.168.1.${i + 1}`);
+			const whitelistIps = Array.from(
+				{ length: 100 },
+				(_, i) => `192.168.1.${i + 1}`,
+			);
 			expect(Array.isArray(whitelistIps)).toBe(true);
 			expect(whitelistIps.length).toBe(100);
 		});
 
 		test("should handle long Verity URL", () => {
-			const verityProverUrl = "https://very-long-verity-url.example.com/api/v1/prover/endpoint";
+			const verityProverUrl =
+				"https://very-long-verity-url.example.com/api/v1/prover/endpoint";
 			expect(() => new URL(verityProverUrl)).not.toThrow();
 		});
 	});
-}); 
+});

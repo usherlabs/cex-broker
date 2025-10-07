@@ -25,10 +25,7 @@ describe("CEXBroker", () => {
 			deposit: {},
 			order: {
 				rule: {
-					markets: [
-						"BINANCE:BTC/USDT",
-						"BINANCE:ETH/USDT",
-					],
+					markets: ["BINANCE:BTC/USDT", "BINANCE:ETH/USDT"],
 					limits: [
 						{ from: "USDT", to: "BTC", min: 1, max: 100000 },
 						{ from: "BTC", to: "USDT", min: 0.001, max: 1 },
@@ -74,9 +71,13 @@ describe("CEXBroker", () => {
 
 			// Test that secondary environment variables are loaded
 			expect(process.env.CEX_BROKER_BINANCE_API_KEY_1).toBe("secondary_key_1");
-			expect(process.env.CEX_BROKER_BINANCE_API_SECRET_1).toBe("secondary_secret_1");
+			expect(process.env.CEX_BROKER_BINANCE_API_SECRET_1).toBe(
+				"secondary_secret_1",
+			);
 			expect(process.env.CEX_BROKER_BINANCE_API_KEY_2).toBe("secondary_key_2");
-			expect(process.env.CEX_BROKER_BINANCE_API_SECRET_2).toBe("secondary_secret_2");
+			expect(process.env.CEX_BROKER_BINANCE_API_SECRET_2).toBe(
+				"secondary_secret_2",
+			);
 		});
 
 		test("should handle case-insensitive broker names", () => {
@@ -168,18 +169,17 @@ describe("CEXBroker", () => {
 	});
 
 	describe("Exchange Credentials", () => {
-
 		test("should handle multiple exchanges", () => {
 			const credentials = {
 				binance: {
 					apiKey: "binance_key",
 					apiSecret: "binance_secret",
-					secondaryKeys:[]
+					secondaryKeys: [],
 				},
 				bybit: {
 					apiKey: "bybit_key",
 					apiSecret: "bybit_secret",
-					secondaryKeys:[]
+					secondaryKeys: [],
 				},
 			};
 
@@ -192,7 +192,7 @@ describe("CEXBroker", () => {
 				binance: {
 					apiKey: "primary_key",
 					apiSecret: "primary_secret",
-					secondaryKeys:[]
+					secondaryKeys: [],
 				},
 			};
 
@@ -217,7 +217,7 @@ describe("CEXBroker", () => {
 		test("should handle server startup errors", async () => {
 			// Test with invalid port
 			broker = new CEXBroker({}, testPolicy, { port: -1 });
-			
+
 			try {
 				await broker.run();
 				expect(false).toBe(true); // Should not reach here
@@ -244,8 +244,8 @@ describe("CEXBroker", () => {
 				/^(\d{1,3}\.){3}\d{1,3}$/.test(ip) &&
 				ip.split(".").every((part) => Number(part) >= 0 && Number(part) <= 255);
 
-			validIPs.forEach(ip => expect(isValidIPv4(ip)).toBe(true));
-			invalidIPs.forEach(ip => expect(isValidIPv4(ip)).toBe(false));
+			validIPs.forEach((ip) => expect(isValidIPv4(ip)).toBe(true));
+			invalidIPs.forEach((ip) => expect(isValidIPv4(ip)).toBe(false));
 		});
 
 		test("should validate Verity URL", () => {
@@ -278,7 +278,7 @@ describe("CEXBroker", () => {
 
 		test("should handle invalid policy JSON", () => {
 			const invalidPolicy = "invalid json";
-			
+
 			try {
 				JSON.parse(invalidPolicy);
 				expect(false).toBe(true); // Should not reach here
@@ -297,7 +297,7 @@ describe("CEXBroker", () => {
 				nonexistent: {
 					apiKey: "invalid_key",
 					apiSecret: "invalid_secret",
-					secondaryKeys:[]
+					secondaryKeys: [],
 				},
 			};
 
@@ -327,7 +327,7 @@ describe("CEXBroker", () => {
 				binance: {
 					apiKey: "primary_key",
 					apiSecret: "primary_secret",
-					secondaryKeys:[]
+					secondaryKeys: [],
 				},
 			};
 
@@ -341,4 +341,4 @@ describe("CEXBroker", () => {
 			expect(broker).toBeDefined();
 		});
 	});
-}); 
+});
