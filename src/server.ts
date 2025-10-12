@@ -24,6 +24,11 @@ import {
 	buildHttpClientOverrideFromMetadata,
 } from "./helpers";
 
+// TODO: remove if https://github.com/usherlabs/verity-dp/pull/85 is approved else keep for FIET-364
+process.on("unhandledRejection", (reason) => {
+	console.error("[unhandledRejection]", reason);
+});
+
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
 );
