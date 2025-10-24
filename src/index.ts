@@ -124,8 +124,6 @@ export default class CEXBroker {
 								secret: sec.apiSecret,
 								enableRateLimit: true,
 								defaultType: "spot",
-								useVerity: this.useVerity,
-								verityProverUrl: this.#verityProverUrl,
 								timeout: 150 * 1000,
 								options: {
 									adjustForTimeDifference: true,
@@ -152,8 +150,6 @@ export default class CEXBroker {
 					secret: creds.apiSecret,
 					enableRateLimit: true,
 					defaultType: "spot",
-					useVerity: this.useVerity,
-					verityProverUrl: this.#verityProverUrl,
 					timeout: 150 * 1000,
 					options: {
 						adjustForTimeDifference: true,
@@ -234,8 +230,6 @@ export default class CEXBroker {
 						secret: sec.apiSecret,
 						enableRateLimit: true,
 						defaultType: "spot",
-						useVerity: this.useVerity,
-						verityProverUrl: this.#verityProverUrl,
 						timeout: 150 * 1000,
 						options: {
 							adjustForTimeDifference: true,
@@ -262,8 +256,6 @@ export default class CEXBroker {
 				secret: creds.apiSecret,
 				enableRateLimit: true,
 				defaultType: "spot",
-				useVerity: this.useVerity,
-				verityProverUrl: this.#verityProverUrl,
 				timeout: 150 * 1000,
 				options: {
 					adjustForTimeDifference: true,

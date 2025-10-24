@@ -3,7 +3,10 @@ import Joi from "joi";
 import type { PolicyConfig } from "../types";
 import { log } from "./logger";
 import type { Metadata, ServerUnaryCall } from "@grpc/grpc-js";
-import ccxt, { type Exchange } from "@usherlabs/ccxt";
+import ccxt from "@usherlabs/ccxt";
+import type { Exchange, HttpClientOverride, HttpOverridePredicate } from '@usherlabs/ccxt';
+import { VerityClient } from '@usherlabs/verity-client';
+import { CCXT_METHODS_WITH_VERITY } from "./constants";
 
 export function authenticateRequest<T, E>(
 	call: ServerUnaryCall<T, E>,
@@ -19,11 +22,29 @@ export function authenticateRequest<T, E>(
 	return true;
 }
 
+export function createVerityHttpClientOverride(verityProverUrl: string, onProofCallback: (proof: string, notaryPubKey?: string) => void) {
+	const client = new VerityClient({ proverUrl: verityProverUrl });
+	return (redact: string, proofTimeout: number): HttpClientOverride => async ({ method, url, config, data, meta }) => {
+		let pending = client
+				.get(url, config)
+			if(redact){
+				pending = pending.redact(redact || ""); // ? Should Verity be configured for use on a per request basis always?
+			}
+		const response = await pending;
+		if(response.proof){
+			onProofCallback(response.proof, response.notary_pub_key);
+		}
+		return response;
+	}
+}
+
+export const verityHttpClientOverridePredicate: HttpOverridePredicate = ({ method, methodCalled }) => {
+	return ["get", "post"].includes(method.toLowerCase()) && CCXT_METHODS_WITH_VERITY.includes(methodCalled)
+}
+
 export function createBroker(
 	cex: string,
 	metadata: Metadata,
-	useVerity: boolean,
-	verityProverUrl: string,
 ): Exchange | null {
 	const api_key = metadata.get("api-key");
 	const api_secret = metadata.get("api-secret");
@@ -40,13 +61,11 @@ export function createBroker(
 		secret: api_secret[0]?.toString(),
 		enableRateLimit: true,
 		defaultType: "spot",
-		useVerity: useVerity,
-		verityProverUrl: verityProverUrl,
 		timeout: 150 * 1000,
 		options: {
 			adjustForTimeDifference: true,
 			recvWindow: 60000,
-		},
+		}
 	});
 
 	if (process.env.CEX_BROKER_SANDBOX_MODE === "true") {

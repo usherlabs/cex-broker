@@ -19,6 +19,7 @@ import { SubscriptionType } from "./proto/cex_broker/SubscriptionType";
 import Joi from "joi";
 import { log } from "./helpers/logger";
 import descriptor from "./proto/node.descriptor.ts";
+import { createVerityHttpClientOverride, verityHttpClientOverridePredicate } from "./helpers";
 
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
@@ -36,6 +37,10 @@ export function getServer(
 	verityProverUrl: string,
 ) {
 	const server = new grpc.Server();
+
+	const useVerityClientOverrideWithParams = createVerityHttpClientOverride(verityProverUrl, (proof, notaryPubKey) => {
+		log.info(`Verity proof:`, { proof, notaryPubKey });
+	});
 
 	server.addService(cexNode.cex_service.service, {
 		ExecuteAction: async (
@@ -73,9 +78,10 @@ export function getServer(
 				);
 			}
 
+			// If the Exchange is not already pre-loaded for preset API credentials via constructor - createBroker for non-gated APIs may be available for other exchanges.
 			const broker =
 				selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
-				createBroker(cex, metadata, useVerity, verityProverUrl);
+				createBroker(cex, metadata);
 
 			if (!broker) {
 				return callback(
@@ -88,12 +94,12 @@ export function getServer(
 			}
 
 			// Check if Verity is set. If so, set options based on metadata.
-			if (useVerity && broker.useVerity) {
+			if (useVerity) {
 				const redact = metadata.get("verity-t-redacted")?.[0]?.toString() || "";
-				log.info(`Verity Options: Redact`, { redact });
-				broker.addVerityRequestOptions({
-					redact,
-				});
+				const _proofTimeout = metadata.get("verity-proof-timeout")?.[0]?.toString() || undefined;
+				const proofTimeout = _proofTimeout ? parseInt(_proofTimeout, 10) : 60 * 1000; // 60 seconds default
+				log.info(`Verity request Options:`, { redact, proofTimeout });
+				broker.setHttpClientOverride(useVerityClientOverrideWithParams(redact, proofTimeout), verityHttpClientOverridePredicate);
 			}
 
 			switch (action) {
@@ -711,10 +717,10 @@ export function getServer(
 						}
 
 						// Extract and isolate the symbol if it exists.
-						if(symbol){
-							if(typeof responseBalances[symbol] === 'number'){
+						if (symbol) {
+							if (typeof responseBalances[symbol] === "number") {
 								responseBalances = { [symbol]: responseBalances[symbol] ?? 0 };
-							}else{
+							} else {
 								responseBalances = {};
 							}
 						}
@@ -826,7 +832,7 @@ export function getServer(
 				// Get or create broker
 				broker =
 					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
-					createBroker(cex, metadata, useVerity, verityProverUrl);
+					createBroker(cex, metadata);
 
 				if (!broker) {
 					call.write({
