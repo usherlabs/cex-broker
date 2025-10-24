@@ -19,7 +19,7 @@ import { SubscriptionType } from "./proto/cex_broker/SubscriptionType";
 import Joi from "joi";
 import { log } from "./helpers/logger";
 import descriptor from "./proto/node.descriptor.ts";
-import { createVerityHttpClientOverride, verityHttpClientOverridePredicate } from "./helpers";
+import { verityHttpClientOverridePredicate, buildHttpClientOverrideFromMetadata } from "./helpers";
 
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
@@ -38,9 +38,6 @@ export function getServer(
 ) {
 	const server = new grpc.Server();
 
-	const useVerityClientOverrideWithParams = createVerityHttpClientOverride(verityProverUrl, (proof, notaryPubKey) => {
-		log.info(`Verity proof:`, { proof, notaryPubKey });
-	});
 
 	server.addService(cexNode.cex_service.service, {
 		ExecuteAction: async (
@@ -93,13 +90,21 @@ export function getServer(
 				);
 			}
 
-			// Check if Verity is set. If so, set options based on metadata.
+            // Verity only for ExecuteAction
+			let verityProof = "";
 			if (useVerity) {
-				const redact = metadata.get("verity-t-redacted")?.[0]?.toString() || "";
-				const _proofTimeout = metadata.get("verity-proof-timeout")?.[0]?.toString() || undefined;
-				const proofTimeout = _proofTimeout ? parseInt(_proofTimeout, 10) : 60 * 1000; // 60 seconds default
-				log.info(`Verity request Options:`, { redact, proofTimeout });
-				broker.setHttpClientOverride(useVerityClientOverrideWithParams(redact, proofTimeout), verityHttpClientOverridePredicate);
+				const override = buildHttpClientOverrideFromMetadata(
+					metadata,
+					verityProverUrl,
+					(proof, notaryPubKey) => {
+						verityProof = proof;
+						log.info(`Verity proof:`, { proof, notaryPubKey });
+					},
+				);
+				broker.setHttpClientOverride(
+					override,
+					verityHttpClientOverridePredicate,
+				);
 			}
 
 			switch (action) {
@@ -143,7 +148,7 @@ export function getServer(
 								`Amount ${value.amount} at ${value.transactionHash} . Paid to ${value.recipientAddress}`,
 							);
 							return callback(null, {
-								proof: broker.last_proof || "",
+								proof: verityProof,
 								result: JSON.stringify({ ...deposit }),
 							});
 						}
@@ -190,7 +195,7 @@ export function getServer(
 							);
 						}
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify(currencyInfo),
 						});
 					} catch (error) {
@@ -312,7 +317,7 @@ export function getServer(
 						const result = await (fn as any).apply(broker, argsArray);
 
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify(result),
 						});
 					} catch (error: unknown) {
@@ -379,7 +384,7 @@ export function getServer(
 
 						if (depositAddresses.length > 0) {
 							return callback(null, {
-								proof: broker.last_proof || "",
+								proof: verityProof,
 								result: JSON.stringify(depositAddresses),
 							});
 						}
@@ -480,7 +485,7 @@ export function getServer(
 						log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify({ ...transaction }),
 						});
 					} catch (error) {
@@ -726,7 +731,7 @@ export function getServer(
 						}
 
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify({
 								balances: responseBalances,
 								balanceType,
@@ -757,7 +762,7 @@ export function getServer(
 					try {
 						const ticker = await broker.fetchTicker(symbol);
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify(ticker),
 						});
 					} catch (error) {
@@ -829,7 +834,7 @@ export function getServer(
 					return;
 				}
 
-				// Get or create broker
+                // Get or create broker (no Verity override in Subscribe)
 				broker =
 					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
 					createBroker(cex, metadata);

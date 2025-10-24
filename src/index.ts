@@ -2,7 +2,7 @@ import * as grpc from "@grpc/grpc-js";
 import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import { unwatchFile, watchFile } from "fs";
 import Joi from "joi";
-import { loadPolicy } from "./helpers";
+import { loadPolicy, createBrokerPool } from "./helpers";
 import { log } from "./helpers/logger";
 import { getServer } from "./server";
 import {
@@ -95,83 +95,8 @@ export default class CEXBroker {
 			log.warn(`❌ NO CEX Broker Key Found`);
 		}
 
-		// Finalize config and print result per broker
-		for (const [broker, creds] of Object.entries(configMap)) {
-			const hasKey = !!creds.apiKey;
-			const hasSecret = !!creds.apiSecret;
-			const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[
-				broker
-			];
-
-			if (!ExchangeClass) {
-				throw new Error(`Invalid Broker : ${broker}`);
-			}
-
-			if (hasKey && hasSecret) {
-				const secondaryKeys: { apiKey: string; apiSecret: string }[] = [];
-				const secondaryBrokers: Exchange[] = [];
-
-				if (creds._secondaryMap) {
-					for (const index of Object.keys(creds._secondaryMap)) {
-						const sec = creds._secondaryMap[+index];
-						if (!!sec?.apiKey && !!sec?.apiSecret) {
-							secondaryKeys[+index] = {
-								apiKey: sec.apiKey,
-								apiSecret: sec.apiSecret,
-							};
-							const exchange = new ExchangeClass({
-								apiKey: sec.apiKey,
-								secret: sec.apiSecret,
-								enableRateLimit: true,
-								defaultType: "spot",
-								timeout: 150 * 1000,
-								options: {
-									adjustForTimeDifference: true,
-									recvWindow: 60000,
-								},
-							});
-							secondaryBrokers[+index] = exchange;
-						} else {
-							log.warn(
-								`⚠️ Incomplete secondary credentials for broker "${broker}" at index ${index}`,
-							);
-						}
-					}
-				}
-
-				this.#brokerConfig[broker] = {
-					apiKey: creds.apiKey ?? "",
-					apiSecret: creds.apiSecret ?? "",
-					secondaryKeys: secondaryKeys,
-				};
-				log.info(`✅ Loaded credentials for broker "${broker}"`);
-				const client = new ExchangeClass({
-					apiKey: creds.apiKey,
-					secret: creds.apiSecret,
-					enableRateLimit: true,
-					defaultType: "spot",
-					timeout: 150 * 1000,
-					options: {
-						adjustForTimeDifference: true,
-						recvWindow: 60000,
-					},
-				});
-
-				if (process.env.CEX_BROKER_SANDBOX_MODE === "true") {
-					client.setSandboxMode(true);
-				}
-
-				this.brokers[broker] = {
-					primary: client,
-					secondaryBrokers: secondaryBrokers,
-				};
-			} else {
-				const missing = [];
-				if (!hasKey) missing.push("API_KEY");
-				if (!hasSecret) missing.push("API_SECRET");
-				log.warn(`❌ Missing ${missing.join(" and ")} for broker "${broker}"`);
-			}
-		}
+		// Build pool centrally
+		this.brokers = createBrokerPool(configMap);
 	}
 
 	/**
@@ -207,67 +132,8 @@ export default class CEXBroker {
 			throw new Error(`Invalid credentials format: ${error.message}`);
 		}
 
-		// Finalize config and print result per broker
-		for (const [broker, creds] of Object.entries(value)) {
-			const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[
-				broker
-			];
-
-			if (!ExchangeClass) {
-				throw new Error(`Invalid Broker : ${broker}`);
-			}
-
-			log.info(
-				`✅ Loaded credentials for broker "${broker}" (${1 + (creds.secondaryKeys?.length || 0)} key sets)`,
-			);
-			const secondaryBroker: Exchange[] = [];
-
-			for (const index of Object.keys(creds.secondaryKeys)) {
-				const sec = creds.secondaryKeys[+index];
-				if (!!sec?.apiKey && !!sec?.apiSecret) {
-					const exchange = new ExchangeClass({
-						apiKey: sec.apiKey,
-						secret: sec.apiSecret,
-						enableRateLimit: true,
-						defaultType: "spot",
-						timeout: 150 * 1000,
-						options: {
-							adjustForTimeDifference: true,
-							recvWindow: 60000,
-						},
-					});
-					secondaryBroker[+index] = exchange;
-				} else {
-					log.warn(
-						`⚠️ Incomplete secondary credentials for broker "${broker}" at index ${index}`,
-					);
-				}
-			}
-
-			// Store full config, including secondary keys
-			this.#brokerConfig[broker] = {
-				apiKey: creds.apiKey,
-				apiSecret: creds.apiSecret,
-				secondaryKeys: creds.secondaryKeys ?? [],
-			};
-
-			const client = new ExchangeClass({
-				apiKey: creds.apiKey,
-				secret: creds.apiSecret,
-				enableRateLimit: true,
-				defaultType: "spot",
-				timeout: 150 * 1000,
-				options: {
-					adjustForTimeDifference: true,
-					recvWindow: 60000,
-				},
-			});
-
-			this.brokers[broker] = {
-				primary: client,
-				secondaryBrokers: secondaryBroker,
-			};
-		}
+		// Build pool centrally
+		this.brokers = createBrokerPool(value);
 	}
 
 	constructor(
