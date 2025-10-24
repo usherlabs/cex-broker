@@ -65,7 +65,7 @@ export function buildHttpClientOverrideFromMetadata(
 ): HttpClientOverride {
 	const redact = metadata.get("verity-t-redacted")?.[0]?.toString() || "";
 	const rawTimeout = metadata.get("verity-proof-timeout")?.[0]?.toString();
-	const proofTimeout = rawTimeout ? parseInt(rawTimeout, 10) : 60 * 1000;
+	const proofTimeout = rawTimeout ? parseInt(rawTimeout, 10) : 60 * 1000; // default 60 seconds
 	const factory = createVerityHttpClientOverride(
 		verityProverUrl,
 		onProofCallback,
