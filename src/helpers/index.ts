@@ -93,8 +93,10 @@ export function createBroker(
 	// Duck-typing check for gRPC Metadata (has get/remove functions)
 	if (
 		credsOrMetadata &&
-		typeof (credsOrMetadata as unknown as { get: unknown }).get === "function" &&
-		typeof (credsOrMetadata as unknown as { remove: unknown }).remove === "function"
+		typeof (credsOrMetadata as unknown as { get: unknown }).get ===
+			"function" &&
+		typeof (credsOrMetadata as unknown as { remove: unknown }).remove ===
+			"function"
 	) {
 		const metadata = credsOrMetadata as Metadata;
 		apiKey = metadata.get("api-key")?.[0]?.toString();

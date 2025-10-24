@@ -19,7 +19,10 @@ import { SubscriptionType } from "./proto/cex_broker/SubscriptionType";
 import Joi from "joi";
 import { log } from "./helpers/logger";
 import descriptor from "./proto/node.descriptor.ts";
-import { verityHttpClientOverridePredicate, buildHttpClientOverrideFromMetadata } from "./helpers";
+import {
+	verityHttpClientOverridePredicate,
+	buildHttpClientOverrideFromMetadata,
+} from "./helpers";
 
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
@@ -37,7 +40,6 @@ export function getServer(
 	verityProverUrl: string,
 ) {
 	const server = new grpc.Server();
-
 
 	server.addService(cexNode.cex_service.service, {
 		ExecuteAction: async (
@@ -90,7 +92,7 @@ export function getServer(
 				);
 			}
 
-            // Verity only for ExecuteAction
+			// Verity only for ExecuteAction
 			let verityProof = "";
 			if (useVerity) {
 				const override = buildHttpClientOverrideFromMetadata(
@@ -98,7 +100,7 @@ export function getServer(
 					verityProverUrl,
 					(proof, notaryPubKey) => {
 						verityProof = proof;
-						log.info(`Verity proof:`, { proof, notaryPubKey });
+						log.debug(`Verity proof:`, { proof, notaryPubKey });
 					},
 				);
 				broker.setHttpClientOverride(
@@ -834,7 +836,7 @@ export function getServer(
 					return;
 				}
 
-                // Get or create broker (no Verity override in Subscribe)
+				// Get or create broker (no Verity override in Subscribe)
 				broker =
 					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
 					createBroker(cex, metadata);
