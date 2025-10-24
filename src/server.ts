@@ -20,7 +20,6 @@ import Joi from "joi";
 import { log } from "./helpers/logger";
 import descriptor from "./proto/node.descriptor.ts";
 
-
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
 );
@@ -672,7 +671,9 @@ export function getServer(
 						// Determine balance type: free | used | total (default: total)
 						const payload =
 							(call.request.payload as Record<string, unknown>) || {};
-						const providedBalanceType = payload.balanceType as string | undefined;
+						const providedBalanceType = payload.balanceType as
+							| string
+							| undefined;
 						const balanceType = (providedBalanceType ?? "total").toString();
 						const validBalanceTypes = new Set(["free", "used", "total"]);
 						if (!validBalanceTypes.has(balanceType)) {
