@@ -710,6 +710,15 @@ export function getServer(
 							responseBalances = partial ?? {};
 						}
 
+						// Extract and isolate the symbol if it exists.
+						if(symbol){
+							if(typeof responseBalances[symbol] === 'number'){
+								responseBalances = { [symbol]: responseBalances[symbol] ?? 0 };
+							}else{
+								responseBalances = {};
+							}
+						}
+
 						callback(null, {
 							proof: broker.last_proof || "",
 							result: JSON.stringify({
