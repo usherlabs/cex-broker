@@ -20,6 +20,7 @@ import Joi from "joi";
 import { log } from "./helpers/logger";
 import descriptor from "./proto/node.descriptor.ts";
 
+
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
 );
@@ -666,99 +667,53 @@ export function getServer(
 					});
 					break;
 				}
-				case Action.FetchBalance:
-					try {
-						// Determine balance type: free (default), used, or total
-						const payload =
-							(call.request.payload as Record<string, unknown>) || {};
-						const balanceType = (payload.balanceType as string) || "free";
-						const params = { ...payload };
-						delete params.balanceType; // Remove type from params before passing to CCXT
-
-						let balance: Record<string, number>;
-						switch (balanceType) {
-							case "used":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchUsedBalance(params)) as any;
-								break;
-							case "total":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchTotalBalance(params)) as any;
-								break;
-							case "free":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchFreeBalance(params)) as any;
-								break;
-							default:
-								return callback(
-									{
-										code: grpc.status.INVALID_ARGUMENT,
-										message: `Error:  Invalid balance type`,
-									},
-									null,
-								);
-						}
-
-						const currencyBalance = symbol ? balance[symbol] : balance;
-
-						callback(null, {
-							proof: broker.last_proof || "",
-							result: JSON.stringify({
-								balance: currencyBalance || 0,
-								currency: symbol,
-								balanceType: balanceType,
-							}),
-						});
-					} catch (error) {
-						log.error(`Error fetching balance from ${cex}:`, error);
-						callback(
-							{
-								code: grpc.status.INTERNAL,
-								message: `Failed to fetch balance from ${cex}`,
-							},
-							null,
-						);
-					}
-					break;
-
 				case Action.FetchBalances:
 					try {
-						// Determine balance type: free (default), used, or total
+						// Determine balance type: free | used | total (default: total)
 						const payload =
 							(call.request.payload as Record<string, unknown>) || {};
-						const balanceType = (payload.balanceType as string) || "free";
-						const params = { ...payload };
-						delete params.balanceType; // Remove balanceType from params before passing to CCXT
+						const providedBalanceType = payload.balanceType as string | undefined;
+						const balanceType = (providedBalanceType ?? "total").toString();
+						const validBalanceTypes = new Set(["free", "used", "total"]);
+						if (!validBalanceTypes.has(balanceType)) {
+							return callback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `ValidationError: invalid balanceType '${providedBalanceType}'. Expected one of: free | used | total`,
+								},
+								null,
+							);
+						}
 
-						let balance: Record<string, number>;
-						switch (balanceType) {
-							case "used":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchUsedBalance(params)) as any;
-								break;
-							case "total":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchTotalBalance(params)) as any;
-								break;
-							case "free":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchFreeBalance(params)) as any;
-								break;
-							default:
-								return callback(
-									{
-										code: grpc.status.INVALID_ARGUMENT,
-										message: `Error:  Invalid balance type`,
-									},
-									null,
-								);
+						const params = { ...payload } as Record<string, unknown>;
+						delete (params as Record<string, unknown>).balanceType; // Remove balanceType from params before passing to CCXT
+						// Default market type to spot unless explicitly provided
+						if (params.type === undefined) {
+							params.type = "spot";
+						}
+
+						// Always return the same schema with empty objects when not requested
+						let responseBalances: Record<string, number> = {};
+
+						if (balanceType === "free") {
+							// biome-ignore lint/suspicious/noExplicitAny: ccxt typing quirk for partial balances
+							const partial = (await broker.fetchFreeBalance(params)) as any;
+							responseBalances = partial ?? {};
+						} else if (balanceType === "used") {
+							// biome-ignore lint/suspicious/noExplicitAny: ccxt typing quirk for partial balances
+							const partial = (await broker.fetchUsedBalance(params)) as any;
+							responseBalances = partial ?? {};
+						} else if (balanceType === "total") {
+							// biome-ignore lint/suspicious/noExplicitAny: ccxt typing quirk for partial balances
+							const partial = (await broker.fetchTotalBalance(params)) as any;
+							responseBalances = partial ?? {};
 						}
 
 						callback(null, {
 							proof: broker.last_proof || "",
 							result: JSON.stringify({
-								balances: balance,
-								balanceType: balanceType,
+								balances: responseBalances,
+								balanceType,
 							}),
 						});
 					} catch (error) {

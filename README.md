@@ -207,51 +207,33 @@ message ActionResponse {
 - `CreateOrder` (3): Create a new order
 - `GetOrderDetails` (4): Get order information
 - `CancelOrder` (5): Cancel an existing order
-- `FetchBalance` (6): Get account balance (free by default, supports balanceType: "free", "used", "total")
-- `FetchBalances` (7): Get all account balances (free by default, supports balanceType: "free", "used", "total")
-- `FetchDepositAddresses` (8): Get deposit addresses for a token/network
-- `FetchTicker` (9): Get ticker information
+- `FetchBalances` (6): Get account balances. Supports `balanceType`: "free", "used", "total" (defaults to "total").
+- `FetchDepositAddresses` (7): Get deposit addresses for a token/network
+- `FetchTicker` (8): Get ticker information
+- `FetchCurrency` (9): Get currency metadata (networks, fees, etc.) for a symbol
 - `Call` (10): Generic method invocation on the underlying broker instance. Provide `functionName`, optional `args` array, and optional `params` object.
-- `FetchCurrency` (11): Get currency metadata (networks, fees, etc.) for a symbol
 
 **Example Usage:**
 
 ```typescript
-// Fetch balance (free by default)
-const balanceRequest = {
-  action: 6, // FetchBalance
-  payload: {},
-  cex: "binance",
-  symbol: "USDT"
-};
-
-// Fetch used balance
-const usedBalanceRequest = {
-  action: 6, // FetchBalance
-  payload: { balanceType: "used" },
-  cex: "binance",
-  symbol: "USDT"
-};
-
-// Fetch total balance
-const totalBalanceRequest = {
-  action: 6, // FetchBalance
-  payload: { balanceType: "total" },
-  cex: "binance",
-  symbol: "USDT"
-};
-
-// Fetch all balances (free by default)
-const allBalancesRequest = {
-  action: 7, // FetchBalances
-  payload: {},
+// Fetch total balances (default)
+const totalBalancesRequest = {
+  action: 6, // FetchBalances
+  payload: { type: "spot" }, // default is spot if omitted
   cex: "binance"
 };
 
-// Fetch all used balances
-const allUsedBalancesRequest = {
-  action: 7, // FetchBalances
-  payload: { balanceType: "used" },
+// Fetch free balances
+const freeBalancesRequest = {
+  action: 6, // FetchBalances
+  payload: { balanceType: "free", type: "spot" },
+  cex: "binance"
+};
+
+// Fetch used balances
+const usedBalancesRequest = {
+  action: 6, // FetchBalances
+  payload: { balanceType: "used", type: "spot" },
   cex: "binance"
 };
 
@@ -281,7 +263,7 @@ const depositAddressRequest = {
 
 // Fetch currency metadata
 const fetchCurrencyRequest = {
-  action: 11, // FetchCurrency
+  action: 9, // FetchCurrency
   payload: {},
   cex: "binance",
   symbol: "USDT"
