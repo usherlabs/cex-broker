@@ -32,10 +32,10 @@ export function createVerityHttpClientOverride(
 ) {
 	const client = new VerityClient({ proverUrl: verityProverUrl });
 	return (redact: string, proofTimeout: number): HttpClientOverride =>
-		async ({ method, url, config, data, meta }) => {
-			let pending = client.get(url, config);
+		async ({ url, config }) => { // { method, url, config, data, meta }
+			let pending = client.get(url, config, { proofTimeout });
 			if (redact) {
-				pending = pending.redact(redact || ""); // ? Should Verity be configured for use on a per request basis always?
+				pending = pending.redact(redact || "");
 			}
 			const response = await pending;
 			if (response.proof) {
@@ -65,7 +65,7 @@ export function buildHttpClientOverrideFromMetadata(
 ): HttpClientOverride {
 	const redact = metadata.get("verity-t-redacted")?.[0]?.toString() || "";
 	const rawTimeout = metadata.get("verity-proof-timeout")?.[0]?.toString();
-	const proofTimeout = rawTimeout ? parseInt(rawTimeout, 10) : 60 * 1000; // default 60 seconds
+	const proofTimeout = rawTimeout ? parseInt(rawTimeout, 10) : 5 * 60 * 1000; // default 5 minutes
 	const factory = createVerityHttpClientOverride(
 		verityProverUrl,
 		onProofCallback,
