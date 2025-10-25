@@ -32,7 +32,8 @@ export function createVerityHttpClientOverride(
 ) {
 	const client = new VerityClient({ proverUrl: verityProverUrl });
 	return (redact: string, proofTimeout: number): HttpClientOverride =>
-		async ({ url, config }) => { // { method, url, config, data, meta }
+		async ({ url, config }) => {
+			// { method, url, config, data, meta }
 			let pending = client.get(url, config, { proofTimeout });
 			if (redact) {
 				pending = pending.redact(redact || "");
@@ -148,8 +149,15 @@ export function createBrokerPool(
 			continue;
 		}
 
-		const primaryApiKey = (creds as any).apiKey as string | undefined;
-		const primaryApiSecret = (creds as any).apiSecret as string | undefined;
+		const credsRecord = creds as Record<string, unknown>;
+		const primaryApiKey =
+			typeof credsRecord.apiKey === "string"
+				? (credsRecord.apiKey as string)
+				: undefined;
+		const primaryApiSecret =
+			typeof credsRecord.apiSecret === "string"
+				? (credsRecord.apiSecret as string)
+				: undefined;
 		if (!primaryApiKey || !primaryApiSecret) {
 			log.warn(`❌ Missing API_KEY and/or API_SECRET for "${brokerName}"`);
 			continue;
@@ -165,14 +173,25 @@ export function createBrokerPool(
 		}
 
 		const secondaryBrokers: Exchange[] = [];
+		const secondaryKeysFromValidated = Array.isArray(credsRecord.secondaryKeys)
+			? (credsRecord.secondaryKeys as BrokerCredentials[])
+			: undefined;
+		const secondaryKeysFromMap =
+			credsRecord._secondaryMap && typeof credsRecord._secondaryMap === "object"
+				? Object.values(
+						credsRecord._secondaryMap as Record<
+							number,
+							Partial<BrokerCredentials>
+						>,
+					)
+						.filter(
+							(s): s is Required<BrokerCredentials> =>
+								typeof s.apiKey === "string" && typeof s.apiSecret === "string",
+						)
+						.map((s) => ({ apiKey: s.apiKey, apiSecret: s.apiSecret }))
+				: [];
 		const secondaryKeys: BrokerCredentials[] =
-			(creds as any).secondaryKeys ??
-			Object.values((creds as any)._secondaryMap ?? {})
-				.filter((s: any) => s?.apiKey && s?.apiSecret)
-				.map((s: any) => ({
-					apiKey: s.apiKey as string,
-					apiSecret: s.apiSecret as string,
-				}));
+			secondaryKeysFromValidated ?? secondaryKeysFromMap;
 
 		secondaryKeys.forEach((sec, idx) => {
 			const secEx = createBroker(brokerName, {

@@ -4,6 +4,8 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import path from "path";
 import { SubscriptionType } from "../src/proto/cex_broker/SubscriptionType";
+import type { ProtoGrpcType } from "../src/proto/node";
+import type { SubscribeResponse__Output } from "../src/proto/cex_broker/SubscribeResponse";
 
 const PROTO_FILE = "../src/proto/node.proto";
 
@@ -18,8 +20,10 @@ const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE), {
 	oneofs: true,
 });
 
-const proto = grpc.loadPackageDefinition(packageDef) as any;
-const client = new proto.cexBroker.CexService(
+const proto = grpc.loadPackageDefinition(
+	packageDef,
+) as unknown as ProtoGrpcType;
+const client = new proto.cex_broker.cex_service(
 	"localhost:8088",
 	grpc.credentials.createInsecure(),
 );
@@ -38,7 +42,7 @@ console.log("Press Ctrl+C to stop...\n");
 const stream = client.Subscribe(subscribeRequest);
 let dataCount = 0;
 
-stream.on("data", (response: any) => {
+stream.on("data", (response: SubscribeResponse__Output) => {
 	dataCount++;
 
 	console.clear(); // Clear screen for live updates
@@ -103,7 +107,7 @@ stream.on("data", (response: any) => {
 	console.log("\n Press Ctrl+C to stop streaming");
 });
 
-stream.on("error", (error: any) => {
+stream.on("error", (error: grpc.ServiceError) => {
 	console.error("Stream error:", error.message);
 	console.log("Code:", error.code);
 
