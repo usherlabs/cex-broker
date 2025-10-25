@@ -6,9 +6,11 @@
       "dependencies": {
         "@grpc/grpc-js": "^1.13.4",
         "@grpc/proto-loader": "^0.7.15",
-        "@usherlabs/ccxt": "^0.0.10",
+        "@usherlabs/ccxt": "^0.0.12",
+        "@usherlabs/verity-client": "^0.1.1",
         "commander": "^14.0.0",
         "joi": "^17.13.3",
+        "protobufjs": "^7.4.0",
         "tslog": "^4.9.3",
       },
       "devDependencies": {
@@ -91,9 +93,9 @@
 
     "@types/react": ["@types/react@19.1.8", "", { "dependencies": { "csstype": "^3.0.2" } }, "sha512-AwAfQ2Wa5bCx9WP8nZL2uMZWod7J7/JSplxbTmBQ5ms6QpqNYm672H0Vu9ZVKVngQ+ii4R/byguVEUZQyeg44g=="],
 
-    "@usherlabs/ccxt": ["@usherlabs/ccxt@0.0.10", "", { "dependencies": { "@usherlabs/verity-client": "^0.0.24", "axios": "^1.10.0", "ws": "^8.8.1" } }, "sha512-9bTOdKUoM7mcKafHvIyK1AhBfonkMfnrKrAm0YVFmjUFSG+FyeTMgYhi6BfNG+44uCHqUwmqPH3BP+HSt0Zl7g=="],
+    "@usherlabs/ccxt": ["@usherlabs/ccxt@0.0.12", "", { "dependencies": { "axios": "^1.10.0", "ws": "^8.8.1" } }, "sha512-NJvZm2+WvnK68XiO7F7/qvV9y3lN1o6LH5Lylu7xZvQ4APAsx3ZF2ha1DfoAAospuI78Rmimn0XUwEGXt6AoCg=="],
 
-    "@usherlabs/verity-client": ["@usherlabs/verity-client@0.0.24", "", { "dependencies": { "@types/eventsource": "^1.1.15", "axios": "^1.9.0", "eventsource": "^2.0.2", "uuid": "^11.1.0" } }, "sha512-TtKQUeIaKtWDTFIbFWfe/GKA3YixsOwko4vS8rjFuxQdg+FA6XUMUQolyZaAyqDr6QSzNtSu7FTYIluJZewFyQ=="],
+    "@usherlabs/verity-client": ["@usherlabs/verity-client@0.1.1", "", { "dependencies": { "@types/eventsource": "^1.1.15", "axios": "^1.9.0", "eventsource": "^2.0.2", "tslog": "^4.10.2", "uuid": "^11.1.0" } }, "sha512-o0dENuELxm0+iDIKtHfG53AJMII12MMm/2oHmA1Uuysd/L7MdNw4BkOkHRn5qk6HJqBjpjROf0h3YcOpyY+pGw=="],
 
     "ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 
@@ -117,7 +119,7 @@
 
     "atob": ["atob@2.1.2", "", { "bin": { "atob": "bin/atob.js" } }, "sha512-Wm6ukoaOGJi/73p/cl2GvLjTI5JM1k/O14isD73YML8StrH/7/lRFgmg8nICZgD3bZZvjwCGxtMOD3wWNAu8cg=="],
 
-    "axios": ["axios@1.11.0", "", { "dependencies": { "follow-redirects": "^1.15.6", "form-data": "^4.0.4", "proxy-from-env": "^1.1.0" } }, "sha512-1Lx3WLFQWm3ooKDYZD1eXmoGO9fxYQjrycfHFC8P0sCfQVXyROp0p9PFWBehewBOdCwHc+f/b8I0fMto5eSfwA=="],
+    "axios": ["axios@1.12.2", "", { "dependencies": { "follow-redirects": "^1.15.6", "form-data": "^4.0.4", "proxy-from-env": "^1.1.0" } }, "sha512-vMJzPewAlRyOgxV2dU0Cuz2O8zzzx9VYtbJOaBgXFeLc4IV/Eg50n4LowmehOOR61S8ZMpc2K5Sa7g6A4jfkUw=="],
 
     "babel-runtime": ["babel-runtime@6.26.0", "", { "dependencies": { "core-js": "^2.4.0", "regenerator-runtime": "^0.11.0" } }, "sha512-ITKNuq2wKlW1fJg9sSW52eepoYgZBggvOAHC0u/CYu/qxQ9EVzThCgR69BnSXLHjy2f7SY5zaQ4yt7H9ZVxY2g=="],
 
@@ -474,6 +476,8 @@
     "yargs": ["yargs@17.7.2", "", { "dependencies": { "cliui": "^8.0.1", "escalade": "^3.1.1", "get-caller-file": "^2.0.5", "require-directory": "^2.1.1", "string-width": "^4.2.3", "y18n": "^5.0.5", "yargs-parser": "^21.1.1" } }, "sha512-7dSzzRQ++CKnNI/krKnYRV7JKKPUXMEh61soaHKg9mrWEhzFWhFnxPxGl+69cD1Ou63C13NUPCnmIcrvqCuM6w=="],
 
     "yargs-parser": ["yargs-parser@21.1.1", "", {}, "sha512-tVpsJW7DdjecAiFpbIB1e3qxIQsE6NoPc5/eTdrbbIC4h0LVsWhnoa3g+m2HclBIujHzsxZ4VJVA+GUuc2/LBw=="],
+
+    "@usherlabs/verity-client/tslog": ["tslog@4.10.2", "", {}, "sha512-XuELoRpMR+sq8fuWwX7P0bcj+PRNiicOKDEb3fGNURhxWVyykCi9BNq7c4uVz7h7P0sj8qgBsr5SWS6yBClq3g=="],
 
     "base/define-property": ["define-property@1.0.0", "", { "dependencies": { "is-descriptor": "^1.0.0" } }, "sha512-cZTYKFWspt9jZsMscWo8sc/5lbPC9Q0N5nBLgb+Yd915iL3udB1uFgS3B8YCx66UVHq018DAVFoee7x+gxggeA=="],
 

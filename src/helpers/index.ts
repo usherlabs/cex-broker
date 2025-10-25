@@ -1,9 +1,16 @@
 import fs from "fs";
 import Joi from "joi";
-import type { PolicyConfig } from "../types";
+import type { PolicyConfig, BrokerCredentials } from "../types";
 import { log } from "./logger";
 import type { Metadata, ServerUnaryCall } from "@grpc/grpc-js";
-import ccxt, { type Exchange } from "@usherlabs/ccxt";
+import ccxt from "@usherlabs/ccxt";
+import type {
+	Exchange,
+	HttpClientOverride,
+	HttpOverridePredicate,
+} from "@usherlabs/ccxt";
+import { VerityClient } from "@usherlabs/verity-client";
+import { CCXT_METHODS_WITH_VERITY } from "./constants";
 
 export function authenticateRequest<T, E>(
 	call: ServerUnaryCall<T, E>,
@@ -19,41 +26,189 @@ export function authenticateRequest<T, E>(
 	return true;
 }
 
-export function createBroker(
-	cex: string,
-	metadata: Metadata,
-	useVerity: boolean,
+export function createVerityHttpClientOverride(
 	verityProverUrl: string,
-): Exchange | null {
-	const api_key = metadata.get("api-key");
-	const api_secret = metadata.get("api-secret");
+	onProofCallback: (proof: string, notaryPubKey?: string) => void,
+) {
+	const client = new VerityClient({ proverUrl: verityProverUrl });
+	return (redact: string, proofTimeout: number): HttpClientOverride =>
+		async ({ url, config }) => {
+			// { method, url, config, data, meta }
+			let pending = client.get(url, config, { proofTimeout });
+			if (redact) {
+				pending = pending.redact(redact || "");
+			}
+			const response = await pending;
+			if (response.proof) {
+				onProofCallback(response.proof, response.notary_pub_key);
+			}
+			return response;
+		};
+}
 
-	const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[cex];
-
-	metadata.remove("api-key");
-	metadata.remove("api-secret");
-	if (api_secret.length === 0 || api_key.length === 0 || !ExchangeClass) {
-		return null;
-	}
-	const exchange = new ExchangeClass({
-		apiKey: api_key[0]?.toString(),
-		secret: api_secret[0]?.toString(),
-		enableRateLimit: true,
-		defaultType: "spot",
-		useVerity: useVerity,
-		verityProverUrl: verityProverUrl,
-		timeout: 150 * 1000,
-		options: {
-			adjustForTimeDifference: true,
-			recvWindow: 60000,
-		},
-	});
-
+export function applyCommonExchangeConfig(exchange: Exchange) {
 	if (process.env.CEX_BROKER_SANDBOX_MODE === "true") {
 		exchange.setSandboxMode(true);
 	}
-	exchange.options.recvWindow = 60000;
+	// Ensure consistent defaults
+	exchange.enableRateLimit = true;
+	exchange.timeout = 150 * 1000;
+	exchange.extendExchangeOptions({
+		recvWindow: 60000,
+		adjustForTimeDifference: true,
+	});
+}
+
+export function buildHttpClientOverrideFromMetadata(
+	metadata: Metadata,
+	verityProverUrl: string,
+	onProofCallback: (proof: string, notaryPubKey?: string) => void,
+): HttpClientOverride {
+	const redact = metadata.get("verity-t-redacted")?.[0]?.toString() || "";
+	const rawTimeout = metadata.get("verity-proof-timeout")?.[0]?.toString();
+	const proofTimeout = rawTimeout ? parseInt(rawTimeout, 10) : 5 * 60 * 1000; // default 5 minutes
+	const factory = createVerityHttpClientOverride(
+		verityProverUrl,
+		onProofCallback,
+	);
+	return factory(redact, proofTimeout);
+}
+
+export const verityHttpClientOverridePredicate: HttpOverridePredicate = ({
+	method,
+	methodCalled,
+}) => {
+	return (
+		["get", "post"].includes(method.toLowerCase()) &&
+		CCXT_METHODS_WITH_VERITY.includes(methodCalled)
+	);
+};
+
+export function createBroker(
+	cex: string,
+	credsOrMetadata: { apiKey: string; apiSecret: string } | Metadata,
+): Exchange | null {
+	let apiKey: string | undefined;
+	let apiSecret: string | undefined;
+
+	// Duck-typing check for gRPC Metadata (has get/remove functions)
+	if (
+		credsOrMetadata &&
+		typeof (credsOrMetadata as unknown as { get: unknown }).get ===
+			"function" &&
+		typeof (credsOrMetadata as unknown as { remove: unknown }).remove ===
+			"function"
+	) {
+		const metadata = credsOrMetadata as Metadata;
+		apiKey = metadata.get("api-key")?.[0]?.toString();
+		apiSecret = metadata.get("api-secret")?.[0]?.toString();
+		metadata.remove("api-key");
+		metadata.remove("api-secret");
+	} else {
+		const creds = credsOrMetadata as { apiKey: string; apiSecret: string };
+		apiKey = creds.apiKey;
+		apiSecret = creds.apiSecret;
+	}
+
+	const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[cex];
+	if (!ExchangeClass || !apiKey || !apiSecret) {
+		return null;
+	}
+
+	const exchange = new ExchangeClass({ apiKey, secret: apiSecret });
+	applyCommonExchangeConfig(exchange);
 	return exchange;
+}
+
+type EnvConfigMap = Record<
+	string,
+	Partial<BrokerCredentials> & {
+		_secondaryMap?: Record<number, { apiKey?: string; apiSecret?: string }>;
+	}
+>;
+
+type ValidatedCredentialsMap = Record<
+	string,
+	BrokerCredentials & { secondaryKeys: BrokerCredentials[] }
+>;
+
+export function createBrokerPool(
+	cfg: EnvConfigMap | ValidatedCredentialsMap,
+): Record<string, { primary: Exchange; secondaryBrokers: Exchange[] }> {
+	const pool: Record<
+		string,
+		{ primary: Exchange; secondaryBrokers: Exchange[] }
+	> = {};
+
+	for (const [brokerName, creds] of Object.entries(cfg)) {
+		const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[
+			brokerName
+		];
+		if (!ExchangeClass) {
+			log.warn(`❌ Invalid Broker: ${brokerName}`);
+			continue;
+		}
+
+		const credsRecord = creds as Record<string, unknown>;
+		const primaryApiKey =
+			typeof credsRecord.apiKey === "string"
+				? (credsRecord.apiKey as string)
+				: undefined;
+		const primaryApiSecret =
+			typeof credsRecord.apiSecret === "string"
+				? (credsRecord.apiSecret as string)
+				: undefined;
+		if (!primaryApiKey || !primaryApiSecret) {
+			log.warn(`❌ Missing API_KEY and/or API_SECRET for "${brokerName}"`);
+			continue;
+		}
+
+		const primary = createBroker(brokerName, {
+			apiKey: primaryApiKey,
+			apiSecret: primaryApiSecret,
+		});
+		if (!primary) {
+			log.warn(`❌ Failed to create primary for "${brokerName}"`);
+			continue;
+		}
+
+		const secondaryBrokers: Exchange[] = [];
+		const secondaryKeysFromValidated = Array.isArray(credsRecord.secondaryKeys)
+			? (credsRecord.secondaryKeys as BrokerCredentials[])
+			: undefined;
+		const secondaryKeysFromMap =
+			credsRecord._secondaryMap && typeof credsRecord._secondaryMap === "object"
+				? Object.values(
+						credsRecord._secondaryMap as Record<
+							number,
+							Partial<BrokerCredentials>
+						>,
+					)
+						.filter(
+							(s): s is Required<BrokerCredentials> =>
+								typeof s.apiKey === "string" && typeof s.apiSecret === "string",
+						)
+						.map((s) => ({ apiKey: s.apiKey, apiSecret: s.apiSecret }))
+				: [];
+		const secondaryKeys: BrokerCredentials[] =
+			secondaryKeysFromValidated ?? secondaryKeysFromMap;
+
+		secondaryKeys.forEach((sec, idx) => {
+			const secEx = createBroker(brokerName, {
+				apiKey: sec.apiKey,
+				apiSecret: sec.apiSecret,
+			});
+			if (secEx) secondaryBrokers[idx] = secEx;
+			else log.warn(`⚠️ Failed to create secondary #${idx} for "${brokerName}"`);
+		});
+
+		pool[brokerName] = { primary, secondaryBrokers };
+		log.info(
+			`✅ Loaded "${brokerName}" with ${secondaryBrokers.length} secondaries`,
+		);
+	}
+
+	return pool;
 }
 
 export function selectBroker(

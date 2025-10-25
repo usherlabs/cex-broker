@@ -1,22 +1,51 @@
 import { describe, test, expect } from "bun:test";
 
+type GetOptimalPriceRequest = {
+	mode?: number | null;
+	symbol?: string;
+	quantity?: string;
+};
+
+type WithdrawRequest = {
+	chain?: string;
+	recipient_address?: string;
+	amount?: string;
+	ticker?: string;
+};
+
+type DepositRequest = {
+	chain?: string;
+	amount?: string;
+};
+
 describe("RPC Server Logic Tests", () => {
 	describe("GetOptimalPrice Validation", () => {
 		test("should validate required fields correctly", () => {
 			// Test missing mode
-			const request1: any = { symbol: "ARB/USDT", quantity: "10" };
+			const request1: GetOptimalPriceRequest = {
+				symbol: "ARB/USDT",
+				quantity: "10",
+			};
 			expect(request1.mode === undefined || request1.mode === null).toBe(true);
 
 			// Test missing symbol
-			const request2: any = { mode: 0, quantity: "10" };
+			const request2: GetOptimalPriceRequest = { mode: 0, quantity: "10" };
 			expect(!request2.symbol).toBe(true);
 
 			// Test invalid quantity
-			const request3: any = { mode: 0, symbol: "ARB/USDT", quantity: "0" };
+			const request3: GetOptimalPriceRequest = {
+				mode: 0,
+				symbol: "ARB/USDT",
+				quantity: "0",
+			};
 			expect(!request3.quantity || Number(request3.quantity) <= 0).toBe(true);
 
 			// Test valid request
-			const request4: any = { mode: 0, symbol: "ARB/USDT", quantity: "10" };
+			const request4: GetOptimalPriceRequest = {
+				mode: 0,
+				symbol: "ARB/USDT",
+				quantity: "10",
+			};
 			expect(request4.mode !== undefined && request4.mode !== null).toBe(true);
 			expect(!!request4.symbol).toBe(true);
 			expect(!!request4.quantity && Number(request4.quantity) > 0).toBe(true);
@@ -38,7 +67,10 @@ describe("RPC Server Logic Tests", () => {
 	describe("Withdraw Validation", () => {
 		test("should validate required fields correctly", () => {
 			// Test missing fields
-			const request1: any = { chain: "ARB", recipient_address: "0x123" };
+			const request1: WithdrawRequest = {
+				chain: "ARB",
+				recipient_address: "0x123",
+			};
 			expect(
 				!request1.chain ||
 					!request1.recipient_address ||
@@ -47,7 +79,7 @@ describe("RPC Server Logic Tests", () => {
 			).toBe(true);
 
 			// Test valid request
-			const request2: any = {
+			const request2: WithdrawRequest = {
 				chain: "ARB",
 				recipient_address: "0x123",
 				amount: "1000",
@@ -65,11 +97,11 @@ describe("RPC Server Logic Tests", () => {
 	describe("Deposit Validation", () => {
 		test("should validate required fields correctly", () => {
 			// Test missing fields
-			const request1: any = { chain: "ARB" };
+			const request1: DepositRequest = { chain: "ARB" };
 			expect(!request1.chain || !request1.amount).toBe(true);
 
 			// Test valid request
-			const request2: any = { chain: "ARB", amount: "1000" };
+			const request2: DepositRequest = { chain: "ARB", amount: "1000" };
 			expect(!!request2.chain && !!request2.amount).toBe(true);
 		});
 	});

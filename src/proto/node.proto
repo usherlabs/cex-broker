@@ -50,10 +50,9 @@ enum Action {
   CreateOrder= 3;
   GetOrderDetails=4;
   CancelOrder=5;
-  FetchBalance=6;
-  FetchBalances=7;
-  FetchDepositAddresses=8;
-  FetchTicker=9;
+  FetchBalances=6;
+  FetchDepositAddresses=7;
+  FetchTicker=8;
+  FetchCurrency=9;
   Call=10;
-  FetchCurrency=11;
 }

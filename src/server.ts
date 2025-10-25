@@ -19,6 +19,10 @@ import { SubscriptionType } from "./proto/cex_broker/SubscriptionType";
 import Joi from "joi";
 import { log } from "./helpers/logger";
 import descriptor from "./proto/node.descriptor.ts";
+import {
+	verityHttpClientOverridePredicate,
+	buildHttpClientOverrideFromMetadata,
+} from "./helpers";
 
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
@@ -73,9 +77,10 @@ export function getServer(
 				);
 			}
 
+			// If the Exchange is not already pre-loaded for preset API credentials via constructor - createBroker for non-gated APIs may be available for other exchanges.
 			const broker =
 				selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
-				createBroker(cex, metadata, useVerity, verityProverUrl);
+				createBroker(cex, metadata);
 
 			if (!broker) {
 				return callback(
@@ -87,13 +92,21 @@ export function getServer(
 				);
 			}
 
-			// Check if Verity is set. If so, set options based on metadata.
-			if (useVerity && broker.useVerity) {
-				const redact = metadata.get("verity-t-redacted")?.[0]?.toString() || "";
-				log.info(`Verity Options: Redact`, { redact });
-				broker.addVerityRequestOptions({
-					redact,
-				});
+			// Verity only for ExecuteAction
+			let verityProof = "";
+			if (useVerity) {
+				const override = buildHttpClientOverrideFromMetadata(
+					metadata,
+					verityProverUrl,
+					(proof, notaryPubKey) => {
+						verityProof = proof;
+						log.debug(`Verity proof:`, { proof, notaryPubKey });
+					},
+				);
+				broker.setHttpClientOverride(
+					override,
+					verityHttpClientOverridePredicate,
+				);
 			}
 
 			switch (action) {
@@ -137,7 +150,7 @@ export function getServer(
 								`Amount ${value.amount} at ${value.transactionHash} . Paid to ${value.recipientAddress}`,
 							);
 							return callback(null, {
-								proof: broker.last_proof || "",
+								proof: verityProof,
 								result: JSON.stringify({ ...deposit }),
 							});
 						}
@@ -184,7 +197,7 @@ export function getServer(
 							);
 						}
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify(currencyInfo),
 						});
 					} catch (error) {
@@ -306,7 +319,7 @@ export function getServer(
 						const result = await (fn as any).apply(broker, argsArray);
 
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify(result),
 						});
 					} catch (error: unknown) {
@@ -373,7 +386,7 @@ export function getServer(
 
 						if (depositAddresses.length > 0) {
 							return callback(null, {
-								proof: broker.last_proof || "",
+								proof: verityProof,
 								result: JSON.stringify(depositAddresses),
 							});
 						}
@@ -474,7 +487,7 @@ export function getServer(
 						log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify({ ...transaction }),
 						});
 					} catch (error) {
@@ -666,99 +679,64 @@ export function getServer(
 					});
 					break;
 				}
-				case Action.FetchBalance:
-					try {
-						// Determine balance type: free (default), used, or total
-						const payload =
-							(call.request.payload as Record<string, unknown>) || {};
-						const balanceType = (payload.balanceType as string) || "free";
-						const params = { ...payload };
-						delete params.balanceType; // Remove type from params before passing to CCXT
-
-						let balance: Record<string, number>;
-						switch (balanceType) {
-							case "used":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchUsedBalance(params)) as any;
-								break;
-							case "total":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchTotalBalance(params)) as any;
-								break;
-							case "free":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchFreeBalance(params)) as any;
-								break;
-							default:
-								return callback(
-									{
-										code: grpc.status.INVALID_ARGUMENT,
-										message: `Error:  Invalid balance type`,
-									},
-									null,
-								);
-						}
-
-						const currencyBalance = symbol ? balance[symbol] : balance;
-
-						callback(null, {
-							proof: broker.last_proof || "",
-							result: JSON.stringify({
-								balance: currencyBalance || 0,
-								currency: symbol,
-								balanceType: balanceType,
-							}),
-						});
-					} catch (error) {
-						log.error(`Error fetching balance from ${cex}:`, error);
-						callback(
-							{
-								code: grpc.status.INTERNAL,
-								message: `Failed to fetch balance from ${cex}`,
-							},
-							null,
-						);
-					}
-					break;
-
 				case Action.FetchBalances:
 					try {
-						// Determine balance type: free (default), used, or total
+						// Determine balance type: free | used | total (default: total)
 						const payload =
 							(call.request.payload as Record<string, unknown>) || {};
-						const balanceType = (payload.balanceType as string) || "free";
-						const params = { ...payload };
-						delete params.balanceType; // Remove balanceType from params before passing to CCXT
+						const providedBalanceType = payload.balanceType as
+							| string
+							| undefined;
+						const balanceType = (providedBalanceType ?? "total").toString();
+						const validBalanceTypes = new Set(["free", "used", "total"]);
+						if (!validBalanceTypes.has(balanceType)) {
+							return callback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `ValidationError: invalid balanceType '${providedBalanceType}'. Expected one of: free | used | total`,
+								},
+								null,
+							);
+						}
 
-						let balance: Record<string, number>;
-						switch (balanceType) {
-							case "used":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchUsedBalance(params)) as any;
-								break;
-							case "total":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchTotalBalance(params)) as any;
-								break;
-							case "free":
-								// biome-ignore lint/suspicious/noExplicitAny:  https://github.com/ccxt/ccxt/issues/26327
-								balance = (await broker.fetchFreeBalance(params)) as any;
-								break;
-							default:
-								return callback(
-									{
-										code: grpc.status.INVALID_ARGUMENT,
-										message: `Error:  Invalid balance type`,
-									},
-									null,
-								);
+						const params = { ...payload } as Record<string, unknown>;
+						delete (params as Record<string, unknown>).balanceType; // Remove balanceType from params before passing to CCXT
+						// Default market type to spot unless explicitly provided
+						if (params.type === undefined) {
+							params.type = "spot";
+						}
+
+						// Always return the same schema with empty objects when not requested
+						let responseBalances: Record<string, number> = {};
+
+						if (balanceType === "free") {
+							// biome-ignore lint/suspicious/noExplicitAny: ccxt typing quirk for partial balances
+							const partial = (await broker.fetchFreeBalance(params)) as any;
+							responseBalances = partial ?? {};
+						} else if (balanceType === "used") {
+							// biome-ignore lint/suspicious/noExplicitAny: ccxt typing quirk for partial balances
+							const partial = (await broker.fetchUsedBalance(params)) as any;
+							responseBalances = partial ?? {};
+						} else if (balanceType === "total") {
+							// biome-ignore lint/suspicious/noExplicitAny: ccxt typing quirk for partial balances
+							const partial = (await broker.fetchTotalBalance(params)) as any;
+							responseBalances = partial ?? {};
+						}
+
+						// Extract and isolate the symbol if it exists.
+						if (symbol) {
+							if (typeof responseBalances[symbol] === "number") {
+								responseBalances = { [symbol]: responseBalances[symbol] ?? 0 };
+							} else {
+								responseBalances = {};
+							}
 						}
 
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify({
-								balances: balance,
-								balanceType: balanceType,
+								balances: responseBalances,
+								balanceType,
 							}),
 						});
 					} catch (error) {
@@ -786,7 +764,7 @@ export function getServer(
 					try {
 						const ticker = await broker.fetchTicker(symbol);
 						callback(null, {
-							proof: broker.last_proof || "",
+							proof: verityProof,
 							result: JSON.stringify(ticker),
 						});
 					} catch (error) {
@@ -858,10 +836,10 @@ export function getServer(
 					return;
 				}
 
-				// Get or create broker
+				// Get or create broker (no Verity override in Subscribe)
 				broker =
 					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
-					createBroker(cex, metadata, useVerity, verityProverUrl);
+					createBroker(cex, metadata);
 
 				if (!broker) {
 					call.write({
