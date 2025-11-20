@@ -217,6 +217,59 @@ export function getServer(
 					}
 					break;
 				}
+				case Action.FetchAccountId: {
+					try {
+						if (cex.toLowerCase() === "bybit") {
+							const query = await (broker as any).privateGetV5UserQueryApi();
+							callback(null, {
+								proof: verityProof,
+								result: JSON.stringify({
+									accountId: query.id,
+									uid: query.userID
+								}),
+							});
+						} else if (cex.toLowerCase() === "binance") {
+							const query = await (broker as any).privateGetAccount();
+							callback(null, {
+								proof: verityProof,
+								result: JSON.stringify({
+									accountId: query.uid,
+									uid: query.uid
+								}),
+							});
+						}
+						else if (cex.toLowerCase() === "mexc") {
+							const query = await (broker as any).spotPrivateGetUid();
+							callback(null, {
+								proof: verityProof,
+								result: JSON.stringify({
+									accountId: query.uid,
+									uid: query.uid
+								}),
+							});
+						}
+						else {
+							log.error(`Error: fetching account ID not supported on ${cex}`);
+							callback(
+								{
+									code: grpc.status.INTERNAL,
+									message: `Error: fetching account ID not supported on ${cex}`
+								},
+								null,
+							);
+						}
+					} catch (error) {
+						log.error(`Error fetching account ID ${cex}:`, error);
+						callback(
+							{
+								code: grpc.status.INTERNAL,
+								message: `Error fetching account ID from ${cex}`,
+							},
+							null,
+						);
+					}
+					break;
+				}
 
 				case Action.Call: {
 					const callSchema = Joi.object({
@@ -379,15 +432,15 @@ export function getServer(
 						const depositAddresses =
 							broker.has.fetchDepositAddress === true
 								? [
-										await broker.fetchDepositAddress(symbol, {
-											network: fetchDepositAddresses.chain,
-											...(fetchDepositAddresses.params ?? {}),
-										}),
-									]
-								: await broker.fetchDepositAddressesByNetwork(symbol, {
+									await broker.fetchDepositAddress(symbol, {
 										network: fetchDepositAddresses.chain,
 										...(fetchDepositAddresses.params ?? {}),
-									});
+									}),
+								]
+								: await broker.fetchDepositAddressesByNetwork(symbol, {
+									network: fetchDepositAddresses.chain,
+									...(fetchDepositAddresses.params ?? {}),
+								});
 
 						if (depositAddresses.length > 0) {
 							return callback(null, {

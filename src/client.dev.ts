@@ -68,13 +68,11 @@ function onClientReady() {
 		},
 	);
 
-	// Test ExecuteAction for balance
+	// Test ExecuteAction for Account ID
 	client.executeAction(
 		{
-			cex: "binance",
-			symbol: "USDT,BTC,ETH",
-			payload: { type: "spot" },
-			action: Action.FetchBalances,
+			cex: "mexc",
+			action: Action.FetchAccountId,
 		},
 		metadata,
 		(err, result) => {
@@ -82,7 +80,26 @@ function onClientReady() {
 				log.error({ err });
 				return;
 			}
-			log.info("ExecuteAction Balance Result:", { result });
+			log.info("ExecuteAction  Result:", { result: result?.result });
 		},
 	);
+
+	
+	// // Test ExecuteAction for balance
+	// client.executeAction(
+	// 	{
+	// 		cex: "binance",
+	// 		symbol: "USDT,BTC,ETH",
+	// 		payload: { type: "spot" },
+	// 		action: Action.FetchBalances,
+	// 	},
+	// 	metadata,
+	// 	(err, result) => {
+	// 		if (err) {
+	// 			log.error({ err });
+	// 			return;
+	// 		}
+	// 		log.info("ExecuteAction Balance Result:", { result });
+	// 	},
+	// );
 }
