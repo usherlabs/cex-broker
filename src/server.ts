@@ -225,7 +225,7 @@ export function getServer(
 								proof: verityProof,
 								result: JSON.stringify({
 									accountId: query.id,
-									uid: query.userID
+									uid: query.userID,
 								}),
 							});
 						} else if (cex.toLowerCase() === "binance") {
@@ -234,26 +234,24 @@ export function getServer(
 								proof: verityProof,
 								result: JSON.stringify({
 									accountId: query.uid,
-									uid: query.uid
+									uid: query.uid,
 								}),
 							});
-						}
-						else if (cex.toLowerCase() === "mexc") {
+						} else if (cex.toLowerCase() === "mexc") {
 							const query = await (broker as any).spotPrivateGetUid();
 							callback(null, {
 								proof: verityProof,
 								result: JSON.stringify({
 									accountId: query.uid,
-									uid: query.uid
+									uid: query.uid,
 								}),
 							});
-						}
-						else {
+						} else {
 							log.error(`Error: fetching account ID not supported on ${cex}`);
 							callback(
 								{
 									code: grpc.status.INTERNAL,
-									message: `Error: fetching account ID not supported on ${cex}`
+									message: `Error: fetching account ID not supported on ${cex}`,
 								},
 								null,
 							);
@@ -432,15 +430,15 @@ export function getServer(
 						const depositAddresses =
 							broker.has.fetchDepositAddress === true
 								? [
-									await broker.fetchDepositAddress(symbol, {
+										await broker.fetchDepositAddress(symbol, {
+											network: fetchDepositAddresses.chain,
+											...(fetchDepositAddresses.params ?? {}),
+										}),
+									]
+								: await broker.fetchDepositAddressesByNetwork(symbol, {
 										network: fetchDepositAddresses.chain,
 										...(fetchDepositAddresses.params ?? {}),
-									}),
-								]
-								: await broker.fetchDepositAddressesByNetwork(symbol, {
-									network: fetchDepositAddresses.chain,
-									...(fetchDepositAddresses.params ?? {}),
-								});
+									});
 
 						if (depositAddresses.length > 0) {
 							return callback(null, {

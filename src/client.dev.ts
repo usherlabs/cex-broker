@@ -84,7 +84,6 @@ function onClientReady() {
 		},
 	);
 
-	
 	// // Test ExecuteAction for balance
 	// client.executeAction(
 	// 	{
