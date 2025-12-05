@@ -24,7 +24,6 @@ import {
 	buildHttpClientOverrideFromMetadata,
 } from "./helpers";
 
-
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
 );
@@ -215,14 +214,17 @@ export function getServer(
 				}
 				case Action.FetchAccountId: {
 					try {
-						let accountId: string;
-						let uid: string;
+						let accountId: string | undefined;
+						let uid: string | undefined;
 
-						const temp_broker = (broker as any)
+						const temp_broker = broker as any;
 
 						// 1. Bybit-style method?
 						if (typeof temp_broker.privateGetV5UserQueryApi === "function") {
 							const query = await temp_broker.privateGetV5UserQueryApi();
+							if (!query?.id || !query?.userID) {
+								throw new Error("Invalid response structure from privateGetV5UserQueryApi");
+							}
 							accountId = query.id;
 							uid = query.userID;
 							// 2. MEXC-style method?
@@ -242,9 +244,10 @@ export function getServer(
 							return callback(
 								{
 									code: grpc.status.INTERNAL,
-									message: "Error: fetching account ID not supported for this broker",
+									message:
+										"Error: fetching account ID not supported for this broker",
 								},
-								null
+								null,
 							);
 						}
 
@@ -253,7 +256,6 @@ export function getServer(
 							proof: verityProof,
 							result: JSON.stringify({ accountId, uid }),
 						});
-
 					} catch (error) {
 						log.error(`Error fetching account ID ${cex}:`, error);
 						callback(
