@@ -223,7 +223,9 @@ export function getServer(
 						if (typeof temp_broker.privateGetV5UserQueryApi === "function") {
 							const query = await temp_broker.privateGetV5UserQueryApi();
 							if (!query?.id || !query?.userID) {
-								throw new Error("Invalid response structure from privateGetV5UserQueryApi");
+								throw new Error(
+									"Invalid response structure from privateGetV5UserQueryApi",
+								);
 							}
 							accountId = query.id;
 							uid = query.userID;
@@ -430,15 +432,15 @@ export function getServer(
 						const depositAddresses =
 							broker.has.fetchDepositAddress === true
 								? [
-									await broker.fetchDepositAddress(symbol, {
+										await broker.fetchDepositAddress(symbol, {
+											network: fetchDepositAddresses.chain,
+											...(fetchDepositAddresses.params ?? {}),
+										}),
+									]
+								: await broker.fetchDepositAddressesByNetwork(symbol, {
 										network: fetchDepositAddresses.chain,
 										...(fetchDepositAddresses.params ?? {}),
-									}),
-								]
-								: await broker.fetchDepositAddressesByNetwork(symbol, {
-									network: fetchDepositAddresses.chain,
-									...(fetchDepositAddresses.params ?? {}),
-								});
+									});
 
 						if (depositAddresses.length > 0) {
 							return callback(null, {
