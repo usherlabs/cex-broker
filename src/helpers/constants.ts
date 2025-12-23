@@ -9,4 +9,5 @@ export const CCXT_METHODS_WITH_VERITY = [
 	"fetchFundingHistory",
 	"fetchWithdrawals",
 	"fetchWithdrawal",
+	"fetchAccountId",
 ];
