@@ -214,49 +214,12 @@ export function getServer(
 				}
 				case Action.FetchAccountId: {
 					try {
-						let accountId: string | undefined;
-						let uid: string | undefined;
-
-						const temp_broker = broker as any;
-
-						// 1. Bybit-style method?
-						if (typeof temp_broker.privateGetV5UserQueryApi === "function") {
-							const query = await temp_broker.privateGetV5UserQueryApi();
-							if (!query?.id || !query?.userID) {
-								throw new Error(
-									"Invalid response structure from privateGetV5UserQueryApi",
-								);
-							}
-							accountId = query.id;
-							uid = query.userID;
-							// 2. MEXC-style method?
-						} else if (typeof temp_broker.spotPrivateGetUid === "function") {
-							const query = await temp_broker.spotPrivateGetUid();
-							accountId = query.uid;
-							uid = query.uid;
-
-							// 3. Binance-style method?
-						} else if (typeof temp_broker.privateGetAccount === "function") {
-							const query = await temp_broker.privateGetAccount();
-							accountId = query.uid;
-							uid = query.uid;
-
-							// 4. None matched → unsupported exchange
-						} else {
-							return callback(
-								{
-									code: grpc.status.INTERNAL,
-									message:
-										"Error: fetching account ID not supported for this broker",
-								},
-								null,
-							);
-						}
+						let accountId = await broker.fetchAccountId();
 
 						// Return normalized response
 						return callback(null, {
 							proof: verityProof,
-							result: JSON.stringify({ accountId, uid }),
+							result: JSON.stringify({ accountId }),
 						});
 					} catch (error) {
 						log.error(`Error fetching account ID ${cex}:`, error);
