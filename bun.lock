@@ -7,7 +7,7 @@
       "dependencies": {
         "@grpc/grpc-js": "^1.13.4",
         "@grpc/proto-loader": "^0.7.15",
-        "@usherlabs/ccxt": "^0.0.13",
+        "@usherlabs/ccxt": "^0.0.14",
         "@usherlabs/verity-client": "^0.1.1",
         "commander": "^14.0.0",
         "joi": "^17.13.3",
@@ -94,7 +94,7 @@
 
     "@types/react": ["@types/react@19.1.8", "", { "dependencies": { "csstype": "^3.0.2" } }, "sha512-AwAfQ2Wa5bCx9WP8nZL2uMZWod7J7/JSplxbTmBQ5ms6QpqNYm672H0Vu9ZVKVngQ+ii4R/byguVEUZQyeg44g=="],
 
-    "@usherlabs/ccxt": ["@usherlabs/ccxt@0.0.13", "", { "dependencies": { "axios": "^1.10.0", "ws": "^8.8.1" } }, "sha512-ow90chV3gmYntbgcN3Fzu1OAXjf0wUz6QYWsdghLoEvkNnmjfILIIfP1GaT3ReS3OqSA2ENiZy3VE7dCPiXulg=="],
+    "@usherlabs/ccxt": ["@usherlabs/ccxt@0.0.14", "", { "dependencies": { "axios": "^1.10.0", "ws": "^8.8.1" } }, "sha512-idsJmfHZinnBosIzMFAF4Iw5LSpgKqoK+rQhkzMEJyiHO/Nxgk+NtT6YJQ37eTWLFhKTChBHhaG19EjB5xzltA=="],
 
     "@usherlabs/verity-client": ["@usherlabs/verity-client@0.1.1", "", { "dependencies": { "@types/eventsource": "^1.1.15", "axios": "^1.9.0", "eventsource": "^2.0.2", "tslog": "^4.10.2", "uuid": "^11.1.0" } }, "sha512-o0dENuELxm0+iDIKtHfG53AJMII12MMm/2oHmA1Uuysd/L7MdNw4BkOkHRn5qk6HJqBjpjROf0h3YcOpyY+pGw=="],
 
