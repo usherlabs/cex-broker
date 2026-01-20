@@ -6,5 +6,6 @@
 	"mounts": [
 		// Mount the SSH key for the local machine to make git fetch/push work in the container	
 		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached,readonly"
-	]
+	],
+	"postCreateCommand": "echo \"bun: $(bun --version)\""
 }
