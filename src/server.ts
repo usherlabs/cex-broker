@@ -225,7 +225,7 @@ export function getServer(
 					try {
 						const _market = await broker.loadMarkets();
 
-						const market =await broker.market(symbol);// Example of Market BTC/USDT
+						const market = await broker.market(symbol); // Example of Market BTC/USDT
 
 						// Return normalized response
 						return callback(null, {
