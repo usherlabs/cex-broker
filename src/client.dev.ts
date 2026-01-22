@@ -72,7 +72,7 @@ function onClientReady() {
 	client.executeAction(
 		{
 			cex: "mexc",
-			action: Action.FetchAccountId,
+			action: Action.FetchFees,
 		},
 		metadata,
 		(err, result) => {

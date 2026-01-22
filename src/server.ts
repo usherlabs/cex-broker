@@ -212,14 +212,25 @@ export function getServer(
 					}
 					break;
 				}
-				case Action.FetchAccountId: {
+				case Action.FetchFees: {
+					if (!symbol) {
+						return callback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: Symbol requied`,
+							},
+							null,
+						);
+					}
 					try {
-						let accountId = await broker.fetchAccountId();
+						const _market = await broker.loadMarkets();
+
+						const market =await broker.market(symbol);// Example of Market BTC/USDT
 
 						// Return normalized response
 						return callback(null, {
 							proof: verityProof,
-							result: JSON.stringify({ accountId }),
+							result: JSON.stringify({ generalFee: broker.fees, market }),
 						});
 					} catch (error) {
 						log.error(`Error fetching account ID ${cex}:`, error);
