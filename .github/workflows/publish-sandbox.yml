@@ -3,8 +3,8 @@ name: Publish Sandbox Docker Image
 on:
   push:
     tags:
-      - 'sandbox-v\d+\.\d+\.\d+*'  # Matches sandbox specific semver tags in the format of sandbox-v1.2.3, sandbox-v1.2.3-beta.1, etc.
-
+      - 'sandbox-v[0-9]*.[0-9]*.[0-9]*' # Matches sandbox specific semver tags in the format of sandbox-v1.2.3
+      - 'sandbox-v[0-9]*.[0-9]*.[0-9]*-*' # Matches sandbox specific semver tags in the format of sandbox-v1.2.3-beta
 env:
   IMAGE_NAME: ghcr.io/usherlabs/fiet-sandbox/cex-broker
 
