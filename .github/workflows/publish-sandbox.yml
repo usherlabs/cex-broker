@@ -1,0 +1,93 @@
+name: Publish Sandbox Docker Image
+  
+on:
+  push:
+    tags:
+      - 'sandbox-v\d+\.\d+\.\d+*'  # Matches sandbox specific semver tags in the format of sandbox-v1.2.3, sandbox-v1.2.3-beta.1, etc.
+
+env:
+  IMAGE_NAME: ghcr.io/usherlabs/fiet-sandbox/cex-broker
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: [self-hosted, linux, arm64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=match,pattern=sandbox-v(\d+\.\d+\.\d+.*),group=1
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./.sandbox/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ fromJSON(steps.meta.outputs.json).tag-names[0] }}-${{ matrix.arch }}
+            ${{ env.IMAGE_NAME }}:latest-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+  manifest:
+    name: Publish multi-arch manifest
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=match,pattern=sandbox-v(\d+\.\d+\.\d+.*),group=1
+
+      - name: Create and push manifest
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ env.IMAGE_NAME }}:${{ fromJSON(steps.meta.outputs.json).tag-names[0] }}" \
+            --tag "${{ env.IMAGE_NAME }}:latest" \
+            "${{ env.IMAGE_NAME }}:${{ fromJSON(steps.meta.outputs.json).tag-names[0] }}-amd64" \
+            "${{ env.IMAGE_NAME }}:${{ fromJSON(steps.meta.outputs.json).tag-names[0] }}-arm64"
+
+          docker buildx imagetools inspect "${{ env.IMAGE_NAME }}:${{ fromJSON(steps.meta.outputs.json).tag-names[0] }}"
+          docker buildx imagetools inspect "${{ env.IMAGE_NAME }}:latest"
