@@ -65,9 +65,20 @@ CEX_BROKER_BINANCE_API_KEY_1=your_secondary_binance_api_key
 CEX_BROKER_BINANCE_API_SECRET_1=your_secondary_binance_api_secret
 CEX_BROKER_BINANCE_API_KEY_2=your_tertiary_binance_api_key
 CEX_BROKER_BINANCE_API_SECRET_2=your_tertiary_binance_api_secret
+
+# ClickHouse Metrics (Optional)
+# If CEX_BROKER_CLICKHOUSE_HOST is not provided, metrics will be disabled
+CEX_BROKER_CLICKHOUSE_HOST=localhost
+CEX_BROKER_CLICKHOUSE_PORT=8123
+CEX_BROKER_CLICKHOUSE_USERNAME=default
+CEX_BROKER_CLICKHOUSE_PASSWORD=
+CEX_BROKER_CLICKHOUSE_DATABASE=fiet_metrics
+CEX_BROKER_CLICKHOUSE_PROTOCOL=http
 ```
 
 **Note**: Only configure API keys for exchanges you plan to use. The system will automatically detect and initialize configured exchanges.
+
+**ClickHouse Metrics**: ClickHouse integration is optional. If `CEX_BROKER_CLICKHOUSE_HOST` is not provided, metrics collection will be disabled. When enabled, the broker automatically creates the database and table schema on startup.
 
 ### Policy Configuration
 
@@ -394,6 +405,85 @@ const response = await client.ExecuteAction(request, metadata);
 - Monitor API usage and set appropriate rate limits
 - Use secondary brokers for redundancy and load distribution
 
+## 📊 ClickHouse Metrics
+
+The broker can optionally store metrics in ClickHouse for monitoring and analytics. Metrics are automatically collected for:
+
+- **ExecuteAction requests**: Request counts, success/failure rates, latency histograms
+- **Subscribe streams**: Subscription counts, duration, error rates
+- **Action-specific metrics**: Tagged by action type, CEX, and symbol
+
+### Metrics Schema
+
+The following metrics are collected:
+
+- `execute_action_requests_total` (counter): Total ExecuteAction requests
+- `execute_action_success_total` (counter): Successful ExecuteAction requests
+- `execute_action_errors_total` (counter): Failed ExecuteAction requests
+- `execute_action_duration_ms` (histogram): ExecuteAction latency
+- `subscribe_requests_total` (counter): Total Subscribe requests
+- `subscribe_errors_total` (counter): Failed Subscribe requests
+- `subscribe_duration_ms` (histogram): Subscribe stream duration
+
+All metrics include labels for:
+- `action`: The action type (e.g., "FetchBalances", "CreateOrder")
+- `cex`: The exchange identifier (e.g., "binance", "bybit")
+- `symbol`: The trading pair (when applicable)
+- `error_type`: Error classification (for error metrics)
+
+### Setting Up ClickHouse
+
+1. **Install ClickHouse** (if not already installed):
+   ```bash
+   # Using Docker
+   docker run -d -p 8123:8123 -p 9000:9000 clickhouse/clickhouse-server
+   ```
+
+2. **Configure environment variables** (see Configuration section above)
+
+3. **The broker will automatically**:
+   - Create the `fiet_metrics` database
+   - Create the `fiet_metrics` table with the proper schema
+   - Start collecting metrics
+
+### Querying Metrics
+
+Example queries:
+
+```sql
+-- Total requests per action
+SELECT 
+    metric_name,
+    sum(value) as total
+FROM fiet_metrics
+WHERE metric_type = 'counter' 
+  AND metric_name = 'execute_action_requests_total'
+GROUP BY metric_name, labels
+ORDER BY total DESC;
+
+-- Average latency by action
+SELECT 
+    metric_name,
+    labels,
+    avg(value) as avg_latency_ms
+FROM fiet_metrics
+WHERE metric_type = 'histogram'
+  AND metric_name = 'execute_action_duration_ms'
+GROUP BY metric_name, labels
+ORDER BY avg_latency_ms DESC;
+
+-- Error rate by CEX
+SELECT 
+    JSONExtractString(labels, 'cex') as cex,
+    JSONExtractString(labels, 'error_type') as error_type,
+    count() as error_count
+FROM fiet_metrics
+WHERE metric_type = 'counter'
+  AND metric_name = 'execute_action_errors_total'
+GROUP BY cex, error_type
+ORDER BY error_count DESC;
+```
+
 ## 🏗️ Architecture
 
 ### Project Structure
@@ -572,6 +662,7 @@ bun run check
 
 ### Core Dependencies
 
+- `@clickhouse/client`: ClickHouse client for metrics storage
 - `@grpc/grpc-js`: gRPC server implementation
 - `@grpc/proto-loader`: Protocol buffer loading
 - `@usherlabs/ccxt`: Enhanced CCXT library with Verity support

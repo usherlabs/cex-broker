@@ -48,6 +48,7 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
+		"@clickhouse/client": "^0.2.10",
 		"@grpc/grpc-js": "^1.13.4",
 		"@grpc/proto-loader": "^0.7.15",
 		"@usherlabs/ccxt": "^0.0.14",

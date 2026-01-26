@@ -1,10 +1,10 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "fietcexbroker",
       "dependencies": {
+        "@clickhouse/client": "^0.2.10",
         "@grpc/grpc-js": "^1.13.4",
         "@grpc/proto-loader": "^0.7.15",
         "@usherlabs/ccxt": "^0.0.14",
@@ -49,6 +49,10 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.0.6", "", { "os": "win32", "cpu": "arm64" }, "sha512-290V4oSFoKaprKE1zkYVsDfAdn0An5DowZ+GIABgjoq1ndhvNxkJcpxPsiYtT7slbVe3xmlT0ncdfOsN7KruzA=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.0.6", "", { "os": "win32", "cpu": "x64" }, "sha512-bfM1Bce0d69Ao7pjTjUS+AWSZ02+5UHdiAP85Th8e9yV5xzw6JrHXbL5YWlcEKQ84FIZMdDc7ncuti1wd2sdbw=="],
+
+    "@clickhouse/client": ["@clickhouse/client@0.2.10", "", { "dependencies": { "@clickhouse/client-common": "0.2.10" } }, "sha512-ZwBgzjEAFN/ogS0ym5KHVbR7Hx/oYCX01qGp2baEyfN2HM73kf/7Vp3GvMHWRy+zUXISONEtFv7UTViOXnmFrg=="],
+
+    "@clickhouse/client-common": ["@clickhouse/client-common@0.2.10", "", {}, "sha512-BvTY0IXS96y9RUeNCpKL4HUzHmY80L0lDcGN0lmUD6zjOqYMn78+xyHYJ/AIAX7JQsc+/KwFt2soZutQTKxoGQ=="],
 
     "@grpc/grpc-js": ["@grpc/grpc-js@1.13.4", "", { "dependencies": { "@grpc/proto-loader": "^0.7.13", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-GsFaMXCkMqkKIvwCQjCrwH+GHbPKBjhwo/8ZuUkWHqbI73Kky9I+pQltrlT0+MWpedCoosda53lgjYfyEPgxBg=="],
 

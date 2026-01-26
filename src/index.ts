@@ -11,6 +11,11 @@ import {
 	type ExchangeCredentials,
 	type PolicyConfig,
 } from "./types";
+import {
+	ClickHouseMetrics,
+	createClickHouseMetricsFromEnv,
+	type ClickHouseConfig,
+} from "./helpers/clickhouse";
 
 log.info("CCXT Version:", ccxt.version);
 
@@ -31,6 +36,7 @@ export default class CEXBroker {
 
 	private server: grpc.Server | null = null;
 	private useVerity: boolean = false;
+	private clickhouseMetrics?: ClickHouseMetrics;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -144,6 +150,7 @@ export default class CEXBroker {
 			whitelistIps?: string[];
 			useVerity?: boolean;
 			verityProverUrl?: string;
+			clickhouseConfig?: ClickHouseConfig;
 		},
 	) {
 		this.useVerity = config?.useVerity || false;
@@ -161,6 +168,14 @@ export default class CEXBroker {
 			this.watchPolicyFile(this.#policyFilePath);
 		}
 		this.#verityProverUrl = config?.verityProverUrl || "http://localhost:8080";
+
+		// Initialize ClickHouse metrics if config provided
+		if (config?.clickhouseConfig) {
+			this.clickhouseMetrics = new ClickHouseMetrics(config.clickhouseConfig);
+		} else {
+			// Try to create from environment variables
+			this.clickhouseMetrics = createClickHouseMetricsFromEnv();
+		}
 
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
@@ -194,13 +209,16 @@ export default class CEXBroker {
 	/**
 	 * Stops Server and Stop watching the policy file, if applicable.
 	 */
-	public stop(): void {
+	public async stop(): Promise<void> {
 		if (this.#policyFilePath) {
 			unwatchFile(this.#policyFilePath);
 			log.info(`Stopped watching policy file: ${this.#policyFilePath}`);
 		}
 		if (this.server) {
-			this.server.forceShutdown();
+			await this.server.forceShutdown();
+		}
+		if (this.clickhouseMetrics) {
+			await this.clickhouseMetrics.close();
 		}
 	}
 
@@ -212,12 +230,19 @@ export default class CEXBroker {
 			await this.server.forceShutdown();
 		}
 		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
+
+		// Initialize ClickHouse database/table if enabled
+		if (this.clickhouseMetrics?.isClickHouseEnabled()) {
+			await this.clickhouseMetrics.initialize();
+		}
+
 		this.server = getServer(
 			this.policy,
 			this.brokers,
 			this.whitelistIps,
 			this.useVerity,
 			this.#verityProverUrl,
+			this.clickhouseMetrics,
 		);
 
 		this.server.bindAsync(

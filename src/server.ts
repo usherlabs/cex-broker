@@ -23,6 +23,7 @@ import {
 	verityHttpClientOverridePredicate,
 	buildHttpClientOverrideFromMetadata,
 } from "./helpers";
+import type { ClickHouseMetrics } from "./helpers/clickhouse";
 
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
@@ -38,6 +39,7 @@ export function getServer(
 	whitelistIps: string[],
 	useVerity: boolean,
 	verityProverUrl: string,
+	clickhouseMetrics?: ClickHouseMetrics,
 ) {
 	const server = new grpc.Server();
 
@@ -46,16 +48,85 @@ export function getServer(
 			call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>,
 			callback: grpc.sendUnaryData<ActionResponse>,
 		) => {
+			const startTime = Date.now();
+			const { action, cex, symbol } = call.request;
+			let actionCompleted = false;
+
+			// Wrap callback to track success/failure
+			const wrappedCallback: grpc.sendUnaryData<ActionResponse> = (
+				error,
+				value,
+			) => {
+				if (!actionCompleted) {
+					actionCompleted = true;
+					const latency = Date.now() - startTime;
+
+					// Record latency histogram
+					const actionName =
+						action !== undefined && action in Action
+							? Action[action as keyof typeof Action]
+							: `unknown_${action ?? "undefined"}`;
+					clickhouseMetrics?.recordHistogram(
+						"execute_action_duration_ms",
+						latency,
+						{
+							action: actionName,
+							cex: cex || "unknown",
+						},
+					);
+
+					if (error) {
+						// Record failure
+						clickhouseMetrics?.recordCounter(
+							"execute_action_errors_total",
+							1,
+							{
+								action: actionName,
+								cex: cex || "unknown",
+								error_type: error.code
+									? grpc.status[error.code] || "unknown"
+									: "unknown",
+							},
+						);
+					} else {
+						// Record success
+						clickhouseMetrics?.recordCounter(
+							"execute_action_success_total",
+							1,
+							{
+								action: actionName,
+								cex: cex || "unknown",
+							},
+						);
+					}
+				}
+				callback(error, value);
+			};
+
 			// Log incoming request
 			log.info(`Request - ExecuteAction:`, {
-				action: call.request.action,
-				cex: call.request.cex,
-				symbol: call.request.symbol,
+				action,
+				cex,
+				symbol,
 			});
+
+			// Record request counter
+			const actionName =
+				action !== undefined && action in Action
+					? Action[action as keyof typeof Action]
+					: `unknown_${action ?? "undefined"}`;
+			clickhouseMetrics?.recordCounter(
+				"execute_action_requests_total",
+				1,
+				{
+					action: actionName,
+					cex: cex || "unknown",
+				},
+			);
 
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
-				return callback(
+				return wrappedCallback(
 					{
 						code: grpc.status.PERMISSION_DENIED,
 						message: "Access denied: Unauthorized IP",
@@ -65,10 +136,9 @@ export function getServer(
 			}
 			// Read incoming metadata
 			const metadata = call.metadata;
-			const { action, cex, symbol } = call.request;
 			// Validate required fields
 			if (!action || !cex) {
-				return callback(
+				return wrappedCallback(
 					{
 						code: grpc.status.INVALID_ARGUMENT,
 						message: "`action` AND `cex` fields are required",
@@ -83,7 +153,7 @@ export function getServer(
 				createBroker(cex, metadata);
 
 			if (!broker) {
-				return callback(
+				return wrappedCallback(
 					{
 						code: grpc.status.UNAUTHENTICATED,
 						message: `This Exchange is not registered and No API metadata ws found`,
@@ -124,7 +194,7 @@ export function getServer(
 						call.request.payload ?? {},
 					);
 					if (error) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: ${error.message}`,
@@ -149,12 +219,12 @@ export function getServer(
 							log.info(
 								`Amount ${value.amount} at ${value.transactionHash} . Paid to ${value.recipientAddress}`,
 							);
-							return callback(null, {
+							return wrappedCallback(null, {
 								proof: verityProof,
 								result: JSON.stringify({ ...deposit }),
 							});
 						}
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: "Deposit confirmation failed",
@@ -163,7 +233,7 @@ export function getServer(
 						);
 					} catch (error) {
 						log.error({ error });
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: "Deposit confirmation failed",
@@ -176,7 +246,7 @@ export function getServer(
 
 				case Action.FetchCurrency: {
 					if (!symbol) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: Symbol requied`,
@@ -188,7 +258,7 @@ export function getServer(
 						const currencies = await broker.fetchCurrencies(symbol);
 						const currencyInfo = currencies[symbol];
 						if (!currencyInfo) {
-							return callback(
+							return wrappedCallback(
 								{
 									code: grpc.status.NOT_FOUND,
 									message: `Currency not found for ${symbol}`,
@@ -196,13 +266,13 @@ export function getServer(
 								null,
 							);
 						}
-						callback(null, {
+						wrappedCallback(null, {
 							proof: verityProof,
 							result: JSON.stringify(currencyInfo),
 						});
 					} catch (error) {
 						log.error(`Error fetching currency ${symbol} from ${cex}:`, error);
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: `Failed to fetch currency for ${symbol} from ${cex}`,
@@ -214,7 +284,7 @@ export function getServer(
 				}
 				case Action.FetchFees: {
 					if (!symbol) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: Symbol requied`,
@@ -228,13 +298,13 @@ export function getServer(
 						const market = await broker.market(symbol); // Example of Market BTC/USDT
 
 						// Return normalized response
-						return callback(null, {
+						return wrappedCallback(null, {
 							proof: verityProof,
 							result: JSON.stringify({ generalFee: broker.fees, market }),
 						});
 					} catch (error) {
 						log.error(`Error fetching account ID ${cex}:`, error);
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: `Error fetching account ID from ${cex}`,
@@ -281,7 +351,7 @@ export function getServer(
 							);
 						}
 					} catch {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message:
@@ -295,7 +365,7 @@ export function getServer(
 						callSchema.validate(preparedPayload);
 
 					if (callError) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: ${callError.message}`,
@@ -313,7 +383,7 @@ export function getServer(
 							typeof fn !== "function" ||
 							!broker.has[callValue.functionName]
 						) {
-							return callback(
+							return wrappedCallback(
 								{
 									code: grpc.status.INVALID_ARGUMENT,
 									message: `Function not found on broker: ${callValue.functionName}`,
@@ -328,7 +398,7 @@ export function getServer(
 							callValue.functionName.includes("constructor") ||
 							callValue.functionName.includes("prototype")
 						) {
-							return callback(
+							return wrappedCallback(
 								{
 									code: grpc.status.PERMISSION_DENIED,
 									message: "Access to the requested function is denied",
@@ -350,7 +420,7 @@ export function getServer(
 						// biome-ignore lint/suspicious/noExplicitAny: dynamic call required for generic broker methods
 						const result = await (fn as any).apply(broker, argsArray);
 
-						callback(null, {
+						wrappedCallback(null, {
 							proof: verityProof,
 							result: JSON.stringify(result),
 						});
@@ -362,7 +432,7 @@ export function getServer(
 								: typeof error === "string"
 									? error
 									: "Unknown error";
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: `Call failed: ${message}`,
@@ -375,7 +445,7 @@ export function getServer(
 
 				case Action.FetchDepositAddresses: {
 					if (!symbol) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: Symbol requied`,
@@ -394,7 +464,7 @@ export function getServer(
 						error: errorFetchDepositAddresses,
 					} = fetchDepositAddressesSchema.validate(call.request.payload ?? {});
 					if (errorFetchDepositAddresses) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: ${errorFetchDepositAddresses?.message}`,
@@ -417,12 +487,12 @@ export function getServer(
 									});
 
 						if (depositAddresses.length > 0) {
-							return callback(null, {
+							return wrappedCallback(null, {
 								proof: verityProof,
 								result: JSON.stringify(depositAddresses),
 							});
 						}
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: "Deposit confirmation failed",
@@ -437,7 +507,7 @@ export function getServer(
 								: typeof error === "string"
 									? error
 									: "Unknown error";
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message:
@@ -450,7 +520,7 @@ export function getServer(
 				}
 				case Action.Withdraw: {
 					if (!symbol) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: Symbol requied`,
@@ -469,7 +539,7 @@ export function getServer(
 					const { value: transferValue, error: transferError } =
 						transferSchema.validate(call.request.payload ?? {});
 					if (transferError) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError:" ${transferError?.message}`,
@@ -486,7 +556,7 @@ export function getServer(
 						symbol,
 					);
 					if (!transferValidation.valid) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.PERMISSION_DENIED,
 								message: transferValidation.error,
@@ -501,7 +571,7 @@ export function getServer(
 						);
 
 						if (!networks.includes(transferValue.chain)) {
-							return callback(
+							return wrappedCallback(
 								{
 									code: grpc.status.INTERNAL,
 									message: `Broker ${cex} doesnt support this ${transferValue.chain} for token ${symbol}`,
@@ -518,13 +588,13 @@ export function getServer(
 						);
 						log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 
-						callback(null, {
+						wrappedCallback(null, {
 							proof: verityProof,
 							result: JSON.stringify({ ...transaction }),
 						});
 					} catch (error) {
 						log.error({ error });
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: "Withdraw failed",
@@ -549,7 +619,7 @@ export function getServer(
 					const { value: orderValue, error: orderError } =
 						createOrderSchema.validate(call.request.payload ?? {});
 					if (orderError) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError:" ${orderError.message}`,
@@ -565,7 +635,7 @@ export function getServer(
 						cex,
 					);
 					if (!validation.valid) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: validation.error,
@@ -588,7 +658,7 @@ export function getServer(
 						const [from, _to] = symbol.split("/");
 
 						if (!broker) {
-							return callback(
+							return wrappedCallback(
 								{
 									code: grpc.status.INVALID_ARGUMENT,
 									message: `Invalid CEX key: ${cex}. Supported keys: ${Object.keys(brokers).join(", ")}`,
@@ -606,10 +676,10 @@ export function getServer(
 							orderValue.params ?? {},
 						);
 
-						callback(null, { result: JSON.stringify({ ...order }) });
+						wrappedCallback(null, { result: JSON.stringify({ ...order }) });
 					} catch (error) {
 						log.error({ error });
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: "Order Creation failed",
@@ -632,7 +702,7 @@ export function getServer(
 						getOrderSchema.validate(call.request.payload ?? {});
 					// Validate required fields
 					if (getOrderError) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: ${getOrderError.message}`,
@@ -644,7 +714,7 @@ export function getServer(
 					try {
 						// Validate CEX key
 						if (!broker) {
-							return callback(
+							return wrappedCallback(
 								{
 									code: grpc.status.INVALID_ARGUMENT,
 									message: `Invalid CEX key: ${cex}. Supported keys: ${Object.keys(brokers).join(", ")}`,
@@ -658,7 +728,7 @@ export function getServer(
 							{ ...getOrderValue.params },
 						);
 
-						callback(null, {
+						wrappedCallback(null, {
 							result: JSON.stringify({
 								orderId: orderDetails.id,
 								status: orderDetails.status,
@@ -671,7 +741,7 @@ export function getServer(
 						});
 					} catch (error) {
 						log.error(`Error fetching order details from ${cex}:`, error);
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: `Failed to fetch order details from ${cex}`,
@@ -692,7 +762,7 @@ export function getServer(
 						cancelOrderSchema.validate(call.request.payload ?? {});
 					// Validate required fields
 					if (cancelOrderError) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError:  ${cancelOrderError.message}`,
@@ -706,7 +776,7 @@ export function getServer(
 						cancelOrderValue.params ?? {},
 					);
 
-					callback(null, {
+					wrappedCallback(null, {
 						result: JSON.stringify({ ...cancelledOrder }),
 					});
 					break;
@@ -722,7 +792,7 @@ export function getServer(
 						const balanceType = (providedBalanceType ?? "total").toString();
 						const validBalanceTypes = new Set(["free", "used", "total"]);
 						if (!validBalanceTypes.has(balanceType)) {
-							return callback(
+							return wrappedCallback(
 								{
 									code: grpc.status.INVALID_ARGUMENT,
 									message: `ValidationError: invalid balanceType '${providedBalanceType}'. Expected one of: free | used | total`,
@@ -764,7 +834,7 @@ export function getServer(
 							}
 						}
 
-						callback(null, {
+						wrappedCallback(null, {
 							proof: verityProof,
 							result: JSON.stringify({
 								balances: responseBalances,
@@ -773,7 +843,7 @@ export function getServer(
 						});
 					} catch (error) {
 						log.error(`Error fetching balance from ${cex}:`, error);
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: `Failed to fetch balance from ${cex}`,
@@ -785,7 +855,7 @@ export function getServer(
 
 				case Action.FetchTicker:
 					if (!symbol) {
-						return callback(
+						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: Symbol requied`,
@@ -795,13 +865,13 @@ export function getServer(
 					}
 					try {
 						const ticker = await broker.fetchTicker(symbol);
-						callback(null, {
+						wrappedCallback(null, {
 							proof: verityProof,
 							result: JSON.stringify(ticker),
 						});
 					} catch (error) {
 						log.error(`Error fetching ticker from ${cex}:`, error);
-						callback(
+						wrappedCallback(
 							{
 								code: grpc.status.INTERNAL,
 								message: `Failed to fetch ticker from ${cex}`,
@@ -812,7 +882,7 @@ export function getServer(
 					break;
 
 				default:
-					return callback({
+					return wrappedCallback({
 						code: grpc.status.INVALID_ARGUMENT,
 						message: "Invalid Action",
 					});
@@ -822,8 +892,16 @@ export function getServer(
 		Subscribe: async (
 			call: grpc.ServerWritableStream<SubscribeRequest, SubscribeResponse>,
 		) => {
+			const subscribeStartTime = Date.now();
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
+				clickhouseMetrics?.recordCounter(
+					"subscribe_errors_total",
+					1,
+					{
+						error_type: "permission_denied",
+					},
+				);
 				call.emit(
 					"error",
 					{
@@ -833,6 +911,7 @@ export function getServer(
 					null,
 				);
 				call.destroy(new Error("Access denied: Unauthorized IP"));
+				return;
 			}
 			// Read incoming metadata
 			const metadata = call.metadata;
@@ -853,6 +932,25 @@ export function getServer(
 					symbol: request.symbol,
 					type: subscriptionType,
 				});
+
+				// Record subscription request
+				const subscriptionTypeName = (() => {
+					for (const [key, value] of Object.entries(SubscriptionType)) {
+						if (value === subscriptionType && isNaN(Number(key))) {
+							return key;
+						}
+					}
+					return `unknown_${subscriptionType}`;
+				})();
+				clickhouseMetrics?.recordCounter(
+					"subscribe_requests_total",
+					1,
+					{
+						cex: cex || "unknown",
+						symbol: symbol || "unknown",
+						type: subscriptionTypeName,
+					},
+				);
 
 				// Validate required fields
 				if (!cex || !symbol) {
@@ -1107,10 +1205,26 @@ export function getServer(
 
 			call.on("end", () => {
 				log.info("Subscribe stream ended");
+				const duration = Date.now() - subscribeStartTime;
+				clickhouseMetrics?.recordHistogram(
+					"subscribe_duration_ms",
+					duration,
+					{
+						cex: call.request?.cex || "unknown",
+						symbol: call.request?.symbol || "unknown",
+					},
+				);
 			});
 
 			call.on("error", (error) => {
 				log.error("Subscribe stream error:", error);
+				clickhouseMetrics?.recordCounter(
+					"subscribe_errors_total",
+					1,
+					{
+						error_type: error instanceof Error ? error.message : "unknown",
+					},
+				);
 			});
 		},
 	});
