@@ -77,17 +77,13 @@ export function getServer(
 
 					if (error) {
 						// Record failure
-						clickhouseMetrics?.recordCounter(
-							"execute_action_errors_total",
-							1,
-							{
-								action: actionName,
-								cex: cex || "unknown",
-								error_type: error.code
-									? grpc.status[error.code] || "unknown"
-									: "unknown",
-							},
-						);
+						clickhouseMetrics?.recordCounter("execute_action_errors_total", 1, {
+							action: actionName,
+							cex: cex || "unknown",
+							error_type: error.code
+								? grpc.status[error.code] || "unknown"
+								: "unknown",
+						});
 					} else {
 						// Record success
 						clickhouseMetrics?.recordCounter(
@@ -115,14 +111,10 @@ export function getServer(
 				action !== undefined && action in Action
 					? Action[action as keyof typeof Action]
 					: `unknown_${action ?? "undefined"}`;
-			clickhouseMetrics?.recordCounter(
-				"execute_action_requests_total",
-				1,
-				{
-					action: actionName,
-					cex: cex || "unknown",
-				},
-			);
+			clickhouseMetrics?.recordCounter("execute_action_requests_total", 1, {
+				action: actionName,
+				cex: cex || "unknown",
+			});
 
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
@@ -895,13 +887,9 @@ export function getServer(
 			const subscribeStartTime = Date.now();
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
-				clickhouseMetrics?.recordCounter(
-					"subscribe_errors_total",
-					1,
-					{
-						error_type: "permission_denied",
-					},
-				);
+				clickhouseMetrics?.recordCounter("subscribe_errors_total", 1, {
+					error_type: "permission_denied",
+				});
 				call.emit(
 					"error",
 					{
@@ -942,15 +930,11 @@ export function getServer(
 					}
 					return `unknown_${subscriptionType}`;
 				})();
-				clickhouseMetrics?.recordCounter(
-					"subscribe_requests_total",
-					1,
-					{
-						cex: cex || "unknown",
-						symbol: symbol || "unknown",
-						type: subscriptionTypeName,
-					},
-				);
+				clickhouseMetrics?.recordCounter("subscribe_requests_total", 1, {
+					cex: cex || "unknown",
+					symbol: symbol || "unknown",
+					type: subscriptionTypeName,
+				});
 
 				// Validate required fields
 				if (!cex || !symbol) {
@@ -1206,25 +1190,17 @@ export function getServer(
 			call.on("end", () => {
 				log.info("Subscribe stream ended");
 				const duration = Date.now() - subscribeStartTime;
-				clickhouseMetrics?.recordHistogram(
-					"subscribe_duration_ms",
-					duration,
-					{
-						cex: call.request?.cex || "unknown",
-						symbol: call.request?.symbol || "unknown",
-					},
-				);
+				clickhouseMetrics?.recordHistogram("subscribe_duration_ms", duration, {
+					cex: call.request?.cex || "unknown",
+					symbol: call.request?.symbol || "unknown",
+				});
 			});
 
 			call.on("error", (error) => {
 				log.error("Subscribe stream error:", error);
-				clickhouseMetrics?.recordCounter(
-					"subscribe_errors_total",
-					1,
-					{
-						error_type: error instanceof Error ? error.message : "unknown",
-					},
-				);
+				clickhouseMetrics?.recordCounter("subscribe_errors_total", 1, {
+					error_type: error instanceof Error ? error.message : "unknown",
+				});
 			});
 		},
 	});
