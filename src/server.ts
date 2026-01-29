@@ -266,25 +266,15 @@ export function getServer(
 					}
 					break;
 				}
-				case Action.FetchFees: {
-					if (!symbol) {
-						return wrappedCallback(
-							{
-								code: grpc.status.INVALID_ARGUMENT,
-								message: `ValidationError: Symbol requied`,
-							},
-							null,
-						);
-					}
-					try {
-						const _market = await broker.loadMarkets();
 
-						const market = await broker.market(symbol); // Example of Market BTC/USDT
+				case Action.FetchAccountId: {
+					try {
+						let accountId = await broker.fetchAccountId();
 
 						// Return normalized response
 						return wrappedCallback(null, {
 							proof: verityProof,
-							result: JSON.stringify({ generalFee: broker.fees, market }),
+							result: JSON.stringify({ accountId }),
 						});
 					} catch (error) {
 						log.error(`Error fetching account ID ${cex}:`, error);
@@ -292,6 +282,45 @@ export function getServer(
 							{
 								code: grpc.status.INTERNAL,
 								message: `Error fetching account ID from ${cex}`,
+							},
+							null,
+						);
+					}
+					break;
+				}
+
+				case Action.FetchFees: {
+					if (!symbol) {
+						return wrappedCallback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: `ValidationError: Symbol required`,
+							},
+							null,
+						);
+					}
+					try {
+						await broker.loadMarkets();
+						const market = await broker.market(symbol);
+
+						// Address CodeRabbit's concern: explicit handling for missing fees
+						const generalFee = broker.fees ?? null;
+						const feeStatus = broker.fees ? "available" : "unknown";
+
+						if (!broker.fees) {
+							log.warn(`Fee metadata unavailable for ${cex}`, { symbol });
+						}
+
+						return wrappedCallback(null, {
+							proof: verityProof,
+							result: JSON.stringify({ generalFee, feeStatus, market }),
+						});
+					} catch (error) {
+						log.error(`Error fetching fees for ${symbol} from ${cex}:`, error);
+						wrappedCallback(
+							{
+								code: grpc.status.INTERNAL,
+								message: `Error fetching fees from ${cex}`,
 							},
 							null,
 						);
