@@ -31,7 +31,7 @@
 		"build": "bun run proto-gen && bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
 		"start-broker": "bun run ./src/cli.ts",
 		"start-broker-server": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll'",
-		"start-broker-server-with-verity": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll --verityProverUrl http://localhost:8080'",
+		"start-broker-server-with-verity": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll --verityProverUrl http://verity-prover:8080'",
 		"build:ts": "bunx tsc",
 		"test": "bun test",
 		"format": "bunx biome format --write",

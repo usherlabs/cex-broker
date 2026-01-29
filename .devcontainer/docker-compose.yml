@@ -1,0 +1,16 @@
+services:
+  cex-broker:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    container_name: cex-broker-dev
+    volumes:
+      - ../:/home/vscode/cex-broker:cached
+    command: sleep infinity
+    networks:
+      - fiet-sandbox
+
+networks:
+  fiet-sandbox:
+    external: true
+    name: fiet-sandbox
