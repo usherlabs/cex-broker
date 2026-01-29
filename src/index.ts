@@ -12,10 +12,10 @@ import {
 	type PolicyConfig,
 } from "./types";
 import {
-	ClickHouseMetrics,
-	createClickHouseMetricsFromEnv,
-	type ClickHouseConfig,
-} from "./helpers/clickhouse";
+	OtelMetrics,
+	createOtelMetricsFromEnv,
+	type OtelConfig,
+} from "./helpers/otel";
 
 log.info("CCXT Version:", ccxt.version);
 
@@ -36,7 +36,7 @@ export default class CEXBroker {
 
 	private server: grpc.Server | null = null;
 	private useVerity: boolean = false;
-	private clickhouseMetrics?: ClickHouseMetrics;
+	private otelMetrics?: OtelMetrics;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -150,7 +150,7 @@ export default class CEXBroker {
 			whitelistIps?: string[];
 			useVerity?: boolean;
 			verityProverUrl?: string;
-			clickhouseConfig?: ClickHouseConfig;
+			otelConfig?: OtelConfig;
 		},
 	) {
 		this.useVerity = config?.useVerity || false;
@@ -169,12 +169,12 @@ export default class CEXBroker {
 		}
 		this.#verityProverUrl = config?.verityProverUrl || "http://localhost:8080";
 
-		// Initialize ClickHouse metrics if config provided
-		if (config?.clickhouseConfig) {
-			this.clickhouseMetrics = new ClickHouseMetrics(config.clickhouseConfig);
+		// Initialize OTel metrics if config provided
+		if (config?.otelConfig) {
+			this.otelMetrics = new OtelMetrics(config.otelConfig);
 		} else {
 			// Try to create from environment variables
-			this.clickhouseMetrics = createClickHouseMetricsFromEnv();
+			this.otelMetrics = createOtelMetricsFromEnv();
 		}
 
 		this.loadExchangeCredentials(apiCredentials);
@@ -217,8 +217,8 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
-		if (this.clickhouseMetrics) {
-			await this.clickhouseMetrics.close();
+		if (this.otelMetrics) {
+			await this.otelMetrics.close();
 		}
 	}
 
@@ -231,9 +231,9 @@ export default class CEXBroker {
 		}
 		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
 
-		// Initialize ClickHouse database/table if enabled
-		if (this.clickhouseMetrics?.isClickHouseEnabled()) {
-			await this.clickhouseMetrics.initialize();
+		// Initialize OTel metrics if enabled
+		if (this.otelMetrics?.isOtelEnabled()) {
+			await this.otelMetrics.initialize();
 		}
 
 		this.server = getServer(
@@ -242,7 +242,7 @@ export default class CEXBroker {
 			this.whitelistIps,
 			this.useVerity,
 			this.#verityProverUrl,
-			this.clickhouseMetrics,
+			this.otelMetrics,
 		);
 
 		this.server.bindAsync(

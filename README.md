@@ -66,19 +66,19 @@ CEX_BROKER_BINANCE_API_SECRET_1=your_secondary_binance_api_secret
 CEX_BROKER_BINANCE_API_KEY_2=your_tertiary_binance_api_key
 CEX_BROKER_BINANCE_API_SECRET_2=your_tertiary_binance_api_secret
 
-# ClickHouse Metrics (Optional)
-# If CEX_BROKER_CLICKHOUSE_HOST is not provided, metrics will be disabled
-CEX_BROKER_CLICKHOUSE_HOST=localhost
-CEX_BROKER_CLICKHOUSE_PORT=8123
-CEX_BROKER_CLICKHOUSE_USERNAME=default
-CEX_BROKER_CLICKHOUSE_PASSWORD=
-CEX_BROKER_CLICKHOUSE_DATABASE=fiet_metrics
-CEX_BROKER_CLICKHOUSE_PROTOCOL=http
+# OpenTelemetry Metrics (Optional)
+# Send metrics via OTLP to a collector
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+OTEL_SERVICE_NAME=cex-broker
+# Or use CEX_BROKER_OTEL_* (default port 4318). Legacy: CEX_BROKER_CLICKHOUSE_* also supported.
+# CEX_BROKER_OTEL_HOST=localhost
+# CEX_BROKER_OTEL_PORT=4318
+# CEX_BROKER_OTEL_PROTOCOL=http
 ```
 
 **Note**: Only configure API keys for exchanges you plan to use. The system will automatically detect and initialize configured exchanges.
 
-**ClickHouse Metrics**: ClickHouse integration is optional. If `CEX_BROKER_CLICKHOUSE_HOST` is not provided, metrics collection will be disabled. When enabled, the broker automatically creates the database and table schema on startup.
+**Metrics (OpenTelemetry)**: Metrics are exported via OTLP. If neither `OTEL_EXPORTER_OTLP_ENDPOINT` nor `CEX_BROKER_OTEL_HOST` (or legacy `CEX_BROKER_CLICKHOUSE_HOST`) is set, metrics are disabled. When enabled, the broker sends metrics to the configured OTLP endpoint (e.g. an OpenTelemetry Collector).
 
 ### Policy Configuration
 
@@ -405,17 +405,17 @@ const response = await client.ExecuteAction(request, metadata);
 - Monitor API usage and set appropriate rate limits
 - Use secondary brokers for redundancy and load distribution
 
-## 📊 ClickHouse Metrics
+## 📊 OpenTelemetry Metrics
 
-The broker can optionally store metrics in ClickHouse for monitoring and analytics. Metrics are automatically collected for:
+The broker exports metrics via **OpenTelemetry (OTLP)** for monitoring and analytics. Metrics are collected for:
 
 - **ExecuteAction requests**: Request counts, success/failure rates, latency histograms
 - **Subscribe streams**: Subscription counts, duration, error rates
 - **Action-specific metrics**: Tagged by action type, CEX, and symbol
 
-### Metrics Schema
+### Metrics (OTLP)
 
-The following metrics are collected:
+The following metrics are exported as OTLP counters and histograms:
 
 - `execute_action_requests_total` (counter): Total ExecuteAction requests
 - `execute_action_success_total` (counter): Successful ExecuteAction requests
@@ -425,64 +425,24 @@ The following metrics are collected:
 - `subscribe_errors_total` (counter): Failed Subscribe requests
 - `subscribe_duration_ms` (histogram): Subscribe stream duration
 
-All metrics include labels for:
-- `action`: The action type (e.g., "FetchBalances", "CreateOrder")
-- `cex`: The exchange identifier (e.g., "binance", "bybit")
-- `symbol`: The trading pair (when applicable)
-- `error_type`: Error classification (for error metrics)
+All metrics include attributes: `action`, `cex`, `symbol`, `error_type`, `service`.
 
-### Setting Up ClickHouse
+### Setting Up Metrics
 
-1. **Install ClickHouse** (if not already installed):
-   ```bash
-   # Using Docker
-   docker run -d -p 8123:8123 -p 9000:9000 clickhouse/clickhouse-server
-   ```
+1. **Run an OTLP receiver** (e.g. [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)):
+   - Default endpoint: `http://localhost:4318/v1/metrics`
+   - To store in ClickHouse or other backends, use the appropriate exporter in the collector pipeline (e.g. [ClickHouse exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/clickhouseexporter)).
 
-2. **Configure environment variables** (see Configuration section above)
+2. **Configure the broker**:
+   - Set `OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. `http://localhost:4318`) or use `CEX_BROKER_OTEL_HOST` (and optional `CEX_BROKER_OTEL_PORT`, `CEX_BROKER_OTEL_PROTOCOL`). Legacy `CEX_BROKER_CLICKHOUSE_*` env vars are also supported.
 
-3. **The broker will automatically**:
-   - Create the `fiet_metrics` database
-   - Create the `fiet_metrics` table with the proper schema
-   - Start collecting metrics
+3. Metrics are pushed periodically to the configured endpoint; no database schema is created by the broker (handled by the collector/backend).
 
-### Querying Metrics
+**Local or Docker: OTLP → ClickHouse (no Prometheus)**  
+Use the included OpenTelemetry + ClickHouse stack so metrics go only to ClickHouse (no Prometheus exporter):
 
-Example queries:
-
-```sql
--- Total requests per action
-SELECT 
-    metric_name,
-    sum(value) as total
-FROM fiet_metrics
-WHERE metric_type = 'counter' 
-  AND metric_name = 'execute_action_requests_total'
-GROUP BY metric_name, labels
-ORDER BY total DESC;
-
--- Average latency by action
-SELECT 
-    metric_name,
-    labels,
-    avg(value) as avg_latency_ms
-FROM fiet_metrics
-WHERE metric_type = 'histogram'
-  AND metric_name = 'execute_action_duration_ms'
-GROUP BY metric_name, labels
-ORDER BY avg_latency_ms DESC;
-
--- Error rate by CEX
-SELECT 
-    JSONExtractString(labels, 'cex') as cex,
-    JSONExtractString(labels, 'error_type') as error_type,
-    count() as error_count
-FROM fiet_metrics
-WHERE metric_type = 'counter'
-  AND metric_name = 'execute_action_errors_total'
-GROUP BY cex, error_type
-ORDER BY error_count DESC;
-```
+- **Docker**: `docker compose -f docker-compose.otel.yaml up -d`, then set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` and start the broker.
+- **Config**: `otel/collector-config.yaml` (OTLP receiver → batch → ClickHouse exporter). See [otel/README.md](otel/README.md) for full instructions (Docker and local).
 
 ## 🏗️ Architecture
 
@@ -662,7 +622,7 @@ bun run check
 
 ### Core Dependencies
 
-- `@clickhouse/client`: ClickHouse client for metrics storage
+- `@opentelemetry/*`: OpenTelemetry API, SDK metrics, OTLP HTTP exporter for metrics
 - `@grpc/grpc-js`: gRPC server implementation
 - `@grpc/proto-loader`: Protocol buffer loading
 - `@usherlabs/ccxt`: Enhanced CCXT library with Verity support

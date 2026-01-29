@@ -23,7 +23,7 @@ import {
 	verityHttpClientOverridePredicate,
 	buildHttpClientOverrideFromMetadata,
 } from "./helpers";
-import type { ClickHouseMetrics } from "./helpers/clickhouse";
+import type { OtelMetrics } from "./helpers/otel";
 
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
@@ -39,7 +39,7 @@ export function getServer(
 	whitelistIps: string[],
 	useVerity: boolean,
 	verityProverUrl: string,
-	clickhouseMetrics?: ClickHouseMetrics,
+	otelMetrics?: OtelMetrics,
 ) {
 	const server = new grpc.Server();
 
@@ -66,18 +66,14 @@ export function getServer(
 						action !== undefined && action in Action
 							? Action[action as keyof typeof Action]
 							: `unknown_${action ?? "undefined"}`;
-					clickhouseMetrics?.recordHistogram(
-						"execute_action_duration_ms",
-						latency,
-						{
-							action: actionName,
-							cex: cex || "unknown",
-						},
-					);
+					otelMetrics?.recordHistogram("execute_action_duration_ms", latency, {
+						action: actionName,
+						cex: cex || "unknown",
+					});
 
 					if (error) {
 						// Record failure
-						clickhouseMetrics?.recordCounter("execute_action_errors_total", 1, {
+						otelMetrics?.recordCounter("execute_action_errors_total", 1, {
 							action: actionName,
 							cex: cex || "unknown",
 							error_type: error.code
@@ -86,14 +82,10 @@ export function getServer(
 						});
 					} else {
 						// Record success
-						clickhouseMetrics?.recordCounter(
-							"execute_action_success_total",
-							1,
-							{
-								action: actionName,
-								cex: cex || "unknown",
-							},
-						);
+						otelMetrics?.recordCounter("execute_action_success_total", 1, {
+							action: actionName,
+							cex: cex || "unknown",
+						});
 					}
 				}
 				callback(error, value);
@@ -111,7 +103,7 @@ export function getServer(
 				action !== undefined && action in Action
 					? Action[action as keyof typeof Action]
 					: `unknown_${action ?? "undefined"}`;
-			clickhouseMetrics?.recordCounter("execute_action_requests_total", 1, {
+			otelMetrics?.recordCounter("execute_action_requests_total", 1, {
 				action: actionName,
 				cex: cex || "unknown",
 			});
@@ -887,7 +879,7 @@ export function getServer(
 			const subscribeStartTime = Date.now();
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
-				clickhouseMetrics?.recordCounter("subscribe_errors_total", 1, {
+				otelMetrics?.recordCounter("subscribe_errors_total", 1, {
 					error_type: "permission_denied",
 				});
 				call.emit(
@@ -930,7 +922,7 @@ export function getServer(
 					}
 					return `unknown_${subscriptionType}`;
 				})();
-				clickhouseMetrics?.recordCounter("subscribe_requests_total", 1, {
+				otelMetrics?.recordCounter("subscribe_requests_total", 1, {
 					cex: cex || "unknown",
 					symbol: symbol || "unknown",
 					type: subscriptionTypeName,
@@ -1190,7 +1182,7 @@ export function getServer(
 			call.on("end", () => {
 				log.info("Subscribe stream ended");
 				const duration = Date.now() - subscribeStartTime;
-				clickhouseMetrics?.recordHistogram("subscribe_duration_ms", duration, {
+				otelMetrics?.recordHistogram("subscribe_duration_ms", duration, {
 					cex: call.request?.cex || "unknown",
 					symbol: call.request?.symbol || "unknown",
 				});
@@ -1198,7 +1190,7 @@ export function getServer(
 
 			call.on("error", (error) => {
 				log.error("Subscribe stream error:", error);
-				clickhouseMetrics?.recordCounter("subscribe_errors_total", 1, {
+				otelMetrics?.recordCounter("subscribe_errors_total", 1, {
 					error_type: error instanceof Error ? error.message : "unknown",
 				});
 			});
