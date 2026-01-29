@@ -68,10 +68,10 @@ CEX_BROKER_BINANCE_API_SECRET_2=your_tertiary_binance_api_secret
 
 # OpenTelemetry Metrics (Optional)
 # Send metrics via OTLP to a collector
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
 OTEL_SERVICE_NAME=cex-broker
 # Or use CEX_BROKER_OTEL_* (default port 4318). Legacy: CEX_BROKER_CLICKHOUSE_* also supported.
-# CEX_BROKER_OTEL_HOST=localhost
+# CEX_BROKER_OTEL_HOST=otel-collector
 # CEX_BROKER_OTEL_PORT=4318
 # CEX_BROKER_OTEL_PROTOCOL=http
 ```
