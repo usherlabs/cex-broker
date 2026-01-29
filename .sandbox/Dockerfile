@@ -6,7 +6,7 @@ RUN apt-get update -y \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
-RUN bun install --global @usherlabs/cex-broker@0.1.20
+RUN bun install --global @usherlabs/cex-broker@0.1.21
 
 COPY --chmod=0755 ./.sandbox/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
