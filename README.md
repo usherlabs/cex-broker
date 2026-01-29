@@ -65,9 +65,20 @@ CEX_BROKER_BINANCE_API_KEY_1=your_secondary_binance_api_key
 CEX_BROKER_BINANCE_API_SECRET_1=your_secondary_binance_api_secret
 CEX_BROKER_BINANCE_API_KEY_2=your_tertiary_binance_api_key
 CEX_BROKER_BINANCE_API_SECRET_2=your_tertiary_binance_api_secret
+
+# OpenTelemetry Metrics (Optional)
+# Send metrics via OTLP to a collector
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_SERVICE_NAME=cex-broker
+# Or use CEX_BROKER_OTEL_* (default port 4318). Legacy: CEX_BROKER_CLICKHOUSE_* also supported.
+# CEX_BROKER_OTEL_HOST=otel-collector
+# CEX_BROKER_OTEL_PORT=4318
+# CEX_BROKER_OTEL_PROTOCOL=http
 ```
 
 **Note**: Only configure API keys for exchanges you plan to use. The system will automatically detect and initialize configured exchanges.
+
+**Metrics (OpenTelemetry)**: Metrics are exported via OTLP. If neither `OTEL_EXPORTER_OTLP_ENDPOINT` nor `CEX_BROKER_OTEL_HOST` (or legacy `CEX_BROKER_CLICKHOUSE_HOST`) is set, metrics are disabled. When enabled, the broker sends metrics to the configured OTLP endpoint (e.g. an OpenTelemetry Collector).
 
 ### Policy Configuration
 
@@ -394,6 +405,45 @@ const response = await client.ExecuteAction(request, metadata);
 - Monitor API usage and set appropriate rate limits
 - Use secondary brokers for redundancy and load distribution
 
+## 📊 OpenTelemetry Metrics
+
+The broker exports metrics via **OpenTelemetry (OTLP)** for monitoring and analytics. Metrics are collected for:
+
+- **ExecuteAction requests**: Request counts, success/failure rates, latency histograms
+- **Subscribe streams**: Subscription counts, duration, error rates
+- **Action-specific metrics**: Tagged by action type, CEX, and symbol
+
+### Metrics (OTLP)
+
+The following metrics are exported as OTLP counters and histograms:
+
+- `execute_action_requests_total` (counter): Total ExecuteAction requests
+- `execute_action_success_total` (counter): Successful ExecuteAction requests
+- `execute_action_errors_total` (counter): Failed ExecuteAction requests
+- `execute_action_duration_ms` (histogram): ExecuteAction latency
+- `subscribe_requests_total` (counter): Total Subscribe requests
+- `subscribe_errors_total` (counter): Failed Subscribe requests
+- `subscribe_duration_ms` (histogram): Subscribe stream duration
+
+All metrics include attributes: `action`, `cex`, `symbol`, `error_type`, `service`.
+
+### Setting Up Metrics
+
+1. **Run an OTLP receiver** (e.g. [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)):
+   - Default endpoint: `http://localhost:4318/v1/metrics`
+   - To store in ClickHouse or other backends, use the appropriate exporter in the collector pipeline (e.g. [ClickHouse exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/clickhouseexporter)).
+
+2. **Configure the broker**:
+   - Set `OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. `http://localhost:4318`) or use `CEX_BROKER_OTEL_HOST` (and optional `CEX_BROKER_OTEL_PORT`, `CEX_BROKER_OTEL_PROTOCOL`). Legacy `CEX_BROKER_CLICKHOUSE_*` env vars are also supported.
+
+3. Metrics are pushed periodically to the configured endpoint; no database schema is created by the broker (handled by the collector/backend).
+
+**Local or Docker: OTLP → ClickHouse (no Prometheus)**  
+Use the included OpenTelemetry + ClickHouse stack so metrics go only to ClickHouse (no Prometheus exporter):
+
+- **Docker**: `docker compose -f docker-compose.otel.yaml up -d`, then set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` and start the broker.
+- **Config**: `otel/collector-config.yaml` (OTLP receiver → batch → ClickHouse exporter). See [otel/README.md](otel/README.md) for full instructions (Docker and local).
+
 ## 🏗️ Architecture
 
 ### Project Structure
@@ -572,6 +622,7 @@ bun run check
 
 ### Core Dependencies
 
+- `@opentelemetry/*`: OpenTelemetry API, SDK metrics, OTLP HTTP exporter for metrics
 - `@grpc/grpc-js`: gRPC server implementation
 - `@grpc/proto-loader`: Protocol buffer loading
 - `@usherlabs/ccxt`: Enhanced CCXT library with Verity support

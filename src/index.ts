@@ -11,6 +11,11 @@ import {
 	type ExchangeCredentials,
 	type PolicyConfig,
 } from "./types";
+import {
+	OtelMetrics,
+	createOtelMetricsFromEnv,
+	type OtelConfig,
+} from "./helpers/otel";
 
 log.info("CCXT Version:", ccxt.version);
 
@@ -31,6 +36,7 @@ export default class CEXBroker {
 
 	private server: grpc.Server | null = null;
 	private useVerity: boolean = false;
+	private otelMetrics?: OtelMetrics;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -144,6 +150,7 @@ export default class CEXBroker {
 			whitelistIps?: string[];
 			useVerity?: boolean;
 			verityProverUrl?: string;
+			otelConfig?: OtelConfig;
 		},
 	) {
 		this.useVerity = config?.useVerity || false;
@@ -161,6 +168,14 @@ export default class CEXBroker {
 			this.watchPolicyFile(this.#policyFilePath);
 		}
 		this.#verityProverUrl = config?.verityProverUrl || "http://localhost:8080";
+
+		// Initialize OTel metrics if config provided
+		if (config?.otelConfig) {
+			this.otelMetrics = new OtelMetrics(config.otelConfig);
+		} else {
+			// Try to create from environment variables
+			this.otelMetrics = createOtelMetricsFromEnv();
+		}
 
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
@@ -194,13 +209,16 @@ export default class CEXBroker {
 	/**
 	 * Stops Server and Stop watching the policy file, if applicable.
 	 */
-	public stop(): void {
+	public async stop(): Promise<void> {
 		if (this.#policyFilePath) {
 			unwatchFile(this.#policyFilePath);
 			log.info(`Stopped watching policy file: ${this.#policyFilePath}`);
 		}
 		if (this.server) {
-			this.server.forceShutdown();
+			await this.server.forceShutdown();
+		}
+		if (this.otelMetrics) {
+			await this.otelMetrics.close();
 		}
 	}
 
@@ -212,12 +230,19 @@ export default class CEXBroker {
 			await this.server.forceShutdown();
 		}
 		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
+
+		// Initialize OTel metrics if enabled
+		if (this.otelMetrics?.isOtelEnabled()) {
+			await this.otelMetrics.initialize();
+		}
+
 		this.server = getServer(
 			this.policy,
 			this.brokers,
 			this.whitelistIps,
 			this.useVerity,
 			this.#verityProverUrl,
+			this.otelMetrics,
 		);
 
 		this.server.bindAsync(
