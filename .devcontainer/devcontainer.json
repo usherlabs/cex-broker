@@ -3,6 +3,7 @@
 	"dockerComposeFile": "./docker-compose.yml",
 	"service": "cex-broker",
 	"workspaceFolder": "/home/vscode/cex-broker",
+  "initializeCommand": ".devcontainer/init.sh",
 	"mounts": [
 		// Mount the SSH key for the local machine to make git fetch/push work in the container	
 		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached,readonly"

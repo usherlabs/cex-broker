@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile
     container_name: cex-broker-dev
     volumes:
+      # This is a workaround to get the main repo path from the .git file when in a git worktree.
+      - ${MAIN_REPO:-/tmp/fake-path}:${MAIN_REPO:-/tmp/fake-path}
       - ../:/home/vscode/cex-broker:cached
     command: sleep infinity
     networks:
