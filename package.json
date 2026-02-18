@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.1.21",
+	"version": "0.1.22",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
 	"repository": "git@gitlab.com:usherlabs/cex-broker.git",
 	"homepage": "https://usher.so/",

@@ -1,12 +1,21 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import type { PolicyConfig } from "../types";
-import { validateDeposit, validateOrder, validateWithdraw } from "./index";
+import type { Exchange } from "@usherlabs/ccxt";
+import {
+	loadPolicy,
+	resolveOrderExecution,
+	validateDeposit,
+	validateOrder,
+	validateWithdraw,
+} from "./index";
 
 describe("Helper Functions", () => {
 	let testPolicy: PolicyConfig;
 
 	beforeEach(() => {
-		// Test policy configuration
 		testPolicy = {
 			withdraw: {
 				rule: {
@@ -44,8 +53,6 @@ describe("Helper Functions", () => {
 
 	describe("loadPolicy", () => {
 		test("should load policy successfully", () => {
-			// This test will use the actual policy file
-			const { loadPolicy } = require("./index");
 			const policy = loadPolicy("./policy/policy.json");
 
 			expect(policy).toBeDefined();
@@ -55,16 +62,33 @@ describe("Helper Functions", () => {
 			);
 		});
 
-		test("should throw error on file read failure", () => {
-			// This test would require mocking the file system
-			// For now, we'll skip it as it's complex to mock in Bun
-			expect(true).toBe(true); // Placeholder
-		});
-
-		test("should throw error on invalid JSON", () => {
-			// This test would require mocking the file system
-			// For now, we'll skip it as it's complex to mock in Bun
-			expect(true).toBe(true); // Placeholder
+		test("should default missing order limits to empty array", () => {
+			const tempPath = path.join(
+				os.tmpdir(),
+				`policy-${Date.now()}-${Math.random()}.json`,
+			);
+			const tempPolicy = {
+				withdraw: {
+					rule: {
+						networks: ["ARB"],
+						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+						amounts: [{ ticker: "USDC", max: 100000, min: 1 }],
+					},
+				},
+				deposit: {},
+				order: {
+					rule: {
+						markets: ["*"],
+					},
+				},
+			};
+			fs.writeFileSync(tempPath, JSON.stringify(tempPolicy));
+			try {
+				const policy = loadPolicy(tempPath);
+				expect(policy.order.rule.limits).toEqual([]);
+			} finally {
+				fs.unlinkSync(tempPath);
+			}
 		});
 	});
 
@@ -161,14 +185,62 @@ describe("Helper Functions", () => {
 	});
 
 	describe("validateOrder", () => {
-		test("should validate successful order", () => {
+		test("should validate successful order for exact market rule", () => {
 			const result = validateOrder(testPolicy, "USDT", "ETH", 20, "BINANCE");
 
 			expect(result.valid).toBe(true);
 			expect(result.error).toBeUndefined();
 		});
 
-		test("should reject unauthorized market", () => {
+		test("should allow wildcard exchange+market rule", () => {
+			const wildcardPolicy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						...testPolicy.order.rule,
+						markets: ["*"],
+						limits: [{ from: "USDT", to: "ETH", min: 1, max: 100_000 }],
+					},
+				},
+			};
+			const result = validateOrder(wildcardPolicy, "USDT", "ETH", 20, "KRAKEN");
+
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow wildcard exchange for specific pair", () => {
+			const wildcardPolicy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						...testPolicy.order.rule,
+						markets: ["*:BTC/ETH"],
+						limits: [{ from: "BTC", to: "ETH", min: 0.1, max: 100 }],
+					},
+				},
+			};
+			const result = validateOrder(wildcardPolicy, "BTC", "ETH", 1, "KRAKEN");
+
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow wildcard pair for specific exchange", () => {
+			const wildcardPolicy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						...testPolicy.order.rule,
+						markets: ["BINANCE:*"],
+						limits: [{ from: "DOGE", to: "USDT", min: 1, max: 100_000 }],
+					},
+				},
+			};
+			const result = validateOrder(wildcardPolicy, "DOGE", "USDT", 20, "BINANCE");
+
+			expect(result.valid).toBe(true);
+		});
+
+		test("should reject unauthorised market", () => {
 			const result = validateOrder(
 				testPolicy,
 				"USDT",
@@ -183,7 +255,7 @@ describe("Helper Functions", () => {
 			);
 		});
 
-		test("should reject unauthorized conversion pair", () => {
+		test("should reject unauthorised conversion pair when limits exist", () => {
 			const result = validateOrder(
 				testPolicy,
 				"BTC",
@@ -195,6 +267,45 @@ describe("Helper Functions", () => {
 			expect(result.valid).toBe(false);
 			expect(result.error).toContain(
 				"Conversion from BTC to ETH is not allowed",
+			);
+		});
+
+		test("should allow conversion when limits are omitted", () => {
+			const noLimitPolicy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						...testPolicy.order.rule,
+						limits: undefined,
+					},
+				},
+			};
+			const result = validateOrder(noLimitPolicy, "USDT", "ETH", 200_000, "BINANCE");
+
+			expect(result.valid).toBe(true);
+		});
+
+		test("should enforce directional limits", () => {
+			const directionalPolicy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						markets: ["BINANCE:*"],
+						limits: [{ from: "USDT", to: "ETH", min: 1, max: 100_000 }],
+					},
+				},
+			};
+			const reverseResult = validateOrder(
+				directionalPolicy,
+				"ETH",
+				"USDT",
+				2,
+				"BINANCE",
+			);
+
+			expect(reverseResult.valid).toBe(false);
+			expect(reverseResult.error).toContain(
+				"Conversion from ETH to USDT is not allowed",
 			);
 		});
 
@@ -223,17 +334,93 @@ describe("Helper Functions", () => {
 			expect(result.valid).toBe(false);
 			expect(result.error).toContain("Amount 200000 exceeds maximum 1");
 		});
+	});
 
-		test("should handle reverse conversion limits", () => {
-			const result = validateOrder(
+	describe("resolveOrderExecution", () => {
+		function createBrokerMock(symbols: string[]): Exchange {
+			const markets = Object.fromEntries(symbols.map((symbol) => [symbol, {}]));
+			return {
+				markets,
+				loadMarkets: async () => markets,
+				market: (symbol: string) => {
+					if (!(symbol in markets)) {
+						throw new Error(`Symbol ${symbol} not supported`);
+					}
+					return markets[symbol];
+				},
+			} as unknown as Exchange;
+		}
+
+		test("should resolve direct symbol as sell and keep base amount", async () => {
+			const broker = createBrokerMock(["ETH/USDT"]);
+			const result = await resolveOrderExecution(
 				testPolicy,
+				broker,
+				"BINANCE",
 				"ETH",
 				"USDT",
-				1, // Within limits for ETH->USDT
-				"BINANCE",
+				2,
+				2500,
 			);
 
 			expect(result.valid).toBe(true);
+			expect(result.symbol).toBe("ETH/USDT");
+			expect(result.side).toBe("sell");
+			expect(result.amountBase).toBe(2);
+		});
+
+		test("should resolve reverse symbol as buy and divide by price", async () => {
+			const broker = createBrokerMock(["ETH/USDT"]);
+			const wildcardNoLimitPolicy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						markets: ["BINANCE:*"],
+						limits: [],
+					},
+				},
+			};
+			const result = await resolveOrderExecution(
+				wildcardNoLimitPolicy,
+				broker,
+				"BINANCE",
+				"USDT",
+				"ETH",
+				2500,
+				2500,
+			);
+
+			expect(result.valid).toBe(true);
+			expect(result.symbol).toBe("ETH/USDT");
+			expect(result.side).toBe("buy");
+			expect(result.amountBase).toBe(1);
+		});
+
+		test("should reject when exchange does not support either symbol direction", async () => {
+			const broker = createBrokerMock(["ARB/USDT"]);
+			const wildcardPolicy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						markets: ["*"],
+						limits: [],
+					},
+				},
+			};
+			const result = await resolveOrderExecution(
+				wildcardPolicy,
+				broker,
+				"BINANCE",
+				"BTC",
+				"ETH",
+				1,
+				2500,
+			);
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain(
+				"Exchange BINANCE does not support BTC/ETH or ETH/BTC",
+			);
 		});
 	});
 

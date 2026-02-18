@@ -13,7 +13,7 @@ export type WithdrawRule = {
 
 export type OrderRule = {
 	markets: string[];
-	limits: Array<{
+	limits?: Array<{
 		from: string;
 		to: string;
 		min: number;
@@ -29,24 +29,6 @@ export type PolicyConfig = {
 	order: {
 		rule: OrderRule;
 	};
-};
-
-// Legacy types (keeping for backward compatibility)
-export type Policy = {
-	isActive: boolean;
-	permissions: Array<"withdraw" | "transfer" | "convert">;
-	limits: {
-		dailyWithdrawLimit?: number;
-		dailyTransferredAmount?: number;
-		perTxTransferLimit?: number;
-	};
-	networks: string[];
-	conversionLimits: Array<{
-		from: string;
-		to: string;
-		min: number;
-		max: number;
-	}>;
 };
 
 // Dynamic type mapping using CCXT's exchange classes

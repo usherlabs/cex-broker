@@ -271,7 +271,7 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 						max: Joi.number().required(),
 					}),
 				)
-				.required(),
+				.default([]),
 		});
 
 		// Full PolicyConfig schema
@@ -297,7 +297,9 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 			console.error("Validation failed:", error.details);
 		}
 
-		return value as PolicyConfig;
+		const normalizedPolicy = value as PolicyConfig;
+		normalizedPolicy.order.rule.limits = normalizedPolicy.order.rule.limits ?? [];
+		return normalizedPolicy;
 	} catch (error) {
 		console.error("Failed to load policy:", error);
 		throw new Error("Policy configuration could not be loaded");
@@ -371,27 +373,29 @@ export function validateOrder(
 	broker: string,
 ): { valid: boolean; error?: string } {
 	const orderRule = policy.order.rule;
+	const brokerUpper = broker.toUpperCase();
+	const fromUpper = fromToken.toUpperCase();
+	const toUpper = toToken.toUpperCase();
 
-	// Check if market is allowed
-	const marketKeys = [
-		`${broker.toUpperCase()}:${toToken}/${fromToken}`,
-		`${broker.toUpperCase()}:${fromToken}/${toToken}`,
-	];
-	if (
-		!(
-			orderRule.markets.includes(marketKeys[0] ?? "") ||
-			orderRule.markets.includes(marketKeys[1] ?? "")
-		)
-	) {
+	const matchedPatterns = getMatchedMarketPatterns(
+		orderRule.markets,
+		brokerUpper,
+		fromUpper,
+		toUpper,
+	);
+	if (matchedPatterns.length === 0) {
 		return {
 			valid: false,
-			error: `Market ${marketKeys} is not allowed. Allowed markets: ${orderRule.markets.join(", ")}`,
+			error: `Market ${brokerUpper}:${fromUpper}/${toUpper} is not allowed. Allowed markets: ${orderRule.markets.join(", ")}`,
 		};
 	}
 
-	// Check conversion limits
-	const limit = orderRule.limits.find(
-		(l) => l.from === fromToken && l.to === toToken,
+	const limits = orderRule.limits ?? [];
+	if (limits.length === 0) {
+		return { valid: true };
+	}
+	const limit = limits.find(
+		(l) => l.from.toUpperCase() === fromUpper && l.to.toUpperCase() === toUpper,
 	);
 
 	if (!limit) {
@@ -416,6 +420,183 @@ export function validateOrder(
 	}
 
 	return { valid: true };
+}
+
+function isMarketPatternMatch(
+	pattern: string,
+	broker: string,
+	fromToken: string,
+	toToken: string,
+): boolean {
+	const normalizedPattern = pattern.toUpperCase().trim();
+	const directPair = `${fromToken}/${toToken}`;
+	const reversePair = `${toToken}/${fromToken}`;
+
+	if (normalizedPattern === "*") {
+		return true;
+	}
+
+	const [exchangePattern, symbolPattern] = normalizedPattern.split(":");
+	if (!exchangePattern || !symbolPattern) {
+		return false;
+	}
+
+	const exchangeMatch = exchangePattern === "*" || exchangePattern === broker;
+	if (!exchangeMatch) {
+		return false;
+	}
+
+	if (symbolPattern === "*") {
+		return true;
+	}
+
+	return symbolPattern === directPair || symbolPattern === reversePair;
+}
+
+function getMatchedMarketPatterns(
+	markets: string[],
+	broker: string,
+	fromToken: string,
+	toToken: string,
+): string[] {
+	return markets.filter((pattern) =>
+		isMarketPatternMatch(pattern, broker, fromToken, toToken),
+	);
+}
+
+type OrderExecutionResolution = {
+	valid: boolean;
+	error?: string;
+	symbol?: string;
+	side?: "buy" | "sell";
+	amountBase?: number;
+	limitsApplied?: boolean;
+	matchedPatterns?: string[];
+};
+
+async function doesExchangeSupportSymbol(
+	broker: Exchange,
+	symbol: string,
+): Promise<boolean> {
+	try {
+		await broker.loadMarkets();
+		const marketMap = (broker as Exchange & { markets?: Record<string, unknown> })
+			.markets;
+		if (marketMap && typeof marketMap === "object" && symbol in marketMap) {
+			return true;
+		}
+	} catch (error) {
+		log.error(`Failed loading markets while resolving symbol ${symbol}`, error);
+		return false;
+	}
+
+	try {
+		broker.market(symbol);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export async function resolveOrderExecution(
+	policy: PolicyConfig,
+	broker: Exchange,
+	cex: string,
+	fromToken: string,
+	toToken: string,
+	amount: number,
+	price: number,
+): Promise<OrderExecutionResolution> {
+	const brokerUpper = cex.toUpperCase();
+	const fromUpper = fromToken.toUpperCase();
+	const toUpper = toToken.toUpperCase();
+	const matchedPatterns = getMatchedMarketPatterns(
+		policy.order.rule.markets,
+		brokerUpper,
+		fromUpper,
+		toUpper,
+	);
+	if (matchedPatterns.length === 0) {
+		return {
+			valid: false,
+			error: `Market ${brokerUpper}:${fromUpper}/${toUpper} is not allowed. Allowed markets: ${policy.order.rule.markets.join(", ")}`,
+			matchedPatterns,
+		};
+	}
+
+	const directSymbol = `${fromUpper}/${toUpper}`;
+	const reverseSymbol = `${toUpper}/${fromUpper}`;
+	const hasDirectSymbol = await doesExchangeSupportSymbol(broker, directSymbol);
+	const hasReverseSymbol = await doesExchangeSupportSymbol(broker, reverseSymbol);
+	if (!hasDirectSymbol && !hasReverseSymbol) {
+		return {
+			valid: false,
+			error: `Exchange ${brokerUpper} does not support ${directSymbol} or ${reverseSymbol}`,
+			matchedPatterns,
+		};
+	}
+
+	const limits = policy.order.rule.limits ?? [];
+	if (limits.length > 0) {
+		const limit = limits.find(
+			(l) =>
+				l.from.toUpperCase() === fromUpper && l.to.toUpperCase() === toUpper,
+		);
+		if (!limit) {
+			return {
+				valid: false,
+				error: `Conversion from ${fromUpper} to ${toUpper} is not allowed`,
+				matchedPatterns,
+				limitsApplied: true,
+			};
+		}
+
+		if (amount < limit.min) {
+			return {
+				valid: false,
+				error: `Amount ${amount} is below minimum ${limit.min} for ${fromUpper} to ${toUpper} conversion`,
+				matchedPatterns,
+				limitsApplied: true,
+			};
+		}
+		if (amount > limit.max) {
+			return {
+				valid: false,
+				error: `Amount ${amount} exceeds maximum ${limit.max} for ${fromUpper} to ${toUpper} conversion`,
+				matchedPatterns,
+				limitsApplied: true,
+			};
+		}
+	}
+
+	if (hasDirectSymbol) {
+		return {
+			valid: true,
+			symbol: directSymbol,
+			side: "sell",
+			amountBase: amount,
+			limitsApplied: limits.length > 0,
+			matchedPatterns,
+		};
+	}
+
+	if (price <= 0) {
+		return {
+			valid: false,
+			error: "Price must be greater than 0 to compute base order amount",
+			matchedPatterns,
+			limitsApplied: limits.length > 0,
+		};
+	}
+
+	return {
+		valid: true,
+		symbol: reverseSymbol,
+		side: "buy",
+		amountBase: amount / price,
+		limitsApplied: limits.length > 0,
+		matchedPatterns,
+	};
 }
 
 /**
