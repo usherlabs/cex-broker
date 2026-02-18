@@ -3,9 +3,9 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import path from "path";
+import type { SubscribeResponse__Output } from "../src/proto/cex_broker/SubscribeResponse";
 import { SubscriptionType } from "../src/proto/cex_broker/SubscriptionType";
 import type { ProtoGrpcType } from "../src/proto/node";
-import type { SubscribeResponse__Output } from "../src/proto/cex_broker/SubscribeResponse";
 
 const PROTO_FILE = "../src/proto/node.proto";
 

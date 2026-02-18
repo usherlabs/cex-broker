@@ -2,8 +2,15 @@ import * as grpc from "@grpc/grpc-js";
 import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import { unwatchFile, watchFile } from "fs";
 import Joi from "joi";
-import { loadPolicy, createBrokerPool } from "./helpers";
+import { createBrokerPool, loadPolicy } from "./helpers";
 import { log } from "./helpers/logger";
+import {
+	createOtelLogsFromEnv,
+	createOtelMetricsFromEnv,
+	type OtelConfig,
+	OtelLogs,
+	OtelMetrics,
+} from "./helpers/otel";
 import { getServer } from "./server";
 import {
 	type BrokerCredentials,
@@ -11,11 +18,6 @@ import {
 	type ExchangeCredentials,
 	type PolicyConfig,
 } from "./types";
-import {
-	OtelMetrics,
-	createOtelMetricsFromEnv,
-	type OtelConfig,
-} from "./helpers/otel";
 
 log.info("CCXT Version:", ccxt.version);
 
@@ -37,6 +39,7 @@ export default class CEXBroker {
 	private server: grpc.Server | null = null;
 	private useVerity: boolean = false;
 	private otelMetrics?: OtelMetrics;
+	private otelLogs?: OtelLogs;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -172,9 +175,11 @@ export default class CEXBroker {
 		// Initialize OTel metrics if config provided
 		if (config?.otelConfig) {
 			this.otelMetrics = new OtelMetrics(config.otelConfig);
+			this.otelLogs = new OtelLogs(config.otelConfig);
 		} else {
 			// Try to create from environment variables
 			this.otelMetrics = createOtelMetricsFromEnv();
+			this.otelLogs = createOtelLogsFromEnv();
 		}
 
 		this.loadExchangeCredentials(apiCredentials);
@@ -219,6 +224,9 @@ export default class CEXBroker {
 		}
 		if (this.otelMetrics) {
 			await this.otelMetrics.close();
+		}
+		if (this.otelLogs) {
+			await this.otelLogs.close();
 		}
 	}
 

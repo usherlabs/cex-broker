@@ -82,7 +82,10 @@ OTEL_SERVICE_NAME=cex-broker
 
 ### Policy Configuration
 
-Configure trading policies in `policy/policy.json`:
+Configure trading policies in `policy/policy.json`.
+
+- **Full reference**: see `POLICY.md` (supported options, matching rules, reload behaviour, and troubleshooting)
+- **Example policy**: `policy/policy.json`
 
 ```json
 {
@@ -114,10 +117,7 @@ Configure trading policies in `policy/policy.json`:
         "BINANCE:BTC/ETH"
       ],
       "limits": [
-        { "from": "USDT", "to": "ETH", "min": 1, "max": 100000 },
-        { "from": "ETH", "to": "USDT", "min": 0.5, "max": 5 },
-        { "from": "ARB", "to": "USDC", "min": 1, "max": 1000 },
-        { "from": "USDC", "to": "ARB", "min": 1, "max": 10000 }
+        { "from": "USDT", "to": "ETH", "min": 1, "max": 100000 }
       ]
     }
   }

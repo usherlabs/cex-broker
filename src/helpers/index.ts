@@ -298,7 +298,8 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 		}
 
 		const normalizedPolicy = value as PolicyConfig;
-		normalizedPolicy.order.rule.limits = normalizedPolicy.order.rule.limits ?? [];
+		normalizedPolicy.order.rule.limits =
+			normalizedPolicy.order.rule.limits ?? [];
 		return normalizedPolicy;
 	} catch (error) {
 		console.error("Failed to load policy:", error);
@@ -480,8 +481,9 @@ async function doesExchangeSupportSymbol(
 ): Promise<boolean> {
 	try {
 		await broker.loadMarkets();
-		const marketMap = (broker as Exchange & { markets?: Record<string, unknown> })
-			.markets;
+		const marketMap = (
+			broker as Exchange & { markets?: Record<string, unknown> }
+		).markets;
 		if (marketMap && typeof marketMap === "object" && symbol in marketMap) {
 			return true;
 		}
@@ -527,7 +529,10 @@ export async function resolveOrderExecution(
 	const directSymbol = `${fromUpper}/${toUpper}`;
 	const reverseSymbol = `${toUpper}/${fromUpper}`;
 	const hasDirectSymbol = await doesExchangeSupportSymbol(broker, directSymbol);
-	const hasReverseSymbol = await doesExchangeSupportSymbol(broker, reverseSymbol);
+	const hasReverseSymbol = await doesExchangeSupportSymbol(
+		broker,
+		reverseSymbol,
+	);
 	if (!hasDirectSymbol && !hasReverseSymbol) {
 		return {
 			valid: false,

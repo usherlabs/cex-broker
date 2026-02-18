@@ -50,15 +50,23 @@
 	"dependencies": {
 		"@grpc/grpc-js": "^1.13.4",
 		"@grpc/proto-loader": "^0.7.15",
+		"@loglayer/plugin-opentelemetry": "^3.0.2",
+		"@loglayer/transport-opentelemetry": "^4.0.2",
+		"@loglayer/transport-tslog": "^4.0.2",
 		"@opentelemetry/api": "^1.9.0",
+		"@opentelemetry/api-logs": "^0.212.0",
+		"@opentelemetry/exporter-logs-otlp-http": "^0.212.0",
 		"@opentelemetry/exporter-metrics-otlp-http": "^0.211.0",
 		"@opentelemetry/resources": "^2.5.0",
+		"@opentelemetry/sdk-logs": "^0.212.0",
 		"@opentelemetry/sdk-metrics": "^2.5.0",
 		"@usherlabs/ccxt": "^0.0.14",
 		"@usherlabs/verity-client": "^0.1.1",
 		"commander": "^14.0.0",
 		"joi": "^17.13.3",
+		"loglayer": "^9.1.0",
 		"protobufjs": "^7.4.0",
+		"serialize-error": "^13.0.1",
 		"tslog": "^4.9.3"
 	},
 	"publishConfig": {

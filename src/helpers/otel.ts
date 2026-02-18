@@ -1,11 +1,17 @@
+import { logs, type LogRecord } from "@opentelemetry/api-logs";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { metrics } from "@opentelemetry/api";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+import {
+	BatchLogRecordProcessor,
+	LoggerProvider,
+} from "@opentelemetry/sdk-logs";
 import {
 	MeterProvider,
-	PeriodicExportingMetricReader,
 	type MeterProvider as MeterProviderType,
+	PeriodicExportingMetricReader,
 } from "@opentelemetry/sdk-metrics";
-import { resourceFromAttributes } from "@opentelemetry/resources";
 import { log } from "./logger";
 
 /** OTLP/OpenTelemetry metrics config. Metrics are sent to an OTel Collector. */
@@ -40,6 +46,73 @@ const DEFAULT_SERVICE = "cex-broker";
 const DEFAULT_OTLP_PORT = 4318;
 const EXPORT_INTERVAL_MS = 5_000;
 
+abstract class BaseOtelSignal<TProvider> {
+	private provider: TProvider | null = null;
+	private isEnabled = false;
+	private readonly serviceName: string;
+
+	protected constructor(
+		config: OtelConfig | undefined,
+		private readonly signal: "metrics" | "logs",
+	) {
+		this.serviceName = config?.serviceName ?? DEFAULT_SERVICE;
+		const endpoint = resolveOtlpBaseEndpoint(config);
+		if (!endpoint) {
+			log.info(`OTel ${signal} disabled: no OTLP endpoint or host provided`);
+			return;
+		}
+
+		try {
+			this.provider = this.createProvider(endpoint, this.serviceName);
+			this.onProviderCreated(this.provider);
+			this.isEnabled = true;
+			log.info(`OTel ${signal} enabled: ${endpoint}`);
+		} catch (error) {
+			log.error(`Failed to initialize OTel ${signal}:`, error);
+			this.isEnabled = false;
+			this.provider = null;
+		}
+	}
+
+	protected abstract createProvider(
+		endpoint: string,
+		serviceName: string,
+	): TProvider;
+
+	protected onProviderCreated(_provider: TProvider): void {}
+
+	protected abstract shutdownProvider(provider: TProvider): Promise<void>;
+
+	protected onProviderClosed(): void {}
+
+	protected getProvider(): TProvider | null {
+		return this.provider;
+	}
+
+	protected getServiceName(): string {
+		return this.serviceName;
+	}
+
+	public isOtelEnabled(): boolean {
+		return this.isEnabled && this.provider !== null;
+	}
+
+	public async close(): Promise<void> {
+		if (!this.provider) {
+			return;
+		}
+		try {
+			await this.shutdownProvider(this.provider);
+			log.info(`OTel ${this.signal} provider shut down`);
+		} catch (error) {
+			log.error(`Error shutting down OTel ${this.signal} provider:`, error);
+		}
+		this.provider = null;
+		this.isEnabled = false;
+		this.onProviderClosed();
+	}
+}
+
 function toAttributes(
 	labels: Record<string, string | number>,
 	service: string,
@@ -54,10 +127,7 @@ function toAttributes(
 	return attrs;
 }
 
-export class OtelMetrics {
-	private meterProvider: MeterProviderType | null = null;
-	private isEnabled: boolean = false;
-	private defaultService: string = DEFAULT_SERVICE;
+export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 	private readonly counters = new Map<
 		string,
 		ReturnType<ReturnType<MeterProviderType["getMeter"]>["createCounter"]>
@@ -68,47 +138,35 @@ export class OtelMetrics {
 	>();
 
 	constructor(config?: OtelConfig) {
-		const endpoint = resolveOtlpEndpoint(config);
-		if (!endpoint) {
-			log.info("OTel metrics disabled: no OTLP endpoint or host provided");
-			return;
-		}
-
-		try {
-			this.isEnabled = true;
-			this.defaultService = config?.serviceName ?? DEFAULT_SERVICE;
-
-			const exporter = new OTLPMetricExporter({
-				url: endpoint.endsWith("/v1/metrics")
-					? endpoint
-					: `${endpoint}/v1/metrics`,
-			});
-
-			const reader = new PeriodicExportingMetricReader({
-				exporter,
-				exportIntervalMillis: EXPORT_INTERVAL_MS,
-			});
-
-			const resource = resourceFromAttributes({
-				"service.name": this.defaultService,
-			});
-
-			this.meterProvider = new MeterProvider({
-				resource,
-				readers: [reader],
-			});
-
-			metrics.setGlobalMeterProvider(this.meterProvider);
-			log.info(`OTel metrics enabled: ${endpoint}`);
-		} catch (error) {
-			log.error("Failed to initialize OTel metrics:", error);
-			this.isEnabled = false;
-			this.meterProvider = null;
-		}
+		super(config, "metrics");
 	}
 
-	public isOtelEnabled(): boolean {
-		return this.isEnabled && this.meterProvider !== null;
+	protected createProvider(
+		endpoint: string,
+		serviceName: string,
+	): MeterProviderType {
+		const exporter = new OTLPMetricExporter({
+			url: appendOtlpPath(endpoint, "metrics"),
+		});
+		const reader = new PeriodicExportingMetricReader({
+			exporter,
+			exportIntervalMillis: EXPORT_INTERVAL_MS,
+		});
+		const resource = resourceFromAttributes({
+			"service.name": serviceName,
+		});
+		return new MeterProvider({
+			resource,
+			readers: [reader],
+		});
+	}
+
+	protected override onProviderCreated(provider: MeterProviderType): void {
+		metrics.setGlobalMeterProvider(provider);
+	}
+
+	protected shutdownProvider(provider: MeterProviderType): Promise<void> {
+		return provider.shutdown();
 	}
 
 	public async initialize(): Promise<void> {
@@ -163,13 +221,14 @@ export class OtelMetrics {
 		metricName: string,
 		value: number,
 		labels: Record<string, string | number>,
-		service: string = this.defaultService,
+		service: string = this.getServiceName(),
 	): Promise<void> {
-		if (!this.isOtelEnabled() || !this.meterProvider) return;
+		const provider = this.getProvider();
+		if (!this.isOtelEnabled() || !provider) return;
 		try {
 			let counter = this.counters.get(metricName);
 			if (!counter) {
-				const meter = this.meterProvider.getMeter(
+				const meter = provider.getMeter(
 					"cex-broker-metrics",
 					"1.0.0",
 				);
@@ -186,13 +245,14 @@ export class OtelMetrics {
 		metricName: string,
 		value: number,
 		labels: Record<string, string | number>,
-		service: string = this.defaultService,
+		service: string = this.getServiceName(),
 	): Promise<void> {
-		if (!this.isOtelEnabled() || !this.meterProvider) return;
+		const provider = this.getProvider();
+		if (!this.isOtelEnabled() || !provider) return;
 		try {
 			let hist = this.histograms.get(`gauge_${metricName}`);
 			if (!hist) {
-				const meter = this.meterProvider.getMeter(
+				const meter = provider.getMeter(
 					"cex-broker-metrics",
 					"1.0.0",
 				);
@@ -211,13 +271,14 @@ export class OtelMetrics {
 		metricName: string,
 		value: number,
 		labels: Record<string, string | number>,
-		service: string = this.defaultService,
+		service: string = this.getServiceName(),
 	): Promise<void> {
-		if (!this.isOtelEnabled() || !this.meterProvider) return;
+		const provider = this.getProvider();
+		if (!this.isOtelEnabled() || !provider) return;
 		try {
 			let hist = this.histograms.get(metricName);
 			if (!hist) {
-				const meter = this.meterProvider.getMeter(
+				const meter = provider.getMeter(
 					"cex-broker-metrics",
 					"1.0.0",
 				);
@@ -230,33 +291,81 @@ export class OtelMetrics {
 		}
 	}
 
-	public async close(): Promise<void> {
-		if (this.meterProvider) {
-			try {
-				await this.meterProvider.shutdown();
-				log.info("OTel MeterProvider shut down");
-			} catch (error) {
-				log.error("Error shutting down OTel MeterProvider:", error);
-			}
-			this.meterProvider = null;
+}
+
+export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
+	private logger: ReturnType<LoggerProvider["getLogger"]> | null = null;
+
+	constructor(config?: OtelConfig) {
+		super(config, "logs");
+	}
+
+	protected createProvider(
+		endpoint: string,
+		serviceName: string,
+	): LoggerProvider {
+		const exporter = new OTLPLogExporter({
+			url: appendOtlpPath(endpoint, "logs"),
+		});
+		const processor = new BatchLogRecordProcessor(exporter);
+		const resource = resourceFromAttributes({
+			"service.name": serviceName,
+		});
+		return new LoggerProvider({
+			resource,
+			processors: [processor],
+		});
+	}
+
+	protected override onProviderCreated(provider: LoggerProvider): void {
+		logs.setGlobalLoggerProvider(provider);
+		this.logger = provider.getLogger("cex-broker-logs", "1.0.0");
+	}
+
+	protected shutdownProvider(provider: LoggerProvider): Promise<void> {
+		return provider.forceFlush().then(() => provider.shutdown());
+	}
+
+	protected override onProviderClosed(): void {
+		this.logger = null;
+	}
+
+	public emit(record: LogRecord): void {
+		if (!this.isOtelEnabled() || !this.logger) {
+			return;
 		}
+		this.logger.emit(record);
 	}
 }
 
-function resolveOtlpEndpoint(config?: OtelConfig): string | null {
-	if (config?.otlpEndpoint) return config.otlpEndpoint;
+function resolveOtlpBaseEndpoint(config?: OtelConfig): string | null {
 	if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
 		return process.env.OTEL_EXPORTER_OTLP_ENDPOINT.replace(
-			/\/v1\/metrics\/?$/,
+			/\/v1\/(metrics|logs)\/?$/,
 			"",
 		);
 	}
+
+	if (process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) {
+		return process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT.replace(
+			/\/v1\/(metrics|logs)\/?$/,
+			"",
+		);
+	}
+
+	if (config?.otlpEndpoint) return config.otlpEndpoint;
 	if (config?.host) {
 		const protocol = config.protocol || "http";
 		const port = config.port ?? DEFAULT_OTLP_PORT;
 		return `${protocol}://${config.host}:${port}`;
 	}
 	return null;
+}
+
+function appendOtlpPath(endpoint: string, signal: "metrics" | "logs"): string {
+	return endpoint.endsWith(`/v1/${signal}`)
+		? endpoint
+		: `${endpoint}/v1/${signal}`;
 }
 
 /** Host for OTLP collector: CEX_BROKER_OTEL_HOST or legacy CEX_BROKER_CLICKHOUSE_HOST. */
@@ -305,4 +414,38 @@ export function createOtelMetricsFromEnv(): OtelMetrics {
 	};
 
 	return new OtelMetrics(config);
+}
+
+export function createOtelLogsFromEnv(): OtelLogs {
+	const logsEndpoint = process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+	const genericEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+	const host = getOtelHostFromEnv();
+
+	if (logsEndpoint) {
+		return new OtelLogs({
+			otlpEndpoint: logsEndpoint.replace(/\/v1\/(metrics|logs)\/?$/, ""),
+			serviceName: process.env.OTEL_SERVICE_NAME || DEFAULT_SERVICE,
+		});
+	}
+
+	if (genericEndpoint) {
+		return new OtelLogs({
+			otlpEndpoint: genericEndpoint.replace(/\/v1\/(metrics|logs)\/?$/, ""),
+			serviceName: process.env.OTEL_SERVICE_NAME || DEFAULT_SERVICE,
+		});
+	}
+
+	if (!host) {
+		return new OtelLogs();
+	}
+
+	const port = getOtelPortFromEnv();
+	const config: OtelConfig = {
+		host,
+		port: port ?? DEFAULT_OTLP_PORT,
+		protocol: getOtelProtocolFromEnv(),
+		serviceName: process.env.OTEL_SERVICE_NAME || DEFAULT_SERVICE,
+	};
+
+	return new OtelLogs(config);
 }

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import type { PolicyConfig } from "../types";
+import type { PolicyConfig } from "../src/types";
 import type { Exchange } from "@usherlabs/ccxt";
 import {
 	loadPolicy,
@@ -10,7 +10,7 @@ import {
 	validateDeposit,
 	validateOrder,
 	validateWithdraw,
-} from "./index";
+} from "../src/helpers/index";
 
 describe("Helper Functions", () => {
 	let testPolicy: PolicyConfig;
@@ -235,7 +235,13 @@ describe("Helper Functions", () => {
 					},
 				},
 			};
-			const result = validateOrder(wildcardPolicy, "DOGE", "USDT", 20, "BINANCE");
+			const result = validateOrder(
+				wildcardPolicy,
+				"DOGE",
+				"USDT",
+				20,
+				"BINANCE",
+			);
 
 			expect(result.valid).toBe(true);
 		});
@@ -280,7 +286,13 @@ describe("Helper Functions", () => {
 					},
 				},
 			};
-			const result = validateOrder(noLimitPolicy, "USDT", "ETH", 200_000, "BINANCE");
+			const result = validateOrder(
+				noLimitPolicy,
+				"USDT",
+				"ETH",
+				200_000,
+				"BINANCE",
+			);
 
 			expect(result.valid).toBe(true);
 		});

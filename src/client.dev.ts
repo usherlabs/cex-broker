@@ -1,14 +1,14 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
+import { config } from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import type { ProtoGrpcType } from "./proto/node";
-import { Action } from "./proto/cex_broker/Action";
-import { config } from "dotenv";
-import { log } from "./helpers/logger";
 import CEXBroker from ".";
 // import CEXBroker from "../dist/index";
 import { loadPolicy } from "./helpers";
+import { log } from "./helpers/logger";
+import { Action } from "./proto/cex_broker/Action";
+import type { ProtoGrpcType } from "./proto/node";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
