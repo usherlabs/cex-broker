@@ -18,17 +18,32 @@ describe("Helper Functions", () => {
 	beforeEach(() => {
 		testPolicy = {
 			withdraw: {
-				rule: {
-					networks: ["ARB"],
-					whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-					amounts: [
-						{
-							ticker: "USDC",
-							max: 100000,
-							min: 1,
-						},
-					],
-				},
+				rule: [
+					{
+						exchange: "BINANCE",
+						network: "ARB",
+						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+						amounts: [
+							{
+								ticker: "USDC",
+								max: 100000,
+								min: 1,
+							},
+						],
+					},
+					{
+						exchange: "*",
+						network: "ARB",
+						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+						amounts: [
+							{
+								ticker: "USDC",
+								max: 25000,
+								min: 1,
+							},
+						],
+					},
+				],
 			},
 			deposit: {},
 			order: {
@@ -56,10 +71,15 @@ describe("Helper Functions", () => {
 			const policy = loadPolicy("./policy/policy.json");
 
 			expect(policy).toBeDefined();
-			expect(policy.withdraw.rule.networks).toContain("ARBITRUM");
-			expect(policy.withdraw.rule.whitelist).toContain(
+			expect(Array.isArray(policy.withdraw.rule)).toBe(true);
+			const binanceArbitrum = policy.withdraw.rule.find(
+				(rule) => rule.exchange === "BINANCE" && rule.network === "ARBITRUM",
+			);
+			expect(binanceArbitrum).toBeDefined();
+			expect(binanceArbitrum?.whitelist).toContain(
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 			);
+			expect(binanceArbitrum?.amounts[0]?.ticker).toBe("USDC");
 		});
 
 		test("should default missing order limits to empty array", () => {
@@ -69,11 +89,14 @@ describe("Helper Functions", () => {
 			);
 			const tempPolicy = {
 				withdraw: {
-					rule: {
-						networks: ["ARB"],
-						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-						amounts: [{ ticker: "USDC", max: 100000, min: 1 }],
-					},
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							amounts: [{ ticker: "USDC", max: 100000, min: 1 }],
+						},
+					],
 				},
 				deposit: {},
 				order: {
@@ -96,6 +119,7 @@ describe("Helper Functions", () => {
 		test("should validate successful withdrawal", () => {
 			const result = validateWithdraw(
 				testPolicy,
+				"BINANCE",
 				"ARB",
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 				1000,
@@ -109,6 +133,7 @@ describe("Helper Functions", () => {
 		test("should reject unauthorized network", () => {
 			const result = validateWithdraw(
 				testPolicy,
+				"BYBIT",
 				"ETH", // Not in allowed networks
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 				1000,
@@ -122,6 +147,7 @@ describe("Helper Functions", () => {
 		test("should reject non-whitelisted address", () => {
 			const result = validateWithdraw(
 				testPolicy,
+				"BINANCE",
 				"ARB",
 				"0x1234567890123456789012345678901234567890", // Not whitelisted
 				1000,
@@ -135,6 +161,7 @@ describe("Helper Functions", () => {
 		test("should reject wrong ticker", () => {
 			const result = validateWithdraw(
 				testPolicy,
+				"BINANCE",
 				"ARB",
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 				1000,
@@ -148,6 +175,7 @@ describe("Helper Functions", () => {
 		test("should reject amount below minimum", () => {
 			const result = validateWithdraw(
 				testPolicy,
+				"BINANCE",
 				"ARB",
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 				0.5, // Below minimum of 1
@@ -161,6 +189,7 @@ describe("Helper Functions", () => {
 		test("should reject amount above maximum", () => {
 			const result = validateWithdraw(
 				testPolicy,
+				"BINANCE",
 				"ARB",
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 				200000, // Above maximum of 100000
@@ -174,12 +203,63 @@ describe("Helper Functions", () => {
 		test("should handle case-insensitive address comparison", () => {
 			const result = validateWithdraw(
 				testPolicy,
+				"BINANCE",
 				"ARB",
 				"0X9D467FA9062B6E9B1A46E26007AD82DB116C67CB", // Uppercase
 				1000,
 				"USDC",
 			);
 
+			expect(result.valid).toBe(true);
+		});
+
+		test("should reject unauthorised exchange", () => {
+			const result = validateWithdraw(
+				testPolicy,
+				"KRAKEN",
+				"SOL",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"USDC",
+			);
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("exchange KRAKEN");
+		});
+
+		test("should prioritise exact match over wildcard rules", () => {
+			const wildcardPolicy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "*",
+							network: "*",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							amounts: [{ ticker: "USDC", min: 1, max: 10 }],
+						},
+						{
+							exchange: "BINANCE",
+							network: "*",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							amounts: [{ ticker: "USDC", min: 1, max: 100 }],
+						},
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							amounts: [{ ticker: "USDC", min: 1, max: 1000 }],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				wildcardPolicy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				500,
+				"USDC",
+			);
 			expect(result.valid).toBe(true);
 		});
 	});

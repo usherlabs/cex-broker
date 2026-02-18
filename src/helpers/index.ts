@@ -1,6 +1,10 @@
 import fs from "fs";
 import Joi from "joi";
-import type { PolicyConfig, BrokerCredentials } from "../types";
+import type {
+	PolicyConfig,
+	BrokerCredentials,
+	WithdrawRuleEntry,
+} from "../types";
 import { log } from "./logger";
 import type { Metadata, ServerUnaryCall } from "@grpc/grpc-js";
 import ccxt from "@usherlabs/ccxt";
@@ -244,9 +248,10 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 	try {
 		const policyData = fs.readFileSync(policyPath, "utf8");
 
-		// Joi schema for WithdrawRule
-		const withdrawRuleSchema = Joi.object({
-			networks: Joi.array().items(Joi.string()).required(),
+		// Joi schema for exchange-scoped withdraw rules
+		const withdrawRuleEntrySchema = Joi.object({
+			exchange: Joi.string().required(),
+			network: Joi.string().required(),
 			whitelist: Joi.array().items(Joi.string()).required(),
 			amounts: Joi.array()
 				.items(
@@ -277,7 +282,7 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 		// Full PolicyConfig schema
 		const policyConfigSchema = Joi.object({
 			withdraw: Joi.object({
-				rule: withdrawRuleSchema.required(),
+				rule: Joi.array().items(withdrawRuleEntrySchema).min(1).required(),
 			}).required(),
 
 			deposit: Joi.object()
@@ -294,10 +299,22 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 		);
 
 		if (error) {
-			console.error("Validation failed:", error.details);
+			throw new Error(
+				`Policy validation failed: ${error.details.map((d) => d.message).join("; ")}`,
+			);
 		}
 
 		const normalizedPolicy = value as PolicyConfig;
+		normalizedPolicy.withdraw.rule = normalizedPolicy.withdraw.rule.map((rule) => ({
+			...rule,
+			exchange: rule.exchange.trim().toUpperCase(),
+			network: rule.network.trim().toUpperCase(),
+			whitelist: rule.whitelist.map((a) => a.trim().toLowerCase()),
+			amounts: rule.amounts.map((a) => ({
+				...a,
+				ticker: a.ticker.trim().toUpperCase(),
+			})),
+		}));
 		normalizedPolicy.order.rule.limits =
 			normalizedPolicy.order.rule.limits ?? [];
 		return normalizedPolicy;
@@ -310,26 +327,60 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 /**
  * Validates withdraw request against policy rules
  */
-// TODO: Nice work on the policy engine, however, we'll need incorporate a mapping between how the CEX Broker recognises networks, and how different CEXs recognise networks - eg. Binance might have "BSC", but another chain will have BNB"
+function getWithdrawRulePriority(
+	rule: WithdrawRuleEntry,
+	exchange: string,
+	network: string,
+): number {
+	const exchangeMatch = rule.exchange === exchange || rule.exchange === "*";
+	const networkMatch = rule.network === network || rule.network === "*";
+	if (!exchangeMatch || !networkMatch) {
+		return 0;
+	}
+	if (rule.exchange === exchange && rule.network === network) {
+		return 4;
+	}
+	if (rule.exchange === exchange && rule.network === "*") {
+		return 3;
+	}
+	if (rule.exchange === "*" && rule.network === network) {
+		return 2;
+	}
+	return 1;
+}
+
 export function validateWithdraw(
 	policy: PolicyConfig,
+	exchange: string,
 	network: string,
 	recipientAddress: string,
 	amount: number,
 	ticker: string,
 ): { valid: boolean; error?: string } {
-	const withdrawRule = policy.withdraw.rule;
+	const exchangeNorm = exchange.trim().toUpperCase();
+	const networkNorm = network.trim().toUpperCase();
+	const tickerNorm = ticker.trim().toUpperCase();
+	const matchingRules = policy.withdraw.rule
+		.map((rule) => ({
+			rule,
+			priority: getWithdrawRulePriority(rule, exchangeNorm, networkNorm),
+		}))
+		.filter((r) => r.priority > 0)
+		.sort((a, b) => b.priority - a.priority);
+	const withdrawRule = matchingRules[0]?.rule;
 
-	// Check if network is allowed
-	if (!withdrawRule.networks.includes(network)) {
+	if (!withdrawRule) {
+		const allowedPairs = policy.withdraw.rule.map(
+			(r) => `${r.exchange}:${r.network}`,
+		);
 		return {
 			valid: false,
-			error: `Network ${network} is not allowed. Allowed networks: ${withdrawRule.networks.join(", ")}`,
+			error: `Network ${networkNorm} is not allowed for exchange ${exchangeNorm}. Allowed exchange/network pairs: ${allowedPairs.join(", ")}`,
 		};
 	}
 
 	// Check if address is whitelisted
-	if (!withdrawRule.whitelist.includes(recipientAddress.toLowerCase())) {
+	if (!withdrawRule.whitelist.includes(recipientAddress.trim().toLowerCase())) {
 		return {
 			valid: false,
 			error: `Address ${recipientAddress} is not whitelisted for withdrawals`,
@@ -337,12 +388,12 @@ export function validateWithdraw(
 	}
 
 	// Check amount limits
-	const amountRule = withdrawRule.amounts.find((a) => a.ticker === ticker);
+	const amountRule = withdrawRule.amounts.find((a) => a.ticker === tickerNorm);
 
 	if (!amountRule) {
 		return {
 			valid: false,
-			error: `Ticker ${ticker} is not allowed. Supported tickers: ${withdrawRule.amounts.map((a) => a.ticker).join(", ")}`,
+			error: `Ticker ${tickerNorm} is not allowed for ${exchangeNorm}:${networkNorm}. Supported tickers: ${withdrawRule.amounts.map((a) => a.ticker).join(", ")}`,
 		};
 	}
 

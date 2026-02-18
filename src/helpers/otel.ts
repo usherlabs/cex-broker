@@ -228,10 +228,7 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 		try {
 			let counter = this.counters.get(metricName);
 			if (!counter) {
-				const meter = provider.getMeter(
-					"cex-broker-metrics",
-					"1.0.0",
-				);
+				const meter = provider.getMeter("cex-broker-metrics", "1.0.0");
 				counter = meter.createCounter(metricName, { description: metricName });
 				this.counters.set(metricName, counter);
 			}
@@ -252,10 +249,7 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 		try {
 			let hist = this.histograms.get(`gauge_${metricName}`);
 			if (!hist) {
-				const meter = provider.getMeter(
-					"cex-broker-metrics",
-					"1.0.0",
-				);
+				const meter = provider.getMeter("cex-broker-metrics", "1.0.0");
 				hist = meter.createHistogram(`${metricName}_gauge`, {
 					description: metricName,
 				});
@@ -278,10 +272,7 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 		try {
 			let hist = this.histograms.get(metricName);
 			if (!hist) {
-				const meter = provider.getMeter(
-					"cex-broker-metrics",
-					"1.0.0",
-				);
+				const meter = provider.getMeter("cex-broker-metrics", "1.0.0");
 				hist = meter.createHistogram(metricName, { description: metricName });
 				this.histograms.set(metricName, hist);
 			}
@@ -290,7 +281,6 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 			log.error("Failed to record histogram:", error);
 		}
 	}
-
 }
 
 export class OtelLogs extends BaseOtelSignal<LoggerProvider> {

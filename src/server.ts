@@ -563,6 +563,7 @@ export function getServer(
 					// Validate against policy
 					const transferValidation = validateWithdraw(
 						policy,
+						cex,
 						transferValue.chain,
 						transferValue.recipientAddress,
 						Number(transferValue.amount),

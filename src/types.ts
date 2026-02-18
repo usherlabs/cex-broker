@@ -1,8 +1,9 @@
 import type ccxt from "@usherlabs/ccxt";
 
 // Policy types based on the policy.json structure
-export type WithdrawRule = {
-	networks: string[];
+export type WithdrawRuleEntry = {
+	exchange: string;
+	network: string;
 	whitelist: string[];
 	amounts: {
 		ticker: string;
@@ -23,7 +24,7 @@ export type OrderRule = {
 
 export type PolicyConfig = {
 	withdraw: {
-		rule: WithdrawRule;
+		rule: WithdrawRuleEntry[];
 	};
 	deposit: Record<string, null>;
 	order: {
