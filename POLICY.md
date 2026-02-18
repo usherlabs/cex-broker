@@ -2,7 +2,7 @@
 
 This broker uses a JSON policy file to restrict:
 
-- **Withdrawals**: permitted networks, destination address whitelist, and per-token amounts
+- **Withdrawals**: permitted exchanges, networks, destination address whitelist, and per-token amounts
 - **Orders**: permitted exchanges/pairs, plus optional directional conversion limits
 
 The policy is loaded at startup. If you start the broker with a **policy file path**, the file is watched and policies are reloaded when the file changes.
@@ -18,17 +18,23 @@ bun run start-broker --policy policy/policy.json --port 8086 --whitelist 127.0.0
 
 ## File shape
 
-Top-level keys (required):
+Top-level keys (all required):
 
-- **`withdraw`**
-- **`deposit`** (currently a placeholder; not enforced)
-- **`order`**
+| Key | Type | Description |
+|-----|------|-------------|
+| `withdraw` | `{ rule: WithdrawRuleEntry[] }` | Withdrawal restrictions (at least one rule entry required) |
+| `deposit` | `{}` | Placeholder object — not enforced today |
+| `order` | `{ rule: OrderRule }` | Order/conversion restrictions |
 
 Canonical type: `PolicyConfig` in `src/types.ts`.
 
 ```json
 {
-  "withdraw": { "rule": [{ "exchange": "*", "network": "ARBITRUM", "whitelist": [], "amounts": [] }] },
+  "withdraw": {
+    "rule": [
+      { "exchange": "BINANCE", "network": "ARBITRUM", "whitelist": [], "amounts": [] }
+    ]
+  },
   "deposit": {},
   "order": { "rule": { "markets": [], "limits": [] } }
 }
@@ -51,47 +57,93 @@ Withdraw requests are rejected unless all of the below pass.
 
 ### `withdraw.rule: WithdrawRuleEntry[]`
 
-Withdraw rules are an array. Each entry targets one `exchange` + `network` combination and defines its own address whitelist and amount limits.
+**Required.** Must contain at least one entry.
 
-Each entry has the shape:
+Each entry scopes a set of withdrawal permissions to an `exchange` + `network` combination. When a withdraw request arrives, the broker finds the highest-priority matching rule entry and validates address, ticker, and amount against that entry alone.
 
-```json
-{
-  "exchange": "BINANCE",
-  "network": "ARBITRUM",
-  "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-  "amounts": [
-    { "ticker": "USDC", "min": 1, "max": 100000 }
-  ]
-}
-```
+#### Rule matching priority
 
-### `withdraw.rule[].exchange: string`
+When multiple entries match a request, the broker selects the single highest-priority entry:
 
-Allowed exchange identifier for this rule entry (e.g. `"BINANCE"`), or `"*"` as a wildcard.
+| Priority | `exchange` | `network` | Description |
+|----------|-----------|-----------|-------------|
+| 4 (highest) | exact match | exact match | Fully specific rule |
+| 3 | exact match | `"*"` | Exchange-specific, any network |
+| 2 | `"*"` | exact match | Network-specific, any exchange |
+| 1 (lowest) | `"*"` | `"*"` | Global catch-all |
 
-### `withdraw.rule[].network: string`
+If no entry matches, the request is rejected.
 
-Allowed withdrawal network/chain for this entry (e.g. `"ARBITRUM"`, `"BEP20"`).
+---
 
-- **Matching is case-insensitive** (the broker normalises both policy network and request chain before comparison).
-- **Exchange support is checked separately**: even if policy allows a network, the selected exchange must also support that network for the currency, or the request will still fail later.
+### `withdraw.rule[].exchange`
 
-### `withdraw.rule[].whitelist: string[]`
+| | |
+|---|---|
+| **Type** | `string` |
+| **Required** | Yes |
+| **Normalisation** | Trimmed, uppercased |
 
-Allowed destination addresses.
+Accepted values:
 
-- **The broker lowercases policy whitelist entries and the incoming address**.
-- Recommendation: store all whitelist addresses in lowercase in the JSON for readability and diffs.
+- **An exchange identifier** — e.g. `"BINANCE"`, `"KRAKEN"`, `"BYBIT"`. Must correspond to a supported CCXT exchange.
+- **`"*"`** — wildcard; matches any exchange.
 
-### `withdraw.rule[].amounts: Array<{ ticker, min, max }>`
+---
 
-Per-token withdrawal bounds.
+### `withdraw.rule[].network`
 
-- **`ticker` match is case-insensitive** (normalised to uppercase).
-- `min`/`max` are inclusive bounds on the requested withdrawal amount.
+| | |
+|---|---|
+| **Type** | `string` |
+| **Required** | Yes |
+| **Normalisation** | Trimmed, uppercased |
 
-Example:
+Accepted values:
+
+- **A network/chain identifier** — e.g. `"ARBITRUM"`, `"BEP20"`, `"ETH"`, `"SOL"`. The value must match what the exchange uses for that chain.
+- **`"*"`** — wildcard; matches any network.
+
+Even if the policy allows a network, the selected exchange must also support that network for the currency or the request will still fail at execution time.
+
+---
+
+### `withdraw.rule[].whitelist`
+
+| | |
+|---|---|
+| **Type** | `string[]` |
+| **Required** | Yes (may be empty, but that would reject all addresses) |
+| **Normalisation** | Each entry is trimmed and lowercased |
+
+Accepted values:
+
+- An array of destination addresses (e.g. `"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"`).
+- Matching is **exact** after both the policy value and the incoming address are lowercased.
+- Recommendation: store all addresses in lowercase in the JSON for readability and diffs.
+
+---
+
+### `withdraw.rule[].amounts`
+
+| | |
+|---|---|
+| **Type** | `Array<{ ticker: string, min: number, max: number }>` |
+| **Required** | Yes (may be empty, but that would reject all tickers) |
+
+Each object in the array defines per-token withdrawal bounds:
+
+| Field | Type | Required | Normalisation | Description |
+|-------|------|----------|---------------|-------------|
+| `ticker` | `string` | Yes | Trimmed, uppercased | Currency symbol, e.g. `"USDC"`, `"USDT"`, `"ETH"` |
+| `min` | `number` | Yes | — | Inclusive lower bound on the withdrawal amount |
+| `max` | `number` | Yes | — | Inclusive upper bound on the withdrawal amount |
+
+If the request ticker does not match any entry, the request is rejected. If it matches but the amount is outside \([min, max]\), the request is rejected.
+
+---
+
+### Full withdraw example
 
 ```json
 {
@@ -107,22 +159,38 @@ Example:
         ]
       },
       {
+        "exchange": "BINANCE",
+        "network": "*",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+        "amounts": [
+          { "ticker": "USDC", "min": 1, "max": 50000 }
+        ]
+      },
+      {
         "exchange": "*",
         "network": "BEP20",
         "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
         "amounts": [{ "ticker": "USDC", "min": 1, "max": 25000 }]
+      },
+      {
+        "exchange": "*",
+        "network": "*",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+        "amounts": [{ "ticker": "USDC", "min": 1, "max": 10000 }]
       }
     ]
   }
 }
 ```
 
+In this example, a BINANCE + ARBITRUM withdraw of USDC uses the first rule (priority 4, max 100 000). A BINANCE + SOL withdraw falls to the second rule (priority 3, max 50 000). A KRAKEN + BEP20 withdraw uses the third rule (priority 2, max 25 000). Everything else hits the global catch-all (priority 1, max 10 000).
+
 Common rejection reasons:
 
-- network not allowed
+- no matching exchange + network entry
 - address not whitelisted
-- ticker not allowed
-- amount below min / above max
+- ticker not listed in the matched rule's `amounts`
+- amount below `min` or above `max`
 
 ---
 
@@ -134,19 +202,30 @@ Order creation is rejected unless all of the below pass:
 2. **Exchange symbol support**: the exchange supports either `FROM/TO` or `TO/FROM`
 3. **Limits (optional)**: if `limits` is present and non-empty, the requested conversion direction exists and the requested amount is within min/max
 
-### `order.rule.markets: string[]`
+---
 
-Market patterns have the form:
+### `order.rule.markets`
 
-- `"*"`: allow any exchange and any pair
-- `"<EXCHANGE>:*"`: allow any pair on a specific exchange
-- `"*:<BASE>/<QUOTE>"`: allow a specific pair on any exchange
-- `"<EXCHANGE>:<BASE>/<QUOTE>"`: allow a specific pair on a specific exchange
+| | |
+|---|---|
+| **Type** | `string[]` |
+| **Required** | Yes |
+| **Normalisation** | Each entry is trimmed, uppercased |
+
+Market pattern formats:
+
+| Pattern | Example | Matches |
+|---------|---------|---------|
+| `"*"` | `"*"` | Any exchange, any pair |
+| `"<EXCHANGE>:*"` | `"BINANCE:*"` | Any pair on the specified exchange |
+| `"*:<BASE>/<QUOTE>"` | `"*:BTC/ETH"` | The specified pair on any exchange |
+| `"<EXCHANGE>:<BASE>/<QUOTE>"` | `"BINANCE:ETH/USDT"` | The specified pair on the specified exchange |
 
 Matching behaviour:
 
-- **Case-insensitive**
-- Pair matching is **symmetric**: `BINANCE:BTC/ETH` matches both `BTC/ETH` and `ETH/BTC`
+- **Case-insensitive** (both the pattern and the request are uppercased before comparison).
+- Pair matching is **symmetric**: `BINANCE:BTC/ETH` matches requests for both `BTC→ETH` and `ETH→BTC`.
+- Any pattern that does not contain a `:` separator (other than the bare `"*"`) is ignored.
 
 Examples:
 
@@ -162,17 +241,33 @@ Examples:
 { "markets": ["*:BTC/ETH"] }
 ```
 
-### `order.rule.limits?: Array<{ from, to, min, max }>`
+---
 
-Optional conversion limits. Limits are **directional**:
+### `order.rule.limits`
 
-- If omitted or an empty array, conversions are not restricted by limits.
-- If non-empty, each order must match a `from`/`to` entry, and the requested `amount` must be within \([min, max]\).
+| | |
+|---|---|
+| **Type** | `Array<{ from: string, to: string, min: number, max: number }>` |
+| **Required** | No (defaults to `[]` if omitted) |
 
-Important:
+Optional directional conversion limits.
 
-- Limits apply to the request’s **from amount** (the amount of `fromToken` the caller is converting), even if execution flips the symbol direction.
-- If the exchange only supports the reverse symbol direction, the broker may need to compute a base amount using `amount / price`; this requires `price > 0`.
+Each object in the array:
+
+| Field | Type | Required | Normalisation | Description |
+|-------|------|----------|---------------|-------------|
+| `from` | `string` | Yes | Uppercased | Source token symbol, e.g. `"USDT"` |
+| `to` | `string` | Yes | Uppercased | Destination token symbol, e.g. `"ETH"` |
+| `min` | `number` | Yes | — | Inclusive lower bound on the `from` amount |
+| `max` | `number` | Yes | — | Inclusive upper bound on the `from` amount |
+
+Key behaviour:
+
+- **If omitted or empty**, no amount or direction restrictions are applied — any matched market is allowed.
+- **If non-empty**, each order must match a `from`/`to` entry for the requested direction. Unmatched directions are rejected.
+- **Limits are directional**: `USDT→ETH` and `ETH→USDT` are separate entries. You must add both if you want to allow both directions.
+- Limits apply to the request's **from amount** (the amount of `fromToken` the caller is converting), even if the broker flips the symbol direction for execution.
+- If the exchange only supports the reverse symbol, the broker computes a base amount via `amount / price`; this requires `price > 0`.
 
 Example:
 
@@ -194,9 +289,14 @@ Example:
 
 ## Deposit policy (`deposit`)
 
+| | |
+|---|---|
+| **Type** | `{}` (empty object) |
+| **Required** | Yes |
+
 `deposit` is required in the current policy schema, but it is **not enforced** today.
 
-At present, deposits are effectively always allowed; this field is reserved for future deposit rule support.
+At present, deposits are effectively always allowed; this field is reserved for future deposit rule support. Set it to `{}`.
 
 ---
 
@@ -204,14 +304,17 @@ At present, deposits are effectively always allowed; this field is reserved for 
 
 ### Schema validation
 
-The broker validates the policy JSON against a schema when loading it.
+The broker validates the policy JSON against a Joi schema when loading it.
 
+- All top-level keys (`withdraw`, `deposit`, `order`) must be present.
+- `withdraw.rule` must be a non-empty array (at least one entry).
+- Every required field must be present and of the correct type.
 - If validation fails, the policy load fails and the broker will not start (or will log an error on reload).
 
 ### Troubleshooting tips
 
 - **Withdraw address rejected**: ensure the address is in the matching `withdraw.rule[].whitelist` entry (lowercase recommended).
-- **Withdraw network rejected**: ensure there is a matching `withdraw.rule[]` entry for the request exchange + `chain`.
-- **Ticker rejected**: ensure `withdraw.rule[].amounts[].ticker` includes the currency symbol you’re withdrawing.
-- **Order rejected (market)**: ensure `order.rule.markets` contains a matching pattern.
-- **Order rejected (limits)**: if `limits` is non-empty, ensure there’s an entry for the exact `from` → `to` direction and the amount is within bounds.
+- **Withdraw exchange/network rejected**: ensure there is a `withdraw.rule[]` entry whose `exchange` and `network` match (or wildcard-match) the request.
+- **Ticker rejected**: ensure `withdraw.rule[].amounts[].ticker` includes the currency symbol you're withdrawing.
+- **Order rejected (market)**: ensure `order.rule.markets` contains a matching pattern for the exchange + pair.
+- **Order rejected (limits)**: if `limits` is non-empty, ensure there's an entry for the exact `from` → `to` direction and the amount is within bounds.

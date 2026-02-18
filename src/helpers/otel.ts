@@ -363,9 +363,7 @@ function appendOtlpPath(endpoint: string, signal: "metrics" | "logs"): string {
 }
 
 function normalizeOtlpEndpoint(endpoint: string): string {
-	return endpoint
-		.replace(/\/v1\/(metrics|logs)\/?$/, "")
-		.replace(/\/+$/, "");
+	return endpoint.replace(/\/v1\/(metrics|logs)\/?$/, "").replace(/\/+$/, "");
 }
 
 /** Host for OTLP collector: CEX_BROKER_OTEL_HOST or legacy CEX_BROKER_CLICKHOUSE_HOST. */
