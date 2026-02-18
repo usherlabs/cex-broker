@@ -5,11 +5,6 @@ export type WithdrawRuleEntry = {
 	exchange: string;
 	network: string;
 	whitelist: string[];
-	amounts: {
-		ticker: string;
-		max: number;
-		min: number;
-	}[];
 };
 
 export type OrderRule = {

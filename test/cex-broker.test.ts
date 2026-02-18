@@ -15,25 +15,11 @@ describe("CEXBroker", () => {
 						exchange: "BINANCE",
 						network: "BEP20",
 						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-						amounts: [
-							{
-								ticker: "USDT",
-								max: 100000,
-								min: 1,
-							},
-						],
 					},
 					{
 						exchange: "BINANCE",
 						network: "ETH",
 						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-						amounts: [
-							{
-								ticker: "USDT",
-								max: 100000,
-								min: 1,
-							},
-						],
 					},
 				],
 			},

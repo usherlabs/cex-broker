@@ -253,15 +253,6 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 			exchange: Joi.string().required(),
 			network: Joi.string().required(),
 			whitelist: Joi.array().items(Joi.string()).required(),
-			amounts: Joi.array()
-				.items(
-					Joi.object({
-						ticker: Joi.string().required(),
-						max: Joi.number().required(),
-						min: Joi.number().required(),
-					}),
-				)
-				.required(),
 		});
 
 		// Joi schema for OrderRule
@@ -311,10 +302,6 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 				exchange: rule.exchange.trim().toUpperCase(),
 				network: rule.network.trim().toUpperCase(),
 				whitelist: rule.whitelist.map((a) => a.trim().toLowerCase()),
-				amounts: rule.amounts.map((a) => ({
-					...a,
-					ticker: a.ticker.trim().toUpperCase(),
-				})),
 			}),
 		);
 		normalizedPolicy.order.rule.limits =
@@ -356,12 +343,11 @@ export function validateWithdraw(
 	exchange: string,
 	network: string,
 	recipientAddress: string,
-	amount: number,
-	ticker: string,
+	_amount: number,
+	_ticker: string,
 ): { valid: boolean; error?: string } {
 	const exchangeNorm = exchange.trim().toUpperCase();
 	const networkNorm = network.trim().toUpperCase();
-	const tickerNorm = ticker.trim().toUpperCase();
 	const matchingRules = policy.withdraw.rule
 		.map((rule) => ({
 			rule,
@@ -386,30 +372,6 @@ export function validateWithdraw(
 		return {
 			valid: false,
 			error: `Address ${recipientAddress} is not whitelisted for withdrawals`,
-		};
-	}
-
-	// Check amount limits
-	const amountRule = withdrawRule.amounts.find((a) => a.ticker === tickerNorm);
-
-	if (!amountRule) {
-		return {
-			valid: false,
-			error: `Ticker ${tickerNorm} is not allowed for ${exchangeNorm}:${networkNorm}. Supported tickers: ${withdrawRule.amounts.map((a) => a.ticker).join(", ")}`,
-		};
-	}
-
-	if (amount < amountRule.min) {
-		return {
-			valid: false,
-			error: `Amount ${amount} is below minimum ${amountRule.min}`,
-		};
-	}
-
-	if (amount > amountRule.max) {
-		return {
-			valid: false,
-			error: `Amount ${amount} exceeds maximum ${amountRule.max}`,
 		};
 	}
 

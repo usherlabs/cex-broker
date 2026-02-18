@@ -2,7 +2,7 @@
 
 This broker uses a JSON policy file to restrict:
 
-- **Withdrawals**: permitted exchanges, networks, destination address whitelist, and per-token amounts
+- **Withdrawals**: permitted exchanges, networks, and destination address whitelist
 - **Orders**: permitted exchanges/pairs, plus optional directional conversion limits
 
 The policy is loaded at startup. If you start the broker with a **policy file path**, the file is watched and policies are reloaded when the file changes.
@@ -32,7 +32,7 @@ Canonical type: `PolicyConfig` in `src/types.ts`.
 {
   "withdraw": {
     "rule": [
-      { "exchange": "BINANCE", "network": "ARBITRUM", "whitelist": [], "amounts": [] }
+      { "exchange": "BINANCE", "network": "ARBITRUM", "whitelist": [] }
     ]
   },
   "deposit": {},
@@ -59,7 +59,7 @@ Withdraw requests are rejected unless all of the below pass.
 
 **Required.** Must contain at least one entry.
 
-Each entry scopes a set of withdrawal permissions to an `exchange` + `network` combination. When a withdraw request arrives, the broker finds the highest-priority matching rule entry and validates address, ticker, and amount against that entry alone.
+Each entry scopes a set of withdrawal permissions to an `exchange` + `network` combination. When a withdraw request arrives, the broker finds the highest-priority matching rule entry and validates the destination address against that entry.
 
 #### Rule matching priority
 
@@ -124,25 +124,6 @@ Accepted values:
 
 ---
 
-### `withdraw.rule[].amounts`
-
-| | |
-|---|---|
-| **Type** | `Array<{ ticker: string, min: number, max: number }>` |
-| **Required** | Yes (may be empty, but that would reject all tickers) |
-
-Each object in the array defines per-token withdrawal bounds:
-
-| Field | Type | Required | Normalisation | Description |
-|-------|------|----------|---------------|-------------|
-| `ticker` | `string` | Yes | Trimmed, uppercased | Currency symbol, e.g. `"USDC"`, `"USDT"`, `"ETH"` |
-| `min` | `number` | Yes | — | Inclusive lower bound on the withdrawal amount |
-| `max` | `number` | Yes | — | Inclusive upper bound on the withdrawal amount |
-
-If the request ticker does not match any entry, the request is rejected. If it matches but the amount is outside \([min, max]\), the request is rejected.
-
----
-
 ### Full withdraw example
 
 ```json
@@ -152,45 +133,34 @@ If the request ticker does not match any entry, the request is rejected. If it m
       {
         "exchange": "BINANCE",
         "network": "ARBITRUM",
-        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-        "amounts": [
-          { "ticker": "USDC", "min": 1, "max": 100000 },
-          { "ticker": "USDT", "min": 1, "max": 100000 }
-        ]
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
       },
       {
         "exchange": "BINANCE",
         "network": "*",
-        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-        "amounts": [
-          { "ticker": "USDC", "min": 1, "max": 50000 }
-        ]
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
       },
       {
         "exchange": "*",
         "network": "BEP20",
-        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-        "amounts": [{ "ticker": "USDC", "min": 1, "max": 25000 }]
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
       },
       {
         "exchange": "*",
         "network": "*",
-        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-        "amounts": [{ "ticker": "USDC", "min": 1, "max": 10000 }]
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
       }
     ]
   }
 }
 ```
 
-In this example, a BINANCE + ARBITRUM withdraw of USDC uses the first rule (priority 4, max 100 000). A BINANCE + SOL withdraw falls to the second rule (priority 3, max 50 000). A KRAKEN + BEP20 withdraw uses the third rule (priority 2, max 25 000). Everything else hits the global catch-all (priority 1, max 10 000).
+In this example, a BINANCE + ARBITRUM withdraw uses the first rule (priority 4). A BINANCE + SOL withdraw falls to the second rule (priority 3). A KRAKEN + BEP20 withdraw uses the third rule (priority 2). Everything else hits the global catch-all (priority 1).
 
 Common rejection reasons:
 
 - no matching exchange + network entry
 - address not whitelisted
-- ticker not listed in the matched rule's `amounts`
-- amount below `min` or above `max`
 
 ---
 
@@ -315,6 +285,5 @@ The broker validates the policy JSON against a Joi schema when loading it.
 
 - **Withdraw address rejected**: ensure the address is in the matching `withdraw.rule[].whitelist` entry (lowercase recommended).
 - **Withdraw exchange/network rejected**: ensure there is a `withdraw.rule[]` entry whose `exchange` and `network` match (or wildcard-match) the request.
-- **Ticker rejected**: ensure `withdraw.rule[].amounts[].ticker` includes the currency symbol you're withdrawing.
 - **Order rejected (market)**: ensure `order.rule.markets` contains a matching pattern for the exchange + pair.
 - **Order rejected (limits)**: if `limits` is non-empty, ensure there's an entry for the exact `from` → `to` direction and the amount is within bounds.

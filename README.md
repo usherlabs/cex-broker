@@ -90,22 +90,18 @@ Configure trading policies in `policy/policy.json`.
 ```json
 {
   "withdraw": {
-    "rule": {
-      "networks": ["BEP20", "ARBITRUM", "ETHEREUM"],
-      "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-      "amounts": [
-        {
-          "ticker": "USDC",
-          "max": 100000,
-          "min": 1
-        },
-        {
-          "ticker": "USDT",
-          "max": 100000,
-          "min": 1
-        }
-      ]
-    }
+    "rule": [
+      {
+        "exchange": "BINANCE",
+        "network": "BEP20",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+      },
+      {
+        "exchange": "BINANCE",
+        "network": "ARBITRUM",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+      }
+    ]
   },
   "deposit": {},
   "order": {
@@ -577,17 +573,18 @@ for (const [currency, info] of Object.entries(currencies)) {
 ```json
 {
   "withdraw": {
-    "rule": {
-      "networks": ["BEP20", "ARBITRUM", "ETH"],  // Networks supported by your exchanges
-      "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-      "amounts": [
-        {
-          "ticker": "USDT",
-          "max": 100000,
-          "min": 1
-        }
-      ]
-    }
+    "rule": [
+      {
+        "exchange": "BINANCE",
+        "network": "BEP20",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+      },
+      {
+        "exchange": "BINANCE",
+        "network": "ARBITRUM",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+      }
+    ]
   }
 }
 ```

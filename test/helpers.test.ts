@@ -23,25 +23,11 @@ describe("Helper Functions", () => {
 						exchange: "BINANCE",
 						network: "ARB",
 						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-						amounts: [
-							{
-								ticker: "USDC",
-								max: 100000,
-								min: 1,
-							},
-						],
 					},
 					{
 						exchange: "*",
 						network: "ARB",
 						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-						amounts: [
-							{
-								ticker: "USDC",
-								max: 25000,
-								min: 1,
-							},
-						],
 					},
 				],
 			},
@@ -79,7 +65,6 @@ describe("Helper Functions", () => {
 			expect(binanceArbitrum?.whitelist).toContain(
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 			);
-			expect(binanceArbitrum?.amounts[0]?.ticker).toBe("USDC");
 		});
 
 		test("should default missing order limits to empty array", () => {
@@ -94,7 +79,6 @@ describe("Helper Functions", () => {
 							exchange: "BINANCE",
 							network: "ARB",
 							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-							amounts: [{ ticker: "USDC", max: 100000, min: 1 }],
 						},
 					],
 				},
@@ -158,46 +142,46 @@ describe("Helper Functions", () => {
 			expect(result.error).toContain("is not whitelisted for withdrawals");
 		});
 
-		test("should reject wrong ticker", () => {
+		test("should ignore ticker checks for withdrawals", () => {
 			const result = validateWithdraw(
 				testPolicy,
 				"BINANCE",
 				"ARB",
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 				1000,
-				"ETH", // Wrong ticker
+				"ETH",
 			);
 
-			expect(result.valid).toBe(false);
-			expect(result.error).toContain("Ticker ETH is not allowed");
+			expect(result.valid).toBe(true);
+			expect(result.error).toBeUndefined();
 		});
 
-		test("should reject amount below minimum", () => {
+		test("should ignore minimum amount checks for withdrawals", () => {
 			const result = validateWithdraw(
 				testPolicy,
 				"BINANCE",
 				"ARB",
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
-				0.5, // Below minimum of 1
+				0.5,
 				"USDC",
 			);
 
-			expect(result.valid).toBe(false);
-			expect(result.error).toContain("Amount 0.5 is below minimum 1");
+			expect(result.valid).toBe(true);
+			expect(result.error).toBeUndefined();
 		});
 
-		test("should reject amount above maximum", () => {
+		test("should ignore maximum amount checks for withdrawals", () => {
 			const result = validateWithdraw(
 				testPolicy,
 				"BINANCE",
 				"ARB",
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
-				200000, // Above maximum of 100000
+				200000,
 				"USDC",
 			);
 
-			expect(result.valid).toBe(false);
-			expect(result.error).toContain("Amount 200000 exceeds maximum 100000");
+			expect(result.valid).toBe(true);
+			expect(result.error).toBeUndefined();
 		});
 
 		test("should handle case-insensitive address comparison", () => {
@@ -235,19 +219,16 @@ describe("Helper Functions", () => {
 							exchange: "*",
 							network: "*",
 							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-							amounts: [{ ticker: "USDC", min: 1, max: 10 }],
 						},
 						{
 							exchange: "BINANCE",
 							network: "*",
 							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-							amounts: [{ ticker: "USDC", min: 1, max: 100 }],
 						},
 						{
 							exchange: "BINANCE",
 							network: "ARB",
 							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-							amounts: [{ ticker: "USDC", min: 1, max: 1000 }],
 						},
 					],
 				},
