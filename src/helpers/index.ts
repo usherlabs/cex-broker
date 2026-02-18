@@ -305,16 +305,18 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 		}
 
 		const normalizedPolicy = value as PolicyConfig;
-		normalizedPolicy.withdraw.rule = normalizedPolicy.withdraw.rule.map((rule) => ({
-			...rule,
-			exchange: rule.exchange.trim().toUpperCase(),
-			network: rule.network.trim().toUpperCase(),
-			whitelist: rule.whitelist.map((a) => a.trim().toLowerCase()),
-			amounts: rule.amounts.map((a) => ({
-				...a,
-				ticker: a.ticker.trim().toUpperCase(),
-			})),
-		}));
+		normalizedPolicy.withdraw.rule = normalizedPolicy.withdraw.rule.map(
+			(rule) => ({
+				...rule,
+				exchange: rule.exchange.trim().toUpperCase(),
+				network: rule.network.trim().toUpperCase(),
+				whitelist: rule.whitelist.map((a) => a.trim().toLowerCase()),
+				amounts: rule.amounts.map((a) => ({
+					...a,
+					ticker: a.ticker.trim().toUpperCase(),
+				})),
+			}),
+		);
 		normalizedPolicy.order.rule.limits =
 			normalizedPolicy.order.rule.limits ?? [];
 		return normalizedPolicy;
