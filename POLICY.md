@@ -28,7 +28,7 @@ Canonical type: `PolicyConfig` in `src/types.ts`.
 
 ```json
 {
-  "withdraw": { "rule": { "networks": [], "whitelist": [], "amounts": [] } },
+  "withdraw": { "rule": [{ "exchange": "*", "network": "ARBITRUM", "whitelist": [], "amounts": [] }] },
   "deposit": {},
   "order": { "rule": { "markets": [], "limits": [] } }
 }
@@ -49,21 +49,42 @@ Operational note: this restart may briefly interrupt in-flight requests.
 
 Withdraw requests are rejected unless all of the below pass.
 
-### `withdraw.rule.networks: string[]`
+### `withdraw.rule: WithdrawRuleEntry[]`
 
-Allowed withdrawal networks/chains (e.g. `"ARBITRUM"`, `"BEP20"`).
+Withdraw rules are an array. Each entry targets one `exchange` + `network` combination and defines its own address whitelist and amount limits.
 
-- **Matching is case-insensitive** (the broker normalises both policy networks and request chains before comparison).
+Each entry has the shape:
+
+```json
+{
+  "exchange": "BINANCE",
+  "network": "ARBITRUM",
+  "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+  "amounts": [
+    { "ticker": "USDC", "min": 1, "max": 100000 }
+  ]
+}
+```
+
+### `withdraw.rule[].exchange: string`
+
+Allowed exchange identifier for this rule entry (e.g. `"BINANCE"`), or `"*"` as a wildcard.
+
+### `withdraw.rule[].network: string`
+
+Allowed withdrawal network/chain for this entry (e.g. `"ARBITRUM"`, `"BEP20"`).
+
+- **Matching is case-insensitive** (the broker normalises both policy network and request chain before comparison).
 - **Exchange support is checked separately**: even if policy allows a network, the selected exchange must also support that network for the currency, or the request will still fail later.
 
-### `withdraw.rule.whitelist: string[]`
+### `withdraw.rule[].whitelist: string[]`
 
 Allowed destination addresses.
 
 - **The broker lowercases policy whitelist entries and the incoming address**.
 - Recommendation: store all whitelist addresses in lowercase in the JSON for readability and diffs.
 
-### `withdraw.rule.amounts: Array<{ ticker, min, max }>`
+### `withdraw.rule[].amounts: Array<{ ticker, min, max }>`
 
 Per-token withdrawal bounds.
 
@@ -75,14 +96,23 @@ Example:
 ```json
 {
   "withdraw": {
-    "rule": {
-      "networks": ["ARBITRUM", "BEP20"],
-      "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-      "amounts": [
-        { "ticker": "USDC", "min": 1, "max": 100000 },
-        { "ticker": "USDT", "min": 1, "max": 100000 }
-      ]
-    }
+    "rule": [
+      {
+        "exchange": "BINANCE",
+        "network": "ARBITRUM",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+        "amounts": [
+          { "ticker": "USDC", "min": 1, "max": 100000 },
+          { "ticker": "USDT", "min": 1, "max": 100000 }
+        ]
+      },
+      {
+        "exchange": "*",
+        "network": "BEP20",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+        "amounts": [{ "ticker": "USDC", "min": 1, "max": 25000 }]
+      }
+    ]
   }
 }
 ```
@@ -180,8 +210,8 @@ The broker validates the policy JSON against a schema when loading it.
 
 ### Troubleshooting tips
 
-- **Withdraw address rejected**: ensure the address is in `withdraw.rule.whitelist` (lowercase recommended).
-- **Withdraw network rejected**: ensure the request `chain` is listed in `withdraw.rule.networks`.
-- **Ticker rejected**: ensure `withdraw.rule.amounts[].ticker` includes the currency symbol you’re withdrawing.
+- **Withdraw address rejected**: ensure the address is in the matching `withdraw.rule[].whitelist` entry (lowercase recommended).
+- **Withdraw network rejected**: ensure there is a matching `withdraw.rule[]` entry for the request exchange + `chain`.
+- **Ticker rejected**: ensure `withdraw.rule[].amounts[].ticker` includes the currency symbol you’re withdrawing.
 - **Order rejected (market)**: ensure `order.rule.markets` contains a matching pattern.
 - **Order rejected (limits)**: if `limits` is non-empty, ensure there’s an entry for the exact `from` → `to` direction and the amount is within bounds.

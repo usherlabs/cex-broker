@@ -406,7 +406,7 @@ describe("Helper Functions", () => {
 				testPolicy,
 				"USDT",
 				"ETH",
-				0.005, // Below minimum of 0.01
+				0.005, // Below minimum of 1
 				"BINANCE",
 			);
 
@@ -419,12 +419,12 @@ describe("Helper Functions", () => {
 				testPolicy,
 				"USDT",
 				"ETH",
-				200_000.0, // Above maximum of 1.0
+				200_000.0, // Above maximum of 100000
 				"BINANCE",
 			);
 
 			expect(result.valid).toBe(false);
-			expect(result.error).toContain("Amount 200000 exceeds maximum 1");
+			expect(result.error).toContain("Amount 200000 exceeds maximum 100000");
 		});
 	});
 

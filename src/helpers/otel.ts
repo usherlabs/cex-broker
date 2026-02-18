@@ -56,7 +56,7 @@ abstract class BaseOtelSignal<TProvider> {
 		private readonly signal: "metrics" | "logs",
 	) {
 		this.serviceName = config?.serviceName ?? DEFAULT_SERVICE;
-		const endpoint = resolveOtlpBaseEndpoint(config);
+		const endpoint = resolveOtlpBaseEndpoint(this.signal, config);
 		if (!endpoint) {
 			log.info(`OTel ${signal} disabled: no OTLP endpoint or host provided`);
 			return;
@@ -328,22 +328,27 @@ export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
 	}
 }
 
-function resolveOtlpBaseEndpoint(config?: OtelConfig): string | null {
+function resolveOtlpBaseEndpoint(
+	signal: "metrics" | "logs",
+	config?: OtelConfig,
+): string | null {
+	// Explicit config should always win over environment variables.
+	if (config?.otlpEndpoint) {
+		return normalizeOtlpEndpoint(config.otlpEndpoint);
+	}
+
+	const signalEndpoint =
+		signal === "metrics"
+			? process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+			: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+	if (signalEndpoint) {
+		return normalizeOtlpEndpoint(signalEndpoint);
+	}
+
 	if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
-		return process.env.OTEL_EXPORTER_OTLP_ENDPOINT.replace(
-			/\/v1\/(metrics|logs)\/?$/,
-			"",
-		);
+		return normalizeOtlpEndpoint(process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
 	}
 
-	if (process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT) {
-		return process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT.replace(
-			/\/v1\/(metrics|logs)\/?$/,
-			"",
-		);
-	}
-
-	if (config?.otlpEndpoint) return config.otlpEndpoint;
 	if (config?.host) {
 		const protocol = config.protocol || "http";
 		const port = config.port ?? DEFAULT_OTLP_PORT;
@@ -353,9 +358,14 @@ function resolveOtlpBaseEndpoint(config?: OtelConfig): string | null {
 }
 
 function appendOtlpPath(endpoint: string, signal: "metrics" | "logs"): string {
-	return endpoint.endsWith(`/v1/${signal}`)
-		? endpoint
-		: `${endpoint}/v1/${signal}`;
+	const baseEndpoint = normalizeOtlpEndpoint(endpoint);
+	return `${baseEndpoint}/v1/${signal}`;
+}
+
+function normalizeOtlpEndpoint(endpoint: string): string {
+	return endpoint
+		.replace(/\/v1\/(metrics|logs)\/?$/, "")
+		.replace(/\/+$/, "");
 }
 
 /** Host for OTLP collector: CEX_BROKER_OTEL_HOST or legacy CEX_BROKER_CLICKHOUSE_HOST. */
