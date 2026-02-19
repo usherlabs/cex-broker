@@ -7,8 +7,8 @@
 		"url": "https://github.com/usherlabs/cex-broker"
 	},
 	"homepage": "https://usher.so/",
-	"author": "Oki Ayobami <oki@usher.so>",
-	"module": "src/index.ts",
+	"author": "Usher Labs <labs@usher.so>",
+	"module": "dist/index.js",
 	"type": "module",
 	"license": "MIT",
 	"main": "dist/index.js",
@@ -32,6 +32,7 @@
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
 		"build": "bun run proto-gen && bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
+		"prepack": "bun run build",
 		"start-broker": "bun run ./src/cli.ts",
 		"start-broker-server": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll'",
 		"start-broker-server-with-verity": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll --verityProverUrl http://verity-prover:8080'",
@@ -42,10 +43,9 @@
 		"lint:fix": "bunx biome lint --write",
 		"check": "bunx biome check",
 		"check:fix": "bunx biome check --write",
-		"copy:dts": "cpx \"build/*.d.ts\" ./dist/",
+		"copy:dts": "cpx \"build/**/*.d.ts\" ./dist/",
 		"copy:proto": "cpx \"src/proto/*.proto\" ./dist/proto",
-		"prepare": "bunx husky",
-		"postinstall": "./proto-gen.sh"
+		"prepare": "bunx husky"
 	},
 	"peerDependencies": {
 		"typescript": "^5"
