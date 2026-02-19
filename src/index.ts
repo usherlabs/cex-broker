@@ -18,6 +18,7 @@ import {
 	type ExchangeCredentials,
 	type PolicyConfig,
 } from "./types";
+export type { PolicyConfig } from "./types";
 
 log.info("CCXT Version:", ccxt.version);
 
