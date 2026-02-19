@@ -56,17 +56,21 @@ abstract class BaseOtelSignal<TProvider> {
 		private readonly signal: "metrics" | "logs",
 	) {
 		this.serviceName = config?.serviceName ?? DEFAULT_SERVICE;
-		const endpoint = resolveOtlpBaseEndpoint(this.signal, config);
-		if (!endpoint) {
+		const endpointResolution = resolveOtlpEndpoint(this.signal, config);
+		if (!endpointResolution) {
 			log.info(`OTel ${signal} disabled: no OTLP endpoint or host provided`);
 			return;
 		}
 
 		try {
-			this.provider = this.createProvider(endpoint, this.serviceName);
+			this.provider = this.createProvider(
+				endpointResolution.endpoint,
+				this.serviceName,
+				endpointResolution.appendSignalPath,
+			);
 			this.onProviderCreated(this.provider);
 			this.isEnabled = true;
-			log.info(`OTel ${signal} enabled: ${endpoint}`);
+			log.info(`OTel ${signal} enabled: ${endpointResolution.endpoint}`);
 		} catch (error) {
 			log.error(`Failed to initialize OTel ${signal}:`, error);
 			this.isEnabled = false;
@@ -77,6 +81,7 @@ abstract class BaseOtelSignal<TProvider> {
 	protected abstract createProvider(
 		endpoint: string,
 		serviceName: string,
+		appendSignalPath: boolean,
 	): TProvider;
 
 	protected onProviderCreated(_provider: TProvider): void {}
@@ -144,9 +149,10 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 	protected createProvider(
 		endpoint: string,
 		serviceName: string,
+		appendSignalPath: boolean,
 	): MeterProviderType {
 		const exporter = new OTLPMetricExporter({
-			url: appendOtlpPath(endpoint, "metrics"),
+			url: appendOtlpPath(endpoint, "metrics", appendSignalPath),
 		});
 		const reader = new PeriodicExportingMetricReader({
 			exporter,
@@ -293,9 +299,10 @@ export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
 	protected createProvider(
 		endpoint: string,
 		serviceName: string,
+		appendSignalPath: boolean,
 	): LoggerProvider {
 		const exporter = new OTLPLogExporter({
-			url: appendOtlpPath(endpoint, "logs"),
+			url: appendOtlpPath(endpoint, "logs", appendSignalPath),
 		});
 		const processor = new BatchLogRecordProcessor(exporter);
 		const resource = resourceFromAttributes({
@@ -328,13 +335,21 @@ export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
 	}
 }
 
-function resolveOtlpBaseEndpoint(
+type OtlpEndpointResolution = {
+	endpoint: string;
+	appendSignalPath: boolean;
+};
+
+function resolveOtlpEndpoint(
 	signal: "metrics" | "logs",
 	config?: OtelConfig,
-): string | null {
+): OtlpEndpointResolution | null {
 	// Explicit config should always win over environment variables.
 	if (config?.otlpEndpoint) {
-		return normalizeOtlpEndpoint(config.otlpEndpoint);
+		return {
+			endpoint: normalizeOtlpEndpoint(config.otlpEndpoint),
+			appendSignalPath: true,
+		};
 	}
 
 	const signalEndpoint =
@@ -342,22 +357,39 @@ function resolveOtlpBaseEndpoint(
 			? process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
 			: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
 	if (signalEndpoint) {
-		return normalizeOtlpEndpoint(signalEndpoint);
+		return {
+			// OTLP signal-specific endpoint env vars are full URLs and should be used as-is.
+			endpoint: signalEndpoint,
+			appendSignalPath: false,
+		};
 	}
 
 	if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
-		return normalizeOtlpEndpoint(process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
+		return {
+			endpoint: normalizeOtlpEndpoint(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
+			appendSignalPath: true,
+		};
 	}
 
 	if (config?.host) {
 		const protocol = config.protocol || "http";
 		const port = config.port ?? DEFAULT_OTLP_PORT;
-		return `${protocol}://${config.host}:${port}`;
+		return {
+			endpoint: `${protocol}://${config.host}:${port}`,
+			appendSignalPath: true,
+		};
 	}
 	return null;
 }
 
-function appendOtlpPath(endpoint: string, signal: "metrics" | "logs"): string {
+function appendOtlpPath(
+	endpoint: string,
+	signal: "metrics" | "logs",
+	appendSignalPath: boolean,
+): string {
+	if (!appendSignalPath) {
+		return endpoint;
+	}
 	const baseEndpoint = normalizeOtlpEndpoint(endpoint);
 	return `${baseEndpoint}/v1/${signal}`;
 }
@@ -421,14 +453,13 @@ export function createOtelLogsFromEnv(): OtelLogs {
 
 	if (logsEndpoint) {
 		return new OtelLogs({
-			otlpEndpoint: logsEndpoint.replace(/\/v1\/(metrics|logs)\/?$/, ""),
 			serviceName: process.env.OTEL_SERVICE_NAME || DEFAULT_SERVICE,
 		});
 	}
 
 	if (genericEndpoint) {
 		return new OtelLogs({
-			otlpEndpoint: genericEndpoint.replace(/\/v1\/(metrics|logs)\/?$/, ""),
+			otlpEndpoint: genericEndpoint,
 			serviceName: process.env.OTEL_SERVICE_NAME || DEFAULT_SERVICE,
 		});
 	}

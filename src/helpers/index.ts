@@ -389,9 +389,9 @@ export function validateOrder(
 	broker: string,
 ): { valid: boolean; error?: string } {
 	const orderRule = policy.order.rule;
-	const brokerUpper = broker.toUpperCase();
-	const fromUpper = fromToken.toUpperCase();
-	const toUpper = toToken.toUpperCase();
+	const brokerUpper = broker.trim().toUpperCase();
+	const fromUpper = fromToken.trim().toUpperCase();
+	const toUpper = toToken.trim().toUpperCase();
 
 	const matchedPatterns = getMatchedMarketPatterns(
 		orderRule.markets,
@@ -524,9 +524,9 @@ export async function resolveOrderExecution(
 	amount: number,
 	price: number,
 ): Promise<OrderExecutionResolution> {
-	const brokerUpper = cex.toUpperCase();
-	const fromUpper = fromToken.toUpperCase();
-	const toUpper = toToken.toUpperCase();
+	const brokerUpper = cex.trim().toUpperCase();
+	const fromUpper = fromToken.trim().toUpperCase();
+	const toUpper = toToken.trim().toUpperCase();
 	const matchedPatterns = getMatchedMarketPatterns(
 		policy.order.rule.markets,
 		brokerUpper,
@@ -600,10 +600,10 @@ export async function resolveOrderExecution(
 		};
 	}
 
-	if (price <= 0) {
+	if (!Number.isFinite(price) || price <= 0) {
 		return {
 			valid: false,
-			error: "Price must be greater than 0 to compute base order amount",
+			error: "Price must be a finite number greater than 0 to compute base order amount",
 			matchedPatterns,
 			limitsApplied: limits.length > 0,
 		};
