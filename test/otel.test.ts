@@ -27,65 +27,72 @@ describe("OtelMetrics", () => {
 	});
 
 	describe("Initialization", () => {
-		test("should be enabled when hostname is provided", () => {
+		test("should be enabled when hostname is provided", async () => {
 			const config: OtelConfig = {
 				host: "localhost",
 				port: 8123,
 			};
 			const metrics = new OtelMetrics(config);
 			expect(metrics.isOtelEnabled()).toBe(true);
+			await metrics.close();
 		});
 
-		test("should use default values when optional config is missing", () => {
+		test("should use default values when optional config is missing", async () => {
 			const config: OtelConfig = {
 				host: "localhost",
 			};
 			const metrics = new OtelMetrics(config);
 			expect(metrics.isOtelEnabled()).toBe(true);
+			await metrics.close();
 		});
 
-		test("should handle initialization errors gracefully", () => {
+		test("should handle initialization errors gracefully", async () => {
 			const config: OtelConfig = {
 				host: "invalid://host",
 				port: 8123,
 			};
 			const metrics = new OtelMetrics(config);
 			expect(metrics).toBeDefined();
+			await metrics.close();
 		});
 	});
 
 	describe("createOtelMetricsFromEnv", () => {
-		test("should create metrics from CEX_BROKER_OTEL_* env vars", () => {
+		test("should create metrics from CEX_BROKER_OTEL_* env vars", async () => {
 			process.env.CEX_BROKER_OTEL_HOST = "localhost";
 			process.env.CEX_BROKER_OTEL_PORT = "8123";
 			process.env.CEX_BROKER_OTEL_PROTOCOL = "https";
 
 			const metrics = createOtelMetricsFromEnv();
 			expect(metrics.isOtelEnabled()).toBe(true);
+			await metrics.close();
 		});
 
-		test("should create metrics from legacy CEX_BROKER_CLICKHOUSE_* env vars", () => {
+		test("should create metrics from legacy CEX_BROKER_CLICKHOUSE_* env vars", async () => {
 			process.env.CEX_BROKER_CLICKHOUSE_HOST = "localhost";
 			process.env.CEX_BROKER_CLICKHOUSE_PORT = "8123";
 			process.env.CEX_BROKER_CLICKHOUSE_PROTOCOL = "https";
 
 			const metrics = createOtelMetricsFromEnv();
 			expect(metrics.isOtelEnabled()).toBe(true);
+			await metrics.close();
 		});
 
-		test("should use default values for optional env vars", () => {
+		test("should use default values for optional env vars", async () => {
 			process.env.CEX_BROKER_OTEL_HOST = "localhost";
 
 			const metrics = createOtelMetricsFromEnv();
 			expect(metrics.isOtelEnabled()).toBe(true);
+			await metrics.close();
 		});
 
-		test("should prefer OTEL_EXPORTER_OTLP_ENDPOINT when set", () => {
+		test("should prefer OTEL_EXPORTER_OTLP_ENDPOINT when set", async () => {
 			process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://collector:4318";
 			process.env.CEX_BROKER_OTEL_HOST = "legacy-host";
 
 			const metrics = createOtelMetricsFromEnv();
 			expect(metrics.isOtelEnabled()).toBe(true);
+			await metrics.close();
 		});
 	});
 

@@ -42,9 +42,9 @@ describe("CEXBroker", () => {
 		delete process.env.CEX_BROKER_BINANCE_API_SECRET_1;
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		if (broker) {
-			broker.stop();
+			await broker.stop();
 		}
 	});
 
@@ -209,9 +209,9 @@ describe("CEXBroker", () => {
 			expect(startedBroker).toBe(broker);
 		});
 
-		test("should stop server successfully", () => {
+		test("should stop server successfully", async () => {
 			broker = new CEXBroker({}, testPolicy);
-			broker.stop();
+			await broker.stop();
 			expect(broker).toBeDefined();
 		});
 

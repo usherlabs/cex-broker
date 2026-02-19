@@ -1,25 +1,21 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 describe("Integration Tests", () => {
 	describe("Policy Integration", () => {
 		test("should load and validate policy correctly", () => {
-			// Test that the policy file can be loaded
-			const fs = require("bun:fs");
-			const path = require("bun:path");
-			const policyPath = path.join(__dirname, "../policy/policy.json");
+			const policyPath = new URL("../policy/policy.json", import.meta.url);
 
 			expect(() => {
-				const policyData = fs.readFileSync(policyPath, "utf8");
+				const policyData = readFileSync(policyPath, "utf8");
 				const policy = JSON.parse(policyData);
 				return policy;
 			}).not.toThrow();
 		});
 
 		test("should have correct policy structure", () => {
-			const fs = require("bun:fs");
-			const path = require("bun:path");
-			const policyPath = path.join(__dirname, "../policy/policy.json");
-			const policyData = fs.readFileSync(policyPath, "utf8");
+			const policyPath = new URL("../policy/policy.json", import.meta.url);
+			const policyData = readFileSync(policyPath, "utf8");
 			const policy = JSON.parse(policyData);
 
 			// Check withdraw policy
