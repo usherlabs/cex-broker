@@ -2,7 +2,10 @@
 	"name": "@usherlabs/cex-broker",
 	"version": "0.2.0",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
-	"repository": "git@gitlab.com:usherlabs/cex-broker.git",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/usherlabs/cex-broker"
+	},
 	"homepage": "https://usher.so/",
 	"author": "Oki Ayobami <oki@usher.so>",
 	"module": "src/index.ts",

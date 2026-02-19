@@ -269,7 +269,7 @@ export function getServer(
 
 				case Action.FetchAccountId: {
 					try {
-						let accountId = await broker.fetchAccountId();
+						const accountId = await broker.fetchAccountId();
 
 						// Return normalized response
 						return wrappedCallback(null, {
@@ -938,7 +938,7 @@ export function getServer(
 				// Record subscription request
 				const subscriptionTypeName = (() => {
 					for (const [key, value] of Object.entries(SubscriptionType)) {
-						if (value === subscriptionType && isNaN(Number(key))) {
+						if (value === subscriptionType && Number.isNaN(Number(key))) {
 							return key;
 						}
 					}
