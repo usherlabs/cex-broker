@@ -7,7 +7,8 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["src/**", "policy/**", "test/**", "scripts/**", "examples/**"]
+		"includes": ["src/**", "policy/**", "test/**", "scripts/**", "examples/**"],
+		"experimentalScannerIgnores": ["src/proto/**"]
 	},
 	"formatter": {
 		"enabled": true,

@@ -1,8 +1,8 @@
 import {
 	authenticateRequest,
 	createBroker,
+	resolveOrderExecution,
 	selectBroker,
-	validateOrder,
 	validateWithdraw,
 } from "./helpers";
 import type { PolicyConfig } from "./types";
@@ -563,6 +563,7 @@ export function getServer(
 					// Validate against policy
 					const transferValidation = validateWithdraw(
 						policy,
+						cex,
 						transferValue.chain,
 						transferValue.recipientAddress,
 						Number(transferValue.amount),
@@ -640,36 +641,8 @@ export function getServer(
 							null,
 						);
 					}
-					const validation = validateOrder(
-						policy,
-						orderValue.fromToken,
-						orderValue.toToken,
-						Number(orderValue.amount),
-						cex,
-					);
-					if (!validation.valid) {
-						return wrappedCallback(
-							{
-								code: grpc.status.INVALID_ARGUMENT,
-								message: validation.error,
-							},
-							null,
-						);
-					}
 
 					try {
-						const market = policy.order.rule.markets.find(
-							(market) =>
-								market.includes(
-									`${orderValue.fromToken}/${orderValue.toToken}`,
-								) ||
-								market.includes(
-									`${orderValue.toToken}/${orderValue.fromToken}`,
-								),
-						);
-						const symbol = market?.split(":")[1] ?? "";
-						const [from, _to] = symbol.split("/");
-
 						if (!broker) {
 							return wrappedCallback(
 								{
@@ -679,12 +652,32 @@ export function getServer(
 								null,
 							);
 						}
+						const resolution = await resolveOrderExecution(
+							policy,
+							broker,
+							cex,
+							orderValue.fromToken,
+							orderValue.toToken,
+							Number(orderValue.amount),
+							Number(orderValue.price),
+						);
+						if (!resolution.valid || !resolution.symbol || !resolution.side) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message:
+										resolution.error ??
+										"Order rejected by policy: market or limits not satisfied",
+								},
+								null,
+							);
+						}
 
 						const order = await broker.createOrder(
-							symbol,
+							resolution.symbol,
 							orderValue.orderType,
-							from === orderValue.fromToken ? "sell" : "buy",
-							Number(orderValue.amount),
+							resolution.side,
+							Number(resolution.amountBase ?? orderValue.amount),
 							Number(orderValue.price),
 							orderValue.params ?? {},
 						);
