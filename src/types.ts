@@ -1,19 +1,15 @@
 import type ccxt from "@usherlabs/ccxt";
 
 // Policy types based on the policy.json structure
-export type WithdrawRule = {
-	networks: string[];
+export type WithdrawRuleEntry = {
+	exchange: string;
+	network: string;
 	whitelist: string[];
-	amounts: {
-		ticker: string;
-		max: number;
-		min: number;
-	}[];
 };
 
 export type OrderRule = {
 	markets: string[];
-	limits: Array<{
+	limits?: Array<{
 		from: string;
 		to: string;
 		min: number;
@@ -23,30 +19,12 @@ export type OrderRule = {
 
 export type PolicyConfig = {
 	withdraw: {
-		rule: WithdrawRule;
+		rule: WithdrawRuleEntry[];
 	};
 	deposit: Record<string, null>;
 	order: {
 		rule: OrderRule;
 	};
-};
-
-// Legacy types (keeping for backward compatibility)
-export type Policy = {
-	isActive: boolean;
-	permissions: Array<"withdraw" | "transfer" | "convert">;
-	limits: {
-		dailyWithdrawLimit?: number;
-		dailyTransferredAmount?: number;
-		perTxTransferLimit?: number;
-	};
-	networks: string[];
-	conversionLimits: Array<{
-		from: string;
-		to: string;
-		min: number;
-		max: number;
-	}>;
 };
 
 // Dynamic type mapping using CCXT's exchange classes

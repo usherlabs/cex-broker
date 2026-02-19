@@ -82,27 +82,26 @@ OTEL_SERVICE_NAME=cex-broker
 
 ### Policy Configuration
 
-Configure trading policies in `policy/policy.json`:
+Configure trading policies in `policy/policy.json`.
+
+- **Full reference**: see `POLICY.md` (supported options, matching rules, reload behaviour, and troubleshooting)
+- **Example policy**: `policy/policy.json`
 
 ```json
 {
   "withdraw": {
-    "rule": {
-      "networks": ["BEP20", "ARBITRUM", "ETHEREUM"],
-      "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-      "amounts": [
-        {
-          "ticker": "USDC",
-          "max": 100000,
-          "min": 1
-        },
-        {
-          "ticker": "USDT",
-          "max": 100000,
-          "min": 1
-        }
-      ]
-    }
+    "rule": [
+      {
+        "exchange": "BINANCE",
+        "network": "BEP20",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+      },
+      {
+        "exchange": "BINANCE",
+        "network": "ARBITRUM",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+      }
+    ]
   },
   "deposit": {},
   "order": {
@@ -114,10 +113,7 @@ Configure trading policies in `policy/policy.json`:
         "BINANCE:BTC/ETH"
       ],
       "limits": [
-        { "from": "USDT", "to": "ETH", "min": 1, "max": 100000 },
-        { "from": "ETH", "to": "USDT", "min": 0.5, "max": 5 },
-        { "from": "ARB", "to": "USDC", "min": 1, "max": 1000 },
-        { "from": "USDC", "to": "ARB", "min": 1, "max": 10000 }
+        { "from": "USDT", "to": "ETH", "min": 1, "max": 100000 }
       ]
     }
   }
@@ -577,17 +573,18 @@ for (const [currency, info] of Object.entries(currencies)) {
 ```json
 {
   "withdraw": {
-    "rule": {
-      "networks": ["BEP20", "ARBITRUM", "ETH"],  // Networks supported by your exchanges
-      "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-      "amounts": [
-        {
-          "ticker": "USDT",
-          "max": 100000,
-          "min": 1
-        }
-      ]
-    }
+    "rule": [
+      {
+        "exchange": "BINANCE",
+        "network": "BEP20",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+      },
+      {
+        "exchange": "BINANCE",
+        "network": "ARBITRUM",
+        "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+      }
+    ]
   }
 }
 ```

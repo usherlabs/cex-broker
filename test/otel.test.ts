@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-	OtelMetrics,
 	createOtelMetricsFromEnv,
-	type OtelConfig,
 	type MetricData,
+	type OtelConfig,
+	OtelMetrics,
 } from "../src/helpers/otel";
 
 /** Create config that enables OTLP metrics (endpoint may be unreachable; recording still works). */

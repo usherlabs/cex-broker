@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 describe("Integration Tests", () => {
 	describe("Policy Integration", () => {
@@ -25,8 +25,12 @@ describe("Integration Tests", () => {
 			// Check withdraw policy
 			expect(policy.withdraw).toBeDefined();
 			expect(policy.withdraw.rule).toBeDefined();
-			expect(policy.withdraw.rule.networks).toContain("ARBITRUM");
-			expect(policy.withdraw.rule.whitelist).toContain(
+			expect(Array.isArray(policy.withdraw.rule)).toBe(true);
+			const withdrawRule = policy.withdraw.rule.find(
+				(rule) => rule.exchange === "BINANCE" && rule.network === "ARBITRUM",
+			);
+			expect(withdrawRule).toBeDefined();
+			expect(withdrawRule.whitelist).toContain(
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 			);
 
@@ -49,6 +53,7 @@ describe("Integration Tests", () => {
 			// Test valid withdrawal
 			const validResult = validateWithdraw(
 				policy,
+				"BINANCE",
 				"ARBITRUM",
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 				1000,
@@ -60,6 +65,7 @@ describe("Integration Tests", () => {
 			// Test invalid withdrawal
 			const invalidResult = validateWithdraw(
 				policy,
+				"BINANCE",
 				"ETH", // Wrong network
 				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
 				1000,

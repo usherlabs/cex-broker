@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import CEXBroker from "../src/index";
 import type { PolicyConfig } from "../src/types";
 
@@ -10,17 +10,18 @@ describe("CEXBroker", () => {
 		// Test policy configuration
 		testPolicy = {
 			withdraw: {
-				rule: {
-					networks: ["BEP20", "ETH"],
-					whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
-					amounts: [
-						{
-							ticker: "USDT",
-							max: 100000,
-							min: 1,
-						},
-					],
-				},
+				rule: [
+					{
+						exchange: "BINANCE",
+						network: "BEP20",
+						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+					},
+					{
+						exchange: "BINANCE",
+						network: "ETH",
+						whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+					},
+				],
 			},
 			deposit: {},
 			order: {
