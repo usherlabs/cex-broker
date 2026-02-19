@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Generate protobuf types
+        run: bun run proto-gen
+
       - name: Run tests
         run: bun test
 
