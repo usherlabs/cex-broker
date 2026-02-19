@@ -603,7 +603,8 @@ export async function resolveOrderExecution(
 	if (!Number.isFinite(price) || price <= 0) {
 		return {
 			valid: false,
-			error: "Price must be a finite number greater than 0 to compute base order amount",
+			error:
+				"Price must be a finite number greater than 0 to compute base order amount",
 			matchedPatterns,
 			limitsApplied: limits.length > 0,
 		};
