@@ -10,12 +10,10 @@ beforeAll(() => {
 	const originalConsole = { ...console };
 	console.log = () => {};
 	console.warn = () => {};
-	console.error = () => {};
 
 	// Restore console after tests
 	afterAll(() => {
 		console.log = originalConsole.log;
 		console.warn = originalConsole.warn;
-		console.error = originalConsole.error;
 	});
 });
