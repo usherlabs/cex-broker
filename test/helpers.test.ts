@@ -197,6 +197,32 @@ describe("Helper Functions", () => {
 			expect(result.valid).toBe(true);
 		});
 
+		test("should accept mixed-case whitelist entries in policy objects", () => {
+			const mixedCasePolicy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "binance",
+							network: "arb",
+							whitelist: ["0x9D467fA9062B6e9B1A46e26007AD82dB116C67Cb"],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				mixedCasePolicy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"USDC",
+			);
+
+			expect(result.valid).toBe(true);
+			expect(result.error).toBeUndefined();
+		});
+
 		test("should reject unauthorised exchange", () => {
 			const result = validateWithdraw(
 				testPolicy,

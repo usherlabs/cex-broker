@@ -295,22 +295,35 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 			);
 		}
 
-		const normalizedPolicy = value as PolicyConfig;
-		normalizedPolicy.withdraw.rule = normalizedPolicy.withdraw.rule.map(
-			(rule) => ({
-				...rule,
-				exchange: rule.exchange.trim().toUpperCase(),
-				network: rule.network.trim().toUpperCase(),
-				whitelist: rule.whitelist.map((a) => a.trim().toLowerCase()),
-			}),
-		);
-		normalizedPolicy.order.rule.limits =
-			normalizedPolicy.order.rule.limits ?? [];
-		return normalizedPolicy;
+		return normalizePolicyConfig(value as PolicyConfig);
 	} catch (error) {
 		console.error("Failed to load policy:", error);
 		throw new Error("Policy configuration could not be loaded");
 	}
+}
+
+export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
+	return {
+		...policy,
+		withdraw: {
+			...policy.withdraw,
+			rule: policy.withdraw.rule.map((rule) => ({
+				...rule,
+				exchange: rule.exchange.trim().toUpperCase(),
+				network: rule.network.trim().toUpperCase(),
+				whitelist: rule.whitelist.map((address) =>
+					address.trim().toLowerCase(),
+				),
+			})),
+		},
+		order: {
+			...policy.order,
+			rule: {
+				...policy.order.rule,
+				limits: policy.order.rule.limits ?? [],
+			},
+		},
+	};
 }
 
 /**
@@ -346,9 +359,10 @@ export function validateWithdraw(
 	_amount: number,
 	_ticker: string,
 ): { valid: boolean; error?: string } {
+	const normalizedPolicy = normalizePolicyConfig(policy);
 	const exchangeNorm = exchange.trim().toUpperCase();
 	const networkNorm = network.trim().toUpperCase();
-	const matchingRules = policy.withdraw.rule
+	const matchingRules = normalizedPolicy.withdraw.rule
 		.map((rule) => ({
 			rule,
 			priority: getWithdrawRulePriority(rule, exchangeNorm, networkNorm),
@@ -358,7 +372,7 @@ export function validateWithdraw(
 	const withdrawRule = matchingRules[0]?.rule;
 
 	if (!withdrawRule) {
-		const allowedPairs = policy.withdraw.rule.map(
+		const allowedPairs = normalizedPolicy.withdraw.rule.map(
 			(r) => `${r.exchange}:${r.network}`,
 		);
 		return {

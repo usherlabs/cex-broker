@@ -2,7 +2,7 @@ import * as grpc from "@grpc/grpc-js";
 import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import { unwatchFile, watchFile } from "fs";
 import Joi from "joi";
-import { createBrokerPool, loadPolicy } from "./helpers";
+import { createBrokerPool, loadPolicy, normalizePolicyConfig } from "./helpers";
 import { log } from "./helpers/logger";
 import {
 	createOtelLogsFromEnv,
@@ -164,7 +164,7 @@ export default class CEXBroker {
 			this.policy = loadPolicy(policies);
 			this.port = config?.port ?? 8086;
 		} else {
-			this.policy = policies;
+			this.policy = normalizePolicyConfig(policies);
 		}
 
 		// If monitoring a file, start watcher
