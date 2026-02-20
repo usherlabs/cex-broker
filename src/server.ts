@@ -24,6 +24,12 @@ import {
 	buildHttpClientOverrideFromMetadata,
 } from "./helpers";
 import type { OtelMetrics } from "./helpers/otel";
+import {
+	PayloadReader,
+	type ActionPayload,
+	type PayloadFieldShape,
+	PayloadValidationError,
+} from "./utils/payload-reader";
 
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
@@ -32,6 +38,14 @@ const grpcObj = grpc.loadPackageDefinition(
 	packageDef,
 ) as unknown as ProtoGrpcType;
 const cexNode = grpcObj.cex_broker;
+
+function preparePayload(
+	rawPayload: Record<string, string> | undefined,
+	shape: PayloadFieldShape,
+): ActionPayload {
+	const payload = new PayloadReader(rawPayload as unknown as ActionPayload);
+	return payload.read(shape);
+}
 
 export function getServer(
 	policy: PolicyConfig,
@@ -167,16 +181,33 @@ export function getServer(
 				case Action.Deposit: {
 					const transactionSchema = Joi.object({
 						recipientAddress: Joi.string().required(),
-						amount: Joi.number().positive().required(), // Must be a positive number
+						amount: Joi.number().positive().required(),
 						transactionHash: Joi.string().required(),
 						since: Joi.number(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.string())
+							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
 							.default({}),
 					});
-					const { value, error } = transactionSchema.validate(
-						call.request.payload ?? {},
-					);
+					let payload: ActionPayload;
+					try {
+						payload = preparePayload(call.request.payload, {
+							amount: { type: "number", required: true },
+							since: { type: "number" },
+							params: { type: "jsonObject" },
+						});
+					} catch (error) {
+						if (error instanceof PayloadValidationError) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: error.message,
+								},
+								null,
+							);
+						}
+						throw error;
+					}
+					const { value, error } = transactionSchema.validate(payload);
 					if (error) {
 						return wrappedCallback(
 							{
@@ -347,31 +378,23 @@ export function getServer(
 						params: Joi.object().default({}),
 					});
 
-					// Normalise payload coming from protobuf map<string, string>
-					// to support JSON-encoded complex types for args/params
-					const rawPayload = (call.request.payload ?? {}) as Record<
-						string,
-						unknown
-					>;
-					const preparedPayload: Record<string, unknown> = { ...rawPayload };
+					let preparedPayload: ActionPayload;
 					try {
-						if (typeof preparedPayload.args === "string") {
-							preparedPayload.args = JSON.parse(preparedPayload.args as string);
-						}
-						if (typeof preparedPayload.params === "string") {
-							preparedPayload.params = JSON.parse(
-								preparedPayload.params as string,
+						preparedPayload = preparePayload(call.request.payload, {
+							args: { type: "jsonArray" },
+							params: { type: "jsonObject" },
+						});
+					} catch (error) {
+						if (error instanceof PayloadValidationError) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: error.message,
+								},
+								null,
 							);
 						}
-					} catch {
-						return wrappedCallback(
-							{
-								code: grpc.status.INVALID_ARGUMENT,
-								message:
-									"ValidationError: Failed to parse JSON for 'args' or 'params'",
-							},
-							null,
-						);
+						throw error;
 					}
 
 					const { value: callValue, error: callError } =
@@ -475,12 +498,28 @@ export function getServer(
 					const {
 						value: fetchDepositAddresses,
 						error: errorFetchDepositAddresses,
-					} = fetchDepositAddressesSchema.validate(call.request.payload ?? {});
+					} = (() => {
+						try {
+							const payload = preparePayload(call.request.payload, {
+								params: { type: "jsonObject" },
+							});
+							return fetchDepositAddressesSchema.validate(payload);
+						} catch (error) {
+							if (error instanceof PayloadValidationError) {
+								return { value: null, error };
+							}
+							throw error;
+						}
+					})();
 					if (errorFetchDepositAddresses) {
+						const message =
+							errorFetchDepositAddresses instanceof PayloadValidationError
+								? errorFetchDepositAddresses.message
+								: `ValidationError: ${errorFetchDepositAddresses.message}`;
 						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: `ValidationError: ${errorFetchDepositAddresses?.message}`,
+								message,
 							},
 							null,
 						);
@@ -543,14 +582,32 @@ export function getServer(
 					}
 					const transferSchema = Joi.object({
 						recipientAddress: Joi.string().required(),
-						amount: Joi.number().positive().required(), // Must be a positive number
+						amount: Joi.number().positive().required(),
 						chain: Joi.string().required(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.string())
+							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
 							.default({}),
 					});
+					let payload: ActionPayload;
+					try {
+						payload = preparePayload(call.request.payload, {
+							amount: { type: "number", required: true },
+							params: { type: "jsonObject" },
+						});
+					} catch (error) {
+						if (error instanceof PayloadValidationError) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: error.message,
+								},
+								null,
+							);
+						}
+						throw error;
+					}
 					const { value: transferValue, error: transferError } =
-						transferSchema.validate(call.request.payload ?? {});
+						transferSchema.validate(payload);
 					if (transferError) {
 						return wrappedCallback(
 							{
@@ -566,7 +623,7 @@ export function getServer(
 						cex,
 						transferValue.chain,
 						transferValue.recipientAddress,
-						Number(transferValue.amount),
+						transferValue.amount,
 						symbol,
 					);
 					if (!transferValidation.valid) {
@@ -595,7 +652,7 @@ export function getServer(
 						}
 						const transaction = await broker.withdraw(
 							symbol,
-							Number(transferValue.amount),
+							transferValue.amount,
 							transferValue.recipientAddress,
 							undefined,
 							{ network: transferValue.chain },
@@ -622,16 +679,35 @@ export function getServer(
 				case Action.CreateOrder: {
 					const createOrderSchema = Joi.object({
 						orderType: Joi.string().valid("market", "limit").default("limit"),
-						amount: Joi.number().positive().required(), // Must be a positive number
+						amount: Joi.number().positive().required(),
 						fromToken: Joi.string().required(),
 						toToken: Joi.string().required(),
 						price: Joi.number().positive().required(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.string())
+							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
 							.default({}),
 					});
+					let payload: ActionPayload;
+					try {
+						payload = preparePayload(call.request.payload, {
+							amount: { type: "number", required: true },
+							price: { type: "number", required: true },
+							params: { type: "jsonObject" },
+						});
+					} catch (error) {
+						if (error instanceof PayloadValidationError) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: error.message,
+								},
+								null,
+							);
+						}
+						throw error;
+					}
 					const { value: orderValue, error: orderError } =
-						createOrderSchema.validate(call.request.payload ?? {});
+						createOrderSchema.validate(payload);
 					if (orderError) {
 						return wrappedCallback(
 							{
@@ -658,8 +734,8 @@ export function getServer(
 							cex,
 							orderValue.fromToken,
 							orderValue.toToken,
-							Number(orderValue.amount),
-							Number(orderValue.price),
+							orderValue.amount,
+							orderValue.price,
 						);
 						if (!resolution.valid || !resolution.symbol || !resolution.side) {
 							return wrappedCallback(
@@ -677,8 +753,8 @@ export function getServer(
 							resolution.symbol,
 							orderValue.orderType,
 							resolution.side,
-							Number(resolution.amountBase ?? orderValue.amount),
-							Number(orderValue.price),
+							resolution.amountBase ?? orderValue.amount,
+							orderValue.price,
 							orderValue.params ?? {},
 						);
 
@@ -701,11 +777,28 @@ export function getServer(
 					const getOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.string())
+							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
 							.default({}),
 					});
+					let payload: ActionPayload;
+					try {
+						payload = preparePayload(call.request.payload, {
+							params: { type: "jsonObject" },
+						});
+					} catch (error) {
+						if (error instanceof PayloadValidationError) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: error.message,
+								},
+								null,
+							);
+						}
+						throw error;
+					}
 					const { value: getOrderValue, error: getOrderError } =
-						getOrderSchema.validate(call.request.payload ?? {});
+						getOrderSchema.validate(payload);
 					// Validate required fields
 					if (getOrderError) {
 						return wrappedCallback(
@@ -761,11 +854,28 @@ export function getServer(
 					const cancelOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.string())
+							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
 							.default({}),
 					});
+					let payload: ActionPayload;
+					try {
+						payload = preparePayload(call.request.payload, {
+							params: { type: "jsonObject" },
+						});
+					} catch (error) {
+						if (error instanceof PayloadValidationError) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: error.message,
+								},
+								null,
+							);
+						}
+						throw error;
+					}
 					const { value: cancelOrderValue, error: cancelOrderError } =
-						cancelOrderSchema.validate(call.request.payload ?? {});
+						cancelOrderSchema.validate(payload);
 					// Validate required fields
 					if (cancelOrderError) {
 						return wrappedCallback(
