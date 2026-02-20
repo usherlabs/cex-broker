@@ -27,6 +27,7 @@ import {
 	CreateOrderPayloadSchema,
 	DepositPayloadSchema,
 	FetchDepositAddressesPayloadSchema,
+	FetchFeesPayloadSchema,
 	GetOrderDetailsPayloadSchema,
 	WithdrawPayloadSchema,
 } from "./schemas/action-payloads";
@@ -338,21 +339,160 @@ export function getServer(
 								null,
 							);
 						}
+						const parsedPayload = parsePayload(
+							FetchFeesPayloadSchema,
+							call.request.payload,
+						);
+						if (!parsedPayload.success) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: parsedPayload.message,
+								},
+								null,
+							);
+						}
+						const includeAllFees =
+							parsedPayload.data.includeAllFees ||
+							parsedPayload.data.includeFundingFees === true;
 						try {
 							await broker.loadMarkets();
-							const market = await broker.market(symbol);
+							const fetchFundingFees = async (currencyCodes: string[]) => {
+								let fundingFeeSource:
+									| "fetchDepositWithdrawFees"
+									| "currencies"
+									| "unavailable" = "unavailable";
+								const fundingFeesByCurrency: Record<string, unknown> = {};
 
-							// Address CodeRabbit's concern: explicit handling for missing fees
-							const generalFee = broker.fees ?? null;
-							const feeStatus = broker.fees ? "available" : "unknown";
+								if (broker.has.fetchDepositWithdrawFees) {
+									try {
+										const feeMap = (await broker.fetchDepositWithdrawFees(
+											currencyCodes,
+										)) as unknown as Record<
+											string,
+											{
+												deposit?: unknown;
+												withdraw?: unknown;
+												networks?: unknown;
+												fee?: number;
+												percentage?: boolean;
+											}
+										>;
+										for (const code of currencyCodes) {
+											const feeInfo = feeMap[code];
+											if (!feeInfo) {
+												continue;
+											}
+											const fallbackFee =
+												feeInfo.fee !== undefined ||
+												feeInfo.percentage !== undefined
+													? {
+															fee: feeInfo.fee ?? null,
+															percentage: feeInfo.percentage ?? null,
+														}
+													: null;
+											fundingFeesByCurrency[code] = {
+												deposit: feeInfo.deposit ?? fallbackFee,
+												withdraw: feeInfo.withdraw ?? fallbackFee,
+												networks: feeInfo.networks ?? {},
+											};
+										}
+										if (Object.keys(fundingFeesByCurrency).length > 0) {
+											fundingFeeSource = "fetchDepositWithdrawFees";
+										}
+									} catch (error) {
+										safeLogError(
+											`Error fetching deposit/withdraw fee map for ${symbol} from ${cex}`,
+											error,
+										);
+									}
+								}
 
-							if (!broker.fees) {
-								log.warn(`Fee metadata unavailable for ${cex}`, { symbol });
+								if (fundingFeeSource === "unavailable") {
+									try {
+										const currencies = await broker.fetchCurrencies();
+										for (const code of currencyCodes) {
+											const currency = currencies[code];
+											if (!currency) {
+												continue;
+											}
+											fundingFeesByCurrency[code] = {
+												deposit: {
+													enabled: currency.deposit ?? null,
+												},
+												withdraw: {
+													enabled: currency.withdraw ?? null,
+													fee: currency.fee ?? null,
+													limits: currency.limits?.withdraw ?? null,
+												},
+												networks: currency.networks ?? {},
+											};
+										}
+										if (Object.keys(fundingFeesByCurrency).length > 0) {
+											fundingFeeSource = "currencies";
+										}
+									} catch (error) {
+										safeLogError(
+											`Error fetching currency metadata for fees for ${symbol} from ${cex}`,
+											error,
+										);
+									}
+								}
+
+								return { fundingFeeSource, fundingFeesByCurrency };
+							};
+
+							const isMarketSymbol = symbol.includes("/");
+							if (isMarketSymbol) {
+								const market = await broker.market(symbol);
+								const generalFee = broker.fees ?? null;
+								const feeStatus = broker.fees ? "available" : "unknown";
+
+								if (!broker.fees) {
+									log.warn(`Fee metadata unavailable for ${cex}`, { symbol });
+								}
+
+								if (!includeAllFees) {
+									return wrappedCallback(null, {
+										proof: verityProof,
+										result: JSON.stringify({
+											feeScope: "market",
+											generalFee,
+											feeStatus,
+											market,
+										}),
+									});
+								}
+
+								const currencyCodes = Array.from(
+									new Set([market.base, market.quote]),
+								);
+								const { fundingFeeSource, fundingFeesByCurrency } =
+									await fetchFundingFees(currencyCodes);
+								return wrappedCallback(null, {
+									proof: verityProof,
+									result: JSON.stringify({
+										feeScope: "market+funding",
+										generalFee,
+										feeStatus,
+										market,
+										fundingFeeSource,
+										fundingFeesByCurrency,
+									}),
+								});
 							}
 
+							const tokenCode = symbol.toUpperCase();
+							const { fundingFeeSource, fundingFeesByCurrency } =
+								await fetchFundingFees([tokenCode]);
 							return wrappedCallback(null, {
 								proof: verityProof,
-								result: JSON.stringify({ generalFee, feeStatus, market }),
+								result: JSON.stringify({
+									feeScope: "token",
+									symbol: tokenCode,
+									fundingFeeSource,
+									fundingFeesByCurrency,
+								}),
 							});
 						} catch (error) {
 							safeLogError(
