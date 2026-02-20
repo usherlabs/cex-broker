@@ -661,7 +661,10 @@ export function getServer(
 							transferValue.amount,
 							transferValue.recipientAddress,
 							undefined,
-							{ network: transferValue.chain },
+							{
+								...(transferValue.params ?? {}),
+								network: transferValue.chain,
+							},
 						);
 						log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 
