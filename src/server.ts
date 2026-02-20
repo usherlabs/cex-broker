@@ -185,7 +185,10 @@ export function getServer(
 						transactionHash: Joi.string().required(),
 						since: Joi.number(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
+							.pattern(
+								Joi.string(),
+								Joi.alternatives(Joi.string(), Joi.number()),
+							)
 							.default({}),
 					});
 					let payload: ActionPayload;
@@ -585,7 +588,10 @@ export function getServer(
 						amount: Joi.number().positive().required(),
 						chain: Joi.string().required(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
+							.pattern(
+								Joi.string(),
+								Joi.alternatives(Joi.string(), Joi.number()),
+							)
 							.default({}),
 					});
 					let payload: ActionPayload;
@@ -684,7 +690,10 @@ export function getServer(
 						toToken: Joi.string().required(),
 						price: Joi.number().positive().required(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
+							.pattern(
+								Joi.string(),
+								Joi.alternatives(Joi.string(), Joi.number()),
+							)
 							.default({}),
 					});
 					let payload: ActionPayload;
@@ -777,7 +786,10 @@ export function getServer(
 					const getOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
+							.pattern(
+								Joi.string(),
+								Joi.alternatives(Joi.string(), Joi.number()),
+							)
 							.default({}),
 					});
 					let payload: ActionPayload;
@@ -854,7 +866,10 @@ export function getServer(
 					const cancelOrderSchema = Joi.object({
 						orderId: Joi.string().required(),
 						params: Joi.object()
-							.pattern(Joi.string(), Joi.alternatives(Joi.string(), Joi.number()))
+							.pattern(
+								Joi.string(),
+								Joi.alternatives(Joi.string(), Joi.number()),
+							)
 							.default({}),
 					});
 					let payload: ActionPayload;

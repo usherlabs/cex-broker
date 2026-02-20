@@ -311,7 +311,9 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 				...rule,
 				exchange: rule.exchange.trim().toUpperCase(),
 				network: rule.network.trim().toUpperCase(),
-				whitelist: rule.whitelist.map((address) => address.trim().toLowerCase()),
+				whitelist: rule.whitelist.map((address) =>
+					address.trim().toLowerCase(),
+				),
 			})),
 		},
 		order: {
