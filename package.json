@@ -70,7 +70,8 @@
 		"loglayer": "^9.1.0",
 		"protobufjs": "^7.4.0",
 		"serialize-error": "^13.0.1",
-		"tslog": "^4.9.3"
+		"tslog": "^4.9.3",
+		"zod": "^4.3.6"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org"

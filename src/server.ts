@@ -1,35 +1,36 @@
+import * as grpc from "@grpc/grpc-js";
+import * as protoLoader from "@grpc/proto-loader";
+import type { Exchange } from "@usherlabs/ccxt";
+import type { z } from "zod";
 import {
 	authenticateRequest,
+	buildHttpClientOverrideFromMetadata,
 	createBroker,
 	resolveOrderExecution,
 	selectBroker,
 	validateWithdraw,
+	verityHttpClientOverridePredicate,
 } from "./helpers";
-import type { PolicyConfig } from "./types";
-import * as grpc from "@grpc/grpc-js";
-import * as protoLoader from "@grpc/proto-loader";
-import type { ProtoGrpcType } from "./proto/node";
-import type { Exchange } from "@usherlabs/ccxt";
+import { log } from "./helpers/logger";
+import type { OtelMetrics } from "./helpers/otel";
+import { Action } from "./proto/cex_broker/Action";
 import type { ActionRequest } from "./proto/cex_broker/ActionRequest";
 import type { ActionResponse } from "./proto/cex_broker/ActionResponse";
-import { Action } from "./proto/cex_broker/Action";
 import type { SubscribeRequest } from "./proto/cex_broker/SubscribeRequest";
 import type { SubscribeResponse } from "./proto/cex_broker/SubscribeResponse";
 import { SubscriptionType } from "./proto/cex_broker/SubscriptionType";
-import Joi from "joi";
-import { log } from "./helpers/logger";
+import type { ProtoGrpcType } from "./proto/node";
 import descriptor from "./proto/node.descriptor.ts";
 import {
-	verityHttpClientOverridePredicate,
-	buildHttpClientOverrideFromMetadata,
-} from "./helpers";
-import type { OtelMetrics } from "./helpers/otel";
-import {
-	PayloadReader,
-	type ActionPayload,
-	type PayloadFieldShape,
-	PayloadValidationError,
-} from "./utils/payload-reader";
+	CallPayloadSchema,
+	CancelOrderPayloadSchema,
+	CreateOrderPayloadSchema,
+	DepositPayloadSchema,
+	FetchDepositAddressesPayloadSchema,
+	GetOrderDetailsPayloadSchema,
+	WithdrawPayloadSchema,
+} from "./schemas/action-payloads";
+import type { PolicyConfig } from "./types";
 
 const packageDef = protoLoader.fromJSON(
 	descriptor as unknown as Record<string, unknown>,
@@ -39,12 +40,23 @@ const grpcObj = grpc.loadPackageDefinition(
 ) as unknown as ProtoGrpcType;
 const cexNode = grpcObj.cex_broker;
 
-function preparePayload(
+function parsePayload<T>(
+	schema: z.ZodType<T>,
 	rawPayload: Record<string, string> | undefined,
-	shape: PayloadFieldShape,
-): ActionPayload {
-	const payload = new PayloadReader(rawPayload as unknown as ActionPayload);
-	return payload.read(shape);
+): { success: true; data: T } | { success: false; message: string } {
+	const parsed = schema.safeParse(rawPayload ?? {});
+	if (parsed.success) {
+		return { success: true, data: parsed.data };
+	}
+	const firstIssue = parsed.error.issues[0];
+	const path =
+		firstIssue && firstIssue.path.length > 0
+			? `${firstIssue.path.join(".")}: `
+			: "";
+	return {
+		success: false,
+		message: `ValidationError: ${path}${firstIssue?.message ?? "Invalid payload"}`,
+	};
 }
 
 export function getServer(
@@ -179,47 +191,20 @@ export function getServer(
 
 			switch (action) {
 				case Action.Deposit: {
-					const transactionSchema = Joi.object({
-						recipientAddress: Joi.string().required(),
-						amount: Joi.number().positive().required(),
-						transactionHash: Joi.string().required(),
-						since: Joi.number(),
-						params: Joi.object()
-							.pattern(
-								Joi.string(),
-								Joi.alternatives(Joi.string(), Joi.number()),
-							)
-							.default({}),
-					});
-					let payload: ActionPayload;
-					try {
-						payload = preparePayload(call.request.payload, {
-							amount: { type: "number", required: true },
-							since: { type: "number" },
-							params: { type: "jsonObject" },
-						});
-					} catch (error) {
-						if (error instanceof PayloadValidationError) {
-							return wrappedCallback(
-								{
-									code: grpc.status.INVALID_ARGUMENT,
-									message: error.message,
-								},
-								null,
-							);
-						}
-						throw error;
-					}
-					const { value, error } = transactionSchema.validate(payload);
-					if (error) {
+					const parsedPayload = parsePayload(
+						DepositPayloadSchema,
+						call.request.payload,
+					);
+					if (!parsedPayload.success) {
 						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: `ValidationError: ${error.message}`,
+								message: parsedPayload.message,
 							},
 							null,
 						);
 					}
+					const value = parsedPayload.data;
 					try {
 						const deposits = await broker.fetchDeposits(
 							symbol,
@@ -363,55 +348,20 @@ export function getServer(
 				}
 
 				case Action.Call: {
-					const callSchema = Joi.object({
-						functionName: Joi.string()
-							.pattern(/^[A-Za-z][A-Za-z0-9]*$/)
-							.required(),
-						args: Joi.array()
-							.items(
-								Joi.alternatives(
-									Joi.string(),
-									Joi.number(),
-									Joi.boolean(),
-									Joi.object(),
-									Joi.array(),
-								),
-							)
-							.default([]),
-						params: Joi.object().default({}),
-					});
-
-					let preparedPayload: ActionPayload;
-					try {
-						preparedPayload = preparePayload(call.request.payload, {
-							args: { type: "jsonArray" },
-							params: { type: "jsonObject" },
-						});
-					} catch (error) {
-						if (error instanceof PayloadValidationError) {
-							return wrappedCallback(
-								{
-									code: grpc.status.INVALID_ARGUMENT,
-									message: error.message,
-								},
-								null,
-							);
-						}
-						throw error;
-					}
-
-					const { value: callValue, error: callError } =
-						callSchema.validate(preparedPayload);
-
-					if (callError) {
+					const parsedPayload = parsePayload(
+						CallPayloadSchema,
+						call.request.payload,
+					);
+					if (!parsedPayload.success) {
 						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: `ValidationError: ${callError.message}`,
+								message: parsedPayload.message,
 							},
 							null,
 						);
 					}
+					const callValue = parsedPayload.data;
 
 					try {
 						// Ensure function exists and is callable on the broker
@@ -492,41 +442,20 @@ export function getServer(
 							null,
 						);
 					}
-					const fetchDepositAddressesSchema = Joi.object({
-						chain: Joi.string().required(),
-						params: Joi.object()
-							.pattern(Joi.string(), Joi.string())
-							.default({}),
-					});
-					const {
-						value: fetchDepositAddresses,
-						error: errorFetchDepositAddresses,
-					} = (() => {
-						try {
-							const payload = preparePayload(call.request.payload, {
-								params: { type: "jsonObject" },
-							});
-							return fetchDepositAddressesSchema.validate(payload);
-						} catch (error) {
-							if (error instanceof PayloadValidationError) {
-								return { value: null, error };
-							}
-							throw error;
-						}
-					})();
-					if (errorFetchDepositAddresses) {
-						const message =
-							errorFetchDepositAddresses instanceof PayloadValidationError
-								? errorFetchDepositAddresses.message
-								: `ValidationError: ${errorFetchDepositAddresses.message}`;
+					const parsedPayload = parsePayload(
+						FetchDepositAddressesPayloadSchema,
+						call.request.payload,
+					);
+					if (!parsedPayload.success) {
 						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message,
+								message: parsedPayload.message,
 							},
 							null,
 						);
 					}
+					const fetchDepositAddresses = parsedPayload.data;
 					try {
 						const depositAddresses =
 							broker.has.fetchDepositAddress === true
@@ -583,46 +512,20 @@ export function getServer(
 							null,
 						);
 					}
-					const transferSchema = Joi.object({
-						recipientAddress: Joi.string().required(),
-						amount: Joi.number().positive().required(),
-						chain: Joi.string().required(),
-						params: Joi.object()
-							.pattern(
-								Joi.string(),
-								Joi.alternatives(Joi.string(), Joi.number()),
-							)
-							.default({}),
-					});
-					let payload: ActionPayload;
-					try {
-						payload = preparePayload(call.request.payload, {
-							amount: { type: "number", required: true },
-							params: { type: "jsonObject" },
-						});
-					} catch (error) {
-						if (error instanceof PayloadValidationError) {
-							return wrappedCallback(
-								{
-									code: grpc.status.INVALID_ARGUMENT,
-									message: error.message,
-								},
-								null,
-							);
-						}
-						throw error;
-					}
-					const { value: transferValue, error: transferError } =
-						transferSchema.validate(payload);
-					if (transferError) {
+					const parsedPayload = parsePayload(
+						WithdrawPayloadSchema,
+						call.request.payload,
+					);
+					if (!parsedPayload.success) {
 						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: `ValidationError:" ${transferError?.message}`,
+								message: parsedPayload.message,
 							},
 							null,
 						);
 					}
+					const transferValue = parsedPayload.data;
 					// Validate against policy
 					const transferValidation = validateWithdraw(
 						policy,
@@ -686,49 +589,20 @@ export function getServer(
 				}
 
 				case Action.CreateOrder: {
-					const createOrderSchema = Joi.object({
-						orderType: Joi.string().valid("market", "limit").default("limit"),
-						amount: Joi.number().positive().required(),
-						fromToken: Joi.string().required(),
-						toToken: Joi.string().required(),
-						price: Joi.number().positive().required(),
-						params: Joi.object()
-							.pattern(
-								Joi.string(),
-								Joi.alternatives(Joi.string(), Joi.number()),
-							)
-							.default({}),
-					});
-					let payload: ActionPayload;
-					try {
-						payload = preparePayload(call.request.payload, {
-							amount: { type: "number", required: true },
-							price: { type: "number", required: true },
-							params: { type: "jsonObject" },
-						});
-					} catch (error) {
-						if (error instanceof PayloadValidationError) {
-							return wrappedCallback(
-								{
-									code: grpc.status.INVALID_ARGUMENT,
-									message: error.message,
-								},
-								null,
-							);
-						}
-						throw error;
-					}
-					const { value: orderValue, error: orderError } =
-						createOrderSchema.validate(payload);
-					if (orderError) {
+					const parsedPayload = parsePayload(
+						CreateOrderPayloadSchema,
+						call.request.payload,
+					);
+					if (!parsedPayload.success) {
 						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: `ValidationError:" ${orderError.message}`,
+								message: parsedPayload.message,
 							},
 							null,
 						);
 					}
+					const orderValue = parsedPayload.data;
 
 					try {
 						if (!broker) {
@@ -786,44 +660,20 @@ export function getServer(
 				}
 
 				case Action.GetOrderDetails: {
-					const getOrderSchema = Joi.object({
-						orderId: Joi.string().required(),
-						params: Joi.object()
-							.pattern(
-								Joi.string(),
-								Joi.alternatives(Joi.string(), Joi.number()),
-							)
-							.default({}),
-					});
-					let payload: ActionPayload;
-					try {
-						payload = preparePayload(call.request.payload, {
-							params: { type: "jsonObject" },
-						});
-					} catch (error) {
-						if (error instanceof PayloadValidationError) {
-							return wrappedCallback(
-								{
-									code: grpc.status.INVALID_ARGUMENT,
-									message: error.message,
-								},
-								null,
-							);
-						}
-						throw error;
-					}
-					const { value: getOrderValue, error: getOrderError } =
-						getOrderSchema.validate(payload);
-					// Validate required fields
-					if (getOrderError) {
+					const parsedPayload = parsePayload(
+						GetOrderDetailsPayloadSchema,
+						call.request.payload,
+					);
+					if (!parsedPayload.success) {
 						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: `ValidationError: ${getOrderError.message}`,
+								message: parsedPayload.message,
 							},
 							null,
 						);
 					}
+					const getOrderValue = parsedPayload.data;
 
 					try {
 						// Validate CEX key
@@ -839,6 +689,7 @@ export function getServer(
 
 						const orderDetails = await broker.fetchOrder(
 							getOrderValue.orderId,
+							undefined,
 							{ ...getOrderValue.params },
 						);
 
@@ -866,47 +717,24 @@ export function getServer(
 					break;
 				}
 				case Action.CancelOrder: {
-					const cancelOrderSchema = Joi.object({
-						orderId: Joi.string().required(),
-						params: Joi.object()
-							.pattern(
-								Joi.string(),
-								Joi.alternatives(Joi.string(), Joi.number()),
-							)
-							.default({}),
-					});
-					let payload: ActionPayload;
-					try {
-						payload = preparePayload(call.request.payload, {
-							params: { type: "jsonObject" },
-						});
-					} catch (error) {
-						if (error instanceof PayloadValidationError) {
-							return wrappedCallback(
-								{
-									code: grpc.status.INVALID_ARGUMENT,
-									message: error.message,
-								},
-								null,
-							);
-						}
-						throw error;
-					}
-					const { value: cancelOrderValue, error: cancelOrderError } =
-						cancelOrderSchema.validate(payload);
-					// Validate required fields
-					if (cancelOrderError) {
+					const parsedPayload = parsePayload(
+						CancelOrderPayloadSchema,
+						call.request.payload,
+					);
+					if (!parsedPayload.success) {
 						return wrappedCallback(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
-								message: `ValidationError:  ${cancelOrderError.message}`,
+								message: parsedPayload.message,
 							},
 							null,
 						);
 					}
+					const cancelOrderValue = parsedPayload.data;
 
 					const cancelledOrder = await broker.cancelOrder(
 						cancelOrderValue.orderId,
+						undefined,
 						cancelOrderValue.params ?? {},
 					);
 
