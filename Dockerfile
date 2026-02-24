@@ -6,6 +6,6 @@ RUN apt-get update -y \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
-RUN bun install --global @usherlabs/cex-broker@0.2.5
+RUN bun install --global @usherlabs/cex-broker@0.2.6
 
 CMD ["cex-broker"]
