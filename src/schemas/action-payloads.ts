@@ -65,6 +65,25 @@ export const CancelOrderPayloadSchema = z.object({
 	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
 });
 
+const booleanLikeSchema = z.preprocess((value: unknown) => {
+	if (typeof value !== "string") {
+		return value;
+	}
+	const normalized = value.trim().toLowerCase();
+	if (["true", "1", "yes"].includes(normalized)) {
+		return true;
+	}
+	if (["false", "0", "no"].includes(normalized)) {
+		return false;
+	}
+	return value;
+}, z.boolean());
+
+export const FetchFeesPayloadSchema = z.object({
+	includeAllFees: booleanLikeSchema.optional().default(false),
+	includeFundingFees: booleanLikeSchema.optional(),
+});
+
 export type DepositPayload = z.infer<typeof DepositPayloadSchema>;
 export type CallPayload = z.infer<typeof CallPayloadSchema>;
 export type FetchDepositAddressesPayload = z.infer<
@@ -76,3 +95,4 @@ export type GetOrderDetailsPayload = z.infer<
 	typeof GetOrderDetailsPayloadSchema
 >;
 export type CancelOrderPayload = z.infer<typeof CancelOrderPayloadSchema>;
+export type FetchFeesPayload = z.infer<typeof FetchFeesPayloadSchema>;
