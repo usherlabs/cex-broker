@@ -8,7 +8,4 @@ RUN apt-get update -y \
 
 RUN bun install --global @usherlabs/cex-broker@0.2.6
 
-COPY --chmod=0755 ./.sandbox/entrypoint.sh /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
-
 CMD ["cex-broker"]
