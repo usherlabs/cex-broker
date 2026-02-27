@@ -832,7 +832,7 @@ export function getServer(
 
 							const orderDetails = await broker.fetchOrder(
 								getOrderValue.orderId,
-								undefined,
+								symbol,
 								{ ...getOrderValue.params },
 							);
 
@@ -840,10 +840,11 @@ export function getServer(
 								result: JSON.stringify({
 									orderId: orderDetails.id,
 									status: orderDetails.status,
-									originalAmount: orderDetails.amount,
-									filledAmount: orderDetails.filled,
+									amount: orderDetails.amount,
+									filled: orderDetails.filled,
+									remaining: orderDetails.remaining,
 									symbol: orderDetails.symbol,
-									mode: orderDetails.side,
+									side: orderDetails.side,
 									price: orderDetails.price,
 								}),
 							});
@@ -878,7 +879,7 @@ export function getServer(
 						try {
 							const cancelledOrder = await broker.cancelOrder(
 								cancelOrderValue.orderId,
-								undefined,
+								symbol,
 								cancelOrderValue.params ?? {},
 							);
 
