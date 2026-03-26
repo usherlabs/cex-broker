@@ -4,6 +4,7 @@ import {
 	selectBroker,
 	validateOrder,
 	validateWithdraw,
+	validateDeposit,
 } from "./helpers";
 import type { PolicyConfig } from "./types";
 import * as grpc from "@grpc/grpc-js";
@@ -366,6 +367,17 @@ export function getServer(
 							{
 								code: grpc.status.INVALID_ARGUMENT,
 								message: `ValidationError: ${errorFetchDepositAddresses?.message}`,
+							},
+							null,
+						);
+					}
+					// Validate against deposit policy
+					const depositValidation = validateDeposit(policy, cex, fetchDepositAddresses.chain, symbol);
+					if (!depositValidation.valid) {
+						return callback(
+							{
+								code: grpc.status.PERMISSION_DENIED,
+								message: depositValidation.error,
 							},
 							null,
 						);

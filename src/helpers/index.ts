@@ -445,14 +445,79 @@ export function validateOrder(
 }
 
 /**
- * Validates deposit request (currently empty but can be extended)
+ * Returns a priority score for how specifically a deposit rule matches the given exchange/network.
+ * Higher priority = more specific match. Returns 0 if no match.
+ */
+export function getDepositRulePriority(
+	rule: { exchange: string; network: string },
+	exchange: string,
+	network: string,
+): number {
+	const ruleExchange = rule.exchange.toUpperCase();
+	const ruleNetwork = rule.network.toUpperCase();
+	const ex = exchange.toUpperCase();
+	const net = network.toUpperCase();
+
+	const exchangeMatch = ruleExchange === "*" || ruleExchange === ex;
+	const networkMatch = ruleNetwork === "*" || ruleNetwork === net;
+
+	if (!exchangeMatch || !networkMatch) return 0;
+
+	if (ruleExchange !== "*" && ruleNetwork !== "*") return 4; // exact + exact
+	if (ruleExchange !== "*" && ruleNetwork === "*") return 3; // exact exchange + wildcard network
+	if (ruleExchange === "*" && ruleNetwork !== "*") return 2; // wildcard exchange + exact network
+	return 1; // wildcard both
+}
+
+/**
+ * Validates a deposit request against policy rules.
+ * If no deposit rules exist, all deposits are allowed (backward compat).
  */
 export function validateDeposit(
-	_policy: PolicyConfig,
-	_chain: string,
-	_amount: number,
+	policy: PolicyConfig,
+	exchange: string,
+	network: string,
+	ticker: string,
 ): { valid: boolean; error?: string } {
-	// Currently deposit policy is empty, so all deposits are allowed
-	// This can be extended when deposit rules are added to the policy
+	const rules = policy.deposit.rule;
+
+	// No rules = allow all (backward compat for `deposit: {}` and `deposit: { rule: [] }`)
+	if (!rules || rules.length === 0) {
+		return { valid: true };
+	}
+
+	// Find the highest-priority matching rule
+	let bestPriority = 0;
+	let bestRule: (typeof rules)[number] | undefined;
+	for (const rule of rules) {
+		const priority = getDepositRulePriority(rule, exchange, network);
+		if (priority > bestPriority) {
+			bestPriority = priority;
+			bestRule = rule;
+		}
+	}
+
+	if (!bestRule) {
+		return {
+			valid: false,
+			error: `Deposits not allowed for ${exchange.toUpperCase()}:${network.toUpperCase()}`,
+		};
+	}
+
+	// If coins is absent, empty, or ["*"], allow any coin
+	if (!bestRule.coins || bestRule.coins.length === 0 || (bestRule.coins.length === 1 && bestRule.coins[0] === "*")) {
+		return { valid: true };
+	}
+
+	// Check ticker against allowed coins (case-insensitive)
+	const upperTicker = ticker.toUpperCase();
+	const allowedCoins = bestRule.coins.map((c) => c.toUpperCase());
+	if (!allowedCoins.includes(upperTicker)) {
+		return {
+			valid: false,
+			error: `Token ${upperTicker} not allowed for deposit on ${exchange.toUpperCase()}:${network.toUpperCase()}. Allowed: [${allowedCoins.join(", ")}]`,
+		};
+	}
+
 	return { valid: true };
 }
