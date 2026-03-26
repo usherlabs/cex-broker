@@ -253,6 +253,13 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 			exchange: Joi.string().required(),
 			network: Joi.string().required(),
 			whitelist: Joi.array().items(Joi.string()).required(),
+			coins: Joi.array().items(Joi.string()).optional(),
+		});
+
+		const depositRuleEntrySchema = Joi.object({
+			exchange: Joi.string().required(),
+			network: Joi.string().required(),
+			coins: Joi.array().items(Joi.string()).optional(),
 		});
 
 		// Joi schema for OrderRule
@@ -276,9 +283,9 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 				rule: Joi.array().items(withdrawRuleEntrySchema).min(1).required(),
 			}).required(),
 
-			deposit: Joi.object()
-				.pattern(Joi.string(), Joi.valid(null)) // Record<string, null>
-				.required(),
+			deposit: Joi.object({
+				rule: Joi.array().items(depositRuleEntrySchema).optional(),
+			}).required(),
 
 			order: Joi.object({
 				rule: orderRuleSchema.required(),
@@ -314,7 +321,23 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 				whitelist: rule.whitelist.map((address) =>
 					address.trim().toLowerCase(),
 				),
+				...(rule.coins && {
+					coins: rule.coins.map((c) => c.trim().toUpperCase()),
+				}),
 			})),
+		},
+		deposit: {
+			...policy.deposit,
+			...(policy.deposit.rule && {
+				rule: policy.deposit.rule.map((rule) => ({
+					...rule,
+					exchange: rule.exchange.trim().toUpperCase(),
+					network: rule.network.trim().toUpperCase(),
+					...(rule.coins && {
+						coins: rule.coins.map((c) => c.trim().toUpperCase()),
+					}),
+				})),
+			}),
 		},
 		order: {
 			...policy.order,
