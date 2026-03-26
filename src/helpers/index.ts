@@ -4,6 +4,7 @@ import type {
 	PolicyConfig,
 	BrokerCredentials,
 	WithdrawRuleEntry,
+	DepositRuleEntry,
 } from "../types";
 import { log } from "./logger";
 import type { Metadata, ServerUnaryCall } from "@grpc/grpc-js";
@@ -374,6 +375,28 @@ function getWithdrawRulePriority(
 	return 1;
 }
 
+function getDepositRulePriority(
+	rule: DepositRuleEntry,
+	exchange: string,
+	network: string,
+): number {
+	const exchangeMatch = rule.exchange === exchange || rule.exchange === "*";
+	const networkMatch = rule.network === network || rule.network === "*";
+	if (!exchangeMatch || !networkMatch) {
+		return 0;
+	}
+	if (rule.exchange === exchange && rule.network === network) {
+		return 4;
+	}
+	if (rule.exchange === exchange && rule.network === "*") {
+		return 3;
+	}
+	if (rule.exchange === "*" && rule.network === network) {
+		return 2;
+	}
+	return 1;
+}
+
 export function validateWithdraw(
 	policy: PolicyConfig,
 	exchange: string,
@@ -669,15 +692,54 @@ export async function resolveOrderExecution(
 	};
 }
 
-/**
- * Validates deposit request (currently empty but can be extended)
- */
 export function validateDeposit(
-	_policy: PolicyConfig,
-	_chain: string,
-	_amount: number,
+	policy: PolicyConfig,
+	exchange: string,
+	network: string,
+	ticker: string,
 ): { valid: boolean; error?: string } {
-	// Currently deposit policy is empty, so all deposits are allowed
-	// This can be extended when deposit rules are added to the policy
+	const normalizedPolicy = normalizePolicyConfig(policy);
+
+	if (
+		!normalizedPolicy.deposit.rule ||
+		normalizedPolicy.deposit.rule.length === 0
+	) {
+		return { valid: true };
+	}
+
+	const exchangeNorm = exchange.trim().toUpperCase();
+	const networkNorm = network.trim().toUpperCase();
+	const tickerNorm = ticker.trim().toUpperCase();
+
+	const matchingRules = normalizedPolicy.deposit.rule
+		.map((rule) => ({
+			rule,
+			priority: getDepositRulePriority(rule, exchangeNorm, networkNorm),
+		}))
+		.filter((r) => r.priority > 0)
+		.sort((a, b) => b.priority - a.priority);
+
+	const depositRule = matchingRules[0]?.rule;
+
+	if (!depositRule) {
+		return {
+			valid: false,
+			error: `Deposits not allowed for ${exchangeNorm}:${networkNorm}`,
+		};
+	}
+
+	if (
+		depositRule.coins &&
+		depositRule.coins.length > 0 &&
+		!depositRule.coins.includes("*")
+	) {
+		if (!depositRule.coins.includes(tickerNorm)) {
+			return {
+				valid: false,
+				error: `Token ${tickerNorm} not allowed for deposit on ${exchangeNorm}:${networkNorm}. Allowed: [${depositRule.coins.join(", ")}]`,
+			};
+		}
+	}
+
 	return { valid: true };
 }

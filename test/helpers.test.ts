@@ -688,19 +688,135 @@ describe("Helper Functions", () => {
 	});
 
 	describe("validateDeposit", () => {
-		test("should always allow deposits when policy is empty", () => {
-			const result = validateDeposit(testPolicy, "ARB", 1000);
+		test("should allow deposit when coin is in allowed list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARBITRUM",
+							coins: ["ETH", "USDT"],
+						},
+					],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ETH");
 			expect(result.valid).toBe(true);
-			expect(result.error).toBeUndefined();
 		});
 
-		test("should allow deposits with any amount", () => {
-			const result = validateDeposit(testPolicy, "ETH", 0.001);
+		test("should reject deposit when coin is not in allowed list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARBITRUM",
+							coins: ["ETH", "USDT"],
+						},
+					],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ARB");
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Token ARB not allowed");
+			expect(result.error).toContain("ETH");
+			expect(result.error).toContain("USDT");
+		});
+
+		test("should allow any coin when coins field is absent", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM" }],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "DOGE");
 			expect(result.valid).toBe(true);
 		});
 
-		test("should allow deposits on any chain", () => {
-			const result = validateDeposit(testPolicy, "POLYGON", 500);
+		test("should allow any coin when coins is wildcard ['*']", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM", coins: ["*"] }],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ANYTHING");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow all deposits when deposit has no rule key", () => {
+			const policy: PolicyConfig = { ...testPolicy, deposit: {} };
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ETH");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow all deposits when deposit has empty rule array", () => {
+			const policy: PolicyConfig = { ...testPolicy, deposit: { rule: [] } };
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ETH");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should match exchange/network and allow any coin when rule has no coins", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM" }],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ETH");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should reject wrong exchange/network when rules are present", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM" }],
+				},
+			};
+			const result = validateDeposit(policy, "BYBIT", "OPTIMISM", "ETH");
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Deposits not allowed for BYBIT:OPTIMISM");
+		});
+
+		test("highest-priority rule wins with no fallthrough on coin mismatch", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [
+						{ exchange: "BINANCE", network: "ARBITRUM", coins: ["ETH"] },
+						{ exchange: "*", network: "ARBITRUM", coins: ["USDT"] },
+					],
+				},
+			};
+			// BINANCE/ARBITRUM matches rule1 (priority 4) which only allows ETH
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "USDT");
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Token USDT not allowed");
+		});
+
+		test("should be case-insensitive for exchange, network, and coin", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "binance", network: "arbitrum", coins: ["eth"] }],
+				},
+			};
+			const result = validateDeposit(policy, "Binance", "Arbitrum", "Eth");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow all coins when coins is empty array", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM", coins: [] }],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ANYTHING");
 			expect(result.valid).toBe(true);
 		});
 	});
