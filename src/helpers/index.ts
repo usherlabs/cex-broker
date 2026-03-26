@@ -380,7 +380,7 @@ export function validateWithdraw(
 	network: string,
 	recipientAddress: string,
 	_amount: number,
-	_ticker: string,
+	ticker: string,
 ): { valid: boolean; error?: string } {
 	const normalizedPolicy = normalizePolicyConfig(policy);
 	const exchangeNorm = exchange.trim().toUpperCase();
@@ -410,6 +410,18 @@ export function validateWithdraw(
 			valid: false,
 			error: `Address ${recipientAddress} is not whitelisted for withdrawals`,
 		};
+	}
+
+	// Check if coin is allowed by the matched rule
+	const coins = withdrawRule.coins;
+	if (coins && coins.length > 0 && !coins.includes("*")) {
+		const tickerNorm = ticker.trim().toUpperCase();
+		if (!coins.includes(tickerNorm)) {
+			return {
+				valid: false,
+				error: `Token ${tickerNorm} is not allowed for withdrawals on ${exchangeNorm}:${networkNorm}. Allowed: [${coins.join(", ")}]`,
+			};
+		}
 	}
 
 	return { valid: true };

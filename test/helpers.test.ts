@@ -142,7 +142,7 @@ describe("Helper Functions", () => {
 			expect(result.error).toContain("is not whitelisted for withdrawals");
 		});
 
-		test("should ignore ticker checks for withdrawals", () => {
+		test("should allow any ticker when rule has no coins field (backward compat)", () => {
 			const result = validateWithdraw(
 				testPolicy,
 				"BINANCE",
@@ -234,6 +234,170 @@ describe("Helper Functions", () => {
 			);
 			expect(result.valid).toBe(false);
 			expect(result.error).toContain("exchange KRAKEN");
+		});
+
+		test("should allow withdrawal when ticker is in coins list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["ETH", "USDT"],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ETH",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should reject withdrawal when ticker is not in coins list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["ETH", "USDT"],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ARB",
+			);
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Token ARB is not allowed");
+			expect(result.error).toContain("ETH");
+			expect(result.error).toContain("USDT");
+		});
+
+		test("should allow any ticker when coins is wildcard ['*']", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["*"],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ANYTHING",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow any ticker when coins is empty array (same as omitted)", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: [],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ANYTHING",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should match coins case-insensitively", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["eth"],
+						},
+					],
+				},
+			};
+			// normalizePolicyConfig uppercases coins, so "eth" -> "ETH"
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ETH",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("highest-priority rule wins absolutely — no fallthrough to lower-priority on coin mismatch", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["ETH"],
+						},
+						{
+							exchange: "*",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["USDT"],
+						},
+					],
+				},
+			};
+			// BINANCE/ARB exact match (priority 4) wins over */ARB (priority 2).
+			// The winning rule only allows ETH, so USDT must be rejected.
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"USDT",
+			);
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Token USDT is not allowed");
+			expect(result.error).toContain("ETH");
 		});
 
 		test("should prioritise exact match over wildcard rules", () => {
