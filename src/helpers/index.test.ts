@@ -163,6 +163,124 @@ describe("Helper Functions", () => {
 
 			expect(result.valid).toBe(true);
 		});
+
+		test("should allow withdrawal when ticker is in coins list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: {
+						...testPolicy.withdraw.rule,
+						coins: ["USDC", "USDT"],
+					},
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				50,
+				"USDC",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should reject withdrawal when ticker is not in coins list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: {
+						...testPolicy.withdraw.rule,
+						coins: ["ETH", "USDT"],
+					},
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				50,
+				"ARB",
+			);
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain(
+				"Token ARB is not allowed for withdrawals on ARB",
+			);
+			expect(result.error).toContain("ETH");
+			expect(result.error).toContain("USDT");
+		});
+
+		test("should allow any ticker when coins field is absent (backward compat)", () => {
+			// testPolicy has no coins field — any ticker with a matching amount entry should work
+			const result = validateWithdraw(
+				testPolicy,
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				50,
+				"USDC",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow any ticker when coins is wildcard ['*']", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: {
+						...testPolicy.withdraw.rule,
+						coins: ["*"],
+					},
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				50,
+				"USDC",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should match coins case-insensitively", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: {
+						...testPolicy.withdraw.rule,
+						coins: ["usdc"],
+					},
+				},
+			};
+			// Both the coins array and ticker are uppercased for comparison
+			const result = validateWithdraw(
+				policy,
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				50,
+				"USDC",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow any ticker when coins is empty array (same as omitted)", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: {
+						...testPolicy.withdraw.rule,
+						coins: [],
+					},
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				50,
+				"USDC",
+			);
+			expect(result.valid).toBe(true);
+		});
 	});
 
 	describe("validateOrder", () => {

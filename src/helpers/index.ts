@@ -359,6 +359,18 @@ export function validateWithdraw(
 		};
 	}
 
+	// Check if coin is allowed
+	const coins = withdrawRule.coins;
+	if (coins && coins.length > 0 && !coins.includes("*")) {
+		const upperTicker = ticker.toUpperCase();
+		if (!coins.some((c) => c.toUpperCase() === upperTicker)) {
+			return {
+				valid: false,
+				error: `Token ${ticker} is not allowed for withdrawals on ${network}. Allowed: [${coins.join(", ")}]`,
+			};
+		}
+	}
+
 	// Check amount limits
 	const amountRule = withdrawRule.amounts.find((a) => a.ticker === ticker);
 
