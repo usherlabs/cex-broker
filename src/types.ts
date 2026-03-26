@@ -9,6 +9,13 @@ export type WithdrawRule = {
 		max: number;
 		min: number;
 	}[];
+	coins?: string[];
+};
+
+export type DepositRuleEntry = {
+	exchange: string;
+	network: string;
+	coins?: string[];
 };
 
 export type OrderRule = {
@@ -25,7 +32,9 @@ export type PolicyConfig = {
 	withdraw: {
 		rule: WithdrawRule;
 	};
-	deposit: Record<string, null>;
+	deposit: {
+		rule?: DepositRuleEntry[];
+	};
 	order: {
 		rule: OrderRule;
 	};

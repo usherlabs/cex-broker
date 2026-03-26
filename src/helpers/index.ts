@@ -237,6 +237,25 @@ export function selectBroker(
 	}
 }
 
+/** Uppercases exchange/network/coins strings in policy rules for consistent matching. */
+export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
+	if (policy.withdraw.rule.coins) {
+		policy.withdraw.rule.coins = policy.withdraw.rule.coins.map((c) =>
+			c.toUpperCase(),
+		);
+	}
+	if (policy.deposit.rule) {
+		for (const entry of policy.deposit.rule) {
+			entry.exchange = entry.exchange.toUpperCase();
+			entry.network = entry.network.toUpperCase();
+			if (entry.coins) {
+				entry.coins = entry.coins.map((c) => c.toUpperCase());
+			}
+		}
+	}
+	return policy;
+}
+
 /**
  * Loads and validates policy configuration
  */
@@ -257,6 +276,13 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 					}),
 				)
 				.required(),
+			coins: Joi.array().items(Joi.string()).optional(),
+		});
+
+		const depositRuleEntrySchema = Joi.object({
+			exchange: Joi.string().required(),
+			network: Joi.string().required(),
+			coins: Joi.array().items(Joi.string()).optional(),
 		});
 
 		// Joi schema for OrderRule
@@ -280,9 +306,9 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 				rule: withdrawRuleSchema.required(),
 			}).required(),
 
-			deposit: Joi.object()
-				.pattern(Joi.string(), Joi.valid(null)) // Record<string, null>
-				.required(),
+			deposit: Joi.object({
+				rule: Joi.array().items(depositRuleEntrySchema).optional(),
+			}).required(),
 
 			order: Joi.object({
 				rule: orderRuleSchema.required(),
@@ -297,7 +323,7 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 			console.error("Validation failed:", error.details);
 		}
 
-		return value as PolicyConfig;
+		return normalizePolicyConfig(value as PolicyConfig);
 	} catch (error) {
 		console.error("Failed to load policy:", error);
 		throw new Error("Policy configuration could not be loaded");
