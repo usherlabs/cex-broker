@@ -71,29 +71,27 @@ CEX_BROKER_BINANCE_API_SECRET_2=your_tertiary_binance_api_secret
 
 ### Policy Configuration
 
-Configure trading policies in `policy/policy.json`:
+Configure trading policies in a JSON file (see `policy/policy.example.json`). Full documentation is in [POLICY.md](POLICY.md).
 
 ```json
 {
   "withdraw": {
     "rule": {
-      "networks": ["BEP20", "ARBITRUM", "ETHEREUM"],
+      "networks": ["BEP20", "ARBITRUM"],
       "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+      "coins": ["ETH", "USDT", "USDC", "ARB"],
       "amounts": [
-        {
-          "ticker": "USDC",
-          "max": 100000,
-          "min": 1
-        },
-        {
-          "ticker": "USDT",
-          "max": 100000,
-          "min": 1
-        }
+        { "ticker": "USDC", "max": 100000, "min": 1 },
+        { "ticker": "USDT", "max": 100000, "min": 1 }
       ]
     }
   },
-  "deposit": {},
+  "deposit": {
+    "rule": [
+      { "exchange": "BINANCE", "network": "ARBITRUM", "coins": ["ETH", "USDT", "USDC", "ARB"] },
+      { "exchange": "*", "network": "*" }
+    ]
+  },
   "order": {
     "rule": {
       "markets": [
@@ -528,19 +526,18 @@ for (const [currency, info] of Object.entries(currencies)) {
 {
   "withdraw": {
     "rule": {
-      "networks": ["BEP20", "ARBITRUM", "ETH"],  // Networks supported by your exchanges
+      "networks": ["BEP20", "ARBITRUM", "ETH"],
       "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+      "coins": ["USDT", "ETH"],
       "amounts": [
-        {
-          "ticker": "USDT",
-          "max": 100000,
-          "min": 1
-        }
+        { "ticker": "USDT", "max": 100000, "min": 1 }
       ]
     }
   }
 }
 ```
+
+See [POLICY.md](POLICY.md) for full documentation on all policy fields including deposit rules.
 
 ### Testing
 
