@@ -1,21 +1,21 @@
-import fs from "fs";
-import Joi from "joi";
-import type {
-	PolicyConfig,
-	BrokerAccountRole,
-	BrokerCredentials,
-	WithdrawRuleEntry,
-} from "../types";
-import { log } from "./logger";
 import type { Metadata, ServerUnaryCall } from "@grpc/grpc-js";
-import ccxt from "@usherlabs/ccxt";
 import type {
 	Exchange,
 	HttpClientOverride,
 	HttpOverridePredicate,
 } from "@usherlabs/ccxt";
+import ccxt from "@usherlabs/ccxt";
 import { VerityClient } from "@usherlabs/verity-client";
+import fs from "fs";
+import Joi from "joi";
+import type {
+	BrokerAccountRole,
+	BrokerCredentials,
+	PolicyConfig,
+	WithdrawRuleEntry,
+} from "../types";
 import { CCXT_METHODS_WITH_VERITY } from "./constants";
+import { log } from "./logger";
 
 export type BrokerAccount = {
 	exchange: Exchange;
@@ -34,6 +34,14 @@ export type BrokerPoolEntry = {
 
 export class WithdrawRoutingError extends Error {}
 export class WithdrawRoutingUnavailableError extends WithdrawRoutingError {}
+
+function isMasterBrokerAccount(account: BrokerAccount): boolean {
+	return account.label === "primary" || account.role === "master";
+}
+
+function isSubaccountBrokerAccount(account: BrokerAccount): boolean {
+	return !isMasterBrokerAccount(account);
+}
 
 export function authenticateRequest<T, E>(
 	call: ServerUnaryCall<T, E>,
@@ -207,30 +215,26 @@ export function createBrokerPool(
 			continue;
 		}
 
-		const primary = createBrokerAccount(
-			brokerName,
-			"primary",
-			{
-				apiKey: primaryApiKey,
-				apiSecret: primaryApiSecret,
-				role:
-					typeof credsRecord.role === "string"
-						? (credsRecord.role as BrokerAccountRole)
-						: undefined,
-				email:
-					typeof credsRecord.email === "string"
-						? (credsRecord.email as string)
-						: undefined,
-				subAccountId:
-					typeof credsRecord.subAccountId === "string"
-						? (credsRecord.subAccountId as string)
-						: undefined,
-				uid:
-					typeof credsRecord.uid === "string"
-						? (credsRecord.uid as string)
-						: undefined,
-			},
-		);
+		const primary = createBrokerAccount(brokerName, "primary", {
+			apiKey: primaryApiKey,
+			apiSecret: primaryApiSecret,
+			role:
+				typeof credsRecord.role === "string"
+					? (credsRecord.role as BrokerAccountRole)
+					: undefined,
+			email:
+				typeof credsRecord.email === "string"
+					? (credsRecord.email as string)
+					: undefined,
+			subAccountId:
+				typeof credsRecord.subAccountId === "string"
+					? (credsRecord.subAccountId as string)
+					: undefined,
+			uid:
+				typeof credsRecord.uid === "string"
+					? (credsRecord.uid as string)
+					: undefined,
+		});
 		if (!primary) {
 			log.warn(`❌ Failed to create primary for "${brokerName}"`);
 			continue;
@@ -240,32 +244,50 @@ export function createBrokerPool(
 		const secondaryKeysFromValidated = Array.isArray(credsRecord.secondaryKeys)
 			? (credsRecord.secondaryKeys as BrokerCredentials[])
 			: undefined;
-		const secondaryKeysFromMap =
+		const secondaryEntriesFromValidated = secondaryKeysFromValidated?.map(
+			(sec, idx) => [idx + 1, sec] as const,
+		);
+		const secondaryEntriesFromMap =
 			credsRecord._secondaryMap && typeof credsRecord._secondaryMap === "object"
-				? Object.values(
+				? Object.entries(
 						credsRecord._secondaryMap as Record<
 							number,
 							Partial<BrokerCredentials>
 						>,
 					)
 						.filter(
-							(s): s is Required<BrokerCredentials> =>
-								typeof s.apiKey === "string" && typeof s.apiSecret === "string",
+							([, sec]) =>
+								typeof sec.apiKey === "string" &&
+								typeof sec.apiSecret === "string",
 						)
-						.map((s) => ({ apiKey: s.apiKey, apiSecret: s.apiSecret }))
+						.map(
+							([rawIndex, sec]) =>
+								[
+									Number(rawIndex),
+									{
+										apiKey: sec.apiKey as string,
+										apiSecret: sec.apiSecret as string,
+										role: sec.role,
+										email: sec.email,
+										subAccountId: sec.subAccountId,
+										uid: sec.uid,
+									},
+								] as const,
+						)
 				: [];
-		const secondaryKeys: BrokerCredentials[] =
-			secondaryKeysFromValidated ?? secondaryKeysFromMap;
+		const secondaryEntries =
+			secondaryEntriesFromValidated ?? secondaryEntriesFromMap;
 
-		secondaryKeys.forEach((sec, idx) => {
+		secondaryEntries.forEach(([index, sec]) => {
 			const secEx = createBrokerAccount(
 				brokerName,
-				`secondary:${idx + 1}`,
+				`secondary:${index}`,
 				sec,
-				idx + 1,
+				index,
 			);
-			if (secEx) secondaryBrokers[idx] = secEx;
-			else log.warn(`⚠️ Failed to create secondary #${idx} for "${brokerName}"`);
+			if (secEx) secondaryBrokers[index - 1] = secEx;
+			else
+				log.warn(`⚠️ Failed to create secondary #${index} for "${brokerName}"`);
 		});
 
 		pool[brokerName] = { primary, secondaryBrokers };
@@ -291,7 +313,9 @@ export function getCurrentBrokerSelector(metadata: Metadata): string {
 	}
 	const rawIndex = use_secondary_key[use_secondary_key.length - 1]?.toString();
 	const index = rawIndex ? Number.parseInt(rawIndex, 10) : Number.NaN;
-	return Number.isInteger(index) && index > 0 ? `secondary:${index}` : "primary";
+	return Number.isInteger(index) && index > 0
+		? `secondary:${index}`
+		: "primary";
 }
 
 export function resolveBrokerAccount(
@@ -310,7 +334,7 @@ export function resolveBrokerAccount(
 	}
 	const index = Number.parseInt(match[1] ?? "", 10);
 	return Number.isInteger(index) && index > 0
-		? brokers.secondaryBrokers[index - 1] ?? null
+		? (brokers.secondaryBrokers[index - 1] ?? null)
 		: null;
 }
 
@@ -582,6 +606,11 @@ export async function executeWithdrawWithRouting(args: {
 			`Master account ${masterSelector} is not configured`,
 		);
 	}
+	if (!isMasterBrokerAccount(master)) {
+		throw new WithdrawRoutingError(
+			`Master account ${masterSelector} must resolve to the primary/master account`,
+		);
+	}
 	if (source.label === master.label) {
 		return await master.exchange.withdraw(
 			code,
@@ -589,6 +618,11 @@ export async function executeWithdrawWithRouting(args: {
 			recipientAddress,
 			undefined,
 			withdrawParams,
+		);
+	}
+	if (!isSubaccountBrokerAccount(source)) {
+		throw new WithdrawRoutingError(
+			`Source account ${sourceSelector} must resolve to a subaccount when routeViaMaster is enabled`,
 		);
 	}
 	if (cex.trim().toLowerCase() !== "binance") {

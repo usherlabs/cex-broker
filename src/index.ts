@@ -1,5 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
-import ccxt, { type Exchange } from "@usherlabs/ccxt";
+import ccxt from "@usherlabs/ccxt";
 import { unwatchFile, watchFile } from "fs";
 import Joi from "joi";
 import {
@@ -23,6 +23,7 @@ import {
 	type ExchangeCredentials,
 	type PolicyConfig,
 } from "./types";
+
 export type { PolicyConfig } from "./types";
 
 log.info("CCXT Version:", ccxt.version);

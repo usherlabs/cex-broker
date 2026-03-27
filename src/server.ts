@@ -4,16 +4,16 @@ import type { Exchange } from "@usherlabs/ccxt";
 import type { z } from "zod";
 import {
 	authenticateRequest,
+	type BrokerPoolEntry,
 	buildHttpClientOverrideFromMetadata,
 	createBroker,
 	executeWithdrawWithRouting,
-	type BrokerPoolEntry,
-	WithdrawRoutingError,
-	WithdrawRoutingUnavailableError,
 	resolveOrderExecution,
 	selectBroker,
 	validateWithdraw,
 	verityHttpClientOverridePredicate,
+	WithdrawRoutingError,
+	WithdrawRoutingUnavailableError,
 } from "./helpers";
 import { log } from "./helpers/logger";
 import type { OtelMetrics } from "./helpers/otel";
@@ -705,7 +705,7 @@ export function getServer(
 							);
 						}
 						try {
-							let transaction;
+							let transaction: Awaited<ReturnType<Exchange["withdraw"]>>;
 							try {
 								transaction = await executeWithdrawWithRouting({
 									cex,
@@ -727,6 +727,9 @@ export function getServer(
 										cex,
 										error: error.message,
 									});
+									if (transferValue.routeViaMaster) {
+										throw error;
+									}
 									transaction = await broker.withdraw(
 										symbol,
 										transferValue.amount,

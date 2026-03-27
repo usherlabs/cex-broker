@@ -1,24 +1,25 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import * as grpc from "@grpc/grpc-js";
+import type { Exchange } from "@usherlabs/ccxt";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import type { PolicyConfig } from "../src/types";
-import type { Exchange } from "@usherlabs/ccxt";
 import {
+	type BrokerPoolEntry,
+	createBrokerPool,
 	executeWithdrawWithRouting,
 	getCurrentBrokerSelector,
 	loadPolicy,
 	resolveBrokerAccount,
 	resolveOrderExecution,
-	type BrokerPoolEntry,
-	WithdrawRoutingError,
-	WithdrawRoutingUnavailableError,
 	validateDeposit,
 	validateOrder,
 	validateWithdraw,
+	WithdrawRoutingError,
+	WithdrawRoutingUnavailableError,
 } from "../src/helpers/index";
 import { WithdrawPayloadSchema } from "../src/schemas/action-payloads";
-import * as grpc from "@grpc/grpc-js";
+import type { PolicyConfig } from "../src/types";
 
 describe("Helper Functions", () => {
 	let testPolicy: PolicyConfig;
@@ -628,9 +629,35 @@ describe("Helper Functions", () => {
 			expect(resolveBrokerAccount(pool, "secondary:3")).toBeNull();
 		});
 
+		test("should preserve sparse secondary indices and metadata from env-style config", () => {
+			const pool = createBrokerPool({
+				binance: {
+					apiKey: "primary-key",
+					apiSecret: "primary-secret",
+					_secondaryMap: {
+						2: {
+							apiKey: "secondary-key-2",
+							apiSecret: "secondary-secret-2",
+							role: "subaccount",
+							email: "sub2@example.com",
+						},
+					},
+				},
+			});
+
+			expect(resolveBrokerAccount(pool.binance, "secondary:1")).toBeNull();
+			expect(resolveBrokerAccount(pool.binance, "secondary:2")).toMatchObject({
+				label: "secondary:2",
+				index: 2,
+				role: "subaccount",
+				email: "sub2@example.com",
+			});
+		});
+
 		test("should route binance withdraws through master account", async () => {
 			const { exchange: primary, state: primaryState } = createMockExchange();
-			const { exchange: secondary, state: secondaryState } = createMockExchange();
+			const { exchange: secondary, state: secondaryState } =
+				createMockExchange();
 			const pool: BrokerPoolEntry = {
 				primary: { exchange: primary, label: "primary", role: "master" },
 				secondaryBrokers: [
@@ -713,6 +740,74 @@ describe("Helper Functions", () => {
 					routeViaMaster: true,
 				}),
 			).rejects.toBeInstanceOf(WithdrawRoutingUnavailableError);
+		});
+
+		test("should reject a non-master target account for routed withdraws", async () => {
+			const { exchange: primary } = createMockExchange();
+			const { exchange: secondary } = createMockExchange();
+			const pool: BrokerPoolEntry = {
+				primary: { exchange: primary, label: "primary", role: "master" },
+				secondaryBrokers: [
+					{
+						exchange: secondary,
+						label: "secondary:1",
+						index: 1,
+						role: "subaccount",
+					},
+				],
+			};
+
+			await expect(
+				executeWithdrawWithRouting({
+					cex: "binance",
+					brokers: pool,
+					metadata: createMetadata("1"),
+					selectedBroker: secondary,
+					code: "USDT",
+					amount: 2,
+					recipientAddress: "0xabc",
+					network: "ARB",
+					routeViaMaster: true,
+					sourceAccount: "secondary:1",
+					masterAccount: "secondary:1",
+				}),
+			).rejects.toThrow(
+				"Master account secondary:1 must resolve to the primary/master account",
+			);
+		});
+
+		test("should reject a non-subaccount source for routed withdraws", async () => {
+			const { exchange: primary } = createMockExchange();
+			const { exchange: secondary } = createMockExchange();
+			const pool: BrokerPoolEntry = {
+				primary: { exchange: primary, label: "primary", role: "master" },
+				secondaryBrokers: [
+					{
+						exchange: secondary,
+						label: "secondary:1",
+						index: 1,
+						role: "master",
+					},
+				],
+			};
+
+			await expect(
+				executeWithdrawWithRouting({
+					cex: "binance",
+					brokers: pool,
+					metadata: createMetadata(),
+					selectedBroker: primary,
+					code: "USDT",
+					amount: 2,
+					recipientAddress: "0xabc",
+					network: "ARB",
+					routeViaMaster: true,
+					sourceAccount: "primary",
+					masterAccount: "secondary:1",
+				}),
+			).rejects.toThrow(
+				"Source account primary must resolve to a subaccount when routeViaMaster is enabled",
+			);
 		});
 
 		test("should reject invalid account selectors", async () => {
