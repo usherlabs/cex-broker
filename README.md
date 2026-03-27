@@ -376,6 +376,110 @@ metadata.set('use-secondary-key', '1'); // Use secondary broker 1
 metadata.set('use-secondary-key', '2'); // Use secondary broker 2
 ```
 
+### Routed Withdraws Via Master
+
+The broker can now orchestrate a routed withdraw for exchanges that require:
+
+1. moving funds from a sub-account to a master account
+2. executing the external withdraw from the master account
+
+Current support:
+
+- `binance`: supported
+- other exchanges: not yet supported; the broker falls back to a normal direct withdraw
+
+#### Configurer guide
+
+From the operator's perspective, the simplest setup is:
+
+1. configure the master account as the primary account for that exchange
+2. configure each sub-account as a numbered secondary account
+3. keep using normal withdraw policy rules in `policy.json`
+4. set routed-withdraw fields in the request payload when you want this behavior
+
+Minimal Binance example:
+
+```env
+# Master account
+CEX_BROKER_BINANCE_API_KEY=master_key
+CEX_BROKER_BINANCE_API_SECRET=master_secret
+
+# Optional but recommended for clarity
+CEX_BROKER_BINANCE_ROLE=master
+
+# Sub-account used as the source of funds
+CEX_BROKER_BINANCE_API_KEY_1=subaccount_key_1
+CEX_BROKER_BINANCE_API_SECRET_1=subaccount_secret_1
+
+# Optional but recommended for clarity
+CEX_BROKER_BINANCE_ROLE_1=subaccount
+```
+
+Example withdraw payload:
+
+```json
+{
+  "recipientAddress": "0x1234...",
+  "amount": "25",
+  "chain": "ARBITRUM",
+  "routeViaMaster": "true",
+  "sourceAccount": "secondary:1",
+  "masterAccount": "primary"
+}
+```
+
+Recommended operational model:
+
+- make `primary` the exchange master account
+- use `secondary:N` for sub-accounts that hold funds or trade independently
+- only set `routeViaMaster=true` when the exchange requires master-executed withdrawals
+
+#### Meaning of `sourceAccount` and `masterAccount`
+
+- `sourceAccount`: the account that currently holds the funds
+- `masterAccount`: the account that should perform the final external withdraw
+
+Accepted selector values:
+
+- `primary`
+- `secondary:1`, `secondary:2`, ...
+- `current` for `sourceAccount`, which means "whatever account was selected by metadata or by default"
+
+#### Purpose of `role`, `uid`, `email`, and `subAccountId`
+
+These fields are **not all required today**, and for the current Binance implementation they are mostly future-proofing rather than something you must configure immediately.
+
+- `role`: broker-level intent. This is the useful one today. It marks an account as `master` or `subaccount` and makes configuration easier to audit.
+- `email`: exchange-specific sub-account identifier. Some exchanges identify sub-accounts by email rather than by API key relationship.
+- `subAccountId`: exchange-specific sub-account identifier used by APIs that require an explicit account id.
+- `uid`: exchange-specific account/user identifier required by some transfer APIs.
+
+If you enforce the convention that **primary is always the master account**, then yes, `uid`, `email`, and `subAccountId` are redundant for the current Binance flow.
+
+They still exist for two reasons:
+
+- to support future exchange adapters where API keys alone are not enough to identify the transfer source or destination
+- to make the broker config model stable now instead of redesigning it later per exchange
+
+Practical rule:
+
+- for Binance today, configure `primary` as master and `secondary:N` as sub-accounts; `role` is optional but recommended
+- you do not need `uid`, `email`, or `subAccountId` unless a future exchange adapter requires them
+
+#### Does deposit require the same setup?
+
+Usually no.
+
+Deposits are different from withdrawals:
+
+- withdrawals may require a master account to authorize the external transfer
+- deposits usually just require fetching the deposit address for the account or sub-account you want to receive funds
+
+So the normal approach is:
+
+- deposit directly to the intended target account or sub-account
+- only do an internal transfer afterward if funds landed in the wrong internal account for your workflow
+
 ### Zero-Knowledge Proof Integration
 
 **Enable privacy-preserving proof over CEX data** with [Verity zkTLS integration](https://github.com/usherlabs/verity-dp):
