@@ -2,14 +2,16 @@
 
 This broker uses a JSON policy file to restrict:
 
-- **Withdrawals**: permitted exchanges, networks, and destination address whitelist
+- **Withdrawals**: permitted exchanges, networks, tokens, and destination address whitelist
+- **Deposits**: permitted exchanges, networks, and tokens (gates deposit address fetching)
 - **Orders**: permitted exchanges/pairs, plus optional directional conversion limits
 
 The policy is loaded at startup. If you start the broker with a **policy file path**, the file is watched and policies are reloaded when the file changes.
 
 ## Quick start
 
-- **Example policy**: `policy/policy.json`
+- **Example policy**: `policy/policy.example.json`
+- **Backtest policy**: `policy/policy.backtest.json`
 - **CLI usage**:
 
 ```bash
@@ -23,7 +25,7 @@ Top-level keys (all required):
 | Key | Type | Description |
 |-----|------|-------------|
 | `withdraw` | `{ rule: WithdrawRuleEntry[] }` | Withdrawal restrictions (at least one rule entry required) |
-| `deposit` | `{}` | Placeholder object — not enforced today |
+| `deposit` | `{ rule?: DepositRuleEntry[] }` | Deposit restrictions (optional; omitting `rule` or using `{}` allows all) |
 | `order` | `{ rule: OrderRule }` | Order/conversion restrictions |
 
 Canonical type: `PolicyConfig` in `src/types.ts`.
@@ -32,10 +34,14 @@ Canonical type: `PolicyConfig` in `src/types.ts`.
 {
   "withdraw": {
     "rule": [
-      { "exchange": "BINANCE", "network": "ARBITRUM", "whitelist": [] }
+      { "exchange": "BINANCE", "network": "ARBITRUM", "coins": ["ETH", "USDT"], "whitelist": ["0x..."] }
     ]
   },
-  "deposit": {},
+  "deposit": {
+    "rule": [
+      { "exchange": "BINANCE", "network": "ARBITRUM", "coins": ["ETH", "USDT"] }
+    ]
+  },
   "order": { "rule": { "markets": [], "limits": [] } }
 }
 ```
@@ -124,6 +130,26 @@ Accepted values:
 
 ---
 
+### `withdraw.rule[].coins`
+
+| | |
+|---|---|
+| **Type** | `string[]` |
+| **Required** | No |
+| **Normalisation** | Each entry is trimmed, uppercased |
+
+Optional array of CEX ticker symbols that are allowed for withdrawal under this rule.
+
+Accepted values:
+
+- **An array of ticker symbols** — e.g. `["ETH", "USDT", "USDC", "ARB"]`. Only these tokens may be withdrawn when this rule matches.
+- **`["*"]`** — wildcard; allows any token (same as omitting the field).
+- **Omitted / not present** — allows any token (backward compatible with rules written before `coins` was added).
+
+Matching is **case-insensitive** — both the policy value and the request ticker are uppercased before comparison.
+
+---
+
 ### Full withdraw example
 
 ```json
@@ -133,6 +159,7 @@ Accepted values:
       {
         "exchange": "BINANCE",
         "network": "ARBITRUM",
+        "coins": ["ETH", "USDT", "USDC", "ARB"],
         "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
       },
       {
@@ -143,6 +170,7 @@ Accepted values:
       {
         "exchange": "*",
         "network": "BEP20",
+        "coins": ["BNB", "USDT"],
         "whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
       },
       {
@@ -155,12 +183,13 @@ Accepted values:
 }
 ```
 
-In this example, a BINANCE + ARBITRUM withdraw uses the first rule (priority 4). A BINANCE + SOL withdraw falls to the second rule (priority 3). A KRAKEN + BEP20 withdraw uses the third rule (priority 2). Everything else hits the global catch-all (priority 1).
+In this example, a BINANCE + ARBITRUM withdraw uses the first rule (priority 4) and only allows ETH, USDT, USDC, and ARB. A BINANCE + SOL withdraw falls to the second rule (priority 3), which has no `coins` restriction — any token is allowed. A KRAKEN + BEP20 withdraw uses the third rule (priority 2) and is restricted to BNB and USDT. Everything else hits the global catch-all (priority 1), which also allows any token.
 
 Common rejection reasons:
 
 - no matching exchange + network entry
 - address not whitelisted
+- token not in `coins` for the matched rule
 
 ---
 
@@ -261,12 +290,107 @@ Example:
 
 | | |
 |---|---|
-| **Type** | `{}` (empty object) |
+| **Type** | `{ rule?: DepositRuleEntry[] }` |
+| **Required** | Yes (the `deposit` key must be present) |
+
+Deposit validation gates the `FetchDepositAddresses` action — a request to fetch a deposit address is rejected if the policy does not permit deposits for the given exchange, network, and token. The actual deposit confirmation is not gated by the policy (only the address fetch is).
+
+### Backward compatibility
+
+- **`"deposit": {}`** — no `rule` key or empty rule array: **all deposits are allowed**. This is backward compatible with policies written before deposit rules were added.
+- **`"deposit": { "rule": [...] }`** — only deposits matching a rule are allowed.
+
+---
+
+### `deposit.rule: DepositRuleEntry[]`
+
+**Optional.** When omitted or empty, all deposits are permitted.
+
+Each entry scopes deposit permissions to an `exchange` + `network` combination, optionally restricted to specific tokens. When a `FetchDepositAddresses` request arrives, the broker finds the highest-priority matching rule and validates the token against it.
+
+#### Rule matching priority
+
+Same priority scheme as withdraw rules:
+
+| Priority | `exchange` | `network` | Description |
+|----------|-----------|-----------|-------------|
+| 4 (highest) | exact match | exact match | Fully specific rule |
+| 3 | exact match | `"*"` | Exchange-specific, any network |
+| 2 | `"*"` | exact match | Network-specific, any exchange |
+| 1 (lowest) | `"*"` | `"*"` | Global catch-all |
+
+If rules are present but no entry matches, the request is rejected.
+
+---
+
+### `deposit.rule[].exchange`
+
+| | |
+|---|---|
+| **Type** | `string` |
 | **Required** | Yes |
+| **Normalisation** | Trimmed, uppercased |
 
-`deposit` is required in the current policy schema, but it is **not enforced** today.
+Same as `withdraw.rule[].exchange` — an exchange identifier (e.g. `"BINANCE"`) or `"*"` for wildcard.
 
-At present, deposits are effectively always allowed; this field is reserved for future deposit rule support. Set it to `{}`.
+---
+
+### `deposit.rule[].network`
+
+| | |
+|---|---|
+| **Type** | `string` |
+| **Required** | Yes |
+| **Normalisation** | Trimmed, uppercased |
+
+Same as `withdraw.rule[].network` — a network/chain identifier (e.g. `"ARBITRUM"`) or `"*"` for wildcard.
+
+---
+
+### `deposit.rule[].coins`
+
+| | |
+|---|---|
+| **Type** | `string[]` |
+| **Required** | No |
+| **Normalisation** | Each entry is trimmed, uppercased |
+
+Optional array of CEX ticker symbols allowed for deposit under this rule. Behaves identically to `withdraw.rule[].coins`:
+
+- **An array of ticker symbols** — e.g. `["ETH", "USDT"]`. Only these tokens may be deposited.
+- **`["*"]`** — wildcard; allows any token (same as omitting the field).
+- **Omitted / not present** — allows any token.
+
+Matching is **case-insensitive**.
+
+---
+
+### Full deposit example
+
+```json
+{
+  "deposit": {
+    "rule": [
+      {
+        "exchange": "BINANCE",
+        "network": "ARBITRUM",
+        "coins": ["ETH", "USDT", "USDC", "ARB"]
+      },
+      {
+        "exchange": "*",
+        "network": "*"
+      }
+    ]
+  }
+}
+```
+
+In this example, a BINANCE + ARBITRUM deposit address request is matched by the first rule (priority 4) and is restricted to ETH, USDT, USDC, and ARB. Any other exchange/network combination hits the catch-all rule, which allows all tokens.
+
+Common rejection reasons:
+
+- deposit rules are present but no matching exchange + network entry
+- token not in `coins` for the matched rule
 
 ---
 
@@ -285,5 +409,7 @@ The broker validates the policy JSON against a Joi schema when loading it.
 
 - **Withdraw address rejected**: ensure the address is in the matching `withdraw.rule[].whitelist` entry (lowercase recommended).
 - **Withdraw exchange/network rejected**: ensure there is a `withdraw.rule[]` entry whose `exchange` and `network` match (or wildcard-match) the request.
+- **Withdraw token rejected**: ensure the matched `withdraw.rule[].coins` includes the token ticker (or omit `coins` to allow all).
+- **Deposit address fetch rejected**: ensure `deposit.rule` contains a matching entry for the exchange + network + token, or use `"deposit": {}` to allow all.
 - **Order rejected (market)**: ensure `order.rule.markets` contains a matching pattern for the exchange + pair.
 - **Order rejected (limits)**: if `limits` is non-empty, ensure there's an entry for the exact `from` → `to` direction and the amount is within bounds.

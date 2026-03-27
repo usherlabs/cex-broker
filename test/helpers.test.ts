@@ -151,7 +151,7 @@ describe("Helper Functions", () => {
 			expect(result.error).toContain("is not whitelisted for withdrawals");
 		});
 
-		test("should ignore ticker checks for withdrawals", () => {
+		test("should allow any ticker when rule has no coins field (backward compat)", () => {
 			const result = validateWithdraw(
 				testPolicy,
 				"BINANCE",
@@ -243,6 +243,170 @@ describe("Helper Functions", () => {
 			);
 			expect(result.valid).toBe(false);
 			expect(result.error).toContain("exchange KRAKEN");
+		});
+
+		test("should allow withdrawal when ticker is in coins list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["ETH", "USDT"],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ETH",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should reject withdrawal when ticker is not in coins list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["ETH", "USDT"],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ARB",
+			);
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Token ARB is not allowed");
+			expect(result.error).toContain("ETH");
+			expect(result.error).toContain("USDT");
+		});
+
+		test("should allow any ticker when coins is wildcard ['*']", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["*"],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ANYTHING",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow any ticker when coins is empty array (same as omitted)", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: [],
+						},
+					],
+				},
+			};
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ANYTHING",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("should match coins case-insensitively", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["eth"],
+						},
+					],
+				},
+			};
+			// normalizePolicyConfig uppercases coins, so "eth" -> "ETH"
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"ETH",
+			);
+			expect(result.valid).toBe(true);
+		});
+
+		test("highest-priority rule wins absolutely — no fallthrough to lower-priority on coin mismatch", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["ETH"],
+						},
+						{
+							exchange: "*",
+							network: "ARB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["USDT"],
+						},
+					],
+				},
+			};
+			// BINANCE/ARB exact match (priority 4) wins over */ARB (priority 2).
+			// The winning rule only allows ETH, so USDT must be rejected.
+			const result = validateWithdraw(
+				policy,
+				"BINANCE",
+				"ARB",
+				"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+				1000,
+				"USDT",
+			);
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Token USDT is not allowed");
+			expect(result.error).toContain("ETH");
 		});
 
 		test("should prioritise exact match over wildcard rules", () => {
@@ -533,19 +697,135 @@ describe("Helper Functions", () => {
 	});
 
 	describe("validateDeposit", () => {
-		test("should always allow deposits when policy is empty", () => {
-			const result = validateDeposit(testPolicy, "ARB", 1000);
+		test("should allow deposit when coin is in allowed list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARBITRUM",
+							coins: ["ETH", "USDT"],
+						},
+					],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ETH");
 			expect(result.valid).toBe(true);
-			expect(result.error).toBeUndefined();
 		});
 
-		test("should allow deposits with any amount", () => {
-			const result = validateDeposit(testPolicy, "ETH", 0.001);
+		test("should reject deposit when coin is not in allowed list", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "ARBITRUM",
+							coins: ["ETH", "USDT"],
+						},
+					],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ARB");
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Token ARB not allowed");
+			expect(result.error).toContain("ETH");
+			expect(result.error).toContain("USDT");
+		});
+
+		test("should allow any coin when coins field is absent", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM" }],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "DOGE");
 			expect(result.valid).toBe(true);
 		});
 
-		test("should allow deposits on any chain", () => {
-			const result = validateDeposit(testPolicy, "POLYGON", 500);
+		test("should allow any coin when coins is wildcard ['*']", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM", coins: ["*"] }],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ANYTHING");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow all deposits when deposit has no rule key", () => {
+			const policy: PolicyConfig = { ...testPolicy, deposit: {} };
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ETH");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow all deposits when deposit has empty rule array", () => {
+			const policy: PolicyConfig = { ...testPolicy, deposit: { rule: [] } };
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ETH");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should match exchange/network and allow any coin when rule has no coins", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM" }],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ETH");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should reject wrong exchange/network when rules are present", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM" }],
+				},
+			};
+			const result = validateDeposit(policy, "BYBIT", "OPTIMISM", "ETH");
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Deposits not allowed for BYBIT:OPTIMISM");
+		});
+
+		test("highest-priority rule wins with no fallthrough on coin mismatch", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [
+						{ exchange: "BINANCE", network: "ARBITRUM", coins: ["ETH"] },
+						{ exchange: "*", network: "ARBITRUM", coins: ["USDT"] },
+					],
+				},
+			};
+			// BINANCE/ARBITRUM matches rule1 (priority 4) which only allows ETH
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "USDT");
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("Token USDT not allowed");
+		});
+
+		test("should be case-insensitive for exchange, network, and coin", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "binance", network: "arbitrum", coins: ["eth"] }],
+				},
+			};
+			const result = validateDeposit(policy, "Binance", "Arbitrum", "Eth");
+			expect(result.valid).toBe(true);
+		});
+
+		test("should allow all coins when coins is empty array", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "ARBITRUM", coins: [] }],
+				},
+			};
+			const result = validateDeposit(policy, "BINANCE", "ARBITRUM", "ANYTHING");
 			expect(result.valid).toBe(true);
 		});
 	});

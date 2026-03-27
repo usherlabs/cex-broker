@@ -10,6 +10,7 @@ import {
 	executeWithdrawWithRouting,
 	resolveOrderExecution,
 	selectBroker,
+	validateDeposit,
 	validateWithdraw,
 	verityHttpClientOverridePredicate,
 	WithdrawRoutingError,
@@ -618,6 +619,21 @@ export function getServer(
 							);
 						}
 						const fetchDepositAddresses = parsedPayload.data;
+						const depositValidation = validateDeposit(
+							policy,
+							cex,
+							fetchDepositAddresses.chain,
+							symbol,
+						);
+						if (!depositValidation.valid) {
+							return wrappedCallback(
+								{
+									code: grpc.status.PERMISSION_DENIED,
+									message: depositValidation.error,
+								},
+								null,
+							);
+						}
 						try {
 							const depositAddresses =
 								broker.has.fetchDepositAddress === true

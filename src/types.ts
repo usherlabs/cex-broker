@@ -5,6 +5,13 @@ export type WithdrawRuleEntry = {
 	exchange: string;
 	network: string;
 	whitelist: string[];
+	coins?: string[];
+};
+
+export type DepositRuleEntry = {
+	exchange: string;
+	network: string;
+	coins?: string[];
 };
 
 export type BrokerAccountRole = "master" | "subaccount";
@@ -23,7 +30,9 @@ export type PolicyConfig = {
 	withdraw: {
 		rule: WithdrawRuleEntry[];
 	};
-	deposit: Record<string, null>;
+	deposit: {
+		rule?: DepositRuleEntry[];
+	};
 	order: {
 		rule: OrderRule;
 	};

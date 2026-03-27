@@ -11,6 +11,7 @@ import Joi from "joi";
 import type {
 	BrokerAccountRole,
 	BrokerCredentials,
+	DepositRuleEntry,
 	PolicyConfig,
 	WithdrawRuleEntry,
 } from "../types";
@@ -357,6 +358,13 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 			exchange: Joi.string().required(),
 			network: Joi.string().required(),
 			whitelist: Joi.array().items(Joi.string()).required(),
+			coins: Joi.array().items(Joi.string()).optional(),
+		});
+
+		const depositRuleEntrySchema = Joi.object({
+			exchange: Joi.string().required(),
+			network: Joi.string().required(),
+			coins: Joi.array().items(Joi.string()).optional(),
 		});
 
 		// Joi schema for OrderRule
@@ -380,9 +388,9 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 				rule: Joi.array().items(withdrawRuleEntrySchema).min(1).required(),
 			}).required(),
 
-			deposit: Joi.object()
-				.pattern(Joi.string(), Joi.valid(null)) // Record<string, null>
-				.required(),
+			deposit: Joi.object({
+				rule: Joi.array().items(depositRuleEntrySchema).optional(),
+			}).required(),
 
 			order: Joi.object({
 				rule: orderRuleSchema.required(),
@@ -418,7 +426,23 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 				whitelist: rule.whitelist.map((address) =>
 					address.trim().toLowerCase(),
 				),
+				...(rule.coins && {
+					coins: rule.coins.map((c) => c.trim().toUpperCase()),
+				}),
 			})),
+		},
+		deposit: {
+			...policy.deposit,
+			...(policy.deposit.rule && {
+				rule: policy.deposit.rule.map((rule) => ({
+					...rule,
+					exchange: rule.exchange.trim().toUpperCase(),
+					network: rule.network.trim().toUpperCase(),
+					...(rule.coins && {
+						coins: rule.coins.map((c) => c.trim().toUpperCase()),
+					}),
+				})),
+			}),
 		},
 		order: {
 			...policy.order,
@@ -455,13 +479,35 @@ function getWithdrawRulePriority(
 	return 1;
 }
 
+function getDepositRulePriority(
+	rule: DepositRuleEntry,
+	exchange: string,
+	network: string,
+): number {
+	const exchangeMatch = rule.exchange === exchange || rule.exchange === "*";
+	const networkMatch = rule.network === network || rule.network === "*";
+	if (!exchangeMatch || !networkMatch) {
+		return 0;
+	}
+	if (rule.exchange === exchange && rule.network === network) {
+		return 4;
+	}
+	if (rule.exchange === exchange && rule.network === "*") {
+		return 3;
+	}
+	if (rule.exchange === "*" && rule.network === network) {
+		return 2;
+	}
+	return 1;
+}
+
 export function validateWithdraw(
 	policy: PolicyConfig,
 	exchange: string,
 	network: string,
 	recipientAddress: string,
 	_amount: number,
-	_ticker: string,
+	ticker: string,
 ): { valid: boolean; error?: string } {
 	const normalizedPolicy = normalizePolicyConfig(policy);
 	const exchangeNorm = exchange.trim().toUpperCase();
@@ -491,6 +537,18 @@ export function validateWithdraw(
 			valid: false,
 			error: `Address ${recipientAddress} is not whitelisted for withdrawals`,
 		};
+	}
+
+	// Check if coin is allowed by the matched rule
+	const coins = withdrawRule.coins;
+	if (coins && coins.length > 0 && !coins.includes("*")) {
+		const tickerNorm = ticker.trim().toUpperCase();
+		if (!coins.includes(tickerNorm)) {
+			return {
+				valid: false,
+				error: `Token ${tickerNorm} is not allowed for withdrawals on ${exchangeNorm}:${networkNorm}. Allowed: [${coins.join(", ")}]`,
+			};
+		}
 	}
 
 	return { valid: true };
@@ -882,15 +940,54 @@ export async function resolveOrderExecution(
 	};
 }
 
-/**
- * Validates deposit request (currently empty but can be extended)
- */
 export function validateDeposit(
-	_policy: PolicyConfig,
-	_chain: string,
-	_amount: number,
+	policy: PolicyConfig,
+	exchange: string,
+	network: string,
+	ticker: string,
 ): { valid: boolean; error?: string } {
-	// Currently deposit policy is empty, so all deposits are allowed
-	// This can be extended when deposit rules are added to the policy
+	const normalizedPolicy = normalizePolicyConfig(policy);
+
+	if (
+		!normalizedPolicy.deposit.rule ||
+		normalizedPolicy.deposit.rule.length === 0
+	) {
+		return { valid: true };
+	}
+
+	const exchangeNorm = exchange.trim().toUpperCase();
+	const networkNorm = network.trim().toUpperCase();
+	const tickerNorm = ticker.trim().toUpperCase();
+
+	const matchingRules = normalizedPolicy.deposit.rule
+		.map((rule) => ({
+			rule,
+			priority: getDepositRulePriority(rule, exchangeNorm, networkNorm),
+		}))
+		.filter((r) => r.priority > 0)
+		.sort((a, b) => b.priority - a.priority);
+
+	const depositRule = matchingRules[0]?.rule;
+
+	if (!depositRule) {
+		return {
+			valid: false,
+			error: `Deposits not allowed for ${exchangeNorm}:${networkNorm}`,
+		};
+	}
+
+	if (
+		depositRule.coins &&
+		depositRule.coins.length > 0 &&
+		!depositRule.coins.includes("*")
+	) {
+		if (!depositRule.coins.includes(tickerNorm)) {
+			return {
+				valid: false,
+				error: `Token ${tickerNorm} not allowed for deposit on ${exchangeNorm}:${networkNorm}. Allowed: [${depositRule.coins.join(", ")}]`,
+			};
+		}
+	}
+
 	return { valid: true };
 }
