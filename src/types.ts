@@ -14,6 +14,8 @@ export type DepositRuleEntry = {
 	coins?: string[];
 };
 
+export type BrokerAccountRole = "master" | "subaccount";
+
 export type OrderRule = {
 	markets: string[];
 	limits?: Array<{
@@ -170,6 +172,10 @@ export const SupportedBroker = BrokerList.reduce(
 export type BrokerCredentials = {
 	apiKey: string;
 	apiSecret: string;
+	role?: BrokerAccountRole;
+	email?: string;
+	subAccountId?: string;
+	uid?: string;
 };
 export type SecondaryKeys<T> = {
 	secondaryKeys: Array<T>;
