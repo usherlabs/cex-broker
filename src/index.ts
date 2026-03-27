@@ -2,7 +2,12 @@ import * as grpc from "@grpc/grpc-js";
 import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import { unwatchFile, watchFile } from "fs";
 import Joi from "joi";
-import { createBrokerPool, loadPolicy, normalizePolicyConfig } from "./helpers";
+import {
+	type BrokerPoolEntry,
+	createBrokerPool,
+	loadPolicy,
+	normalizePolicyConfig,
+} from "./helpers";
 import { log } from "./helpers/logger";
 import {
 	createOtelLogsFromEnv,
@@ -28,10 +33,7 @@ export default class CEXBroker {
 	#verityProverUrl: string = "http://localhost:8080";
 	port = 8086;
 	private policy: PolicyConfig;
-	private brokers: Record<
-		string,
-		{ primary: Exchange; secondaryBrokers: Exchange[] }
-	> = {};
+	private brokers: Record<string, BrokerPoolEntry> = {};
 	private whitelistIps: string[] = [
 		"127.0.0.1", // localhost
 		"::1", // IPv6 localhost
@@ -53,19 +55,21 @@ export default class CEXBroker {
 		const configMap: Record<
 			string,
 			Partial<BrokerCredentials> & {
-				_secondaryMap?: Record<number, { apiKey?: string; apiSecret?: string }>;
+				_secondaryMap?: Record<number, Partial<BrokerCredentials>>;
 			}
 		> = {};
 
 		for (const [key, value] of Object.entries(process.env)) {
 			if (!key.startsWith("CEX_BROKER_")) continue;
 
-			// Match secondary keys like API_KEY_1, API_SECRET_1
-			let match = key.match(/^CEX_BROKER_(\w+)_API_(KEY|SECRET)_(\d+)$/);
+			// Match secondary keys like API_KEY_1, ROLE_1, EMAIL_1
+			let match = key.match(
+				/^CEX_BROKER_(\w+)_(API_(KEY|SECRET)|ROLE|EMAIL|SUBACCOUNTID|UID)_(\d+)$/,
+			);
 			if (match) {
 				const broker = match[1]?.toLowerCase() ?? "";
-				const type = match[2]?.toLowerCase();
-				const index = Number(match[3]?.toLowerCase());
+				const type = match[2]?.toLowerCase() ?? "";
+				const index = Number(match[4]?.toLowerCase());
 
 				if (!configMap[broker]) configMap[broker] = {};
 				if (!configMap[broker]._secondaryMap)
@@ -73,31 +77,55 @@ export default class CEXBroker {
 				if (!configMap[broker]._secondaryMap[index])
 					configMap[broker]._secondaryMap[index] = {};
 
-				if (type === "key") {
+				if (type === "api_key") {
 					configMap[broker]._secondaryMap[index].apiKey = value || "";
-				} else if (type === "secret") {
+				} else if (type === "api_secret") {
 					configMap[broker]._secondaryMap[index].apiSecret = value || "";
+				} else if (type === "role") {
+					const role = value?.trim().toLowerCase();
+					if (role === "master" || role === "subaccount") {
+						configMap[broker]._secondaryMap[index].role = role;
+					}
+				} else if (type === "email") {
+					configMap[broker]._secondaryMap[index].email = value || "";
+				} else if (type === "subaccountid") {
+					configMap[broker]._secondaryMap[index].subAccountId = value || "";
+				} else if (type === "uid") {
+					configMap[broker]._secondaryMap[index].uid = value || "";
 				}
 				continue;
 			}
 
-			match = key.match(/^CEX_BROKER_(\w+)_API_(KEY|SECRET)$/);
+			match = key.match(
+				/^CEX_BROKER_(\w+)_(API_(KEY|SECRET)|ROLE|EMAIL|SUBACCOUNTID|UID)$/,
+			);
 			if (!match) {
 				log.warn(`⚠️ Skipping unrecognized env var: ${key}`);
 				continue;
 			}
 
 			const broker = match[1]?.toLowerCase() ?? ""; // normalize to lowercase
-			const type = match[2]?.toLowerCase() ?? ""; // 'key' or 'secret'
+			const type = match[2]?.toLowerCase() ?? "";
 
 			if (!configMap[broker]) {
 				configMap[broker] = {};
 			}
 
-			if (type === "key") {
+			if (type === "api_key") {
 				configMap[broker].apiKey = value || "";
-			} else if (type === "secret") {
+			} else if (type === "api_secret") {
 				configMap[broker].apiSecret = value || "";
+			} else if (type === "role") {
+				const role = value?.trim().toLowerCase();
+				if (role === "master" || role === "subaccount") {
+					configMap[broker].role = role;
+				}
+			} else if (type === "email") {
+				configMap[broker].email = value || "";
+			} else if (type === "subaccountid") {
+				configMap[broker].subAccountId = value || "";
+			} else if (type === "uid") {
+				configMap[broker].uid = value || "";
 			}
 		}
 
@@ -125,11 +153,19 @@ export default class CEXBroker {
 				Joi.object({
 					apiKey: Joi.string().required(),
 					apiSecret: Joi.string().required(),
+					role: Joi.string().valid("master", "subaccount").optional(),
+					email: Joi.string().optional(),
+					subAccountId: Joi.string().optional(),
+					uid: Joi.string().optional(),
 					secondaryKeys: Joi.array()
 						.items(
 							Joi.object({
 								apiKey: Joi.string().required(),
 								apiSecret: Joi.string().required(),
+								role: Joi.string().valid("master", "subaccount").optional(),
+								email: Joi.string().optional(),
+								subAccountId: Joi.string().optional(),
+								uid: Joi.string().optional(),
 							}),
 						)
 						.default([]),

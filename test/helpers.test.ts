@@ -5,12 +5,20 @@ import path from "path";
 import type { PolicyConfig } from "../src/types";
 import type { Exchange } from "@usherlabs/ccxt";
 import {
+	executeWithdrawWithRouting,
+	getCurrentBrokerSelector,
 	loadPolicy,
+	resolveBrokerAccount,
 	resolveOrderExecution,
+	type BrokerPoolEntry,
+	WithdrawRoutingError,
+	WithdrawRoutingUnavailableError,
 	validateDeposit,
 	validateOrder,
 	validateWithdraw,
 } from "../src/helpers/index";
+import { WithdrawPayloadSchema } from "../src/schemas/action-payloads";
+import * as grpc from "@grpc/grpc-js";
 
 describe("Helper Functions", () => {
 	let testPolicy: PolicyConfig;
@@ -538,6 +546,196 @@ describe("Helper Functions", () => {
 		test("should allow deposits on any chain", () => {
 			const result = validateDeposit(testPolicy, "POLYGON", 500);
 			expect(result.valid).toBe(true);
+		});
+	});
+
+	describe("withdraw routing", () => {
+		function createMockExchange() {
+			const state = {
+				withdrawCalls: [] as unknown[],
+				transferCalls: [] as unknown[],
+			};
+			const exchange = {
+				loadMarkets: async () => undefined,
+				currency: (code: string) => ({ id: code }),
+				currencyToPrecision: (_code: string, amount: number) => String(amount),
+				withdraw: async (...args: unknown[]) => {
+					state.withdrawCalls.push(args);
+					return { id: "withdraw-1" };
+				},
+				sapiPostSubAccountTransferSubToMaster: async (
+					params: Record<string, unknown>,
+				) => {
+					state.transferCalls.push(params);
+					return { txnId: "transfer-1" };
+				},
+			} as unknown as Exchange & {
+				sapiPostSubAccountTransferSubToMaster: (
+					params: Record<string, unknown>,
+				) => Promise<unknown>;
+			};
+			return { exchange, state };
+		}
+
+		function createMetadata(useSecondaryKey?: string) {
+			const metadata = new grpc.Metadata();
+			if (useSecondaryKey) {
+				metadata.set("use-secondary-key", useSecondaryKey);
+			}
+			return metadata;
+		}
+
+		test("should parse routed withdraw payload fields", () => {
+			const payload = WithdrawPayloadSchema.parse({
+				recipientAddress: "0xabc",
+				amount: "1.25",
+				chain: "ARB",
+				routeViaMaster: "true",
+				sourceAccount: "secondary:1",
+				masterAccount: "primary",
+			});
+
+			expect(payload.routeViaMaster).toBe(true);
+			expect(payload.amount).toBe(1.25);
+			expect(payload.sourceAccount).toBe("secondary:1");
+			expect(payload.masterAccount).toBe("primary");
+		});
+
+		test("should resolve broker selectors from metadata", () => {
+			const primaryMetadata = createMetadata();
+			const secondaryMetadata = createMetadata("2");
+
+			expect(getCurrentBrokerSelector(primaryMetadata)).toBe("primary");
+			expect(getCurrentBrokerSelector(secondaryMetadata)).toBe("secondary:2");
+		});
+
+		test("should resolve broker accounts by selector", () => {
+			const { exchange: primary } = createMockExchange();
+			const { exchange: secondaryOne } = createMockExchange();
+			const { exchange: secondaryTwo } = createMockExchange();
+			const pool: BrokerPoolEntry = {
+				primary: { exchange: primary, label: "primary" },
+				secondaryBrokers: [
+					{ exchange: secondaryOne, label: "secondary:1", index: 1 },
+					{ exchange: secondaryTwo, label: "secondary:2", index: 2 },
+				],
+			};
+
+			expect(resolveBrokerAccount(pool, "primary")?.label).toBe("primary");
+			expect(resolveBrokerAccount(pool, "secondary:2")?.label).toBe(
+				"secondary:2",
+			);
+			expect(resolveBrokerAccount(pool, "secondary:3")).toBeNull();
+		});
+
+		test("should route binance withdraws through master account", async () => {
+			const { exchange: primary, state: primaryState } = createMockExchange();
+			const { exchange: secondary, state: secondaryState } = createMockExchange();
+			const pool: BrokerPoolEntry = {
+				primary: { exchange: primary, label: "primary", role: "master" },
+				secondaryBrokers: [
+					{
+						exchange: secondary,
+						label: "secondary:1",
+						index: 1,
+						role: "subaccount",
+					},
+				],
+			};
+
+			await executeWithdrawWithRouting({
+				cex: "binance",
+				brokers: pool,
+				metadata: createMetadata("1"),
+				selectedBroker: secondary,
+				code: "USDT",
+				amount: 2,
+				recipientAddress: "0xabc",
+				network: "ARB",
+				routeViaMaster: true,
+				sourceAccount: "current",
+				masterAccount: "primary",
+			});
+
+			expect(secondaryState.transferCalls).toHaveLength(1);
+			expect(primaryState.withdrawCalls).toHaveLength(1);
+			expect(secondaryState.transferCalls[0]).toMatchObject({
+				asset: "USDT",
+				amount: "2",
+			});
+		});
+
+		test("should skip transfer when source and master are the same", async () => {
+			const { exchange: primary, state } = createMockExchange();
+			const pool: BrokerPoolEntry = {
+				primary: { exchange: primary, label: "primary" },
+				secondaryBrokers: [],
+			};
+
+			await executeWithdrawWithRouting({
+				cex: "binance",
+				brokers: pool,
+				metadata: createMetadata(),
+				selectedBroker: primary,
+				code: "USDT",
+				amount: 1,
+				recipientAddress: "0xabc",
+				network: "ARB",
+				routeViaMaster: true,
+				sourceAccount: "primary",
+				masterAccount: "primary",
+			});
+
+			expect(state.transferCalls).toHaveLength(0);
+			expect(state.withdrawCalls).toHaveLength(1);
+		});
+
+		test("should report unavailable routing for unsupported exchanges", async () => {
+			const { exchange: primary } = createMockExchange();
+			const { exchange: secondary } = createMockExchange();
+			const pool: BrokerPoolEntry = {
+				primary: { exchange: primary, label: "primary" },
+				secondaryBrokers: [
+					{ exchange: secondary, label: "secondary:1", index: 1 },
+				],
+			};
+
+			await expect(
+				executeWithdrawWithRouting({
+					cex: "bybit",
+					brokers: pool,
+					metadata: createMetadata("1"),
+					selectedBroker: secondary,
+					code: "USDT",
+					amount: 2,
+					recipientAddress: "0xabc",
+					network: "ARB",
+					routeViaMaster: true,
+				}),
+			).rejects.toBeInstanceOf(WithdrawRoutingUnavailableError);
+		});
+
+		test("should reject invalid account selectors", async () => {
+			const { exchange: primary } = createMockExchange();
+			const pool: BrokerPoolEntry = {
+				primary: { exchange: primary, label: "primary" },
+				secondaryBrokers: [],
+			};
+
+			await expect(
+				executeWithdrawWithRouting({
+					cex: "binance",
+					brokers: pool,
+					metadata: createMetadata(),
+					selectedBroker: primary,
+					code: "USDT",
+					amount: 2,
+					recipientAddress: "0xabc",
+					network: "ARB",
+					routeViaMaster: true,
+					sourceAccount: "secondary:bad",
+				}),
+			).rejects.toBeInstanceOf(WithdrawRoutingError);
 		});
 	});
 });

@@ -6,6 +6,10 @@ import {
 	authenticateRequest,
 	buildHttpClientOverrideFromMetadata,
 	createBroker,
+	executeWithdrawWithRouting,
+	type BrokerPoolEntry,
+	WithdrawRoutingError,
+	WithdrawRoutingUnavailableError,
 	resolveOrderExecution,
 	selectBroker,
 	validateWithdraw,
@@ -78,7 +82,7 @@ function safeLogError(context: string, error: unknown): void {
 
 export function getServer(
 	policy: PolicyConfig,
-	brokers: Record<string, { primary: Exchange; secondaryBrokers: Exchange[] }>,
+	brokers: Record<string, BrokerPoolEntry>,
 	whitelistIps: string[],
 	useVerity: boolean,
 	verityProverUrl: string,
@@ -701,16 +705,42 @@ export function getServer(
 							);
 						}
 						try {
-							const transaction = await broker.withdraw(
-								symbol,
-								transferValue.amount,
-								transferValue.recipientAddress,
-								undefined,
-								{
-									...(transferValue.params ?? {}),
+							let transaction;
+							try {
+								transaction = await executeWithdrawWithRouting({
+									cex,
+									brokers: brokers[cex as keyof typeof brokers],
+									metadata,
+									selectedBroker: broker,
+									code: symbol,
+									amount: transferValue.amount,
+									recipientAddress: transferValue.recipientAddress,
 									network: transferValue.chain,
-								},
-							);
+									params: transferValue.params,
+									routeViaMaster: transferValue.routeViaMaster,
+									sourceAccount: transferValue.sourceAccount,
+									masterAccount: transferValue.masterAccount,
+								});
+							} catch (error) {
+								if (error instanceof WithdrawRoutingUnavailableError) {
+									log.warn("Withdraw routing unavailable, falling back", {
+										cex,
+										error: error.message,
+									});
+									transaction = await broker.withdraw(
+										symbol,
+										transferValue.amount,
+										transferValue.recipientAddress,
+										undefined,
+										{
+											...(transferValue.params ?? {}),
+											network: transferValue.chain,
+										},
+									);
+								} else {
+									throw error;
+								}
+							}
 							log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 
 							wrappedCallback(null, {
@@ -719,10 +749,16 @@ export function getServer(
 							});
 						} catch (error) {
 							safeLogError("Withdraw failed", error);
-							const message = getErrorMessage(error);
+							const message =
+								error instanceof WithdrawRoutingError
+									? error.message
+									: getErrorMessage(error);
 							wrappedCallback(
 								{
-									code: grpc.status.INTERNAL,
+									code:
+										error instanceof WithdrawRoutingError
+											? grpc.status.INVALID_ARGUMENT
+											: grpc.status.INTERNAL,
 									message: `Withdraw failed: ${message}`,
 								},
 								null,
