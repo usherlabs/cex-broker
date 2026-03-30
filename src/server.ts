@@ -1,6 +1,6 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import type { Exchange } from "@usherlabs/ccxt";
+import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import type { z } from "zod";
 import {
 	authenticateRequest,
@@ -81,6 +81,27 @@ function safeLogError(context: string, error: unknown): void {
 	} catch {
 		console.error(context, error);
 	}
+}
+
+/** Maps CCXT typed errors to appropriate gRPC status codes. Returns undefined for unrecognized errors. */
+function mapCcxtErrorToGrpcStatus(error: unknown): grpc.status | undefined {
+	if (error instanceof ccxt.AuthenticationError)
+		return grpc.status.UNAUTHENTICATED;
+	if (error instanceof ccxt.PermissionDenied)
+		return grpc.status.PERMISSION_DENIED;
+	if (error instanceof ccxt.InsufficientFunds)
+		return grpc.status.FAILED_PRECONDITION;
+	if (error instanceof ccxt.InvalidAddress) return grpc.status.INVALID_ARGUMENT;
+	if (error instanceof ccxt.BadRequest) return grpc.status.INVALID_ARGUMENT;
+	if (error instanceof ccxt.BadSymbol) return grpc.status.NOT_FOUND;
+	if (error instanceof ccxt.NotSupported) return grpc.status.UNIMPLEMENTED;
+	if (error instanceof ccxt.RateLimitExceeded)
+		return grpc.status.RESOURCE_EXHAUSTED;
+	if (error instanceof ccxt.OnMaintenance) return grpc.status.UNAVAILABLE;
+	if (error instanceof ccxt.ExchangeNotAvailable)
+		return grpc.status.UNAVAILABLE;
+	if (error instanceof ccxt.NetworkError) return grpc.status.UNAVAILABLE;
+	return undefined;
 }
 
 export function getServer(
@@ -740,9 +761,11 @@ export function getServer(
 							});
 						} catch (error) {
 							safeLogError("Withdraw failed", error);
+							const code =
+								mapCcxtErrorToGrpcStatus(error) ?? grpc.status.INTERNAL;
 							wrappedCallback(
 								{
-									code: grpc.status.INTERNAL,
+									code,
 									message: `Withdraw failed: ${getErrorMessage(error)}`,
 								},
 								null,
@@ -1128,11 +1151,13 @@ export function getServer(
 								);
 							}
 							const msg = getErrorMessage(error);
-							let code = grpc.status.INTERNAL;
+							let code: grpc.status;
 							if (msg.includes("Unsupported transfer direction")) {
 								code = grpc.status.INVALID_ARGUMENT;
 							} else if (msg.includes("unavailable in this CCXT build")) {
 								code = grpc.status.UNIMPLEMENTED;
+							} else {
+								code = mapCcxtErrorToGrpcStatus(error) ?? grpc.status.INTERNAL;
 							}
 							wrappedCallback(
 								{
