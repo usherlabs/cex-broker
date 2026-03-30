@@ -92,8 +92,8 @@ function mapCcxtErrorToGrpcStatus(error: unknown): grpc.status | undefined {
 	if (error instanceof ccxt.InsufficientFunds)
 		return grpc.status.FAILED_PRECONDITION;
 	if (error instanceof ccxt.InvalidAddress) return grpc.status.INVALID_ARGUMENT;
-	if (error instanceof ccxt.BadRequest) return grpc.status.INVALID_ARGUMENT;
 	if (error instanceof ccxt.BadSymbol) return grpc.status.NOT_FOUND;
+	if (error instanceof ccxt.BadRequest) return grpc.status.INVALID_ARGUMENT;
 	if (error instanceof ccxt.NotSupported) return grpc.status.UNIMPLEMENTED;
 	if (error instanceof ccxt.RateLimitExceeded)
 		return grpc.status.RESOURCE_EXHAUSTED;
