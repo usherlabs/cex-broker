@@ -1093,6 +1093,19 @@ export function getServer(
 						}
 
 						try {
+							if (useVerity) {
+								sourceAccount.exchange.setHttpClientOverride(
+									buildHttpClientOverrideFromMetadata(
+										metadata,
+										verityProverUrl,
+										(proof, notaryPubKey) => {
+											verityProof = proof;
+											log.debug(`Verity proof:`, { proof, notaryPubKey });
+										},
+									),
+									verityHttpClientOverridePredicate,
+								);
+							}
 							const result = await transferBinanceInternal(
 								sourceAccount,
 								destAccount,
@@ -1114,10 +1127,17 @@ export function getServer(
 									null,
 								);
 							}
+							const msg = getErrorMessage(error);
+							let code = grpc.status.INTERNAL;
+							if (msg.includes("Unsupported transfer direction")) {
+								code = grpc.status.INVALID_ARGUMENT;
+							} else if (msg.includes("unavailable in this CCXT build")) {
+								code = grpc.status.UNIMPLEMENTED;
+							}
 							wrappedCallback(
 								{
-									code: grpc.status.INTERNAL,
-									message: `InternalTransfer failed: ${getErrorMessage(error)}`,
+									code,
+									message: `InternalTransfer failed: ${msg}`,
 								},
 								null,
 							);
