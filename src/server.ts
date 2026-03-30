@@ -4,6 +4,7 @@ import type { Exchange } from "@usherlabs/ccxt";
 import type { z } from "zod";
 import {
 	authenticateRequest,
+	BrokerAccountPreconditionError,
 	type BrokerPoolEntry,
 	buildHttpClientOverrideFromMetadata,
 	createBroker,
@@ -1104,6 +1105,15 @@ export function getServer(
 							});
 						} catch (error) {
 							safeLogError("InternalTransfer failed", error);
+							if (error instanceof BrokerAccountPreconditionError) {
+								return wrappedCallback(
+									{
+										code: grpc.status.FAILED_PRECONDITION,
+										message: getErrorMessage(error),
+									},
+									null,
+								);
+							}
 							wrappedCallback(
 								{
 									code: grpc.status.INTERNAL,

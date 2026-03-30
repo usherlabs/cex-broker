@@ -33,6 +33,26 @@ export type BrokerPoolEntry = {
 	secondaryBrokers: BrokerAccount[];
 };
 
+export class BrokerAccountPreconditionError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "BrokerAccountPreconditionError";
+	}
+}
+
+function requireDestinationEmail(
+	dest: BrokerAccount,
+	transferType: "sub-to-sub" | "primary-to-sub",
+) {
+	const email = dest.email?.trim();
+	if (!email) {
+		throw new BrokerAccountPreconditionError(
+			`Destination account '${dest.label}' requires an email configured for ${transferType} transfers`,
+		);
+	}
+	return email;
+}
+
 export function authenticateRequest<T, E>(
 	call: ServerUnaryCall<T, E>,
 	whitelistIps: string[],
@@ -594,13 +614,9 @@ export async function transferBinanceInternal(
 				"Binance sub→sub transfer is unavailable in this CCXT build",
 			);
 		}
-		if (!dest.email) {
-			throw new Error(
-				`Destination account "${dest.label}" has no email configured (required for sub→sub transfers)`,
-			);
-		}
+		const destEmail = requireDestinationEmail(dest, "sub-to-sub");
 		return await exchange.sapiPostSubAccountTransferSubToSub({
-			toEmail: dest.email,
+			toEmail: destEmail,
 			asset,
 			amount: amountStr,
 		});
@@ -612,15 +628,11 @@ export async function transferBinanceInternal(
 				"Binance universal transfer is unavailable in this CCXT build",
 			);
 		}
-		if (!dest.email) {
-			throw new Error(
-				`Destination account "${dest.label}" has no email configured (required for master→sub transfers)`,
-			);
-		}
+		const destEmail = requireDestinationEmail(dest, "primary-to-sub");
 		return await exchange.sapiPostSubAccountUniversalTransfer({
 			fromAccountType: "SPOT",
 			toAccountType: "SPOT",
-			toEmail: dest.email,
+			toEmail: destEmail,
 			asset,
 			amount: amountStr,
 		});

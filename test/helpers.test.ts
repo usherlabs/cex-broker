@@ -1063,7 +1063,7 @@ describe("Helper Functions", () => {
 			});
 		});
 
-		test("sub→sub: throws when dest email is missing", async () => {
+		test("sub→sub: throws a clear error when dest email is missing", async () => {
 			const { exchange } = createMockExchange([
 				"sapiPostSubAccountTransferSubToSub",
 			]);
@@ -1074,10 +1074,12 @@ describe("Helper Functions", () => {
 					"USDT",
 					1,
 				),
-			).rejects.toThrow("no email configured (required for sub→sub transfers)");
+			).rejects.toThrow(
+				"Destination account 'secondary:2' requires an email configured for sub-to-sub transfers",
+			);
 		});
 
-		test("primary→secondary: throws when dest email is missing", async () => {
+		test("primary→secondary: throws a clear error when dest email is missing", async () => {
 			const { exchange } = createMockExchange([
 				"sapiPostSubAccountUniversalTransfer",
 			]);
@@ -1089,7 +1091,7 @@ describe("Helper Functions", () => {
 					1,
 				),
 			).rejects.toThrow(
-				"no email configured (required for master→sub transfers)",
+				"Destination account 'secondary:1' requires an email configured for primary-to-sub transfers",
 			);
 		});
 
