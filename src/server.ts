@@ -203,10 +203,14 @@ export function getServer(
 					);
 				}
 
+				const normalizedCex = cex.trim().toLowerCase();
+
 				// If the Exchange is not already pre-loaded for preset API credentials via constructor - createBroker for non-gated APIs may be available for other exchanges.
 				const broker =
-					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
-					createBroker(cex, metadata);
+					selectBroker(
+						brokers[normalizedCex as keyof typeof brokers],
+						metadata,
+					) ?? createBroker(normalizedCex, metadata);
 
 				if (!broker) {
 					return wrappedCallback(
@@ -1068,7 +1072,6 @@ export function getServer(
 						}
 						const transferPayload = parsedPayload.data;
 
-						const normalizedCex = cex.trim().toLowerCase();
 						if (normalizedCex !== "binance") {
 							return wrappedCallback(
 								{
