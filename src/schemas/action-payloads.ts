@@ -57,10 +57,13 @@ export const WithdrawPayloadSchema = z.object({
 	recipientAddress: z.string().min(1),
 	amount: z.coerce.number().positive(),
 	chain: z.string().min(1),
-	routeViaMaster: booleanLikeSchema.optional().default(false),
-	sourceAccount: z.string().min(1).optional(),
-	masterAccount: z.string().min(1).optional(),
 	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
+});
+
+export const InternalTransferPayloadSchema = z.object({
+	amount: z.coerce.number().positive(),
+	fromAccount: z.string().min(1).optional(),
+	toAccount: z.string().min(1).optional(),
 });
 
 export const CreateOrderPayloadSchema = z.object({
@@ -93,6 +96,9 @@ export type FetchDepositAddressesPayload = z.infer<
 	typeof FetchDepositAddressesPayloadSchema
 >;
 export type WithdrawPayload = z.infer<typeof WithdrawPayloadSchema>;
+export type InternalTransferPayload = z.infer<
+	typeof InternalTransferPayloadSchema
+>;
 export type CreateOrderPayload = z.infer<typeof CreateOrderPayloadSchema>;
 export type GetOrderDetailsPayload = z.infer<
 	typeof GetOrderDetailsPayloadSchema

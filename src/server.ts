@@ -7,14 +7,14 @@ import {
 	type BrokerPoolEntry,
 	buildHttpClientOverrideFromMetadata,
 	createBroker,
-	executeWithdrawWithRouting,
+	getCurrentBrokerSelector,
+	resolveBrokerAccount,
 	resolveOrderExecution,
 	selectBroker,
+	transferBinanceSubAccountToMaster,
 	validateDeposit,
 	validateWithdraw,
 	verityHttpClientOverridePredicate,
-	WithdrawRoutingError,
-	WithdrawRoutingUnavailableError,
 } from "./helpers";
 import { log } from "./helpers/logger";
 import type { OtelMetrics } from "./helpers/otel";
@@ -34,6 +34,7 @@ import {
 	FetchDepositAddressesPayloadSchema,
 	FetchFeesPayloadSchema,
 	GetOrderDetailsPayloadSchema,
+	InternalTransferPayloadSchema,
 	WithdrawPayloadSchema,
 } from "./schemas/action-payloads";
 import type { PolicyConfig } from "./types";
@@ -702,7 +703,6 @@ export function getServer(
 							);
 						}
 						const transferValue = parsedPayload.data;
-						// Validate against policy
 						const transferValidation = validateWithdraw(
 							policy,
 							cex,
@@ -721,45 +721,16 @@ export function getServer(
 							);
 						}
 						try {
-							let transaction: Awaited<ReturnType<Exchange["withdraw"]>>;
-							try {
-								transaction = await executeWithdrawWithRouting({
-									cex,
-									brokers: brokers[cex as keyof typeof brokers],
-									metadata,
-									selectedBroker: broker,
-									code: symbol,
-									amount: transferValue.amount,
-									recipientAddress: transferValue.recipientAddress,
+							const transaction = await broker.withdraw(
+								symbol,
+								transferValue.amount,
+								transferValue.recipientAddress,
+								undefined,
+								{
+									...(transferValue.params ?? {}),
 									network: transferValue.chain,
-									params: transferValue.params,
-									routeViaMaster: transferValue.routeViaMaster,
-									sourceAccount: transferValue.sourceAccount,
-									masterAccount: transferValue.masterAccount,
-								});
-							} catch (error) {
-								if (error instanceof WithdrawRoutingUnavailableError) {
-									log.warn("Withdraw routing unavailable, falling back", {
-										cex,
-										error: error.message,
-									});
-									if (transferValue.routeViaMaster) {
-										throw error;
-									}
-									transaction = await broker.withdraw(
-										symbol,
-										transferValue.amount,
-										transferValue.recipientAddress,
-										undefined,
-										{
-											...(transferValue.params ?? {}),
-											network: transferValue.chain,
-										},
-									);
-								} else {
-									throw error;
-								}
-							}
+								},
+							);
 							log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 
 							wrappedCallback(null, {
@@ -768,17 +739,10 @@ export function getServer(
 							});
 						} catch (error) {
 							safeLogError("Withdraw failed", error);
-							const message =
-								error instanceof WithdrawRoutingError
-									? error.message
-									: getErrorMessage(error);
 							wrappedCallback(
 								{
-									code:
-										error instanceof WithdrawRoutingError
-											? grpc.status.INVALID_ARGUMENT
-											: grpc.status.INTERNAL,
-									message: `Withdraw failed: ${message}`,
+									code: grpc.status.INTERNAL,
+									message: `Withdraw failed: ${getErrorMessage(error)}`,
 								},
 								null,
 							);
@@ -1054,6 +1018,101 @@ export function getServer(
 							);
 						}
 						break;
+
+					case Action.InternalTransfer: {
+						if (!symbol) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `ValidationError: Symbol required`,
+								},
+								null,
+							);
+						}
+						const parsedPayload = parsePayload(
+							InternalTransferPayloadSchema,
+							call.request.payload,
+						);
+						if (!parsedPayload.success) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: parsedPayload.message,
+								},
+								null,
+							);
+						}
+						const transferPayload = parsedPayload.data;
+
+						if (cex.trim().toLowerCase() !== "binance") {
+							return wrappedCallback(
+								{
+									code: grpc.status.UNIMPLEMENTED,
+									message: `InternalTransfer is only supported for Binance`,
+								},
+								null,
+							);
+						}
+
+						const pool = brokers[cex as keyof typeof brokers];
+						if (!pool) {
+							return wrappedCallback(
+								{
+									code: grpc.status.FAILED_PRECONDITION,
+									message: `No broker accounts configured for ${cex}`,
+								},
+								null,
+							);
+						}
+
+						const fromSelector =
+							transferPayload.fromAccount ?? getCurrentBrokerSelector(metadata);
+						const toSelector = transferPayload.toAccount ?? "primary";
+
+						const sourceAccount = resolveBrokerAccount(pool, fromSelector);
+						if (!sourceAccount) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `Source account "${fromSelector}" is not configured`,
+								},
+								null,
+							);
+						}
+
+						const destAccount = resolveBrokerAccount(pool, toSelector);
+						if (!destAccount) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `Destination account "${toSelector}" is not configured`,
+								},
+								null,
+							);
+						}
+
+						try {
+							const result = await transferBinanceSubAccountToMaster(
+								sourceAccount,
+								symbol,
+								transferPayload.amount,
+							);
+							wrappedCallback(null, {
+								proof: verityProof,
+								result: JSON.stringify(result),
+							});
+						} catch (error) {
+							safeLogError("InternalTransfer failed", error);
+							wrappedCallback(
+								{
+									code: grpc.status.INTERNAL,
+									message: `InternalTransfer failed: ${getErrorMessage(error)}`,
+								},
+								null,
+							);
+						}
+						break;
+					}
 
 					default:
 						return wrappedCallback({

@@ -33,17 +33,6 @@ export type BrokerPoolEntry = {
 	secondaryBrokers: BrokerAccount[];
 };
 
-export class WithdrawRoutingError extends Error {}
-export class WithdrawRoutingUnavailableError extends WithdrawRoutingError {}
-
-function isMasterBrokerAccount(account: BrokerAccount): boolean {
-	return account.label === "primary" || account.role === "master";
-}
-
-function isSubaccountBrokerAccount(account: BrokerAccount): boolean {
-	return !isMasterBrokerAccount(account);
-}
-
 export function authenticateRequest<T, E>(
 	call: ServerUnaryCall<T, E>,
 	whitelistIps: string[],
@@ -554,26 +543,7 @@ export function validateWithdraw(
 	return { valid: true };
 }
 
-function normalizeAccountSelector(
-	selector: string | undefined,
-	metadata: Metadata,
-	defaultSelector: "current" | "primary",
-): string {
-	const raw = selector?.trim().toLowerCase() ?? defaultSelector;
-	if (raw === "current") {
-		return getCurrentBrokerSelector(metadata);
-	}
-	if (raw === "primary") {
-		return "primary";
-	}
-	const secondaryMatch = raw.match(/^secondary:(\d+)$/);
-	if (secondaryMatch) {
-		return `secondary:${secondaryMatch[1]}`;
-	}
-	throw new WithdrawRoutingError(`Invalid account selector "${selector}"`);
-}
-
-async function transferBinanceSubAccountToMaster(
+export async function transferBinanceSubAccountToMaster(
 	source: BrokerAccount,
 	code: string,
 	amount: number,
@@ -584,8 +554,8 @@ async function transferBinanceSubAccountToMaster(
 		) => Promise<unknown>;
 	};
 	if (typeof exchange.sapiPostSubAccountTransferSubToMaster !== "function") {
-		throw new WithdrawRoutingUnavailableError(
-			"Binance sub-account to master transfer is unavailable in this CCXT build",
+		throw new Error(
+			"Binance sub-account transfer is unavailable in this CCXT build",
 		);
 	}
 	await source.exchange.loadMarkets();
@@ -594,108 +564,6 @@ async function transferBinanceSubAccountToMaster(
 		asset: currency.id,
 		amount: source.exchange.currencyToPrecision(code, amount),
 	});
-}
-
-export async function executeWithdrawWithRouting(args: {
-	cex: string;
-	brokers: BrokerPoolEntry | undefined;
-	metadata: Metadata;
-	selectedBroker: Exchange;
-	code: string;
-	amount: number;
-	recipientAddress: string;
-	network: string;
-	params?: Record<string, string | number>;
-	routeViaMaster?: boolean;
-	sourceAccount?: string;
-	masterAccount?: string;
-}) {
-	const {
-		cex,
-		brokers,
-		metadata,
-		selectedBroker,
-		code,
-		amount,
-		recipientAddress,
-		network,
-		params,
-		routeViaMaster,
-		sourceAccount,
-		masterAccount,
-	} = args;
-	const withdrawParams = {
-		...(params ?? {}),
-		network,
-	};
-	if (!routeViaMaster) {
-		return await selectedBroker.withdraw(
-			code,
-			amount,
-			recipientAddress,
-			undefined,
-			withdrawParams,
-		);
-	}
-	const sourceSelector = normalizeAccountSelector(
-		sourceAccount,
-		metadata,
-		"current",
-	);
-	const masterSelector = normalizeAccountSelector(
-		masterAccount,
-		metadata,
-		"primary",
-	);
-	if (!brokers) {
-		throw new WithdrawRoutingUnavailableError(
-			"Routed withdraw requires configured broker accounts",
-		);
-	}
-	const source = resolveBrokerAccount(brokers, sourceSelector);
-	if (!source) {
-		throw new WithdrawRoutingError(
-			`Source account ${sourceSelector} is not configured`,
-		);
-	}
-	const master = resolveBrokerAccount(brokers, masterSelector);
-	if (!master) {
-		throw new WithdrawRoutingError(
-			`Master account ${masterSelector} is not configured`,
-		);
-	}
-	if (!isMasterBrokerAccount(master)) {
-		throw new WithdrawRoutingError(
-			`Master account ${masterSelector} must resolve to the primary/master account`,
-		);
-	}
-	if (source.label === master.label) {
-		return await master.exchange.withdraw(
-			code,
-			amount,
-			recipientAddress,
-			undefined,
-			withdrawParams,
-		);
-	}
-	if (!isSubaccountBrokerAccount(source)) {
-		throw new WithdrawRoutingError(
-			`Source account ${sourceSelector} must resolve to a subaccount when routeViaMaster is enabled`,
-		);
-	}
-	if (cex.trim().toLowerCase() !== "binance") {
-		throw new WithdrawRoutingUnavailableError(
-			`Withdraw routing via master is not supported for ${cex}`,
-		);
-	}
-	await transferBinanceSubAccountToMaster(source, code, amount);
-	return await master.exchange.withdraw(
-		code,
-		amount,
-		recipientAddress,
-		undefined,
-		withdrawParams,
-	);
 }
 
 /**
