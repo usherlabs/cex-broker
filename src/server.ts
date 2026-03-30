@@ -1068,7 +1068,8 @@ export function getServer(
 						}
 						const transferPayload = parsedPayload.data;
 
-						if (cex.trim().toLowerCase() !== "binance") {
+						const normalizedCex = cex.trim().toLowerCase();
+						if (normalizedCex !== "binance") {
 							return wrappedCallback(
 								{
 									code: grpc.status.UNIMPLEMENTED,
@@ -1078,12 +1079,12 @@ export function getServer(
 							);
 						}
 
-						const pool = brokers[cex as keyof typeof brokers];
+						const pool = brokers[normalizedCex as keyof typeof brokers];
 						if (!pool) {
 							return wrappedCallback(
 								{
 									code: grpc.status.FAILED_PRECONDITION,
-									message: `No broker accounts configured for ${cex}`,
+									message: `No broker accounts configured for ${normalizedCex}`,
 								},
 								null,
 							);
