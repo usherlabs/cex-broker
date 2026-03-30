@@ -11,7 +11,7 @@ import {
 	loadPolicy,
 	resolveBrokerAccount,
 	resolveOrderExecution,
-	transferBinanceSubAccountToMaster,
+	transferBinanceInternal,
 	validateDeposit,
 	validateOrder,
 	validateWithdraw,
@@ -964,55 +964,181 @@ describe("Helper Functions", () => {
 		});
 	});
 
-	describe("transferBinanceSubAccountToMaster", () => {
-		function createMockBrokerAccount(hasSapiMethod: boolean) {
-			const state = { transferCalls: [] as unknown[] };
+	describe("transferBinanceInternal", () => {
+		type SapiMethods =
+			| "sapiPostSubAccountTransferSubToMaster"
+			| "sapiPostSubAccountTransferSubToSub"
+			| "sapiPostSubAccountUniversalTransfer";
+
+		function createMockExchange(enabledMethods: SapiMethods[]) {
+			const calls: Record<string, unknown[]> = {};
 			const exchange: Record<string, unknown> = {
 				loadMarkets: async () => undefined,
 				currency: (code: string) => ({ id: code }),
 				currencyToPrecision: (_code: string, amount: number) => String(amount),
 			};
-			if (hasSapiMethod) {
-				exchange.sapiPostSubAccountTransferSubToMaster = async (
-					params: Record<string, unknown>,
-				) => {
-					state.transferCalls.push(params);
-					return { txnId: "transfer-1" };
+			for (const method of enabledMethods) {
+				calls[method] = [];
+				exchange[method] = async (params: Record<string, unknown>) => {
+					calls[method].push(params);
+					return { txnId: `${method}-ok` };
 				};
 			}
-			return {
-				account: {
-					exchange: exchange as unknown as Exchange,
-					label: "secondary:1" as const,
-					index: 1,
-				},
-				state,
-			};
+			return { exchange: exchange as unknown as Exchange, calls };
 		}
 
-		test("should call SAPI transfer with correct asset and amount", async () => {
-			const { account, state } = createMockBrokerAccount(true);
+		function account(
+			label: "primary" | `secondary:${number}`,
+			exchange: Exchange,
+			email?: string,
+		) {
+			return {
+				exchange,
+				label,
+				email,
+			} as import("../src/helpers/index").BrokerAccount;
+		}
 
-			const result = await transferBinanceSubAccountToMaster(
-				account,
+		test("sub→master: calls SubToMaster endpoint", async () => {
+			const { exchange, calls } = createMockExchange([
+				"sapiPostSubAccountTransferSubToMaster",
+			]);
+			const result = await transferBinanceInternal(
+				account("secondary:1", exchange),
+				account("primary", exchange),
 				"USDT",
 				2.5,
 			);
-
-			expect(state.transferCalls).toHaveLength(1);
-			expect(state.transferCalls[0]).toMatchObject({
+			expect(calls.sapiPostSubAccountTransferSubToMaster).toHaveLength(1);
+			expect(calls.sapiPostSubAccountTransferSubToMaster[0]).toMatchObject({
 				asset: "USDT",
 				amount: "2.5",
 			});
-			expect(result).toMatchObject({ txnId: "transfer-1" });
+			expect(result).toMatchObject({
+				txnId: "sapiPostSubAccountTransferSubToMaster-ok",
+			});
 		});
 
-		test("should throw when SAPI method is unavailable", async () => {
-			const { account } = createMockBrokerAccount(false);
+		test("sub→sub: calls SubToSub endpoint with toEmail", async () => {
+			const { exchange, calls } = createMockExchange([
+				"sapiPostSubAccountTransferSubToSub",
+			]);
+			const result = await transferBinanceInternal(
+				account("secondary:1", exchange),
+				account("secondary:2", exchange, "dest@test.com"),
+				"ETH",
+				1.0,
+			);
+			expect(calls.sapiPostSubAccountTransferSubToSub).toHaveLength(1);
+			expect(calls.sapiPostSubAccountTransferSubToSub[0]).toMatchObject({
+				toEmail: "dest@test.com",
+				asset: "ETH",
+				amount: "1",
+			});
+			expect(result).toMatchObject({
+				txnId: "sapiPostSubAccountTransferSubToSub-ok",
+			});
+		});
 
+		test("primary→secondary: calls UniversalTransfer endpoint", async () => {
+			const { exchange, calls } = createMockExchange([
+				"sapiPostSubAccountUniversalTransfer",
+			]);
+			const result = await transferBinanceInternal(
+				account("primary", exchange),
+				account("secondary:1", exchange, "sub@test.com"),
+				"BTC",
+				0.1,
+			);
+			expect(calls.sapiPostSubAccountUniversalTransfer).toHaveLength(1);
+			expect(calls.sapiPostSubAccountUniversalTransfer[0]).toMatchObject({
+				fromAccountType: "SPOT",
+				toAccountType: "SPOT",
+				toEmail: "sub@test.com",
+				asset: "BTC",
+				amount: "0.1",
+			});
+			expect(result).toMatchObject({
+				txnId: "sapiPostSubAccountUniversalTransfer-ok",
+			});
+		});
+
+		test("sub→sub: throws when dest email is missing", async () => {
+			const { exchange } = createMockExchange([
+				"sapiPostSubAccountTransferSubToSub",
+			]);
 			await expect(
-				transferBinanceSubAccountToMaster(account, "USDT", 1),
-			).rejects.toThrow("Binance sub-account transfer is unavailable");
+				transferBinanceInternal(
+					account("secondary:1", exchange),
+					account("secondary:2", exchange),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow("no email configured (required for sub→sub transfers)");
+		});
+
+		test("primary→secondary: throws when dest email is missing", async () => {
+			const { exchange } = createMockExchange([
+				"sapiPostSubAccountUniversalTransfer",
+			]);
+			await expect(
+				transferBinanceInternal(
+					account("primary", exchange),
+					account("secondary:1", exchange),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow(
+				"no email configured (required for master→sub transfers)",
+			);
+		});
+
+		test("primary→primary: throws unsupported direction", async () => {
+			const { exchange } = createMockExchange([]);
+			await expect(
+				transferBinanceInternal(
+					account("primary", exchange),
+					account("primary", exchange),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow("Unsupported transfer direction: primary → primary");
+		});
+
+		test("sub→master: throws when SAPI method unavailable", async () => {
+			const { exchange } = createMockExchange([]);
+			await expect(
+				transferBinanceInternal(
+					account("secondary:1", exchange),
+					account("primary", exchange),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow("sub→master transfer is unavailable");
+		});
+
+		test("sub→sub: throws when SAPI method unavailable", async () => {
+			const { exchange } = createMockExchange([]);
+			await expect(
+				transferBinanceInternal(
+					account("secondary:1", exchange),
+					account("secondary:2", exchange, "dest@test.com"),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow("sub→sub transfer is unavailable");
+		});
+
+		test("primary→secondary: throws when SAPI method unavailable", async () => {
+			const { exchange } = createMockExchange([]);
+			await expect(
+				transferBinanceInternal(
+					account("primary", exchange),
+					account("secondary:1", exchange, "sub@test.com"),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow("universal transfer is unavailable");
 		});
 	});
 });

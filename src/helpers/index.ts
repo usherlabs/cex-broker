@@ -543,27 +543,92 @@ export function validateWithdraw(
 	return { valid: true };
 }
 
-export async function transferBinanceSubAccountToMaster(
+type BinanceImplicitMethods = {
+	sapiPostSubAccountTransferSubToMaster?: (
+		params: Record<string, unknown>,
+	) => Promise<unknown>;
+	sapiPostSubAccountTransferSubToSub?: (
+		params: Record<string, unknown>,
+	) => Promise<unknown>;
+	sapiPostSubAccountUniversalTransfer?: (
+		params: Record<string, unknown>,
+	) => Promise<unknown>;
+};
+
+/**
+ * Routes an internal transfer to the correct Binance SAPI endpoint
+ * based on source and destination account types.
+ */
+export async function transferBinanceInternal(
 	source: BrokerAccount,
+	dest: BrokerAccount,
 	code: string,
 	amount: number,
 ) {
-	const exchange = source.exchange as Exchange & {
-		sapiPostSubAccountTransferSubToMaster?: (
-			params: Record<string, unknown>,
-		) => Promise<unknown>;
-	};
-	if (typeof exchange.sapiPostSubAccountTransferSubToMaster !== "function") {
-		throw new Error(
-			"Binance sub-account transfer is unavailable in this CCXT build",
-		);
-	}
+	const exchange = source.exchange as Exchange & BinanceImplicitMethods;
 	await source.exchange.loadMarkets();
 	const currency = source.exchange.currency(code);
-	return await exchange.sapiPostSubAccountTransferSubToMaster({
-		asset: currency.id,
-		amount: source.exchange.currencyToPrecision(code, amount),
-	});
+	const asset = currency.id;
+	const amountStr = source.exchange.currencyToPrecision(code, amount);
+
+	const isSourceSecondary = source.label.startsWith("secondary:");
+	const isDestPrimary = dest.label === "primary";
+	const isDestSecondary = dest.label.startsWith("secondary:");
+	const isSourcePrimary = source.label === "primary";
+
+	if (isSourceSecondary && isDestPrimary) {
+		if (typeof exchange.sapiPostSubAccountTransferSubToMaster !== "function") {
+			throw new Error(
+				"Binance sub→master transfer is unavailable in this CCXT build",
+			);
+		}
+		return await exchange.sapiPostSubAccountTransferSubToMaster({
+			asset,
+			amount: amountStr,
+		});
+	}
+
+	if (isSourceSecondary && isDestSecondary) {
+		if (typeof exchange.sapiPostSubAccountTransferSubToSub !== "function") {
+			throw new Error(
+				"Binance sub→sub transfer is unavailable in this CCXT build",
+			);
+		}
+		if (!dest.email) {
+			throw new Error(
+				`Destination account "${dest.label}" has no email configured (required for sub→sub transfers)`,
+			);
+		}
+		return await exchange.sapiPostSubAccountTransferSubToSub({
+			toEmail: dest.email,
+			asset,
+			amount: amountStr,
+		});
+	}
+
+	if (isSourcePrimary && isDestSecondary) {
+		if (typeof exchange.sapiPostSubAccountUniversalTransfer !== "function") {
+			throw new Error(
+				"Binance universal transfer is unavailable in this CCXT build",
+			);
+		}
+		if (!dest.email) {
+			throw new Error(
+				`Destination account "${dest.label}" has no email configured (required for master→sub transfers)`,
+			);
+		}
+		return await exchange.sapiPostSubAccountUniversalTransfer({
+			fromAccountType: "SPOT",
+			toAccountType: "SPOT",
+			toEmail: dest.email,
+			asset,
+			amount: amountStr,
+		});
+	}
+
+	throw new Error(
+		`Unsupported transfer direction: ${source.label} → ${dest.label}`,
+	);
 }
 
 /**

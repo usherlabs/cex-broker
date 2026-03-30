@@ -11,7 +11,7 @@ import {
 	resolveBrokerAccount,
 	resolveOrderExecution,
 	selectBroker,
-	transferBinanceSubAccountToMaster,
+	transferBinanceInternal,
 	validateDeposit,
 	validateWithdraw,
 	verityHttpClientOverridePredicate,
@@ -1092,8 +1092,9 @@ export function getServer(
 						}
 
 						try {
-							const result = await transferBinanceSubAccountToMaster(
+							const result = await transferBinanceInternal(
 								sourceAccount,
+								destAccount,
 								symbol,
 								transferPayload.amount,
 							);
