@@ -7,18 +7,19 @@ import path from "path";
 import {
 	type BrokerPoolEntry,
 	createBrokerPool,
-	executeWithdrawWithRouting,
 	getCurrentBrokerSelector,
 	loadPolicy,
 	resolveBrokerAccount,
 	resolveOrderExecution,
+	transferBinanceInternal,
 	validateDeposit,
 	validateOrder,
 	validateWithdraw,
-	WithdrawRoutingError,
-	WithdrawRoutingUnavailableError,
 } from "../src/helpers/index";
-import { WithdrawPayloadSchema } from "../src/schemas/action-payloads";
+import {
+	InternalTransferPayloadSchema,
+	WithdrawPayloadSchema,
+} from "../src/schemas/action-payloads";
 import type { PolicyConfig } from "../src/types";
 
 describe("Helper Functions", () => {
@@ -830,31 +831,22 @@ describe("Helper Functions", () => {
 		});
 	});
 
-	describe("withdraw routing", () => {
+	describe("broker account resolution", () => {
 		function createMockExchange() {
 			const state = {
-				withdrawCalls: [] as unknown[],
 				transferCalls: [] as unknown[],
 			};
 			const exchange = {
 				loadMarkets: async () => undefined,
 				currency: (code: string) => ({ id: code }),
 				currencyToPrecision: (_code: string, amount: number) => String(amount),
-				withdraw: async (...args: unknown[]) => {
-					state.withdrawCalls.push(args);
-					return { id: "withdraw-1" };
-				},
 				sapiPostSubAccountTransferSubToMaster: async (
 					params: Record<string, unknown>,
 				) => {
 					state.transferCalls.push(params);
 					return { txnId: "transfer-1" };
 				},
-			} as unknown as Exchange & {
-				sapiPostSubAccountTransferSubToMaster: (
-					params: Record<string, unknown>,
-				) => Promise<unknown>;
-			};
+			} as unknown as Exchange;
 			return { exchange, state };
 		}
 
@@ -865,22 +857,6 @@ describe("Helper Functions", () => {
 			}
 			return metadata;
 		}
-
-		test("should parse routed withdraw payload fields", () => {
-			const payload = WithdrawPayloadSchema.parse({
-				recipientAddress: "0xabc",
-				amount: "1.25",
-				chain: "ARB",
-				routeViaMaster: "true",
-				sourceAccount: "secondary:1",
-				masterAccount: "primary",
-			});
-
-			expect(payload.routeViaMaster).toBe(true);
-			expect(payload.amount).toBe(1.25);
-			expect(payload.sourceAccount).toBe("secondary:1");
-			expect(payload.masterAccount).toBe("primary");
-		});
 
 		test("should resolve broker selectors from metadata", () => {
 			const primaryMetadata = createMetadata();
@@ -933,184 +909,238 @@ describe("Helper Functions", () => {
 				email: "sub2@example.com",
 			});
 		});
+	});
 
-		test("should route binance withdraws through master account", async () => {
-			const { exchange: primary, state: primaryState } = createMockExchange();
-			const { exchange: secondary, state: secondaryState } =
-				createMockExchange();
-			const pool: BrokerPoolEntry = {
-				primary: { exchange: primary, label: "primary", role: "master" },
-				secondaryBrokers: [
-					{
-						exchange: secondary,
-						label: "secondary:1",
-						index: 1,
-						role: "subaccount",
-					},
-				],
-			};
-
-			await executeWithdrawWithRouting({
-				cex: "binance",
-				brokers: pool,
-				metadata: createMetadata("1"),
-				selectedBroker: secondary,
-				code: "USDT",
-				amount: 2,
+	describe("withdraw payload schema", () => {
+		test("should parse withdraw payload without routing fields", () => {
+			const payload = WithdrawPayloadSchema.parse({
 				recipientAddress: "0xabc",
-				network: "ARB",
-				routeViaMaster: true,
-				sourceAccount: "current",
-				masterAccount: "primary",
+				amount: "1.25",
+				chain: "ARB",
 			});
 
-			expect(secondaryState.transferCalls).toHaveLength(1);
-			expect(primaryState.withdrawCalls).toHaveLength(1);
-			expect(secondaryState.transferCalls[0]).toMatchObject({
+			expect(payload.amount).toBe(1.25);
+			expect(payload.recipientAddress).toBe("0xabc");
+			expect(payload.chain).toBe("ARB");
+		});
+
+		test("should reject unknown routing fields", () => {
+			const payload = WithdrawPayloadSchema.parse({
+				recipientAddress: "0xabc",
+				amount: "1.25",
+				chain: "ARB",
+				routeViaMaster: "true",
+			});
+			// routeViaMaster is no longer in the schema, so it should be stripped
+			expect(
+				(payload as Record<string, unknown>).routeViaMaster,
+			).toBeUndefined();
+		});
+	});
+
+	describe("InternalTransfer payload schema", () => {
+		test("should parse amount with defaults", () => {
+			const payload = InternalTransferPayloadSchema.parse({
+				amount: "5.5",
+			});
+			expect(payload.amount).toBe(5.5);
+			expect(payload.fromAccount).toBeUndefined();
+			expect(payload.toAccount).toBeUndefined();
+		});
+
+		test("should parse explicit account selectors", () => {
+			const payload = InternalTransferPayloadSchema.parse({
+				amount: "10",
+				fromAccount: "secondary:1",
+				toAccount: "primary",
+			});
+			expect(payload.amount).toBe(10);
+			expect(payload.fromAccount).toBe("secondary:1");
+			expect(payload.toAccount).toBe("primary");
+		});
+
+		test("should reject missing amount", () => {
+			expect(() => InternalTransferPayloadSchema.parse({})).toThrow();
+		});
+	});
+
+	describe("transferBinanceInternal", () => {
+		type SapiMethods =
+			| "sapiPostSubAccountTransferSubToMaster"
+			| "sapiPostSubAccountTransferSubToSub"
+			| "sapiPostSubAccountUniversalTransfer";
+
+		function createMockExchange(enabledMethods: SapiMethods[]) {
+			const calls: Record<string, unknown[]> = {};
+			const exchange: Record<string, unknown> = {
+				loadMarkets: async () => undefined,
+				currency: (code: string) => ({ id: code }),
+				currencyToPrecision: (_code: string, amount: number) => String(amount),
+			};
+			for (const method of enabledMethods) {
+				calls[method] = [];
+				exchange[method] = async (params: Record<string, unknown>) => {
+					calls[method].push(params);
+					return { txnId: `${method}-ok` };
+				};
+			}
+			return { exchange: exchange as unknown as Exchange, calls };
+		}
+
+		function account(
+			label: "primary" | `secondary:${number}`,
+			exchange: Exchange,
+			email?: string,
+		) {
+			return {
+				exchange,
+				label,
+				email,
+			} as import("../src/helpers/index").BrokerAccount;
+		}
+
+		test("sub→master: calls SubToMaster endpoint", async () => {
+			const { exchange, calls } = createMockExchange([
+				"sapiPostSubAccountTransferSubToMaster",
+			]);
+			const result = await transferBinanceInternal(
+				account("secondary:1", exchange),
+				account("primary", exchange),
+				"USDT",
+				2.5,
+			);
+			expect(calls.sapiPostSubAccountTransferSubToMaster).toHaveLength(1);
+			expect(calls.sapiPostSubAccountTransferSubToMaster[0]).toMatchObject({
 				asset: "USDT",
-				amount: "2",
+				amount: "2.5",
+			});
+			expect(result).toMatchObject({
+				txnId: "sapiPostSubAccountTransferSubToMaster-ok",
 			});
 		});
 
-		test("should skip transfer when source and master are the same", async () => {
-			const { exchange: primary, state } = createMockExchange();
-			const pool: BrokerPoolEntry = {
-				primary: { exchange: primary, label: "primary" },
-				secondaryBrokers: [],
-			};
-
-			await executeWithdrawWithRouting({
-				cex: "binance",
-				brokers: pool,
-				metadata: createMetadata(),
-				selectedBroker: primary,
-				code: "USDT",
-				amount: 1,
-				recipientAddress: "0xabc",
-				network: "ARB",
-				routeViaMaster: true,
-				sourceAccount: "primary",
-				masterAccount: "primary",
+		test("sub→sub: calls SubToSub endpoint with toEmail", async () => {
+			const { exchange, calls } = createMockExchange([
+				"sapiPostSubAccountTransferSubToSub",
+			]);
+			const result = await transferBinanceInternal(
+				account("secondary:1", exchange),
+				account("secondary:2", exchange, "dest@test.com"),
+				"ETH",
+				1.0,
+			);
+			expect(calls.sapiPostSubAccountTransferSubToSub).toHaveLength(1);
+			expect(calls.sapiPostSubAccountTransferSubToSub[0]).toMatchObject({
+				toEmail: "dest@test.com",
+				asset: "ETH",
+				amount: "1",
 			});
-
-			expect(state.transferCalls).toHaveLength(0);
-			expect(state.withdrawCalls).toHaveLength(1);
+			expect(result).toMatchObject({
+				txnId: "sapiPostSubAccountTransferSubToSub-ok",
+			});
 		});
 
-		test("should report unavailable routing for unsupported exchanges", async () => {
-			const { exchange: primary } = createMockExchange();
-			const { exchange: secondary } = createMockExchange();
-			const pool: BrokerPoolEntry = {
-				primary: { exchange: primary, label: "primary" },
-				secondaryBrokers: [
-					{ exchange: secondary, label: "secondary:1", index: 1 },
-				],
-			};
-
-			await expect(
-				executeWithdrawWithRouting({
-					cex: "bybit",
-					brokers: pool,
-					metadata: createMetadata("1"),
-					selectedBroker: secondary,
-					code: "USDT",
-					amount: 2,
-					recipientAddress: "0xabc",
-					network: "ARB",
-					routeViaMaster: true,
-				}),
-			).rejects.toBeInstanceOf(WithdrawRoutingUnavailableError);
+		test("primary→secondary: calls UniversalTransfer endpoint", async () => {
+			const { exchange, calls } = createMockExchange([
+				"sapiPostSubAccountUniversalTransfer",
+			]);
+			const result = await transferBinanceInternal(
+				account("primary", exchange),
+				account("secondary:1", exchange, "sub@test.com"),
+				"BTC",
+				0.1,
+			);
+			expect(calls.sapiPostSubAccountUniversalTransfer).toHaveLength(1);
+			expect(calls.sapiPostSubAccountUniversalTransfer[0]).toMatchObject({
+				fromAccountType: "SPOT",
+				toAccountType: "SPOT",
+				toEmail: "sub@test.com",
+				asset: "BTC",
+				amount: "0.1",
+			});
+			expect(result).toMatchObject({
+				txnId: "sapiPostSubAccountUniversalTransfer-ok",
+			});
 		});
 
-		test("should reject a non-master target account for routed withdraws", async () => {
-			const { exchange: primary } = createMockExchange();
-			const { exchange: secondary } = createMockExchange();
-			const pool: BrokerPoolEntry = {
-				primary: { exchange: primary, label: "primary", role: "master" },
-				secondaryBrokers: [
-					{
-						exchange: secondary,
-						label: "secondary:1",
-						index: 1,
-						role: "subaccount",
-					},
-				],
-			};
-
+		test("sub→sub: throws a clear error when dest email is missing", async () => {
+			const { exchange } = createMockExchange([
+				"sapiPostSubAccountTransferSubToSub",
+			]);
 			await expect(
-				executeWithdrawWithRouting({
-					cex: "binance",
-					brokers: pool,
-					metadata: createMetadata("1"),
-					selectedBroker: secondary,
-					code: "USDT",
-					amount: 2,
-					recipientAddress: "0xabc",
-					network: "ARB",
-					routeViaMaster: true,
-					sourceAccount: "secondary:1",
-					masterAccount: "secondary:1",
-				}),
+				transferBinanceInternal(
+					account("secondary:1", exchange),
+					account("secondary:2", exchange),
+					"USDT",
+					1,
+				),
 			).rejects.toThrow(
-				"Master account secondary:1 must resolve to the primary/master account",
+				"Destination account 'secondary:2' requires an email configured for sub-to-sub transfers",
 			);
 		});
 
-		test("should reject a non-subaccount source for routed withdraws", async () => {
-			const { exchange: primary } = createMockExchange();
-			const { exchange: secondary } = createMockExchange();
-			const pool: BrokerPoolEntry = {
-				primary: { exchange: primary, label: "primary", role: "master" },
-				secondaryBrokers: [
-					{
-						exchange: secondary,
-						label: "secondary:1",
-						index: 1,
-						role: "master",
-					},
-				],
-			};
-
+		test("primary→secondary: throws a clear error when dest email is missing", async () => {
+			const { exchange } = createMockExchange([
+				"sapiPostSubAccountUniversalTransfer",
+			]);
 			await expect(
-				executeWithdrawWithRouting({
-					cex: "binance",
-					brokers: pool,
-					metadata: createMetadata(),
-					selectedBroker: primary,
-					code: "USDT",
-					amount: 2,
-					recipientAddress: "0xabc",
-					network: "ARB",
-					routeViaMaster: true,
-					sourceAccount: "primary",
-					masterAccount: "secondary:1",
-				}),
+				transferBinanceInternal(
+					account("primary", exchange),
+					account("secondary:1", exchange),
+					"USDT",
+					1,
+				),
 			).rejects.toThrow(
-				"Source account primary must resolve to a subaccount when routeViaMaster is enabled",
+				"Destination account 'secondary:1' requires an email configured for primary-to-sub transfers",
 			);
 		});
 
-		test("should reject invalid account selectors", async () => {
-			const { exchange: primary } = createMockExchange();
-			const pool: BrokerPoolEntry = {
-				primary: { exchange: primary, label: "primary" },
-				secondaryBrokers: [],
-			};
-
+		test("primary→primary: throws unsupported direction", async () => {
+			const { exchange } = createMockExchange([]);
 			await expect(
-				executeWithdrawWithRouting({
-					cex: "binance",
-					brokers: pool,
-					metadata: createMetadata(),
-					selectedBroker: primary,
-					code: "USDT",
-					amount: 2,
-					recipientAddress: "0xabc",
-					network: "ARB",
-					routeViaMaster: true,
-					sourceAccount: "secondary:bad",
-				}),
-			).rejects.toBeInstanceOf(WithdrawRoutingError);
+				transferBinanceInternal(
+					account("primary", exchange),
+					account("primary", exchange),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow("Unsupported transfer direction: primary → primary");
+		});
+
+		test("sub→master: throws when SAPI method unavailable", async () => {
+			const { exchange } = createMockExchange([]);
+			await expect(
+				transferBinanceInternal(
+					account("secondary:1", exchange),
+					account("primary", exchange),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow("sub→master transfer is unavailable");
+		});
+
+		test("sub→sub: throws when SAPI method unavailable", async () => {
+			const { exchange } = createMockExchange([]);
+			await expect(
+				transferBinanceInternal(
+					account("secondary:1", exchange),
+					account("secondary:2", exchange, "dest@test.com"),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow("sub→sub transfer is unavailable");
+		});
+
+		test("primary→secondary: throws when SAPI method unavailable", async () => {
+			const { exchange } = createMockExchange([]);
+			await expect(
+				transferBinanceInternal(
+					account("primary", exchange),
+					account("secondary:1", exchange, "sub@test.com"),
+					"USDT",
+					1,
+				),
+			).rejects.toThrow("universal transfer is unavailable");
 		});
 	});
 });

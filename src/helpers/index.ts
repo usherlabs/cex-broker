@@ -33,15 +33,24 @@ export type BrokerPoolEntry = {
 	secondaryBrokers: BrokerAccount[];
 };
 
-export class WithdrawRoutingError extends Error {}
-export class WithdrawRoutingUnavailableError extends WithdrawRoutingError {}
-
-function isMasterBrokerAccount(account: BrokerAccount): boolean {
-	return account.label === "primary" || account.role === "master";
+export class BrokerAccountPreconditionError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "BrokerAccountPreconditionError";
+	}
 }
 
-function isSubaccountBrokerAccount(account: BrokerAccount): boolean {
-	return !isMasterBrokerAccount(account);
+function requireDestinationEmail(
+	dest: BrokerAccount,
+	transferType: "sub-to-sub" | "primary-to-sub",
+) {
+	const email = dest.email?.trim();
+	if (!email) {
+		throw new BrokerAccountPreconditionError(
+			`Destination account '${dest.label}' requires an email configured for ${transferType} transfers`,
+		);
+	}
+	return email;
 }
 
 export function authenticateRequest<T, E>(
@@ -554,147 +563,83 @@ export function validateWithdraw(
 	return { valid: true };
 }
 
-function normalizeAccountSelector(
-	selector: string | undefined,
-	metadata: Metadata,
-	defaultSelector: "current" | "primary",
-): string {
-	const raw = selector?.trim().toLowerCase() ?? defaultSelector;
-	if (raw === "current") {
-		return getCurrentBrokerSelector(metadata);
-	}
-	if (raw === "primary") {
-		return "primary";
-	}
-	const secondaryMatch = raw.match(/^secondary:(\d+)$/);
-	if (secondaryMatch) {
-		return `secondary:${secondaryMatch[1]}`;
-	}
-	throw new WithdrawRoutingError(`Invalid account selector "${selector}"`);
-}
+type BinanceImplicitMethods = {
+	sapiPostSubAccountTransferSubToMaster?: (
+		params: Record<string, unknown>,
+	) => Promise<unknown>;
+	sapiPostSubAccountTransferSubToSub?: (
+		params: Record<string, unknown>,
+	) => Promise<unknown>;
+	sapiPostSubAccountUniversalTransfer?: (
+		params: Record<string, unknown>,
+	) => Promise<unknown>;
+};
 
-async function transferBinanceSubAccountToMaster(
+/**
+ * Routes an internal transfer to the correct Binance SAPI endpoint
+ * based on source and destination account types.
+ */
+export async function transferBinanceInternal(
 	source: BrokerAccount,
+	dest: BrokerAccount,
 	code: string,
 	amount: number,
 ) {
-	const exchange = source.exchange as Exchange & {
-		sapiPostSubAccountTransferSubToMaster?: (
-			params: Record<string, unknown>,
-		) => Promise<unknown>;
-	};
-	if (typeof exchange.sapiPostSubAccountTransferSubToMaster !== "function") {
-		throw new WithdrawRoutingUnavailableError(
-			"Binance sub-account to master transfer is unavailable in this CCXT build",
-		);
-	}
+	const exchange = source.exchange as Exchange & BinanceImplicitMethods;
 	await source.exchange.loadMarkets();
 	const currency = source.exchange.currency(code);
-	return await exchange.sapiPostSubAccountTransferSubToMaster({
-		asset: currency.id,
-		amount: source.exchange.currencyToPrecision(code, amount),
-	});
-}
+	const asset = currency.id;
+	const amountStr = source.exchange.currencyToPrecision(code, amount);
 
-export async function executeWithdrawWithRouting(args: {
-	cex: string;
-	brokers: BrokerPoolEntry | undefined;
-	metadata: Metadata;
-	selectedBroker: Exchange;
-	code: string;
-	amount: number;
-	recipientAddress: string;
-	network: string;
-	params?: Record<string, string | number>;
-	routeViaMaster?: boolean;
-	sourceAccount?: string;
-	masterAccount?: string;
-}) {
-	const {
-		cex,
-		brokers,
-		metadata,
-		selectedBroker,
-		code,
-		amount,
-		recipientAddress,
-		network,
-		params,
-		routeViaMaster,
-		sourceAccount,
-		masterAccount,
-	} = args;
-	const withdrawParams = {
-		...(params ?? {}),
-		network,
-	};
-	if (!routeViaMaster) {
-		return await selectedBroker.withdraw(
-			code,
-			amount,
-			recipientAddress,
-			undefined,
-			withdrawParams,
-		);
+	const isSourceSecondary = source.label.startsWith("secondary:");
+	const isDestPrimary = dest.label === "primary";
+	const isDestSecondary = dest.label.startsWith("secondary:");
+	const isSourcePrimary = source.label === "primary";
+
+	if (isSourceSecondary && isDestPrimary) {
+		if (typeof exchange.sapiPostSubAccountTransferSubToMaster !== "function") {
+			throw new Error(
+				"Binance sub→master transfer is unavailable in this CCXT build",
+			);
+		}
+		return await exchange.sapiPostSubAccountTransferSubToMaster({
+			asset,
+			amount: amountStr,
+		});
 	}
-	const sourceSelector = normalizeAccountSelector(
-		sourceAccount,
-		metadata,
-		"current",
-	);
-	const masterSelector = normalizeAccountSelector(
-		masterAccount,
-		metadata,
-		"primary",
-	);
-	if (!brokers) {
-		throw new WithdrawRoutingUnavailableError(
-			"Routed withdraw requires configured broker accounts",
-		);
+
+	if (isSourceSecondary && isDestSecondary) {
+		if (typeof exchange.sapiPostSubAccountTransferSubToSub !== "function") {
+			throw new Error(
+				"Binance sub→sub transfer is unavailable in this CCXT build",
+			);
+		}
+		const destEmail = requireDestinationEmail(dest, "sub-to-sub");
+		return await exchange.sapiPostSubAccountTransferSubToSub({
+			toEmail: destEmail,
+			asset,
+			amount: amountStr,
+		});
 	}
-	const source = resolveBrokerAccount(brokers, sourceSelector);
-	if (!source) {
-		throw new WithdrawRoutingError(
-			`Source account ${sourceSelector} is not configured`,
-		);
+
+	if (isSourcePrimary && isDestSecondary) {
+		if (typeof exchange.sapiPostSubAccountUniversalTransfer !== "function") {
+			throw new Error(
+				"Binance universal transfer is unavailable in this CCXT build",
+			);
+		}
+		const destEmail = requireDestinationEmail(dest, "primary-to-sub");
+		return await exchange.sapiPostSubAccountUniversalTransfer({
+			fromAccountType: "SPOT",
+			toAccountType: "SPOT",
+			toEmail: destEmail,
+			asset,
+			amount: amountStr,
+		});
 	}
-	const master = resolveBrokerAccount(brokers, masterSelector);
-	if (!master) {
-		throw new WithdrawRoutingError(
-			`Master account ${masterSelector} is not configured`,
-		);
-	}
-	if (!isMasterBrokerAccount(master)) {
-		throw new WithdrawRoutingError(
-			`Master account ${masterSelector} must resolve to the primary/master account`,
-		);
-	}
-	if (source.label === master.label) {
-		return await master.exchange.withdraw(
-			code,
-			amount,
-			recipientAddress,
-			undefined,
-			withdrawParams,
-		);
-	}
-	if (!isSubaccountBrokerAccount(source)) {
-		throw new WithdrawRoutingError(
-			`Source account ${sourceSelector} must resolve to a subaccount when routeViaMaster is enabled`,
-		);
-	}
-	if (cex.trim().toLowerCase() !== "binance") {
-		throw new WithdrawRoutingUnavailableError(
-			`Withdraw routing via master is not supported for ${cex}`,
-		);
-	}
-	await transferBinanceSubAccountToMaster(source, code, amount);
-	return await master.exchange.withdraw(
-		code,
-		amount,
-		recipientAddress,
-		undefined,
-		withdrawParams,
+
+	throw new Error(
+		`Unsupported transfer direction: ${source.label} → ${dest.label}`,
 	);
 }
 
