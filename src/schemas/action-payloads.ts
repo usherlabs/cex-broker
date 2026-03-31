@@ -16,6 +16,20 @@ const stringNumberRecordSchema = z.record(
 	z.union([z.string(), z.number()]),
 );
 
+const booleanLikeSchema = z.preprocess((value: unknown) => {
+	if (typeof value !== "string") {
+		return value;
+	}
+	const normalized = value.trim().toLowerCase();
+	if (["true", "1", "yes"].includes(normalized)) {
+		return true;
+	}
+	if (["false", "0", "no"].includes(normalized)) {
+		return false;
+	}
+	return value;
+}, z.boolean());
+
 export const DepositPayloadSchema = z.object({
 	recipientAddress: z.string().min(1),
 	amount: z.coerce.number().positive(),
@@ -43,6 +57,9 @@ export const WithdrawPayloadSchema = z.object({
 	recipientAddress: z.string().min(1),
 	amount: z.coerce.number().positive(),
 	chain: z.string().min(1),
+	routeViaMaster: booleanLikeSchema.optional().default(false),
+	sourceAccount: z.string().min(1).optional(),
+	masterAccount: z.string().min(1).optional(),
 	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
 });
 
@@ -64,20 +81,6 @@ export const CancelOrderPayloadSchema = z.object({
 	orderId: z.string().min(1),
 	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
 });
-
-const booleanLikeSchema = z.preprocess((value: unknown) => {
-	if (typeof value !== "string") {
-		return value;
-	}
-	const normalized = value.trim().toLowerCase();
-	if (["true", "1", "yes"].includes(normalized)) {
-		return true;
-	}
-	if (["false", "0", "no"].includes(normalized)) {
-		return false;
-	}
-	return value;
-}, z.boolean());
 
 export const FetchFeesPayloadSchema = z.object({
 	includeAllFees: booleanLikeSchema.optional().default(false),

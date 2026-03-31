@@ -1,0 +1,65 @@
+{
+	"withdraw": {
+		"rule": [
+			{
+				"exchange": "BINANCE",
+				"network": "BEP20",
+				"coins": ["BNB", "USDT", "USDC", "ETH"],
+				"whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+			},
+			{
+				"exchange": "BINANCE",
+				"network": "ARBITRUM",
+				"coins": ["ETH", "USDT", "USDC", "ARB"],
+				"whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+			},
+			{
+				"exchange": "*",
+				"network": "ARBITRUM",
+				"coins": ["ETH", "USDT", "USDC", "ARB"],
+				"whitelist": ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"]
+			}
+		]
+	},
+	"deposit": {
+		"rule": [
+			{
+				"exchange": "BINANCE",
+				"network": "BEP20",
+				"coins": ["BNB", "USDT", "USDC", "ETH"]
+			},
+			{
+				"exchange": "BINANCE",
+				"network": "ARBITRUM",
+				"coins": ["ETH", "USDT", "USDC", "ARB"]
+			},
+			{
+				"exchange": "*",
+				"network": "ARBITRUM",
+				"coins": ["ETH", "USDT", "USDC", "ARB"]
+			}
+		]
+	},
+	"order": {
+		"rule": {
+			"markets": [
+				"BINANCE:ARB/USDT",
+				"BYBIT:ARB/USDC",
+				"UPBIT:ETH/USDC",
+				"BINANCE:ETH/USDT",
+				"BINANCE:BTC/ETH",
+				"BINANCE:BTC/USDC",
+				"KRAKEN:ETH/USDT",
+				"KRAKEN:ETH/USDC"
+			],
+			"limits": [
+				{ "from": "USDT", "to": "ETH", "min": 1, "max": 100000 },
+				{ "from": "ETH", "to": "USDT", "min": 0.5, "max": 5 },
+				{ "from": "ARB", "to": "USDC", "min": 1, "max": 1000 },
+				{ "from": "USDC", "to": "ARB", "min": 1, "max": 10000 },
+				{ "from": "ARB", "to": "USDT", "min": 1, "max": 1000 },
+				{ "from": "USDT", "to": "ARB", "min": 1, "max": 10000 }
+			]
+		}
+	}
+}

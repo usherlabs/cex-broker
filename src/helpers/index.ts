@@ -1,20 +1,48 @@
-import fs from "fs";
-import Joi from "joi";
-import type {
-	PolicyConfig,
-	BrokerCredentials,
-	WithdrawRuleEntry,
-} from "../types";
-import { log } from "./logger";
 import type { Metadata, ServerUnaryCall } from "@grpc/grpc-js";
-import ccxt from "@usherlabs/ccxt";
 import type {
 	Exchange,
 	HttpClientOverride,
 	HttpOverridePredicate,
 } from "@usherlabs/ccxt";
+import ccxt from "@usherlabs/ccxt";
 import { VerityClient } from "@usherlabs/verity-client";
+import fs from "fs";
+import Joi from "joi";
+import type {
+	BrokerAccountRole,
+	BrokerCredentials,
+	DepositRuleEntry,
+	PolicyConfig,
+	WithdrawRuleEntry,
+} from "../types";
 import { CCXT_METHODS_WITH_VERITY } from "./constants";
+import { log } from "./logger";
+
+export type BrokerAccount = {
+	exchange: Exchange;
+	label: "primary" | `secondary:${number}`;
+	index?: number;
+	role?: BrokerAccountRole;
+	email?: string;
+	subAccountId?: string;
+	uid?: string;
+};
+
+export type BrokerPoolEntry = {
+	primary: BrokerAccount;
+	secondaryBrokers: BrokerAccount[];
+};
+
+export class WithdrawRoutingError extends Error {}
+export class WithdrawRoutingUnavailableError extends WithdrawRoutingError {}
+
+function isMasterBrokerAccount(account: BrokerAccount): boolean {
+	return account.label === "primary" || account.role === "master";
+}
+
+function isSubaccountBrokerAccount(account: BrokerAccount): boolean {
+	return !isMasterBrokerAccount(account);
+}
 
 export function authenticateRequest<T, E>(
 	call: ServerUnaryCall<T, E>,
@@ -127,7 +155,7 @@ export function createBroker(
 type EnvConfigMap = Record<
 	string,
 	Partial<BrokerCredentials> & {
-		_secondaryMap?: Record<number, { apiKey?: string; apiSecret?: string }>;
+		_secondaryMap?: Record<number, Partial<BrokerCredentials>>;
 	}
 >;
 
@@ -136,13 +164,34 @@ type ValidatedCredentialsMap = Record<
 	BrokerCredentials & { secondaryKeys: BrokerCredentials[] }
 >;
 
+function createBrokerAccount(
+	brokerName: string,
+	label: BrokerAccount["label"],
+	creds: BrokerCredentials,
+	index?: number,
+): BrokerAccount | null {
+	const exchange = createBroker(brokerName, {
+		apiKey: creds.apiKey,
+		apiSecret: creds.apiSecret,
+	});
+	if (!exchange) {
+		return null;
+	}
+	return {
+		exchange,
+		label,
+		index,
+		role: creds.role,
+		email: creds.email,
+		subAccountId: creds.subAccountId,
+		uid: creds.uid,
+	};
+}
+
 export function createBrokerPool(
 	cfg: EnvConfigMap | ValidatedCredentialsMap,
-): Record<string, { primary: Exchange; secondaryBrokers: Exchange[] }> {
-	const pool: Record<
-		string,
-		{ primary: Exchange; secondaryBrokers: Exchange[] }
-	> = {};
+): Record<string, BrokerPoolEntry> {
+	const pool: Record<string, BrokerPoolEntry> = {};
 
 	for (const [brokerName, creds] of Object.entries(cfg)) {
 		const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[
@@ -167,43 +216,79 @@ export function createBrokerPool(
 			continue;
 		}
 
-		const primary = createBroker(brokerName, {
+		const primary = createBrokerAccount(brokerName, "primary", {
 			apiKey: primaryApiKey,
 			apiSecret: primaryApiSecret,
+			role:
+				typeof credsRecord.role === "string"
+					? (credsRecord.role as BrokerAccountRole)
+					: undefined,
+			email:
+				typeof credsRecord.email === "string"
+					? (credsRecord.email as string)
+					: undefined,
+			subAccountId:
+				typeof credsRecord.subAccountId === "string"
+					? (credsRecord.subAccountId as string)
+					: undefined,
+			uid:
+				typeof credsRecord.uid === "string"
+					? (credsRecord.uid as string)
+					: undefined,
 		});
 		if (!primary) {
 			log.warn(`❌ Failed to create primary for "${brokerName}"`);
 			continue;
 		}
 
-		const secondaryBrokers: Exchange[] = [];
+		const secondaryBrokers: BrokerAccount[] = [];
 		const secondaryKeysFromValidated = Array.isArray(credsRecord.secondaryKeys)
 			? (credsRecord.secondaryKeys as BrokerCredentials[])
 			: undefined;
-		const secondaryKeysFromMap =
+		const secondaryEntriesFromValidated = secondaryKeysFromValidated?.map(
+			(sec, idx) => [idx + 1, sec] as const,
+		);
+		const secondaryEntriesFromMap =
 			credsRecord._secondaryMap && typeof credsRecord._secondaryMap === "object"
-				? Object.values(
+				? Object.entries(
 						credsRecord._secondaryMap as Record<
 							number,
 							Partial<BrokerCredentials>
 						>,
 					)
 						.filter(
-							(s): s is Required<BrokerCredentials> =>
-								typeof s.apiKey === "string" && typeof s.apiSecret === "string",
+							([, sec]) =>
+								typeof sec.apiKey === "string" &&
+								typeof sec.apiSecret === "string",
 						)
-						.map((s) => ({ apiKey: s.apiKey, apiSecret: s.apiSecret }))
+						.map(
+							([rawIndex, sec]) =>
+								[
+									Number(rawIndex),
+									{
+										apiKey: sec.apiKey as string,
+										apiSecret: sec.apiSecret as string,
+										role: sec.role,
+										email: sec.email,
+										subAccountId: sec.subAccountId,
+										uid: sec.uid,
+									},
+								] as const,
+						)
 				: [];
-		const secondaryKeys: BrokerCredentials[] =
-			secondaryKeysFromValidated ?? secondaryKeysFromMap;
+		const secondaryEntries =
+			secondaryEntriesFromValidated ?? secondaryEntriesFromMap;
 
-		secondaryKeys.forEach((sec, idx) => {
-			const secEx = createBroker(brokerName, {
-				apiKey: sec.apiKey,
-				apiSecret: sec.apiSecret,
-			});
-			if (secEx) secondaryBrokers[idx] = secEx;
-			else log.warn(`⚠️ Failed to create secondary #${idx} for "${brokerName}"`);
+		secondaryEntries.forEach(([index, sec]) => {
+			const secEx = createBrokerAccount(
+				brokerName,
+				`secondary:${index}`,
+				sec,
+				index,
+			);
+			if (secEx) secondaryBrokers[index - 1] = secEx;
+			else
+				log.warn(`⚠️ Failed to create secondary #${index} for "${brokerName}"`);
 		});
 
 		pool[brokerName] = { primary, secondaryBrokers };
@@ -216,29 +301,49 @@ export function createBrokerPool(
 }
 
 export function selectBroker(
-	brokers:
-		| {
-				primary: Exchange;
-				secondaryBrokers: Exchange[];
-		  }
-		| undefined,
+	brokers: BrokerPoolEntry | undefined,
 	metadata: Metadata,
 ): Exchange | null {
+	return selectBrokerAccount(brokers, metadata)?.exchange ?? null;
+}
+
+export function getCurrentBrokerSelector(metadata: Metadata): string {
+	const use_secondary_key = metadata.get("use-secondary-key");
+	if (!use_secondary_key || use_secondary_key.length === 0) {
+		return "primary";
+	}
+	const rawIndex = use_secondary_key[use_secondary_key.length - 1]?.toString();
+	const index = rawIndex ? Number.parseInt(rawIndex, 10) : Number.NaN;
+	return Number.isInteger(index) && index > 0
+		? `secondary:${index}`
+		: "primary";
+}
+
+export function resolveBrokerAccount(
+	brokers: BrokerPoolEntry | undefined,
+	selector: string,
+): BrokerAccount | null {
 	if (!brokers) {
 		return null;
-	} else {
-		const use_secondary_key = metadata.get("use-secondary-key");
-		if (!use_secondary_key || use_secondary_key.length === 0) {
-			return brokers.primary;
-		} else if (use_secondary_key.length > 0) {
-			const keyIndex = Number.isInteger(
-				+(use_secondary_key[use_secondary_key.length - 1] ?? "0"),
-			);
-			return brokers.secondaryBrokers[+keyIndex] ?? null;
-		} else {
-			return null;
-		}
 	}
+	if (selector === "primary") {
+		return brokers.primary;
+	}
+	const match = selector.match(/^secondary:(\d+)$/);
+	if (!match) {
+		return null;
+	}
+	const index = Number.parseInt(match[1] ?? "", 10);
+	return Number.isInteger(index) && index > 0
+		? (brokers.secondaryBrokers[index - 1] ?? null)
+		: null;
+}
+
+export function selectBrokerAccount(
+	brokers: BrokerPoolEntry | undefined,
+	metadata: Metadata,
+): BrokerAccount | null {
+	return resolveBrokerAccount(brokers, getCurrentBrokerSelector(metadata));
 }
 
 /**
@@ -253,6 +358,13 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 			exchange: Joi.string().required(),
 			network: Joi.string().required(),
 			whitelist: Joi.array().items(Joi.string()).required(),
+			coins: Joi.array().items(Joi.string()).optional(),
+		});
+
+		const depositRuleEntrySchema = Joi.object({
+			exchange: Joi.string().required(),
+			network: Joi.string().required(),
+			coins: Joi.array().items(Joi.string()).optional(),
 		});
 
 		// Joi schema for OrderRule
@@ -276,9 +388,9 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 				rule: Joi.array().items(withdrawRuleEntrySchema).min(1).required(),
 			}).required(),
 
-			deposit: Joi.object()
-				.pattern(Joi.string(), Joi.valid(null)) // Record<string, null>
-				.required(),
+			deposit: Joi.object({
+				rule: Joi.array().items(depositRuleEntrySchema).optional(),
+			}).required(),
 
 			order: Joi.object({
 				rule: orderRuleSchema.required(),
@@ -314,7 +426,23 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 				whitelist: rule.whitelist.map((address) =>
 					address.trim().toLowerCase(),
 				),
+				...(rule.coins && {
+					coins: rule.coins.map((c) => c.trim().toUpperCase()),
+				}),
 			})),
+		},
+		deposit: {
+			...policy.deposit,
+			...(policy.deposit.rule && {
+				rule: policy.deposit.rule.map((rule) => ({
+					...rule,
+					exchange: rule.exchange.trim().toUpperCase(),
+					network: rule.network.trim().toUpperCase(),
+					...(rule.coins && {
+						coins: rule.coins.map((c) => c.trim().toUpperCase()),
+					}),
+				})),
+			}),
 		},
 		order: {
 			...policy.order,
@@ -351,13 +479,35 @@ function getWithdrawRulePriority(
 	return 1;
 }
 
+function getDepositRulePriority(
+	rule: DepositRuleEntry,
+	exchange: string,
+	network: string,
+): number {
+	const exchangeMatch = rule.exchange === exchange || rule.exchange === "*";
+	const networkMatch = rule.network === network || rule.network === "*";
+	if (!exchangeMatch || !networkMatch) {
+		return 0;
+	}
+	if (rule.exchange === exchange && rule.network === network) {
+		return 4;
+	}
+	if (rule.exchange === exchange && rule.network === "*") {
+		return 3;
+	}
+	if (rule.exchange === "*" && rule.network === network) {
+		return 2;
+	}
+	return 1;
+}
+
 export function validateWithdraw(
 	policy: PolicyConfig,
 	exchange: string,
 	network: string,
 	recipientAddress: string,
 	_amount: number,
-	_ticker: string,
+	ticker: string,
 ): { valid: boolean; error?: string } {
 	const normalizedPolicy = normalizePolicyConfig(policy);
 	const exchangeNorm = exchange.trim().toUpperCase();
@@ -389,7 +539,163 @@ export function validateWithdraw(
 		};
 	}
 
+	// Check if coin is allowed by the matched rule
+	const coins = withdrawRule.coins;
+	if (coins && coins.length > 0 && !coins.includes("*")) {
+		const tickerNorm = ticker.trim().toUpperCase();
+		if (!coins.includes(tickerNorm)) {
+			return {
+				valid: false,
+				error: `Token ${tickerNorm} is not allowed for withdrawals on ${exchangeNorm}:${networkNorm}. Allowed: [${coins.join(", ")}]`,
+			};
+		}
+	}
+
 	return { valid: true };
+}
+
+function normalizeAccountSelector(
+	selector: string | undefined,
+	metadata: Metadata,
+	defaultSelector: "current" | "primary",
+): string {
+	const raw = selector?.trim().toLowerCase() ?? defaultSelector;
+	if (raw === "current") {
+		return getCurrentBrokerSelector(metadata);
+	}
+	if (raw === "primary") {
+		return "primary";
+	}
+	const secondaryMatch = raw.match(/^secondary:(\d+)$/);
+	if (secondaryMatch) {
+		return `secondary:${secondaryMatch[1]}`;
+	}
+	throw new WithdrawRoutingError(`Invalid account selector "${selector}"`);
+}
+
+async function transferBinanceSubAccountToMaster(
+	source: BrokerAccount,
+	code: string,
+	amount: number,
+) {
+	const exchange = source.exchange as Exchange & {
+		sapiPostSubAccountTransferSubToMaster?: (
+			params: Record<string, unknown>,
+		) => Promise<unknown>;
+	};
+	if (typeof exchange.sapiPostSubAccountTransferSubToMaster !== "function") {
+		throw new WithdrawRoutingUnavailableError(
+			"Binance sub-account to master transfer is unavailable in this CCXT build",
+		);
+	}
+	await source.exchange.loadMarkets();
+	const currency = source.exchange.currency(code);
+	return await exchange.sapiPostSubAccountTransferSubToMaster({
+		asset: currency.id,
+		amount: source.exchange.currencyToPrecision(code, amount),
+	});
+}
+
+export async function executeWithdrawWithRouting(args: {
+	cex: string;
+	brokers: BrokerPoolEntry | undefined;
+	metadata: Metadata;
+	selectedBroker: Exchange;
+	code: string;
+	amount: number;
+	recipientAddress: string;
+	network: string;
+	params?: Record<string, string | number>;
+	routeViaMaster?: boolean;
+	sourceAccount?: string;
+	masterAccount?: string;
+}) {
+	const {
+		cex,
+		brokers,
+		metadata,
+		selectedBroker,
+		code,
+		amount,
+		recipientAddress,
+		network,
+		params,
+		routeViaMaster,
+		sourceAccount,
+		masterAccount,
+	} = args;
+	const withdrawParams = {
+		...(params ?? {}),
+		network,
+	};
+	if (!routeViaMaster) {
+		return await selectedBroker.withdraw(
+			code,
+			amount,
+			recipientAddress,
+			undefined,
+			withdrawParams,
+		);
+	}
+	const sourceSelector = normalizeAccountSelector(
+		sourceAccount,
+		metadata,
+		"current",
+	);
+	const masterSelector = normalizeAccountSelector(
+		masterAccount,
+		metadata,
+		"primary",
+	);
+	if (!brokers) {
+		throw new WithdrawRoutingUnavailableError(
+			"Routed withdraw requires configured broker accounts",
+		);
+	}
+	const source = resolveBrokerAccount(brokers, sourceSelector);
+	if (!source) {
+		throw new WithdrawRoutingError(
+			`Source account ${sourceSelector} is not configured`,
+		);
+	}
+	const master = resolveBrokerAccount(brokers, masterSelector);
+	if (!master) {
+		throw new WithdrawRoutingError(
+			`Master account ${masterSelector} is not configured`,
+		);
+	}
+	if (!isMasterBrokerAccount(master)) {
+		throw new WithdrawRoutingError(
+			`Master account ${masterSelector} must resolve to the primary/master account`,
+		);
+	}
+	if (source.label === master.label) {
+		return await master.exchange.withdraw(
+			code,
+			amount,
+			recipientAddress,
+			undefined,
+			withdrawParams,
+		);
+	}
+	if (!isSubaccountBrokerAccount(source)) {
+		throw new WithdrawRoutingError(
+			`Source account ${sourceSelector} must resolve to a subaccount when routeViaMaster is enabled`,
+		);
+	}
+	if (cex.trim().toLowerCase() !== "binance") {
+		throw new WithdrawRoutingUnavailableError(
+			`Withdraw routing via master is not supported for ${cex}`,
+		);
+	}
+	await transferBinanceSubAccountToMaster(source, code, amount);
+	return await master.exchange.withdraw(
+		code,
+		amount,
+		recipientAddress,
+		undefined,
+		withdrawParams,
+	);
 }
 
 /**
@@ -634,15 +940,54 @@ export async function resolveOrderExecution(
 	};
 }
 
-/**
- * Validates deposit request (currently empty but can be extended)
- */
 export function validateDeposit(
-	_policy: PolicyConfig,
-	_chain: string,
-	_amount: number,
+	policy: PolicyConfig,
+	exchange: string,
+	network: string,
+	ticker: string,
 ): { valid: boolean; error?: string } {
-	// Currently deposit policy is empty, so all deposits are allowed
-	// This can be extended when deposit rules are added to the policy
+	const normalizedPolicy = normalizePolicyConfig(policy);
+
+	if (
+		!normalizedPolicy.deposit.rule ||
+		normalizedPolicy.deposit.rule.length === 0
+	) {
+		return { valid: true };
+	}
+
+	const exchangeNorm = exchange.trim().toUpperCase();
+	const networkNorm = network.trim().toUpperCase();
+	const tickerNorm = ticker.trim().toUpperCase();
+
+	const matchingRules = normalizedPolicy.deposit.rule
+		.map((rule) => ({
+			rule,
+			priority: getDepositRulePriority(rule, exchangeNorm, networkNorm),
+		}))
+		.filter((r) => r.priority > 0)
+		.sort((a, b) => b.priority - a.priority);
+
+	const depositRule = matchingRules[0]?.rule;
+
+	if (!depositRule) {
+		return {
+			valid: false,
+			error: `Deposits not allowed for ${exchangeNorm}:${networkNorm}`,
+		};
+	}
+
+	if (
+		depositRule.coins &&
+		depositRule.coins.length > 0 &&
+		!depositRule.coins.includes("*")
+	) {
+		if (!depositRule.coins.includes(tickerNorm)) {
+			return {
+				valid: false,
+				error: `Token ${tickerNorm} not allowed for deposit on ${exchangeNorm}:${networkNorm}. Allowed: [${depositRule.coins.join(", ")}]`,
+			};
+		}
+	}
+
 	return { valid: true };
 }

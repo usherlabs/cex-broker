@@ -5,7 +5,16 @@ export type WithdrawRuleEntry = {
 	exchange: string;
 	network: string;
 	whitelist: string[];
+	coins?: string[];
 };
+
+export type DepositRuleEntry = {
+	exchange: string;
+	network: string;
+	coins?: string[];
+};
+
+export type BrokerAccountRole = "master" | "subaccount";
 
 export type OrderRule = {
 	markets: string[];
@@ -21,7 +30,9 @@ export type PolicyConfig = {
 	withdraw: {
 		rule: WithdrawRuleEntry[];
 	};
-	deposit: Record<string, null>;
+	deposit: {
+		rule?: DepositRuleEntry[];
+	};
 	order: {
 		rule: OrderRule;
 	};
@@ -161,6 +172,10 @@ export const SupportedBroker = BrokerList.reduce(
 export type BrokerCredentials = {
 	apiKey: string;
 	apiSecret: string;
+	role?: BrokerAccountRole;
+	email?: string;
+	subAccountId?: string;
+	uid?: string;
 };
 export type SecondaryKeys<T> = {
 	secondaryKeys: Array<T>;
