@@ -1,6 +1,8 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import ccxt, { type Exchange } from "@usherlabs/ccxt";
+import path from "path";
+import { fileURLToPath } from "url";
 import type { z } from "zod";
 import {
 	authenticateRequest,
@@ -17,16 +19,17 @@ import {
 	validateWithdraw,
 	verityHttpClientOverridePredicate,
 } from "./helpers";
+import {
+	Action,
+	getActionName,
+	getSubscriptionTypeName,
+	type Action as ActionType,
+	resolveSubscriptionType,
+	SubscriptionType,
+	type SubscriptionType as SubscriptionTypeValue,
+} from "./helpers/constants";
 import { log } from "./helpers/logger";
 import type { OtelMetrics } from "./helpers/otel";
-import { Action } from "./proto/cex_broker/Action";
-import type { ActionRequest } from "./proto/cex_broker/ActionRequest";
-import type { ActionResponse } from "./proto/cex_broker/ActionResponse";
-import type { SubscribeRequest } from "./proto/cex_broker/SubscribeRequest";
-import type { SubscribeResponse } from "./proto/cex_broker/SubscribeResponse";
-import { SubscriptionType } from "./proto/cex_broker/SubscriptionType";
-import type { ProtoGrpcType } from "./proto/node";
-import descriptor from "./proto/node.descriptor.ts";
 import {
 	CallPayloadSchema,
 	CancelOrderPayloadSchema,
@@ -40,12 +43,49 @@ import {
 } from "./schemas/action-payloads";
 import type { PolicyConfig } from "./types";
 
-const packageDef = protoLoader.fromJSON(
-	descriptor as unknown as Record<string, unknown>,
-);
-const grpcObj = grpc.loadPackageDefinition(
-	packageDef,
-) as unknown as ProtoGrpcType;
+type ActionRequest = {
+	action?: ActionType;
+	payload?: Record<string, string>;
+	cex?: string;
+	symbol?: string;
+};
+
+type ActionResponse = {
+	result: string;
+	proof?: string;
+};
+
+type SubscribeRequest = {
+	cex?: string;
+	symbol?: string;
+	type?: SubscriptionTypeValue;
+	options?: Record<string, string>;
+};
+
+type SubscribeResponse = {
+	data: string;
+	timestamp: number;
+	symbol: string;
+	type: SubscriptionTypeValue;
+};
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const protoPath = path.join(__dirname, "proto", "node.proto");
+
+const packageDef = protoLoader.loadSync(protoPath, {
+	keepCase: true,
+	longs: String,
+	defaults: true,
+	oneofs: true,
+});
+const grpcObj = grpc.loadPackageDefinition(packageDef) as unknown as {
+	cex_broker: {
+		cex_service: {
+			service: grpc.ServiceDefinition<grpc.UntypedServiceImplementation>;
+		};
+	};
+};
 const cexNode = grpcObj.cex_broker;
 
 function parsePayload<T>(
@@ -133,10 +173,7 @@ export function getServer(
 					const latency = Date.now() - startTime;
 
 					// Record latency histogram
-					const actionName =
-						action !== undefined && action in Action
-							? Action[action as keyof typeof Action]
-							: `unknown_${action ?? "undefined"}`;
+					const actionName = getActionName(action);
 					otelMetrics?.recordHistogram("execute_action_duration_ms", latency, {
 						action: actionName,
 						cex: cex || "unknown",
@@ -171,10 +208,7 @@ export function getServer(
 				});
 
 				// Record request counter
-				const actionName =
-					action !== undefined && action in Action
-						? Action[action as keyof typeof Action]
-						: `unknown_${action ?? "undefined"}`;
+				const actionName = getActionName(action);
 				otelMetrics?.recordCounter("execute_action_requests_total", 1, {
 					action: actionName,
 					cex: cex || "unknown",
@@ -1222,9 +1256,8 @@ export function getServer(
 				const request = call.request as SubscribeRequest;
 				const { cex, symbol, type, options } = request;
 
-				// Handle protobuf default value issue: type=0 (ORDERBOOK) gets omitted during serialization
-				const subscriptionType =
-					type !== undefined ? type : SubscriptionType.ORDERBOOK;
+				// proto-loader with defaults:true materializes omitted enums as NO_ACTION.
+				const subscriptionType = resolveSubscriptionType(type);
 
 				log.info(`Request - Subscribe:`, {
 					cex: request.cex,
@@ -1233,14 +1266,7 @@ export function getServer(
 				});
 
 				// Record subscription request
-				const subscriptionTypeName = (() => {
-					for (const [key, value] of Object.entries(SubscriptionType)) {
-						if (value === subscriptionType && Number.isNaN(Number(key))) {
-							return key;
-						}
-					}
-					return `unknown_${subscriptionType}`;
-				})();
+				const subscriptionTypeName = getSubscriptionTypeName(subscriptionType);
 				otelMetrics?.recordCounter("subscribe_requests_total", 1, {
 					cex: cex || "unknown",
 					symbol: symbol || "unknown",
@@ -1355,7 +1381,7 @@ export function getServer(
 									data: JSON.stringify(ticker),
 									timestamp: Date.now(),
 									symbol,
-									type,
+									type: subscriptionType,
 								});
 							}
 						} catch (error: unknown) {
@@ -1389,7 +1415,7 @@ export function getServer(
 									data: JSON.stringify(ohlcv),
 									timestamp: Date.now(),
 									symbol,
-									type,
+									type: subscriptionType,
 								});
 							}
 						} catch (error: unknown) {
@@ -1419,7 +1445,7 @@ export function getServer(
 									data: JSON.stringify(balance),
 									timestamp: Date.now(),
 									symbol,
-									type,
+									type: subscriptionType,
 								});
 							}
 						} catch (error: unknown) {
@@ -1449,7 +1475,7 @@ export function getServer(
 									data: JSON.stringify(orders),
 									timestamp: Date.now(),
 									symbol,
-									type,
+									type: subscriptionType,
 								});
 							}
 						} catch (error: unknown) {
@@ -1479,7 +1505,7 @@ export function getServer(
 							data: JSON.stringify({ error: "Invalid subscription type" }),
 							timestamp: Date.now(),
 							symbol,
-							type,
+							type: subscriptionType,
 						});
 				}
 			} catch (error) {
