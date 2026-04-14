@@ -7,6 +7,7 @@ import {
 	createBrokerPool,
 	loadPolicy,
 	normalizePolicyConfig,
+	resolveBrokerAccount,
 } from "./helpers";
 import { log } from "./helpers/logger";
 import {
@@ -25,6 +26,24 @@ import {
 } from "./types";
 
 export type { PolicyConfig } from "./types";
+
+export type BrokerAuthProbeStep = {
+	success: boolean;
+	error?: string;
+};
+
+export type BrokerAuthProbeResult = {
+	exchange: string;
+	selector: string;
+	resolvedAccount: string;
+	role?: "master" | "subaccount";
+	fetchAccountId: BrokerAuthProbeStep & {
+		accountId?: string;
+	};
+	fetchBalance: BrokerAuthProbeStep & {
+		assetCount?: number;
+	};
+};
 
 log.info("CCXT Version:", ccxt.version);
 
@@ -181,6 +200,81 @@ export default class CEXBroker {
 
 		// Build pool centrally
 		this.brokers = createBrokerPool(value);
+	}
+
+	public getBrokerAccount(exchangeName: string, selector = "primary") {
+		const normalizedExchange = exchangeName.trim().toLowerCase();
+		const brokerEntry = this.brokers[normalizedExchange];
+		if (!brokerEntry) {
+			throw new Error(`Exchange "${normalizedExchange}" is not configured`);
+		}
+
+		const account = resolveBrokerAccount(brokerEntry, selector);
+		if (!account) {
+			throw new Error(
+				`Account selector "${selector}" is not configured for "${normalizedExchange}"`,
+			);
+		}
+
+		return {
+			exchangeName: normalizedExchange,
+			account,
+		};
+	}
+
+	public async probeAuth(
+		exchangeName: string,
+		selector = "primary",
+	): Promise<BrokerAuthProbeResult> {
+		const { exchangeName: normalizedExchange, account } = this.getBrokerAccount(
+			exchangeName,
+			selector,
+		);
+
+		const result: BrokerAuthProbeResult = {
+			exchange: normalizedExchange,
+			selector,
+			resolvedAccount: account.label,
+			role: account.role,
+			fetchAccountId: {
+				success: false,
+			},
+			fetchBalance: {
+				success: false,
+			},
+		};
+
+		try {
+			const accountId = await account.exchange.fetchAccountId();
+			result.fetchAccountId = {
+				success: true,
+				accountId,
+			};
+		} catch (error) {
+			result.fetchAccountId = {
+				success: false,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
+
+		try {
+			const balance = await account.exchange.fetchBalance({ type: "spot" });
+			const total = balance.total ?? {};
+			const assetCount = Object.values(total).filter(
+				(value) => value !== undefined && value !== null,
+			).length;
+			result.fetchBalance = {
+				success: true,
+				assetCount,
+			};
+		} catch (error) {
+			result.fetchBalance = {
+				success: false,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
+
+		return result;
 	}
 
 	constructor(

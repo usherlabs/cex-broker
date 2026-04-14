@@ -136,16 +136,34 @@ bun run build:ts
 bun run ./build/index.js
 ```
 
+### Probing Exchange Auth
+
+```bash
+# Probe the primary env-configured Binance account
+bun run src/cli.ts --probeAuth binance
+
+# Probe a sub-account configured as secondary:1
+bun run src/cli.ts --probeAuth binance --account secondary:1
+```
+
+The probe uses the same env-configured broker account selection as runtime and prints a JSON result for:
+
+- `fetchAccountId` via the exchange adapter
+- `fetchBalance` with `{ type: "spot" }`
+
 ### CLI Options
 
 ```bash
 cex-broker --help
 
 Options:
-  -p, --policy <path>                    Policy JSON file (required)
+  -p, --policy <path>                    Policy JSON file
   --port <number>                        Port number (default: 8086)
   -w, --whitelist <addresses...>         IPv4 address whitelist (space-separated list)
-  -vu, --verityProverUrl <url>           Verity Prover URL for zero-knowledge proofs
+  --whitelistAll                         Allow all IPv4 addresses (development mode)
+  --verityProverUrl <url>                Verity Prover URL for zero-knowledge proofs
+  --probeAuth <exchange>                 Probe auth for an env-configured exchange without starting the server
+  --account <selector>                   Account selector to probe, e.g. "primary" or "secondary:1"
 ```
 
 ### Available Scripts
