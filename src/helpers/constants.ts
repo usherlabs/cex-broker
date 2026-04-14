@@ -57,12 +57,14 @@ const subscriptionTypeNames = createEnumNameMap(SubscriptionType);
 
 export function getActionName(action: unknown): string {
 	return typeof action === "number"
-		? actionNames[action] ?? `unknown_${action}`
+		? (actionNames[action] ?? `unknown_${action}`)
 		: `unknown_${action ?? "undefined"}`;
 }
 
 export function getSubscriptionTypeName(subscriptionType: number): string {
-	return subscriptionTypeNames[subscriptionType] ?? `unknown_${subscriptionType}`;
+	return (
+		subscriptionTypeNames[subscriptionType] ?? `unknown_${subscriptionType}`
+	);
 }
 
 export function resolveSubscriptionType(
