@@ -19,6 +19,15 @@ import {
 	validateWithdraw,
 	verityHttpClientOverridePredicate,
 } from "./helpers";
+import {
+	Action,
+	getActionName,
+	getSubscriptionTypeName,
+	type Action as ActionType,
+	resolveSubscriptionType,
+	SubscriptionType,
+	type SubscriptionType as SubscriptionTypeValue,
+} from "./helpers/constants";
 import { log } from "./helpers/logger";
 import type { OtelMetrics } from "./helpers/otel";
 import {
@@ -34,67 +43,8 @@ import {
 } from "./schemas/action-payloads";
 import type { PolicyConfig } from "./types";
 
-// Keep these values in sync with src/proto/node.proto.
-const Action = {
-	NoAction: 0,
-	Deposit: 1,
-	Withdraw: 2,
-	CreateOrder: 3,
-	GetOrderDetails: 4,
-	CancelOrder: 5,
-	FetchBalances: 6,
-	FetchDepositAddresses: 7,
-	FetchTicker: 8,
-	FetchCurrency: 9,
-	Call: 10,
-	FetchAccountId: 11,
-	FetchFees: 12,
-	InternalTransfer: 13,
-} as const;
-
-const ActionNames: Record<number, string> = {
-	0: "NoAction",
-	1: "Deposit",
-	2: "Withdraw",
-	3: "CreateOrder",
-	4: "GetOrderDetails",
-	5: "CancelOrder",
-	6: "FetchBalances",
-	7: "FetchDepositAddresses",
-	8: "FetchTicker",
-	9: "FetchCurrency",
-	10: "Call",
-	11: "FetchAccountId",
-	12: "FetchFees",
-	13: "InternalTransfer",
-};
-
-const SubscriptionType = {
-	NO_ACTION: 0,
-	ORDERBOOK: 1,
-	TRADES: 2,
-	TICKER: 3,
-	OHLCV: 4,
-	BALANCE: 5,
-	ORDERS: 6,
-} as const;
-
-const SubscriptionTypeNames: Record<number, string> = {
-	0: "NO_ACTION",
-	1: "ORDERBOOK",
-	2: "TRADES",
-	3: "TICKER",
-	4: "OHLCV",
-	5: "BALANCE",
-	6: "ORDERS",
-};
-
-type Action = (typeof Action)[keyof typeof Action];
-type SubscriptionType =
-	(typeof SubscriptionType)[keyof typeof SubscriptionType];
-
 type ActionRequest = {
-	action?: Action;
+	action?: ActionType;
 	payload?: Record<string, string>;
 	cex?: string;
 	symbol?: string;
@@ -108,7 +58,7 @@ type ActionResponse = {
 type SubscribeRequest = {
 	cex?: string;
 	symbol?: string;
-	type?: SubscriptionType;
+	type?: SubscriptionTypeValue;
 	options?: Record<string, string>;
 };
 
@@ -116,7 +66,7 @@ type SubscribeResponse = {
 	data: string;
 	timestamp: number;
 	symbol: string;
-	type: SubscriptionType;
+	type: SubscriptionTypeValue;
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -137,18 +87,6 @@ const grpcObj = grpc.loadPackageDefinition(packageDef) as unknown as {
 	};
 };
 const cexNode = grpcObj.cex_broker;
-
-function getActionName(action: unknown): string {
-	return typeof action === "number"
-		? (ActionNames[action] ?? `unknown_${action}`)
-		: `unknown_${action ?? "undefined"}`;
-}
-
-function getSubscriptionTypeName(subscriptionType: number): string {
-	return (
-		SubscriptionTypeNames[subscriptionType] ?? `unknown_${subscriptionType}`
-	);
-}
 
 function parsePayload<T>(
 	schema: z.ZodType<T>,
@@ -1318,9 +1256,8 @@ export function getServer(
 				const request = call.request as SubscribeRequest;
 				const { cex, symbol, type, options } = request;
 
-				// Handle protobuf default value issue: type=0 (ORDERBOOK) gets omitted during serialization
-				const subscriptionType =
-					type !== undefined ? type : SubscriptionType.ORDERBOOK;
+				// proto-loader with defaults:true materializes omitted enums as NO_ACTION.
+				const subscriptionType = resolveSubscriptionType(type);
 
 				log.info(`Request - Subscribe:`, {
 					cex: request.cex,

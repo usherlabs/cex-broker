@@ -5,13 +5,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import CEXBroker from ".";
 // import CEXBroker from "../dist/index";
+import { Action } from "./helpers/constants";
 import { loadPolicy } from "./helpers";
 import { log } from "./helpers/logger";
-
-const Action = {
-	FetchTicker: 8,
-	FetchFees: 12,
-} as const;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -86,7 +82,7 @@ function onClientReady() {
 	client.executeAction(
 		{
 			cex: "mexc",
-			action: Action.FetchFees,
+			action: Action.FetchAccountId,
 		},
 		metadata,
 		(err, result) => {
@@ -94,7 +90,7 @@ function onClientReady() {
 				log.error({ err });
 				return;
 			}
-			log.info("ExecuteAction  Result:", { result: result?.result });
+			log.info("ExecuteAction Account ID Result:", { result: result?.result });
 		},
 	);
 
