@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import {
+	getProbeCredentialsFromEnv,
+	runProbeAuth,
+} from "../src/commands/probe-auth";
 import CEXBroker from "../src/index";
 import type { PolicyConfig } from "../src/types";
 
@@ -39,6 +43,8 @@ describe("probeAuth", () => {
 		const result = await broker.probeAuth("binance");
 
 		expect(result.exchange).toBe("binance");
+		expect(result.mode).toBe("configured");
+		expect(result.selector).toBe("primary");
 		expect(result.resolvedAccount).toBe("primary");
 		expect(result.fetchAccountId).toEqual({
 			success: true,
@@ -83,6 +89,51 @@ describe("probeAuth", () => {
 		expect(result.fetchBalance.error).toContain("balance rejected");
 	});
 
+	test("should return probe results for raw credentials", async () => {
+		const broker = new CEXBroker({}, testPolicy);
+		const fakeExchange = {
+			fetchAccountId: async () => "1218874794",
+			fetchBalance: async () => ({
+				total: {
+					USDT: 1,
+				},
+			}),
+		};
+
+		(
+			broker as unknown as {
+				probeAuthWithCredentials: unknown;
+			}
+		).probeAuthWithCredentials = async (
+			exchange: string,
+			creds: { apiKey: string; apiSecret: string },
+		) => {
+			expect(exchange).toBe("binance");
+			expect(creds).toEqual({
+				apiKey: "probe_key",
+				apiSecret: "probe_secret",
+			});
+			return (
+				broker as unknown as {
+					runProbeAuthSteps: unknown;
+				}
+			).runProbeAuthSteps("binance", fakeExchange, {
+				mode: "raw",
+			});
+		};
+
+		const result = await runProbeAuth(broker, "binance", "secondary:1", {
+			CEX_BROKER_PROBE_API_KEY: "probe_key",
+			CEX_BROKER_PROBE_API_SECRET: "probe_secret",
+		});
+
+		expect(result.mode).toBe("raw");
+		expect(result.selector).toBeUndefined();
+		expect(result.resolvedAccount).toBeUndefined();
+		expect(result.fetchAccountId.success).toBe(true);
+		expect(result.fetchBalance.assetCount).toBe(1);
+	});
+
 	test("should reject missing account selectors", () => {
 		const broker = new CEXBroker({}, testPolicy);
 		(
@@ -101,6 +152,32 @@ describe("probeAuth", () => {
 
 		expect(() => broker.getBrokerAccount("binance", "secondary:1")).toThrow(
 			'Account selector "secondary:1" is not configured for "binance"',
+		);
+	});
+
+	test("should parse probe credentials from env", () => {
+		const result = getProbeCredentialsFromEnv({
+			CEX_BROKER_PROBE_API_KEY: "probe_key",
+			CEX_BROKER_PROBE_API_SECRET: "probe_secret",
+		});
+
+		expect(result).toEqual({
+			apiKey: "probe_key",
+			apiSecret: "probe_secret",
+		});
+	});
+
+	test("should ignore probe mode when env vars are absent", () => {
+		expect(getProbeCredentialsFromEnv({})).toBeNull();
+	});
+
+	test("should reject partial probe env configuration", () => {
+		expect(() =>
+			getProbeCredentialsFromEnv({
+				CEX_BROKER_PROBE_API_KEY: "probe_key",
+			}),
+		).toThrow(
+			"CEX_BROKER_PROBE_API_KEY and CEX_BROKER_PROBE_API_SECRET must both be set for raw probe mode",
 		);
 	});
 });

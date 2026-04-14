@@ -139,14 +139,22 @@ bun run ./build/index.js
 ### Probing Exchange Auth
 
 ```bash
-# Probe the primary env-configured Binance account
+# Probe the exact raw credentials used by the Prover via .env
+# .env:
+# CEX_BROKER_PROBE_API_KEY=...
+# CEX_BROKER_PROBE_API_SECRET=...
 bun run src/cli.ts --probeAuth binance
 
-# Probe a sub-account configured as secondary:1
+# Probe a configured sub-account loaded as secondary:1
 bun run src/cli.ts --probeAuth binance --account secondary:1
 ```
 
-The probe uses the same env-configured broker account selection as runtime and prints a JSON result for:
+Probe mode precedence:
+
+- If `CEX_BROKER_PROBE_API_KEY` and `CEX_BROKER_PROBE_API_SECRET` are set, the probe uses those raw credentials and follows the same direct broker construction path as request-scoped auth.
+- Otherwise, the probe falls back to the env-configured broker pool and uses `primary` or `secondary:N` selection.
+
+The probe prints a JSON result for:
 
 - `fetchAccountId` via the exchange adapter
 - `fetchBalance` with `{ type: "spot" }`

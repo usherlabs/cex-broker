@@ -1,10 +1,12 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander";
+import { config } from "dotenv";
 import { probeAuthCommand } from "./commands/probe-auth";
 import { startBrokerCommand } from "./commands/start-broker";
 
 const program = new Command();
+config();
 
 const isValidIPv4 = (ip: string) =>
 	/^(\d{1,3}\.){3}\d{1,3}$/.test(ip) &&

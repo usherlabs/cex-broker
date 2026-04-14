@@ -1,9 +1,10 @@
 import * as grpc from "@grpc/grpc-js";
-import ccxt from "@usherlabs/ccxt";
+import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import { unwatchFile, watchFile } from "fs";
 import Joi from "joi";
 import {
 	type BrokerPoolEntry,
+	createBroker,
 	createBrokerPool,
 	loadPolicy,
 	normalizePolicyConfig,
@@ -34,8 +35,9 @@ export type BrokerAuthProbeStep = {
 
 export type BrokerAuthProbeResult = {
 	exchange: string;
-	selector: string;
-	resolvedAccount: string;
+	mode: "configured" | "raw";
+	selector?: string;
+	resolvedAccount?: string;
 	role?: "master" | "subaccount";
 	fetchAccountId: BrokerAuthProbeStep & {
 		accountId?: string;
@@ -231,11 +233,45 @@ export default class CEXBroker {
 			selector,
 		);
 
-		const result: BrokerAuthProbeResult = {
-			exchange: normalizedExchange,
+		return this.runProbeAuthSteps(normalizedExchange, account.exchange, {
+			mode: "configured",
 			selector,
 			resolvedAccount: account.label,
 			role: account.role,
+		});
+	}
+
+	public async probeAuthWithCredentials(
+		exchangeName: string,
+		creds: { apiKey: string; apiSecret: string },
+	): Promise<BrokerAuthProbeResult> {
+		const normalizedExchange = exchangeName.trim().toLowerCase();
+		const exchange = createBroker(normalizedExchange, creds);
+		if (!exchange) {
+			throw new Error(
+				`Failed to create probe broker for "${normalizedExchange}" with provided credentials`,
+			);
+		}
+
+		return this.runProbeAuthSteps(normalizedExchange, exchange, {
+			mode: "raw",
+		});
+	}
+
+	private async runProbeAuthSteps(
+		exchangeName: string,
+		exchange: Exchange,
+		context: Pick<
+			BrokerAuthProbeResult,
+			"mode" | "selector" | "resolvedAccount" | "role"
+		>,
+	): Promise<BrokerAuthProbeResult> {
+		const result: BrokerAuthProbeResult = {
+			exchange: exchangeName,
+			mode: context.mode,
+			selector: context.selector,
+			resolvedAccount: context.resolvedAccount,
+			role: context.role,
 			fetchAccountId: {
 				success: false,
 			},
@@ -245,7 +281,7 @@ export default class CEXBroker {
 		};
 
 		try {
-			const accountId = await account.exchange.fetchAccountId();
+			const accountId = await exchange.fetchAccountId();
 			result.fetchAccountId = {
 				success: true,
 				accountId,
@@ -258,7 +294,7 @@ export default class CEXBroker {
 		}
 
 		try {
-			const balance = await account.exchange.fetchBalance({ type: "spot" });
+			const balance = await exchange.fetchBalance({ type: "spot" });
 			const total = balance.total ?? {};
 			const assetCount = Object.values(total).filter(
 				(value) => value !== undefined && value !== null,
