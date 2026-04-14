@@ -7,8 +7,11 @@ import CEXBroker from ".";
 // import CEXBroker from "../dist/index";
 import { loadPolicy } from "./helpers";
 import { log } from "./helpers/logger";
-import { Action } from "./proto/cex_broker/Action";
-import type { ProtoGrpcType } from "./proto/node";
+
+const Action = {
+	FetchTicker: 8,
+	FetchFees: 12,
+} as const;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,9 +22,20 @@ const protoPath = path.join(__dirname, ".", "proto", "node.proto");
 const port = 8086;
 
 const packageDef = protoLoader.loadSync(protoPath);
-const grpcObj = grpc.loadPackageDefinition(
-	packageDef,
-) as unknown as ProtoGrpcType;
+const grpcObj = grpc.loadPackageDefinition(packageDef) as {
+	cex_broker: {
+		cex_service: new (
+			address: string,
+			credentials: grpc.ChannelCredentials,
+		) => {
+			executeAction(
+				request: Record<string, unknown>,
+				metadata: grpc.Metadata,
+				callback: grpc.requestCallback<{ result: string; proof: string }>,
+			): void;
+		};
+	};
+};
 
 const client = new grpcObj.cex_broker.cex_service(
 	`0.0.0.0:${port}`,
