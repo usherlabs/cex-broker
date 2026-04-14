@@ -140,12 +140,14 @@ const cexNode = grpcObj.cex_broker;
 
 function getActionName(action: unknown): string {
 	return typeof action === "number"
-		? ActionNames[action] ?? `unknown_${action}`
+		? (ActionNames[action] ?? `unknown_${action}`)
 		: `unknown_${action ?? "undefined"}`;
 }
 
 function getSubscriptionTypeName(subscriptionType: number): string {
-	return SubscriptionTypeNames[subscriptionType] ?? `unknown_${subscriptionType}`;
+	return (
+		SubscriptionTypeNames[subscriptionType] ?? `unknown_${subscriptionType}`
+	);
 }
 
 function parsePayload<T>(
