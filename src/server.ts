@@ -1,20 +1,21 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import type { Exchange } from "@usherlabs/ccxt";
+import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import type { z } from "zod";
 import {
 	authenticateRequest,
+	BrokerAccountPreconditionError,
 	type BrokerPoolEntry,
 	buildHttpClientOverrideFromMetadata,
 	createBroker,
-	executeWithdrawWithRouting,
+	getCurrentBrokerSelector,
+	resolveBrokerAccount,
 	resolveOrderExecution,
 	selectBroker,
+	transferBinanceInternal,
 	validateDeposit,
 	validateWithdraw,
 	verityHttpClientOverridePredicate,
-	WithdrawRoutingError,
-	WithdrawRoutingUnavailableError,
 } from "./helpers";
 import { log } from "./helpers/logger";
 import type { OtelMetrics } from "./helpers/otel";
@@ -34,6 +35,7 @@ import {
 	FetchDepositAddressesPayloadSchema,
 	FetchFeesPayloadSchema,
 	GetOrderDetailsPayloadSchema,
+	InternalTransferPayloadSchema,
 	WithdrawPayloadSchema,
 } from "./schemas/action-payloads";
 import type { PolicyConfig } from "./types";
@@ -79,6 +81,27 @@ function safeLogError(context: string, error: unknown): void {
 	} catch {
 		console.error(context, error);
 	}
+}
+
+/** Maps CCXT typed errors to appropriate gRPC status codes. Returns undefined for unrecognized errors. */
+function mapCcxtErrorToGrpcStatus(error: unknown): grpc.status | undefined {
+	if (error instanceof ccxt.AuthenticationError)
+		return grpc.status.UNAUTHENTICATED;
+	if (error instanceof ccxt.PermissionDenied)
+		return grpc.status.PERMISSION_DENIED;
+	if (error instanceof ccxt.InsufficientFunds)
+		return grpc.status.FAILED_PRECONDITION;
+	if (error instanceof ccxt.InvalidAddress) return grpc.status.INVALID_ARGUMENT;
+	if (error instanceof ccxt.BadSymbol) return grpc.status.NOT_FOUND;
+	if (error instanceof ccxt.BadRequest) return grpc.status.INVALID_ARGUMENT;
+	if (error instanceof ccxt.NotSupported) return grpc.status.UNIMPLEMENTED;
+	if (error instanceof ccxt.RateLimitExceeded)
+		return grpc.status.RESOURCE_EXHAUSTED;
+	if (error instanceof ccxt.OnMaintenance) return grpc.status.UNAVAILABLE;
+	if (error instanceof ccxt.ExchangeNotAvailable)
+		return grpc.status.UNAVAILABLE;
+	if (error instanceof ccxt.NetworkError) return grpc.status.UNAVAILABLE;
+	return undefined;
 }
 
 export function getServer(
@@ -180,10 +203,14 @@ export function getServer(
 					);
 				}
 
+				const normalizedCex = cex.trim().toLowerCase();
+
 				// If the Exchange is not already pre-loaded for preset API credentials via constructor - createBroker for non-gated APIs may be available for other exchanges.
 				const broker =
-					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
-					createBroker(cex, metadata);
+					selectBroker(
+						brokers[normalizedCex as keyof typeof brokers],
+						metadata,
+					) ?? createBroker(normalizedCex, metadata);
 
 				if (!broker) {
 					return wrappedCallback(
@@ -702,7 +729,6 @@ export function getServer(
 							);
 						}
 						const transferValue = parsedPayload.data;
-						// Validate against policy
 						const transferValidation = validateWithdraw(
 							policy,
 							cex,
@@ -721,45 +747,16 @@ export function getServer(
 							);
 						}
 						try {
-							let transaction: Awaited<ReturnType<Exchange["withdraw"]>>;
-							try {
-								transaction = await executeWithdrawWithRouting({
-									cex,
-									brokers: brokers[cex as keyof typeof brokers],
-									metadata,
-									selectedBroker: broker,
-									code: symbol,
-									amount: transferValue.amount,
-									recipientAddress: transferValue.recipientAddress,
+							const transaction = await broker.withdraw(
+								symbol,
+								transferValue.amount,
+								transferValue.recipientAddress,
+								undefined,
+								{
+									...(transferValue.params ?? {}),
 									network: transferValue.chain,
-									params: transferValue.params,
-									routeViaMaster: transferValue.routeViaMaster,
-									sourceAccount: transferValue.sourceAccount,
-									masterAccount: transferValue.masterAccount,
-								});
-							} catch (error) {
-								if (error instanceof WithdrawRoutingUnavailableError) {
-									log.warn("Withdraw routing unavailable, falling back", {
-										cex,
-										error: error.message,
-									});
-									if (transferValue.routeViaMaster) {
-										throw error;
-									}
-									transaction = await broker.withdraw(
-										symbol,
-										transferValue.amount,
-										transferValue.recipientAddress,
-										undefined,
-										{
-											...(transferValue.params ?? {}),
-											network: transferValue.chain,
-										},
-									);
-								} else {
-									throw error;
-								}
-							}
+								},
+							);
 							log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 
 							wrappedCallback(null, {
@@ -768,17 +765,12 @@ export function getServer(
 							});
 						} catch (error) {
 							safeLogError("Withdraw failed", error);
-							const message =
-								error instanceof WithdrawRoutingError
-									? error.message
-									: getErrorMessage(error);
+							const code =
+								mapCcxtErrorToGrpcStatus(error) ?? grpc.status.INTERNAL;
 							wrappedCallback(
 								{
-									code:
-										error instanceof WithdrawRoutingError
-											? grpc.status.INVALID_ARGUMENT
-											: grpc.status.INTERNAL,
-									message: `Withdraw failed: ${message}`,
+									code,
+									message: `Withdraw failed: ${getErrorMessage(error)}`,
 								},
 								null,
 							);
@@ -1054,6 +1046,133 @@ export function getServer(
 							);
 						}
 						break;
+
+					case Action.InternalTransfer: {
+						if (!symbol) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `ValidationError: Symbol required`,
+								},
+								null,
+							);
+						}
+						const parsedPayload = parsePayload(
+							InternalTransferPayloadSchema,
+							call.request.payload,
+						);
+						if (!parsedPayload.success) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: parsedPayload.message,
+								},
+								null,
+							);
+						}
+						const transferPayload = parsedPayload.data;
+
+						if (normalizedCex !== "binance") {
+							return wrappedCallback(
+								{
+									code: grpc.status.UNIMPLEMENTED,
+									message: `InternalTransfer is only supported for Binance`,
+								},
+								null,
+							);
+						}
+
+						const pool = brokers[normalizedCex as keyof typeof brokers];
+						if (!pool) {
+							return wrappedCallback(
+								{
+									code: grpc.status.FAILED_PRECONDITION,
+									message: `No broker accounts configured for ${normalizedCex}`,
+								},
+								null,
+							);
+						}
+
+						const fromSelector =
+							transferPayload.fromAccount ?? getCurrentBrokerSelector(metadata);
+						const toSelector = transferPayload.toAccount ?? "primary";
+
+						const sourceAccount = resolveBrokerAccount(pool, fromSelector);
+						if (!sourceAccount) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `Source account "${fromSelector}" is not configured`,
+								},
+								null,
+							);
+						}
+
+						const destAccount = resolveBrokerAccount(pool, toSelector);
+						if (!destAccount) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `Destination account "${toSelector}" is not configured`,
+								},
+								null,
+							);
+						}
+
+						try {
+							if (useVerity) {
+								sourceAccount.exchange.setHttpClientOverride(
+									buildHttpClientOverrideFromMetadata(
+										metadata,
+										verityProverUrl,
+										(proof, notaryPubKey) => {
+											verityProof = proof;
+											log.debug(`Verity proof:`, { proof, notaryPubKey });
+										},
+									),
+									verityHttpClientOverridePredicate,
+								);
+							}
+							const result = await transferBinanceInternal(
+								sourceAccount,
+								destAccount,
+								symbol,
+								transferPayload.amount,
+							);
+							wrappedCallback(null, {
+								proof: verityProof,
+								result: JSON.stringify(result),
+							});
+						} catch (error) {
+							safeLogError("InternalTransfer failed", error);
+							if (error instanceof BrokerAccountPreconditionError) {
+								return wrappedCallback(
+									{
+										code: grpc.status.FAILED_PRECONDITION,
+										message: getErrorMessage(error),
+									},
+									null,
+								);
+							}
+							const msg = getErrorMessage(error);
+							let code: grpc.status;
+							if (msg.includes("Unsupported transfer direction")) {
+								code = grpc.status.INVALID_ARGUMENT;
+							} else if (msg.includes("unavailable in this CCXT build")) {
+								code = grpc.status.UNIMPLEMENTED;
+							} else {
+								code = mapCcxtErrorToGrpcStatus(error) ?? grpc.status.INTERNAL;
+							}
+							wrappedCallback(
+								{
+									code,
+									message: `InternalTransfer failed: ${msg}`,
+								},
+								null,
+							);
+						}
+						break;
+					}
 
 					default:
 						return wrappedCallback({

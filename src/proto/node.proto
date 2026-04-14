@@ -57,4 +57,5 @@ enum Action {
   Call=10;
   FetchAccountId=11;
   FetchFees= 12;
+  InternalTransfer= 13;
 }
