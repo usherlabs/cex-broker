@@ -51,9 +51,11 @@ function resolveEnumValue<T extends Record<string, number>>(
 	value: T[keyof T] | keyof T | undefined,
 ): T[keyof T] | undefined {
 	if (typeof value === "number") {
-		return value as T[keyof T];
+		return Object.values(enumValues).includes(value)
+			? (value as T[keyof T])
+			: undefined;
 	}
-	if (typeof value === "string" && value in enumValues) {
+	if (typeof value === "string" && Object.hasOwn(enumValues, value)) {
 		return enumValues[value] as T[keyof T];
 	}
 	return undefined;
@@ -71,7 +73,7 @@ const actionNames = createEnumNameMap(Action);
 const subscriptionTypeNames = createEnumNameMap(SubscriptionType);
 
 export function getActionName(action: unknown): string {
-	if (typeof action === "string" && action in Action) {
+	if (typeof action === "string" && Object.hasOwn(Action, action)) {
 		return action;
 	}
 	return typeof action === "number"
@@ -82,7 +84,7 @@ export function getActionName(action: unknown): string {
 export function getSubscriptionTypeName(subscriptionType: unknown): string {
 	if (
 		typeof subscriptionType === "string" &&
-		subscriptionType in SubscriptionType
+		Object.hasOwn(SubscriptionType, subscriptionType)
 	) {
 		return subscriptionType;
 	}
