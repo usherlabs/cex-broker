@@ -1,8 +1,6 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import ccxt, { type Exchange } from "@usherlabs/ccxt";
-import path from "path";
-import { fileURLToPath } from "url";
 import type { z } from "zod";
 import {
 	authenticateRequest,
@@ -41,6 +39,7 @@ import {
 	InternalTransferPayloadSchema,
 	WithdrawPayloadSchema,
 } from "./schemas/action-payloads";
+import descriptor from "./proto/node.descriptor.ts";
 import type { PolicyConfig } from "./types";
 
 type ActionRequest = {
@@ -69,16 +68,9 @@ type SubscribeResponse = {
 	type: SubscriptionTypeValue;
 };
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const protoPath = path.join(__dirname, "proto", "node.proto");
-
-const packageDef = protoLoader.loadSync(protoPath, {
-	keepCase: true,
-	longs: String,
-	defaults: true,
-	oneofs: true,
-});
+const packageDef = protoLoader.fromJSON(
+	descriptor as unknown as Record<string, unknown>,
+);
 const grpcObj = grpc.loadPackageDefinition(packageDef) as unknown as {
 	cex_broker: {
 		cex_service: {
