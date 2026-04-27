@@ -1,5 +1,4 @@
 import * as grpc from "@grpc/grpc-js";
-import * as protoLoader from "@grpc/proto-loader";
 import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import type { z } from "zod";
 import {
@@ -19,15 +18,19 @@ import {
 } from "./helpers";
 import {
 	Action,
+	type ActionName,
+	type Action as ActionType,
 	getActionName,
 	getSubscriptionTypeName,
-	type Action as ActionType,
+	resolveAction,
 	resolveSubscriptionType,
 	SubscriptionType,
+	type SubscriptionTypeName,
 	type SubscriptionType as SubscriptionTypeValue,
 } from "./helpers/constants";
 import { log } from "./helpers/logger";
 import type { OtelMetrics } from "./helpers/otel";
+import { CEX_BROKER_PACKAGE_DEFINITION } from "./proto-package-definition";
 import {
 	CallPayloadSchema,
 	CancelOrderPayloadSchema,
@@ -39,11 +42,10 @@ import {
 	InternalTransferPayloadSchema,
 	WithdrawPayloadSchema,
 } from "./schemas/action-payloads";
-import descriptor from "./proto/node.descriptor.ts";
 import type { PolicyConfig } from "./types";
 
 type ActionRequest = {
-	action?: ActionType;
+	action?: ActionType | ActionName;
 	payload?: Record<string, string>;
 	cex?: string;
 	symbol?: string;
@@ -57,7 +59,7 @@ type ActionResponse = {
 type SubscribeRequest = {
 	cex?: string;
 	symbol?: string;
-	type?: SubscriptionTypeValue;
+	type?: SubscriptionTypeValue | SubscriptionTypeName;
 	options?: Record<string, string>;
 };
 
@@ -68,10 +70,9 @@ type SubscribeResponse = {
 	type: SubscriptionTypeValue;
 };
 
-const packageDef = protoLoader.fromJSON(
-	descriptor as unknown as Record<string, unknown>,
-);
-const grpcObj = grpc.loadPackageDefinition(packageDef) as unknown as {
+const grpcObj = grpc.loadPackageDefinition(
+	CEX_BROKER_PACKAGE_DEFINITION,
+) as unknown as {
 	cex_broker: {
 		cex_service: {
 			service: grpc.ServiceDefinition<grpc.UntypedServiceImplementation>;
@@ -152,7 +153,8 @@ export function getServer(
 			callback: grpc.sendUnaryData<ActionResponse>,
 		) => {
 			const startTime = Date.now();
-			const { action, cex, symbol } = call.request;
+			const { action: rawAction, cex, symbol } = call.request;
+			const action = resolveAction(rawAction);
 			let actionCompleted = false;
 
 			// Wrap callback to track success/failure

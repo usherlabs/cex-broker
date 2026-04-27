@@ -41,8 +41,23 @@ export const SubscriptionType = {
 } as const;
 
 export type Action = (typeof Action)[keyof typeof Action];
+export type ActionName = keyof typeof Action;
 export type SubscriptionType =
 	(typeof SubscriptionType)[keyof typeof SubscriptionType];
+export type SubscriptionTypeName = keyof typeof SubscriptionType;
+
+function resolveEnumValue<T extends Record<string, number>>(
+	enumValues: T,
+	value: T[keyof T] | keyof T | undefined,
+): T[keyof T] | undefined {
+	if (typeof value === "number") {
+		return value as T[keyof T];
+	}
+	if (typeof value === "string" && value in enumValues) {
+		return enumValues[value] as T[keyof T];
+	}
+	return undefined;
+}
 
 function createEnumNameMap<T extends Record<string, number>>(
 	enumValues: T,
@@ -56,21 +71,38 @@ const actionNames = createEnumNameMap(Action);
 const subscriptionTypeNames = createEnumNameMap(SubscriptionType);
 
 export function getActionName(action: unknown): string {
+	if (typeof action === "string" && action in Action) {
+		return action;
+	}
 	return typeof action === "number"
 		? (actionNames[action] ?? `unknown_${action}`)
 		: `unknown_${action ?? "undefined"}`;
 }
 
-export function getSubscriptionTypeName(subscriptionType: number): string {
-	return (
-		subscriptionTypeNames[subscriptionType] ?? `unknown_${subscriptionType}`
-	);
+export function getSubscriptionTypeName(subscriptionType: unknown): string {
+	if (
+		typeof subscriptionType === "string" &&
+		subscriptionType in SubscriptionType
+	) {
+		return subscriptionType;
+	}
+	return typeof subscriptionType === "number"
+		? (subscriptionTypeNames[subscriptionType] ?? `unknown_${subscriptionType}`)
+		: `unknown_${subscriptionType ?? "undefined"}`;
+}
+
+export function resolveAction(
+	action: Action | ActionName | undefined,
+): Action | undefined {
+	return resolveEnumValue(Action, action);
 }
 
 export function resolveSubscriptionType(
-	type: SubscriptionType | undefined,
+	type: SubscriptionType | SubscriptionTypeName | undefined,
 ): SubscriptionType {
-	return type === undefined || type === SubscriptionType.NO_ACTION
+	const resolvedType = resolveEnumValue(SubscriptionType, type);
+	return resolvedType === undefined ||
+		resolvedType === SubscriptionType.NO_ACTION
 		? SubscriptionType.ORDERBOOK
-		: type;
+		: resolvedType;
 }
