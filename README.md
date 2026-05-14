@@ -136,16 +136,42 @@ bun run build:ts
 bun run ./build/index.js
 ```
 
+### Probing Exchange Auth
+
+```bash
+# Probe the exact raw credentials used by the Prover via .env
+# .env:
+# CEX_BROKER_PROBE_API_KEY=...
+# CEX_BROKER_PROBE_API_SECRET=...
+bun run src/cli.ts --probeAuth binance
+
+# Probe a configured sub-account loaded as secondary:1
+bun run src/cli.ts --probeAuth binance --account secondary:1
+```
+
+Probe mode precedence:
+
+- If `CEX_BROKER_PROBE_API_KEY` and `CEX_BROKER_PROBE_API_SECRET` are set, the probe uses those raw credentials and follows the same direct broker construction path as request-scoped auth.
+- Otherwise, the probe falls back to the env-configured broker pool and uses `primary` or `secondary:N` selection.
+
+The probe prints a JSON result for:
+
+- `fetchAccountId` via the exchange adapter
+- `fetchBalance` with `{ type: "spot" }`
+
 ### CLI Options
 
 ```bash
 cex-broker --help
 
 Options:
-  -p, --policy <path>                    Policy JSON file (required)
+  -p, --policy <path>                    Policy JSON file
   --port <number>                        Port number (default: 8086)
   -w, --whitelist <addresses...>         IPv4 address whitelist (space-separated list)
-  -vu, --verityProverUrl <url>           Verity Prover URL for zero-knowledge proofs
+  --whitelistAll                         Allow all IPv4 addresses (development mode)
+  --verityProverUrl <url>                Verity Prover URL for zero-knowledge proofs
+  --probeAuth <exchange>                 Probe auth for an env-configured exchange without starting the server
+  --account <selector>                   Account selector to probe, e.g. "primary" or "secondary:1"
 ```
 
 ### Available Scripts
