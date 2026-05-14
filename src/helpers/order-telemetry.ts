@@ -72,6 +72,8 @@ const NUMERIC_METRICS: Array<[NumericTelemetryKey, string]> = [
 	["feeRate", "cex_market_action_fee_rate"],
 ];
 
+const REDACTED_ERROR_MESSAGE = "redacted_error";
+
 export async function emitOrderExecutionTelemetry(
 	otelMetrics: OtelMetrics | undefined,
 	context: OrderTelemetryContext,
@@ -187,7 +189,7 @@ export function buildOrderExecutionTelemetry(
 		brokerObservedTimestamp:
 			context.brokerObservedTimestamp ?? new Date().toISOString(),
 		errorType: errorRecord?.name,
-		errorMessage: errorRecord?.message,
+		errorMessage: errorRecord ? REDACTED_ERROR_MESSAGE : undefined,
 	}) as OrderExecutionTelemetry;
 }
 

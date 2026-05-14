@@ -101,6 +101,29 @@ describe("order execution telemetry normalization", () => {
 			brokerObservedTimestamp: "2026-05-14T00:00:00.000Z",
 		});
 	});
+
+	test("redacts upstream error messages from telemetry payloads", () => {
+		const telemetry = buildOrderExecutionTelemetry(
+			{
+				action: "CreateOrder",
+				cex: "binance",
+				accountLabel: "primary",
+				symbol: "ARB/USDT",
+				side: "sell",
+				orderType: "market",
+				brokerObservedTimestamp: "2026-05-14T00:00:00.000Z",
+			},
+			undefined,
+			new Error("exchange rejected order because account abc123 is restricted"),
+		);
+
+		expect(telemetry).toMatchObject({
+			status: "failed",
+			errorType: "Error",
+			errorMessage: "redacted_error",
+		});
+		expect(JSON.stringify(telemetry)).not.toContain("account abc123");
+	});
 });
 
 describe("order execution telemetry RPC harness", () => {

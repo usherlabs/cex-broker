@@ -33,6 +33,7 @@ import { log } from "./helpers/logger";
 import {
 	emitOrderExecutionTelemetry,
 	extractOrderTelemetryIds,
+	type OrderTelemetryContext,
 } from "./helpers/order-telemetry";
 import type { OtelMetrics } from "./helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "./proto-package-definition";
@@ -119,6 +120,23 @@ function safeLogError(context: string, error: unknown): void {
 	} catch {
 		console.error(context, error);
 	}
+}
+
+function emitOrderExecutionTelemetryInBackground(
+	otelMetrics: OtelMetrics | undefined,
+	context: OrderTelemetryContext,
+	order: unknown,
+	error?: unknown,
+): void {
+	void emitOrderExecutionTelemetry(otelMetrics, context, order, error).catch(
+		(telemetryError) => {
+			try {
+				log.warn("Telemetry emit failed", { error: telemetryError });
+			} catch {
+				console.warn("Telemetry emit failed", telemetryError);
+			}
+		},
+	);
 }
 
 /** Maps CCXT typed errors to appropriate gRPC status codes. Returns undefined for unrecognized errors. */
@@ -879,7 +897,7 @@ export function getServer(
 								orderValue.params ?? {},
 							);
 
-							await emitOrderExecutionTelemetry(
+							emitOrderExecutionTelemetryInBackground(
 								otelMetrics,
 								{
 									action: "CreateOrder",
@@ -898,7 +916,7 @@ export function getServer(
 							wrappedCallback(null, { result: JSON.stringify({ ...order }) });
 						} catch (error) {
 							safeLogError("Order Creation failed", error);
-							await emitOrderExecutionTelemetry(
+							emitOrderExecutionTelemetryInBackground(
 								otelMetrics,
 								{
 									action: "CreateOrder",
@@ -962,7 +980,7 @@ export function getServer(
 								{ ...getOrderValue.params },
 							);
 
-							await emitOrderExecutionTelemetry(
+							emitOrderExecutionTelemetryInBackground(
 								otelMetrics,
 								{
 									action: "GetOrderDetails",
