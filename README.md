@@ -521,11 +521,43 @@ The following metrics are exported as OTLP counters and histograms:
 - `execute_action_success_total` (counter): Successful ExecuteAction requests
 - `execute_action_errors_total` (counter): Failed ExecuteAction requests
 - `execute_action_duration_ms` (histogram): ExecuteAction latency
+- `cex_market_action_executions_total` (counter): CreateOrder/GetOrderDetails execution telemetry events, tagged by action, exchange, account label, symbol, side, order type, status, and result
+- `cex_market_action_requested_quantity` (histogram): Requested base quantity when known
+- `cex_market_action_requested_notional` (histogram): Requested notional from payload amount * price when known
+- `cex_market_action_executed_base_quantity` (histogram): Executed base quantity reported by the exchange
+- `cex_market_action_executed_quote_quantity` (histogram): Executed quote quantity/cost reported by the exchange
+- `cex_market_action_average_execution_price` (histogram): Exchange-reported or derived average execution price
+- `cex_market_action_filled_amount` (histogram): Filled amount reported by the exchange
+- `cex_market_action_remaining_amount` (histogram): Remaining amount reported by the exchange
+- `cex_market_action_fee_amount` (histogram): Fee amount when provided by the exchange
+- `cex_market_action_fee_rate` (histogram): Fee rate when provided by the exchange
 - `subscribe_requests_total` (counter): Total Subscribe requests
 - `subscribe_errors_total` (counter): Failed Subscribe requests
 - `subscribe_duration_ms` (histogram): Subscribe stream duration
 
-All metrics include attributes: `action`, `cex`, `symbol`, `error_type`, `service`.
+General request metrics include attributes such as `action`, `cex`, `symbol`, `error_type`, and `service`. Market-action execution metrics intentionally use low-cardinality attributes only: `action`, `cex`, `account`, `symbol`, `side`, `order_type`, `status`, `result`, and `service`.
+
+### Market Action Accounting Telemetry
+
+Every successful `CreateOrder` response, successful `GetOrderDetails` response, rejected order response, and failed create-order attempt emits a structured log event named `cex_market_action_execution`. The event includes the low-cardinality metric attributes above plus join identifiers and accounting values:
+
+- Join identifiers: `orderId`, `clientOrderId`, `idempotencyId`, `makerActionId`
+- Execution values: requested quantity/notional, executed base quantity, executed quote quantity/cost, average execution price, filled amount, remaining amount, fee amount, fee currency, fee rate
+- Timing: exchange timestamp when present and broker observed timestamp
+
+Use metrics for aggregations and alerts, and use structured logs/events for joins back to Maker actions. For ClickHouse-backed OTel pipelines, analysts can join Maker action rows to broker telemetry using `makerActionId`, `idempotencyId`, `clientOrderId`, or the exchange `orderId`, then compare Maker propAMM execution price against `averageExecutionPrice` and fees. The broker does not emit raw exchange payloads, API keys, secrets, or credentials in these telemetry fields.
+
+### Telemetry Test Harness
+
+Order telemetry tests use `test/order-telemetry-fixtures.ts` to run the real gRPC server with mocked CCXT exchanges. The fixture can simulate create-order responses, order-detail responses, partial fills, rejected orders, failed create-order calls, and fee/no-fee exchange payloads without live credentials.
+
+Run only the focused telemetry suite:
+
+```bash
+bun test test/order-telemetry.test.ts
+```
+
+To extend coverage for another exchange response shape, add a mocked CCXT order object to `createOrderExchangeFixture` usage in `test/order-telemetry.test.ts` and assert the captured `CapturingOtelMetrics` calls.
 
 ### Setting Up Metrics
 
