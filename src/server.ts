@@ -1,8 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
-import * as protoLoader from "@grpc/proto-loader";
 import ccxt, { type Exchange } from "@usherlabs/ccxt";
-import path from "path";
-import { fileURLToPath } from "url";
 import type { z } from "zod";
 import {
 	authenticateRequest,
@@ -14,6 +11,7 @@ import {
 	resolveBrokerAccount,
 	resolveOrderExecution,
 	selectBroker,
+	selectBrokerAccount,
 	transferBinanceInternal,
 	validateDeposit,
 	validateWithdraw,
@@ -21,15 +19,24 @@ import {
 } from "./helpers";
 import {
 	Action,
+	type ActionName,
+	type Action as ActionType,
 	getActionName,
 	getSubscriptionTypeName,
-	type Action as ActionType,
+	resolveAction,
 	resolveSubscriptionType,
 	SubscriptionType,
+	type SubscriptionTypeName,
 	type SubscriptionType as SubscriptionTypeValue,
 } from "./helpers/constants";
 import { log } from "./helpers/logger";
+import {
+	emitOrderExecutionTelemetry,
+	extractOrderTelemetryIds,
+	type OrderTelemetryContext,
+} from "./helpers/order-telemetry";
 import type { OtelMetrics } from "./helpers/otel";
+import { CEX_BROKER_PACKAGE_DEFINITION } from "./proto-package-definition";
 import {
 	CallPayloadSchema,
 	CancelOrderPayloadSchema,
@@ -44,7 +51,7 @@ import {
 import type { PolicyConfig } from "./types";
 
 type ActionRequest = {
-	action?: ActionType;
+	action?: ActionType | ActionName;
 	payload?: Record<string, string>;
 	cex?: string;
 	symbol?: string;
@@ -58,7 +65,7 @@ type ActionResponse = {
 type SubscribeRequest = {
 	cex?: string;
 	symbol?: string;
-	type?: SubscriptionTypeValue;
+	type?: SubscriptionTypeValue | SubscriptionTypeName;
 	options?: Record<string, string>;
 };
 
@@ -69,17 +76,9 @@ type SubscribeResponse = {
 	type: SubscriptionTypeValue;
 };
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const protoPath = path.join(__dirname, "proto", "node.proto");
-
-const packageDef = protoLoader.loadSync(protoPath, {
-	keepCase: true,
-	longs: String,
-	defaults: true,
-	oneofs: true,
-});
-const grpcObj = grpc.loadPackageDefinition(packageDef) as unknown as {
+const grpcObj = grpc.loadPackageDefinition(
+	CEX_BROKER_PACKAGE_DEFINITION,
+) as unknown as {
 	cex_broker: {
 		cex_service: {
 			service: grpc.ServiceDefinition<grpc.UntypedServiceImplementation>;
@@ -123,6 +122,23 @@ function safeLogError(context: string, error: unknown): void {
 	}
 }
 
+function emitOrderExecutionTelemetryInBackground(
+	otelMetrics: OtelMetrics | undefined,
+	context: OrderTelemetryContext,
+	order: unknown,
+	error?: unknown,
+): void {
+	void emitOrderExecutionTelemetry(otelMetrics, context, order, error).catch(
+		(telemetryError) => {
+			try {
+				log.warn("Telemetry emit failed", { error: telemetryError });
+			} catch {
+				console.warn("Telemetry emit failed", telemetryError);
+			}
+		},
+	);
+}
+
 /** Maps CCXT typed errors to appropriate gRPC status codes. Returns undefined for unrecognized errors. */
 function mapCcxtErrorToGrpcStatus(error: unknown): grpc.status | undefined {
 	if (error instanceof ccxt.AuthenticationError)
@@ -160,7 +176,8 @@ export function getServer(
 			callback: grpc.sendUnaryData<ActionResponse>,
 		) => {
 			const startTime = Date.now();
-			const { action, cex, symbol } = call.request;
+			const { action: rawAction, cex, symbol } = call.request;
+			const action = resolveAction(rawAction);
 			let actionCompleted = false;
 
 			// Wrap callback to track success/failure
@@ -240,11 +257,13 @@ export function getServer(
 				const normalizedCex = cex.trim().toLowerCase();
 
 				// If the Exchange is not already pre-loaded for preset API credentials via constructor - createBroker for non-gated APIs may be available for other exchanges.
+				const selectedBrokerAccount = selectBrokerAccount(
+					brokers[normalizedCex as keyof typeof brokers],
+					metadata,
+				);
 				const broker =
-					selectBroker(
-						brokers[normalizedCex as keyof typeof brokers],
-						metadata,
-					) ?? createBroker(normalizedCex, metadata);
+					selectedBrokerAccount?.exchange ??
+					createBroker(normalizedCex, metadata);
 
 				if (!broker) {
 					return wrappedCallback(
@@ -827,6 +846,11 @@ export function getServer(
 							);
 						}
 						const orderValue = parsedPayload.data;
+						let resolvedOrderTelemetry: {
+							symbol?: string;
+							side?: string;
+							requestedQuantity?: number;
+						} = {};
 
 						try {
 							if (!broker) {
@@ -858,6 +882,11 @@ export function getServer(
 									null,
 								);
 							}
+							resolvedOrderTelemetry = {
+								symbol: resolution.symbol,
+								side: resolution.side,
+								requestedQuantity: resolution.amountBase ?? orderValue.amount,
+							};
 
 							const order = await broker.createOrder(
 								resolution.symbol,
@@ -868,9 +897,43 @@ export function getServer(
 								orderValue.params ?? {},
 							);
 
+							emitOrderExecutionTelemetryInBackground(
+								otelMetrics,
+								{
+									action: "CreateOrder",
+									cex,
+									accountLabel: selectedBrokerAccount?.label,
+									symbol: resolvedOrderTelemetry.symbol,
+									side: resolvedOrderTelemetry.side,
+									orderType: orderValue.orderType,
+									requestedQuantity: resolvedOrderTelemetry.requestedQuantity,
+									requestedNotional: orderValue.amount * orderValue.price,
+									...extractOrderTelemetryIds(orderValue.params),
+								},
+								order,
+							);
+
 							wrappedCallback(null, { result: JSON.stringify({ ...order }) });
 						} catch (error) {
 							safeLogError("Order Creation failed", error);
+							emitOrderExecutionTelemetryInBackground(
+								otelMetrics,
+								{
+									action: "CreateOrder",
+									cex,
+									accountLabel: selectedBrokerAccount?.label,
+									symbol: resolvedOrderTelemetry.symbol ?? symbol,
+									side: resolvedOrderTelemetry.side,
+									orderType: orderValue.orderType,
+									requestedQuantity:
+										resolvedOrderTelemetry.requestedQuantity ??
+										orderValue.amount,
+									requestedNotional: orderValue.amount * orderValue.price,
+									...extractOrderTelemetryIds(orderValue.params),
+								},
+								undefined,
+								error,
+							);
 							wrappedCallback(
 								{
 									code: grpc.status.INTERNAL,
@@ -915,6 +978,18 @@ export function getServer(
 								getOrderValue.orderId,
 								symbol,
 								{ ...getOrderValue.params },
+							);
+
+							emitOrderExecutionTelemetryInBackground(
+								otelMetrics,
+								{
+									action: "GetOrderDetails",
+									cex,
+									accountLabel: selectedBrokerAccount?.label,
+									symbol,
+									...extractOrderTelemetryIds(getOrderValue.params),
+								},
+								orderDetails,
 							);
 
 							wrappedCallback(null, {

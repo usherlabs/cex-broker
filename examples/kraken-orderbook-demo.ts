@@ -6,19 +6,17 @@ import path from "path";
 import type { SubscribeResponse__Output } from "../src/proto/cex_broker/SubscribeResponse";
 import { SubscriptionType } from "../src/proto/cex_broker/SubscriptionType";
 import type { ProtoGrpcType } from "../src/proto/node";
+import { PROTO_LOADER_OPTIONS } from "../src/proto-loader-options";
 
 const PROTO_FILE = "../src/proto/node.proto";
 
 console.log("CEX Broker - Kraken Orderbook Demo");
 console.log("━".repeat(55));
 
-const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE), {
-	keepCase: true,
-	longs: String,
-	enums: String,
-	defaults: true,
-	oneofs: true,
-});
+const packageDef = protoLoader.loadSync(
+	path.resolve(__dirname, PROTO_FILE),
+	PROTO_LOADER_OPTIONS,
+);
 
 const proto = grpc.loadPackageDefinition(
 	packageDef,
