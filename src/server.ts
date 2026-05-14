@@ -11,6 +11,7 @@ import {
 	resolveBrokerAccount,
 	resolveOrderExecution,
 	selectBroker,
+	selectBrokerAccount,
 	transferBinanceInternal,
 	validateDeposit,
 	validateWithdraw,
@@ -29,6 +30,10 @@ import {
 	type SubscriptionType as SubscriptionTypeValue,
 } from "./helpers/constants";
 import { log } from "./helpers/logger";
+import {
+	emitOrderExecutionTelemetry,
+	extractOrderTelemetryIds,
+} from "./helpers/order-telemetry";
 import type { OtelMetrics } from "./helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "./proto-package-definition";
 import {
@@ -234,11 +239,13 @@ export function getServer(
 				const normalizedCex = cex.trim().toLowerCase();
 
 				// If the Exchange is not already pre-loaded for preset API credentials via constructor - createBroker for non-gated APIs may be available for other exchanges.
+				const selectedBrokerAccount = selectBrokerAccount(
+					brokers[normalizedCex as keyof typeof brokers],
+					metadata,
+				);
 				const broker =
-					selectBroker(
-						brokers[normalizedCex as keyof typeof brokers],
-						metadata,
-					) ?? createBroker(normalizedCex, metadata);
+					selectedBrokerAccount?.exchange ??
+					createBroker(normalizedCex, metadata);
 
 				if (!broker) {
 					return wrappedCallback(
@@ -821,6 +828,11 @@ export function getServer(
 							);
 						}
 						const orderValue = parsedPayload.data;
+						let resolvedOrderTelemetry: {
+							symbol?: string;
+							side?: string;
+							requestedQuantity?: number;
+						} = {};
 
 						try {
 							if (!broker) {
@@ -852,6 +864,11 @@ export function getServer(
 									null,
 								);
 							}
+							resolvedOrderTelemetry = {
+								symbol: resolution.symbol,
+								side: resolution.side,
+								requestedQuantity: resolution.amountBase ?? orderValue.amount,
+							};
 
 							const order = await broker.createOrder(
 								resolution.symbol,
@@ -862,9 +879,43 @@ export function getServer(
 								orderValue.params ?? {},
 							);
 
+							await emitOrderExecutionTelemetry(
+								otelMetrics,
+								{
+									action: "CreateOrder",
+									cex,
+									accountLabel: selectedBrokerAccount?.label,
+									symbol: resolvedOrderTelemetry.symbol,
+									side: resolvedOrderTelemetry.side,
+									orderType: orderValue.orderType,
+									requestedQuantity: resolvedOrderTelemetry.requestedQuantity,
+									requestedNotional: orderValue.amount * orderValue.price,
+									...extractOrderTelemetryIds(orderValue.params),
+								},
+								order,
+							);
+
 							wrappedCallback(null, { result: JSON.stringify({ ...order }) });
 						} catch (error) {
 							safeLogError("Order Creation failed", error);
+							await emitOrderExecutionTelemetry(
+								otelMetrics,
+								{
+									action: "CreateOrder",
+									cex,
+									accountLabel: selectedBrokerAccount?.label,
+									symbol: resolvedOrderTelemetry.symbol ?? symbol,
+									side: resolvedOrderTelemetry.side,
+									orderType: orderValue.orderType,
+									requestedQuantity:
+										resolvedOrderTelemetry.requestedQuantity ??
+										orderValue.amount,
+									requestedNotional: orderValue.amount * orderValue.price,
+									...extractOrderTelemetryIds(orderValue.params),
+								},
+								undefined,
+								error,
+							);
 							wrappedCallback(
 								{
 									code: grpc.status.INTERNAL,
@@ -909,6 +960,18 @@ export function getServer(
 								getOrderValue.orderId,
 								symbol,
 								{ ...getOrderValue.params },
+							);
+
+							await emitOrderExecutionTelemetry(
+								otelMetrics,
+								{
+									action: "GetOrderDetails",
+									cex,
+									accountLabel: selectedBrokerAccount?.label,
+									symbol,
+									...extractOrderTelemetryIds(getOrderValue.params),
+								},
+								orderDetails,
 							);
 
 							wrappedCallback(null, {
