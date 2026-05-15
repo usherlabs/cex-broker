@@ -16,6 +16,7 @@ import {
 	validateOrder,
 	validateWithdraw,
 } from "../src/helpers/index";
+import { fetchAccountingData } from "../src/helpers/accounting";
 import {
 	InternalTransferPayloadSchema,
 	WithdrawPayloadSchema,
@@ -1141,6 +1142,77 @@ describe("Helper Functions", () => {
 					1,
 				),
 			).rejects.toThrow("universal transfer is unavailable");
+		});
+	});
+
+	describe("accounting reads", () => {
+		test("should route canonical accounting kinds to CCXT unified methods", async () => {
+			const calls: Array<{ method: string; params: Record<string, unknown> }> =
+				[];
+			const broker = {
+				has: { fetchMyTrades: true },
+				fetchMyTrades: async (
+					symbol: string | undefined,
+					since: number | undefined,
+					limit: number | undefined,
+					params: Record<string, unknown>,
+				) => {
+					calls.push({
+						method: "fetchMyTrades",
+						params: { symbol, since, limit, ...params },
+					});
+					return [{ orderId: 1 }];
+				},
+			} as unknown as Exchange;
+
+			const result = await fetchAccountingData({
+				cex: "bybit",
+				broker,
+				kind: "trades",
+				symbol: "ARB/USDT",
+				since: 1,
+				limit: 100,
+				params: { type: "spot", endTime: 2 },
+			});
+
+			expect(result).toEqual([{ orderId: 1 }]);
+			expect(calls).toEqual([
+				{
+					method: "fetchMyTrades",
+					params: {
+						symbol: "ARB/USDT",
+						since: 1,
+						limit: 100,
+						type: "spot",
+						endTime: 2,
+					},
+				},
+			]);
+		});
+
+		test("should reject accounting reads when CCXT capability is unavailable", async () => {
+			await expect(
+				fetchAccountingData({
+					cex: "bitfinex",
+					broker: { has: { fetchDeposits: false } } as unknown as Exchange,
+					kind: "deposits",
+					params: {},
+				}),
+			).rejects.toThrow("bitfinex does not support fetchDeposits through CCXT");
+		});
+
+		test("should require symbol for OHLCV accounting reads", async () => {
+			await expect(
+				fetchAccountingData({
+					cex: "mexc",
+					broker: {
+						has: { fetchOHLCV: true },
+						fetchOHLCV: async () => [],
+					} as unknown as Exchange,
+					kind: "ohlcv",
+					params: {},
+				}),
+			).rejects.toThrow("FetchAccounting ohlcv requires symbol");
 		});
 	});
 });

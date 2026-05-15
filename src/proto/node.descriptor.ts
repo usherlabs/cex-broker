@@ -117,6 +117,7 @@ const descriptor = {
 						FetchAccountId: 11,
 						FetchFees: 12,
 						InternalTransfer: 13,
+						FetchAccounting: 14,
 					},
 				},
 			},

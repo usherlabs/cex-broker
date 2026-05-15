@@ -5,10 +5,17 @@ export const CCXT_METHODS_WITH_VERITY = [
 	"fetchDepositAddresses",
 	"fetchDepositAddressesByNetwork",
 	"fetchDeposits",
+	"fetchOrders",
+	"fetchOpenOrders",
+	"fetchClosedOrders",
+	"fetchMyTrades",
 	"withdraw",
 	"fetchFundingHistory",
 	"fetchWithdrawals",
 	"fetchWithdrawal",
+	"fetchTransfers",
+	"fetchLedger",
+	"fetchOHLCV",
 	"fetchAccountId",
 ];
 
@@ -28,6 +35,7 @@ export const Action = {
 	FetchAccountId: 11,
 	FetchFees: 12,
 	InternalTransfer: 13,
+	FetchAccounting: 14,
 } as const;
 
 export const SubscriptionType = {

@@ -6,6 +6,13 @@ RUN apt-get update -y \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
-RUN bun install --global @usherlabs/cex-broker@0.2.6
+COPY package.json bun.lock ./
+COPY patches ./patches
+RUN bun install --frozen-lockfile
 
-CMD ["cex-broker"]
+COPY . .
+RUN bun run build
+
+EXPOSE 8086
+
+CMD ["bun", "run", "start-broker", "--policy", "policy/policy.json", "--port", "8086", "--whitelistAll"]

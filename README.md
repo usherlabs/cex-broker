@@ -219,6 +219,29 @@ message ActionResponse {
 - `FetchTicker` (8): Get ticker information
 - `FetchCurrency` (9): Get currency metadata (networks, fees, etc.) for a symbol
 - `Call` (10): Generic method invocation on the underlying broker instance. Provide `functionName`, optional `args` array, and optional `params` object.
+- `FetchAccountId` (11): Get account identity from the exchange
+- `FetchFees` (12): Get market and token funding fee metadata
+- `InternalTransfer` (13): Transfer funds between configured broker accounts.
+- `FetchAccounting` (14): Read-only CEX accounting data through CCXT unified
+  methods. Payload: `{ kind, symbol, code, since, limit, timeframe, params }`,
+  where `params` is a JSON object string. Supported canonical kinds are
+  `orders`, `open_orders`, `closed_orders`, `trades`, `deposits`,
+  `withdrawals`, `transfers`, `ledger`, `balances`, and `ohlcv`. Unsupported
+  CCXT exchange capabilities return `UNIMPLEMENTED`.
+
+### Vault-backed local container
+
+From `~/projects/chain-research`, generate an ignored env file from Vault and
+run this repo as the local CEX gateway:
+
+```bash
+npm run cex-broker:env
+npm run cex-broker:vault
+```
+
+The generated env maps `BINANCE_PRIMARY_READ_*` to the broker primary/master
+Binance account and `BINANCE_MAKER_READ_*` to `CEX_BROKER_BINANCE_*_1` with
+`CEX_BROKER_BINANCE_ROLE_1=subaccount`. Do not commit the generated env file.
 
 **Example Usage:**
 
