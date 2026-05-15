@@ -614,13 +614,15 @@ export function getServer(
 						const accountingValue = parsedPayload.data;
 						try {
 							const params = { ...(accountingValue.params ?? {}) };
-							if (symbol && params.symbol === undefined) {
-								params.symbol = symbol;
-							}
 							const result = await fetchAccountingData({
 								cex,
 								broker,
 								kind: accountingValue.kind,
+								symbol: accountingValue.symbol ?? symbol,
+								code: accountingValue.code,
+								since: accountingValue.since,
+								limit: accountingValue.limit,
+								timeframe: accountingValue.timeframe,
 								params,
 							});
 							wrappedCallback(null, {
@@ -632,7 +634,7 @@ export function getServer(
 							const message = getErrorMessage(error);
 							wrappedCallback(
 								{
-									code: grpc.status.INTERNAL,
+									code: mapCcxtErrorToGrpcStatus(error) ?? grpc.status.INTERNAL,
 									message: `FetchAccounting failed: ${message}`,
 								},
 								null,

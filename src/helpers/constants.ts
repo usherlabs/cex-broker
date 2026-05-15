@@ -5,10 +5,17 @@ export const CCXT_METHODS_WITH_VERITY = [
 	"fetchDepositAddresses",
 	"fetchDepositAddressesByNetwork",
 	"fetchDeposits",
+	"fetchOrders",
+	"fetchOpenOrders",
+	"fetchClosedOrders",
+	"fetchMyTrades",
 	"withdraw",
 	"fetchFundingHistory",
 	"fetchWithdrawals",
 	"fetchWithdrawal",
+	"fetchTransfers",
+	"fetchLedger",
+	"fetchOHLCV",
 	"fetchAccountId",
 ];
 

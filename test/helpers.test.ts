@@ -1146,41 +1146,73 @@ describe("Helper Functions", () => {
 	});
 
 	describe("accounting reads", () => {
-		test("should route allowed Binance accounting kinds to raw read methods", async () => {
+		test("should route canonical accounting kinds to CCXT unified methods", async () => {
 			const calls: Array<{ method: string; params: Record<string, unknown> }> =
 				[];
 			const broker = {
-				privateGetAllOrders: async (params: Record<string, unknown>) => {
-					calls.push({ method: "privateGetAllOrders", params });
+				has: { fetchMyTrades: true },
+				fetchMyTrades: async (
+					symbol: string | undefined,
+					since: number | undefined,
+					limit: number | undefined,
+					params: Record<string, unknown>,
+				) => {
+					calls.push({
+						method: "fetchMyTrades",
+						params: { symbol, since, limit, ...params },
+					});
 					return [{ orderId: 1 }];
 				},
 			} as unknown as Exchange;
 
 			const result = await fetchAccountingData({
-				cex: "binance",
+				cex: "bybit",
 				broker,
-				kind: "all_orders",
-				params: { symbol: "ARBUSDT", startTime: 1, endTime: 2 },
+				kind: "trades",
+				symbol: "ARB/USDT",
+				since: 1,
+				limit: 100,
+				params: { type: "spot", endTime: 2 },
 			});
 
 			expect(result).toEqual([{ orderId: 1 }]);
 			expect(calls).toEqual([
 				{
-					method: "privateGetAllOrders",
-					params: { symbol: "ARBUSDT", startTime: 1, endTime: 2 },
+					method: "fetchMyTrades",
+					params: {
+						symbol: "ARB/USDT",
+						since: 1,
+						limit: 100,
+						type: "spot",
+						endTime: 2,
+					},
 				},
 			]);
 		});
 
-		test("should reject accounting reads for unsupported exchanges", async () => {
+		test("should reject accounting reads when CCXT capability is unavailable", async () => {
 			await expect(
 				fetchAccountingData({
-					cex: "kraken",
-					broker: {} as Exchange,
+					cex: "bitfinex",
+					broker: { has: { fetchDeposits: false } } as unknown as Exchange,
 					kind: "deposits",
 					params: {},
 				}),
-			).rejects.toThrow("Accounting action is not implemented for kraken");
+			).rejects.toThrow("bitfinex does not support fetchDeposits through CCXT");
+		});
+
+		test("should require symbol for OHLCV accounting reads", async () => {
+			await expect(
+				fetchAccountingData({
+					cex: "mexc",
+					broker: {
+						has: { fetchOHLCV: true },
+						fetchOHLCV: async () => [],
+					} as unknown as Exchange,
+					kind: "ohlcv",
+					params: {},
+				}),
+			).rejects.toThrow("FetchAccounting ohlcv requires symbol");
 		});
 	});
 });

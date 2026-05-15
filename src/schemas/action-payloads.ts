@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ACCOUNTING_KINDS } from "../helpers/accounting";
 
 const parseJsonString = (value: unknown): unknown => {
 	if (typeof value !== "string") {
@@ -91,19 +92,12 @@ export const FetchFeesPayloadSchema = z.object({
 });
 
 export const AccountingPayloadSchema = z.object({
-	kind: z.enum([
-		"all_orders",
-		"my_trades",
-		"withdrawals",
-		"deposits",
-		"sub_account_deposits",
-		"account_snapshot",
-		"account_info",
-		"sub_account_assets",
-		"universal_transfer",
-		"sub_account_spot_transfer",
-		"klines",
-	]),
+	kind: z.enum(ACCOUNTING_KINDS),
+	symbol: z.string().min(1).optional(),
+	code: z.string().min(1).optional(),
+	since: z.coerce.number().int().nonnegative().optional(),
+	limit: z.coerce.number().int().positive().optional(),
+	timeframe: z.string().min(1).optional(),
 	params: z
 		.preprocess(parseJsonString, z.record(z.string(), z.unknown()))
 		.default({}),
