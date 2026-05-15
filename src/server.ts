@@ -17,6 +17,7 @@ import {
 	validateWithdraw,
 	verityHttpClientOverridePredicate,
 } from "./helpers";
+import { fetchAccountingData } from "./helpers/accounting";
 import {
 	Action,
 	type ActionName,
@@ -42,6 +43,7 @@ import {
 	CancelOrderPayloadSchema,
 	CreateOrderPayloadSchema,
 	DepositPayloadSchema,
+	AccountingPayloadSchema,
 	FetchDepositAddressesPayloadSchema,
 	FetchFeesPayloadSchema,
 	GetOrderDetailsPayloadSchema,
@@ -588,6 +590,50 @@ export function getServer(
 								{
 									code: grpc.status.INTERNAL,
 									message: `Error fetching fees from ${cex}`,
+								},
+								null,
+							);
+						}
+						break;
+					}
+
+					case Action.FetchAccounting: {
+						const parsedPayload = parsePayload(
+							AccountingPayloadSchema,
+							call.request.payload,
+						);
+						if (!parsedPayload.success) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: parsedPayload.message,
+								},
+								null,
+							);
+						}
+						const accountingValue = parsedPayload.data;
+						try {
+							const params = { ...(accountingValue.params ?? {}) };
+							if (symbol && params.symbol === undefined) {
+								params.symbol = symbol;
+							}
+							const result = await fetchAccountingData({
+								cex,
+								broker,
+								kind: accountingValue.kind,
+								params,
+							});
+							wrappedCallback(null, {
+								proof: verityProof,
+								result: JSON.stringify(result),
+							});
+						} catch (error) {
+							safeLogError("FetchAccounting failed", error);
+							const message = getErrorMessage(error);
+							wrappedCallback(
+								{
+									code: grpc.status.INTERNAL,
+									message: `FetchAccounting failed: ${message}`,
 								},
 								null,
 							);

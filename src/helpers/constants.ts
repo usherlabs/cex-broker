@@ -28,6 +28,7 @@ export const Action = {
 	FetchAccountId: 11,
 	FetchFees: 12,
 	InternalTransfer: 13,
+	FetchAccounting: 14,
 } as const;
 
 export const SubscriptionType = {

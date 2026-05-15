@@ -90,6 +90,25 @@ export const FetchFeesPayloadSchema = z.object({
 	includeFundingFees: booleanLikeSchema.optional(),
 });
 
+export const AccountingPayloadSchema = z.object({
+	kind: z.enum([
+		"all_orders",
+		"my_trades",
+		"withdrawals",
+		"deposits",
+		"sub_account_deposits",
+		"account_snapshot",
+		"account_info",
+		"sub_account_assets",
+		"universal_transfer",
+		"sub_account_spot_transfer",
+		"klines",
+	]),
+	params: z
+		.preprocess(parseJsonString, z.record(z.string(), z.unknown()))
+		.default({}),
+});
+
 export type DepositPayload = z.infer<typeof DepositPayloadSchema>;
 export type CallPayload = z.infer<typeof CallPayloadSchema>;
 export type FetchDepositAddressesPayload = z.infer<
@@ -105,3 +124,4 @@ export type GetOrderDetailsPayload = z.infer<
 >;
 export type CancelOrderPayload = z.infer<typeof CancelOrderPayloadSchema>;
 export type FetchFeesPayload = z.infer<typeof FetchFeesPayloadSchema>;
+export type AccountingPayload = z.infer<typeof AccountingPayloadSchema>;

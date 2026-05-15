@@ -16,6 +16,7 @@ import {
 	validateOrder,
 	validateWithdraw,
 } from "../src/helpers/index";
+import { fetchAccountingData } from "../src/helpers/accounting";
 import {
 	InternalTransferPayloadSchema,
 	WithdrawPayloadSchema,
@@ -1141,6 +1142,45 @@ describe("Helper Functions", () => {
 					1,
 				),
 			).rejects.toThrow("universal transfer is unavailable");
+		});
+	});
+
+	describe("accounting reads", () => {
+		test("should route allowed Binance accounting kinds to raw read methods", async () => {
+			const calls: Array<{ method: string; params: Record<string, unknown> }> =
+				[];
+			const broker = {
+				privateGetAllOrders: async (params: Record<string, unknown>) => {
+					calls.push({ method: "privateGetAllOrders", params });
+					return [{ orderId: 1 }];
+				},
+			} as unknown as Exchange;
+
+			const result = await fetchAccountingData({
+				cex: "binance",
+				broker,
+				kind: "all_orders",
+				params: { symbol: "ARBUSDT", startTime: 1, endTime: 2 },
+			});
+
+			expect(result).toEqual([{ orderId: 1 }]);
+			expect(calls).toEqual([
+				{
+					method: "privateGetAllOrders",
+					params: { symbol: "ARBUSDT", startTime: 1, endTime: 2 },
+				},
+			]);
+		});
+
+		test("should reject accounting reads for unsupported exchanges", async () => {
+			await expect(
+				fetchAccountingData({
+					cex: "kraken",
+					broker: {} as Exchange,
+					kind: "deposits",
+					params: {},
+				}),
+			).rejects.toThrow("Accounting action is not implemented for kraken");
 		});
 	});
 });
