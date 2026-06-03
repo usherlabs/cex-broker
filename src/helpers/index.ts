@@ -161,6 +161,17 @@ export function createBroker(
 	return exchange;
 }
 
+export function createPublicBroker(cex: string): Exchange | null {
+	const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[cex];
+	if (!ExchangeClass) {
+		return null;
+	}
+
+	const exchange = new ExchangeClass({});
+	applyCommonExchangeConfig(exchange);
+	return exchange;
+}
+
 type EnvConfigMap = Record<
 	string,
 	Partial<BrokerCredentials> & {

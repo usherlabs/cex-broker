@@ -4,9 +4,9 @@ import { config } from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import CEXBroker from ".";
+import { loadPolicy } from "./helpers";
 // import CEXBroker from "../dist/index";
 import { Action } from "./helpers/constants";
-import { loadPolicy } from "./helpers";
 import { log } from "./helpers/logger";
 
 const __filename = fileURLToPath(import.meta.url);
