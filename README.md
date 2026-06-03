@@ -220,6 +220,78 @@ message ActionResponse {
 - `FetchCurrency` (9): Get currency metadata (networks, fees, etc.) for a symbol
 - `Call` (10): Generic method invocation on the underlying broker instance. Provide `functionName`, optional `args` array, and optional `params` object.
 
+#### Order Book Call Methods
+
+`Call` also supports broker-defined order-book methods for HB strategy compatibility. These methods use the `method` payload field and return JSON in `ActionResponse.result`.
+
+```typescript
+// Discover order-book capability
+const capabilityRequest = {
+  action: 10, // Call
+  cex: "mexc",
+  symbol: "ARB/USDT",
+  payload: {
+    method: "fetch_order_book_capability",
+    depthLimit: "100",
+    constructionMode: "sampled_top_n_snapshot"
+  }
+};
+
+// Fetch current top-N order-book snapshot
+const snapshotRequest = {
+  action: 10, // Call
+  cex: "binance",
+  symbol: "BTC/USDT",
+  payload: {
+    method: "fetch_order_book_snapshot",
+    depthLimit: "100"
+  }
+};
+
+// Request historical sampled snapshots
+const historicalRequest = {
+  action: 10, // Call
+  cex: "mexc",
+  symbol: "ARB/USDT",
+  payload: {
+    method: "fetch_historical_order_book_snapshots",
+    start: "2026-06-02T00:00:00Z",
+    end: "2026-06-02T00:01:00Z",
+    cadence: "1s",
+    depthLimit: "100",
+    constructionMode: "sampled_top_n_snapshot"
+  }
+};
+```
+
+Current snapshot responses include top-level `bids` and `asks` arrays plus metadata:
+
+```json
+{
+  "bids": [[100.0, 1.0]],
+  "asks": [[101.0, 2.0]],
+  "timestamp": 1760000000000,
+  "receivedTimestamp": 1760000000100,
+  "exchange": "binance",
+  "symbol": "BTC/USDT",
+  "sequence": 123,
+  "depthLimit": 100
+}
+```
+
+If historical sampled top-N depth is unavailable, the broker returns a typed unsupported result instead of a gRPC transport failure:
+
+```json
+{
+  "exchange": "mexc",
+  "symbol": "ARB/USDT",
+  "unsupported": true,
+  "unsupportedReason": "historical_order_book_provider_unsupported"
+}
+```
+
+Capability responses are conservative: current snapshot and live stream support reflect available broker/provider methods, historical sampled top-N support is only true when implemented for the requested parameters, and exact L2 reconstruction remains false until a validated snapshot-plus-delta reconstruction path exists.
+
 **Example Usage:**
 
 ```typescript
@@ -302,12 +374,15 @@ message SubscribeResponse {
 ```
 
 **Available Subscription Types:**
-- `ORDERBOOK` (0): Real-time order book updates
-- `TRADES` (1): Live trade feed
-- `TICKER` (2): Ticker information updates
-- `OHLCV` (3): Candlestick data (configurable timeframe)
-- `BALANCE` (4): Account balance updates
-- `ORDERS` (5): Order status updates
+- `NO_ACTION` (0): Compatibility default; resolved to `ORDERBOOK`
+- `ORDERBOOK` (1): Real-time order book updates
+- `TRADES` (2): Live trade feed
+- `TICKER` (3): Ticker information updates
+- `OHLCV` (4): Candlestick data (configurable timeframe)
+- `BALANCE` (5): Account balance updates
+- `ORDERS` (6): Order status updates
+
+For backward compatibility, omitted, `NO_ACTION`, or invalid subscription type values are resolved to `ORDERBOOK`.
 
 **Example Usage:**
 
@@ -316,15 +391,17 @@ message SubscribeResponse {
 const orderbookRequest = {
   cex: "binance",
   symbol: "BTC/USDT",
-  type: 0, // ORDERBOOK
-  options: {}
+  type: 1, // ORDERBOOK
+  options: {
+    depthLimit: "100"
+  }
 };
 
 // Subscribe to OHLCV with custom timeframe
 const ohlcvRequest = {
   cex: "binance",
   symbol: "BTC/USDT",
-  type: 3, // OHLCV
+  type: 4, // OHLCV
   options: {
     timeframe: "1h"
   }

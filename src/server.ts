@@ -7,6 +7,7 @@ import {
 	type BrokerPoolEntry,
 	buildHttpClientOverrideFromMetadata,
 	createBroker,
+	createPublicBroker,
 	getCurrentBrokerSelector,
 	resolveBrokerAccount,
 	resolveOrderExecution,
@@ -30,6 +31,14 @@ import {
 	type SubscriptionType as SubscriptionTypeValue,
 } from "./helpers/constants";
 import { log } from "./helpers/logger";
+import {
+	buildHistoricalOrderBookUnsupported,
+	buildOrderBookCapability,
+	normalizeOrderBookSnapshot,
+	ORDER_BOOK_CALL_METHODS,
+	parseOptionalDepthLimit,
+	parseOrderBookCallPayload,
+} from "./helpers/order-book";
 import {
 	emitOrderExecutionTelemetry,
 	extractOrderTelemetryIds,
@@ -256,11 +265,141 @@ export function getServer(
 
 				const normalizedCex = cex.trim().toLowerCase();
 
-				// If the Exchange is not already pre-loaded for preset API credentials via constructor - createBroker for non-gated APIs may be available for other exchanges.
 				const selectedBrokerAccount = selectBrokerAccount(
 					brokers[normalizedCex as keyof typeof brokers],
 					metadata,
 				);
+
+				// Verity only for ExecuteAction
+				let verityProof = "";
+				const applyVerityToBroker = (targetBroker: Exchange) => {
+					if (!useVerity) {
+						return;
+					}
+					const override = buildHttpClientOverrideFromMetadata(
+						metadata,
+						verityProverUrl,
+						(proof, notaryPubKey) => {
+							verityProof = proof;
+							log.debug(`Verity proof:`, { proof, notaryPubKey });
+						},
+					);
+					targetBroker.setHttpClientOverride(
+						override,
+						verityHttpClientOverridePredicate,
+					);
+				};
+
+				if (action === Action.Call) {
+					const parsedOrderBookCall = parseOrderBookCallPayload(
+						call.request.payload,
+						{ exchange: normalizedCex, symbol },
+					);
+					if (parsedOrderBookCall.kind === "error") {
+						return wrappedCallback(
+							{
+								code: grpc.status.INVALID_ARGUMENT,
+								message: parsedOrderBookCall.message,
+							},
+							null,
+						);
+					}
+					if (parsedOrderBookCall.kind === "order_book") {
+						const orderBookBroker =
+							selectedBrokerAccount?.exchange ??
+							createBroker(normalizedCex, metadata) ??
+							createPublicBroker(normalizedCex);
+						if (!orderBookBroker) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: `Unsupported exchange for order-book market data: ${normalizedCex}`,
+								},
+								null,
+							);
+						}
+						applyVerityToBroker(orderBookBroker);
+
+						try {
+							const orderBookPayload = parsedOrderBookCall.payload;
+							if (
+								orderBookPayload.method ===
+								ORDER_BOOK_CALL_METHODS.FETCH_CAPABILITY
+							) {
+								return wrappedCallback(null, {
+									proof: verityProof,
+									result: JSON.stringify(
+										buildOrderBookCapability(orderBookBroker, orderBookPayload),
+									),
+								});
+							}
+
+							if (
+								orderBookPayload.method ===
+								ORDER_BOOK_CALL_METHODS.FETCH_HISTORICAL_SNAPSHOTS
+							) {
+								return wrappedCallback(null, {
+									proof: verityProof,
+									result: JSON.stringify(
+										buildHistoricalOrderBookUnsupported(orderBookPayload),
+									),
+								});
+							}
+
+							const fetchOrderBook = (
+								orderBookBroker as unknown as Record<string, unknown>
+							).fetchOrderBook;
+							const canFetchOrderBook =
+								typeof fetchOrderBook === "function" &&
+								(orderBookBroker.has as Record<string, unknown> | undefined)
+									?.fetchOrderBook !== false;
+							if (!canFetchOrderBook) {
+								return wrappedCallback(
+									{
+										code: grpc.status.UNIMPLEMENTED,
+										message: `Order-book snapshot unsupported for ${normalizedCex}`,
+									},
+									null,
+								);
+							}
+
+							const receivedTimestamp = Date.now();
+							const rawOrderBook = await (
+								fetchOrderBook as (
+									symbol: string,
+									limit?: number,
+								) => Promise<unknown>
+							).call(
+								orderBookBroker,
+								orderBookPayload.symbol,
+								orderBookPayload.depthLimit,
+							);
+							return wrappedCallback(null, {
+								proof: verityProof,
+								result: JSON.stringify(
+									normalizeOrderBookSnapshot(rawOrderBook, {
+										exchange: orderBookPayload.exchange,
+										symbol: orderBookPayload.symbol,
+										depthLimit: orderBookPayload.depthLimit,
+										receivedTimestamp,
+									}),
+								),
+							});
+						} catch (error: unknown) {
+							safeLogError("Order-book Call failed", error);
+							const message = getErrorMessage(error);
+							return wrappedCallback(
+								{
+									code: mapCcxtErrorToGrpcStatus(error) ?? grpc.status.INTERNAL,
+									message: `Order-book Call failed: ${message}`,
+								},
+								null,
+							);
+						}
+					}
+				}
+
+				// If the Exchange is not already pre-loaded for preset API credentials via constructor - createBroker for non-gated APIs may be available for other exchanges.
 				const broker =
 					selectedBrokerAccount?.exchange ??
 					createBroker(normalizedCex, metadata);
@@ -275,22 +414,7 @@ export function getServer(
 					);
 				}
 
-				// Verity only for ExecuteAction
-				let verityProof = "";
-				if (useVerity) {
-					const override = buildHttpClientOverrideFromMetadata(
-						metadata,
-						verityProverUrl,
-						(proof, notaryPubKey) => {
-							verityProof = proof;
-							log.debug(`Verity proof:`, { proof, notaryPubKey });
-						},
-					);
-					broker.setHttpClientOverride(
-						override,
-						verityHttpClientOverridePredicate,
-					);
-				}
+				applyVerityToBroker(broker);
 
 				switch (action) {
 					case Action.Deposit: {
@@ -1361,11 +1485,16 @@ export function getServer(
 					call.end();
 					return;
 				}
+				const normalizedCex = cex.trim().toLowerCase();
 
 				// Get or create broker (no Verity override in Subscribe)
 				broker =
-					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
-					createBroker(cex, metadata);
+					selectBroker(
+						brokers[normalizedCex as keyof typeof brokers],
+						metadata,
+					) ??
+					createBroker(normalizedCex, metadata) ??
+					createPublicBroker(normalizedCex);
 
 				if (!broker) {
 					call.write({
@@ -1385,10 +1514,33 @@ export function getServer(
 					case SubscriptionType.ORDERBOOK:
 						try {
 							while (true) {
-								const orderbook = await broker.watchOrderBook(symbol);
+								const depthLimit = parseOptionalDepthLimit(
+									options?.depthLimit ?? options?.limit,
+								);
+								const orderbook =
+									depthLimit === undefined
+										? await broker.watchOrderBook(symbol)
+										: await broker.watchOrderBook(symbol, depthLimit);
+								const receivedTimestamp = Date.now();
 								call.write({
-									data: JSON.stringify(orderbook),
-									timestamp: Date.now(),
+									data: JSON.stringify(
+										normalizeOrderBookSnapshot(orderbook, {
+											exchange: normalizedCex,
+											symbol,
+											depthLimit:
+												depthLimit ??
+												Math.max(
+													Array.isArray(orderbook?.bids)
+														? orderbook.bids.length
+														: 0,
+													Array.isArray(orderbook?.asks)
+														? orderbook.asks.length
+														: 0,
+												),
+											receivedTimestamp,
+										}),
+									),
+									timestamp: receivedTimestamp,
 									symbol,
 									type: subscriptionType,
 								});
