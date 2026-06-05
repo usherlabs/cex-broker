@@ -39,3 +39,5 @@ src/proto/**/*.ts
 !src/proto/node.descriptor.ts
 
 src/assets/proto/**
+
+.emdash

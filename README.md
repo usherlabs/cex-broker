@@ -86,6 +86,10 @@ Configure trading policies in `policy/policy.json`.
 
 - **Full reference**: see `POLICY.md` (supported options, matching rules, reload behaviour, and troubleshooting)
 - **Example policy**: `policy/policy.json`
+- **Treasury corridor example**: `policy/policy.binance-mexc-usdc-bep20.example.json`
+  permits only USDC over the normalized BNB/BSC/BEP20 network between Binance
+  and MEXC; use explicit ceremony-time overrides for non-default acquired-asset
+  transfers.
 
 ```json
 {
