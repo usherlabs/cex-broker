@@ -1,4 +1,5 @@
 import type { Exchange } from "@usherlabs/ccxt";
+import { isRecord } from "./shared/guards";
 
 export const ORDER_BOOK_CALL_METHODS = {
 	FETCH_CAPABILITY: "fetch_order_book_capability",
@@ -56,10 +57,6 @@ export type NormalizedOrderBookSnapshot = {
 };
 
 type Scalar = string | number | boolean;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function isScalar(value: unknown): value is Scalar {
 	return (

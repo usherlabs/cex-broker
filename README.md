@@ -668,16 +668,18 @@ cex-broker/
 │   ├── client.dev.ts      # Development client
 │   ├── commands/          # CLI commands
 │   │   └── start-broker.ts # Broker startup command
-│   ├── helpers/           # Utility functions
-│   │   ├── index.ts       # Policy validation helpers
-│   │   ├── index.test.ts  # Helper tests
+│   ├── handlers/          # RPC dispatch (execute-action, subscribe)
+│   ├── helpers/           # Domain utilities (shared/, grpc/, order-book, …)
+│   │   ├── index.ts       # Broker pool and policy helpers
+│   │   ├── shared/        # Cross-cutting guards and errors
+│   │   ├── grpc/          # Payload validation and status mapping
 │   │   └── logger.ts      # Logging configuration
 │   ├── index.ts           # Main broker class
 │   ├── proto/             # Generated protobuf types
 │   │   ├── cex_broker/    # Generated broker types
 │   │   ├── node.proto     # Service definition
 │   │   └── node.ts        # Type exports
-│   ├── server.ts          # gRPC server implementation
+│   ├── server.ts          # gRPC wiring only (delegates to handlers/)
 │   └── types.ts           # TypeScript type definitions
 ├── proto/                 # Protocol buffer definitions
 │   ├── cexBroker/         # Legacy generated types

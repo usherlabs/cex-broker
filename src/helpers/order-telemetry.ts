@@ -1,5 +1,6 @@
 import { log } from "./logger";
 import type { OtelMetrics } from "./otel";
+import { asRecord } from "./shared/guards";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -193,6 +194,23 @@ export function buildOrderExecutionTelemetry(
 	}) as OrderExecutionTelemetry;
 }
 
+export function emitOrderExecutionTelemetryInBackground(
+	otelMetrics: OtelMetrics | undefined,
+	context: OrderTelemetryContext,
+	order: unknown,
+	error?: unknown,
+): void {
+	void emitOrderExecutionTelemetry(otelMetrics, context, order, error).catch(
+		(telemetryError) => {
+			try {
+				log.warn("Telemetry emit failed", { error: telemetryError });
+			} catch {
+				console.warn("Telemetry emit failed", telemetryError);
+			}
+		},
+	);
+}
+
 export function extractOrderTelemetryIds(
 	params: Record<string, string | number> | undefined,
 ): Pick<
@@ -221,12 +239,6 @@ export function extractOrderTelemetryIds(
 			record.action_id,
 		),
 	};
-}
-
-function asRecord(value: unknown): JsonRecord | undefined {
-	return value && typeof value === "object" && !Array.isArray(value)
-		? (value as JsonRecord)
-		: undefined;
 }
 
 function firstValue(...values: unknown[]): unknown {
