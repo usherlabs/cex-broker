@@ -110,7 +110,17 @@ Accepted values:
 - **A network/chain identifier** — e.g. `"ARBITRUM"`, `"BEP20"`, `"ETH"`, `"SOL"`. The value must match what the exchange uses for that chain.
 - **`"*"`** — wildcard; matches any network.
 
-Even if the policy allows a network, the selected exchange must also support that network for the currency or the request will still fail at execution time.
+The broker normalizes common operator aliases before matching policy:
+
+| Operator alias | Broker network id |
+|----------------|-------------------|
+| `ARB`, `ARBITRUM` | `ARBITRUM` |
+| `ETH`, `ERC20`, `ETHEREUM` | `ETHEREUM` |
+| `BNB`, `BSC`, `BEP20` | `BNB` |
+
+Even if the policy allows a normalized network, the selected exchange must also
+support that network for the currency or the request will still fail at
+execution time.
 
 ---
 
@@ -190,6 +200,46 @@ Common rejection reasons:
 - no matching exchange + network entry
 - address not whitelisted
 - token not in `coins` for the matched rule
+
+### Narrow Binance/MEXC USDC BEP20 corridor example
+
+Use a dedicated policy for treasury corridors instead of relying on broad
+exchange/network rules. The example
+`policy/policy.binance-mexc-usdc-bep20.example.json` permits only USDC over the
+normalized `BNB` network family (`BNB`, `BSC`, or `BEP20`) between Binance and
+MEXC:
+
+```json
+{
+  "withdraw": {
+    "rule": [
+      {
+        "exchange": "BINANCE",
+        "network": "BEP20",
+        "coins": ["USDC"],
+        "whitelist": ["0x1111111111111111111111111111111111111111"]
+      },
+      {
+        "exchange": "MEXC",
+        "network": "BEP20",
+        "coins": ["USDC"],
+        "whitelist": ["0x2222222222222222222222222222222222222222"]
+      }
+    ]
+  },
+  "deposit": {
+    "rule": [
+      { "exchange": "MEXC", "network": "BEP20", "coins": ["USDC"] },
+      { "exchange": "BINANCE", "network": "BEP20", "coins": ["USDC"] }
+    ]
+  }
+}
+```
+
+This policy does not authorize volatile inventory transfer. If a treasury
+ceremony chooses remote volatile acquisition, that acquired-asset transfer must
+be explicitly requested, live-discovered, policy-approved, cost-gated, and
+attested by the caller.
 
 ---
 

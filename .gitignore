@@ -40,4 +40,6 @@ src/proto/**/*.ts
 
 src/assets/proto/**
 
+# Worktrees, Agents
 .codex
+.emdash

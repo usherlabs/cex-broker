@@ -9,6 +9,7 @@ import {
 	createBrokerPool,
 	getCurrentBrokerSelector,
 	loadPolicy,
+	normalizeBrokerNetworkId,
 	resolveBrokerAccount,
 	resolveOrderExecution,
 	transferBinanceInternal,
@@ -107,6 +108,61 @@ describe("Helper Functions", () => {
 				fs.unlinkSync(tempPath);
 			}
 		});
+
+		test("should load narrow Binance/MEXC USDC BEP20 corridor policy", () => {
+			const policy = loadPolicy(
+				"./policy/policy.binance-mexc-usdc-bep20.example.json",
+			);
+
+			expect(policy.withdraw.rule).toEqual([
+				{
+					exchange: "BINANCE",
+					network: "BNB",
+					coins: ["USDC"],
+					whitelist: ["0x1111111111111111111111111111111111111111"],
+				},
+				{
+					exchange: "MEXC",
+					network: "BNB",
+					coins: ["USDC"],
+					whitelist: ["0x2222222222222222222222222222222222222222"],
+				},
+			]);
+			expect(
+				validateWithdraw(
+					policy,
+					"BINANCE",
+					"BSC",
+					"0x1111111111111111111111111111111111111111",
+					100,
+					"USDC",
+				).valid,
+			).toBe(true);
+			expect(
+				validateWithdraw(
+					policy,
+					"BINANCE",
+					"BEP20",
+					"0x1111111111111111111111111111111111111111",
+					100,
+					"ARB",
+				).valid,
+			).toBe(false);
+			expect(
+				validateWithdraw(
+					policy,
+					"MEXC",
+					"BNB",
+					"0x1111111111111111111111111111111111111111",
+					100,
+					"USDC",
+				).valid,
+			).toBe(false);
+			expect(validateDeposit(policy, "MEXC", "BEP20", "USDC").valid).toBe(true);
+			expect(validateDeposit(policy, "MEXC", "BEP20", "USDT").valid).toBe(
+				false,
+			);
+		});
 	});
 
 	describe("validateWithdraw", () => {
@@ -135,7 +191,7 @@ describe("Helper Functions", () => {
 			);
 
 			expect(result.valid).toBe(false);
-			expect(result.error).toContain("Network ETH is not allowed");
+			expect(result.error).toContain("Network ETHEREUM is not allowed");
 		});
 
 		test("should reject non-whitelisted address", () => {
@@ -442,6 +498,45 @@ describe("Helper Functions", () => {
 				"USDC",
 			);
 			expect(result.valid).toBe(true);
+		});
+
+		test("should match BNB, BSC, and BEP20 network aliases", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "BNB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["USDC"],
+						},
+					],
+				},
+			};
+
+			expect(normalizeBrokerNetworkId("BEP20")).toBe("BNB");
+			expect(normalizeBrokerNetworkId("BSC")).toBe("BNB");
+			expect(
+				validateWithdraw(
+					policy,
+					"BINANCE",
+					"BEP20",
+					"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+					1000,
+					"USDC",
+				).valid,
+			).toBe(true);
+			expect(
+				validateWithdraw(
+					policy,
+					"BINANCE",
+					"BSC",
+					"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+					1000,
+					"USDC",
+				).valid,
+			).toBe(true);
 		});
 	});
 
@@ -817,6 +912,21 @@ describe("Helper Functions", () => {
 			};
 			const result = validateDeposit(policy, "Binance", "Arbitrum", "Eth");
 			expect(result.valid).toBe(true);
+		});
+
+		test("should match BNB, BSC, and BEP20 deposit aliases", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "BSC", coins: ["USDC"] }],
+				},
+			};
+			expect(validateDeposit(policy, "BINANCE", "BNB", "USDC").valid).toBe(
+				true,
+			);
+			expect(validateDeposit(policy, "BINANCE", "BEP20", "USDC").valid).toBe(
+				true,
+			);
 		});
 
 		test("should allow all coins when coins is empty array", () => {

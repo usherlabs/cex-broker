@@ -9,6 +9,7 @@ import {
 	createBroker,
 	createPublicBroker,
 	getCurrentBrokerSelector,
+	normalizeBrokerNetworkId,
 	resolveBrokerAccount,
 	resolveOrderExecution,
 	selectBroker,
@@ -85,6 +86,20 @@ type SubscribeResponse = {
 	type: SubscriptionTypeValue;
 };
 
+type ExchangeWithDiscovery = Exchange & {
+	has?: Record<string, unknown>;
+	markets?: Record<string, unknown>;
+	currencies?: Record<string, unknown>;
+	fetchMarkets?: (...args: unknown[]) => Promise<unknown>;
+	fetchCurrencies?: (...args: unknown[]) => Promise<Record<string, unknown>>;
+	fetchDeposits?: (
+		code?: string,
+		since?: number,
+		limit?: number,
+		params?: Record<string, unknown>,
+	) => Promise<Array<Record<string, unknown>>>;
+};
+
 const grpcObj = grpc.loadPackageDefinition(
 	CEX_BROKER_PACKAGE_DEFINITION,
 ) as unknown as {
@@ -129,6 +144,290 @@ function safeLogError(context: string, error: unknown): void {
 	} catch {
 		console.error(context, error);
 	}
+}
+
+function stableGrpcErrorCode(message: string): grpc.status | undefined {
+	if (message.startsWith("venue_discovery_unavailable:")) {
+		return grpc.status.UNIMPLEMENTED;
+	}
+	if (message.startsWith("network_alias_unresolved:")) {
+		return grpc.status.INVALID_ARGUMENT;
+	}
+	if (
+		message.startsWith("deposit_observation_unavailable:") ||
+		message.startsWith("deposit_not_found:")
+	) {
+		return grpc.status.UNIMPLEMENTED;
+	}
+	if (message.startsWith("deposit_amount_mismatch:")) {
+		return grpc.status.FAILED_PRECONDITION;
+	}
+	if (
+		message.startsWith("policy_withdrawal_denied:") ||
+		message.startsWith("policy_deposit_denied:")
+	) {
+		return grpc.status.PERMISSION_DENIED;
+	}
+	return undefined;
+}
+
+function callArgs(
+	args: unknown[] | undefined,
+	params: Record<string, unknown> | undefined,
+): unknown[] {
+	const argsArray = Array.isArray(args) ? [...args] : [];
+	if (params && Object.keys(params).length > 0) {
+		argsArray.push(params);
+	}
+	return argsArray;
+}
+
+async function handleTreasuryDiscoveryCall(
+	broker: Exchange,
+	functionName: string,
+	args: unknown[],
+	params: Record<string, unknown>,
+): Promise<{ handled: true; result: unknown } | { handled: false }> {
+	const discoveryBroker = broker as ExchangeWithDiscovery;
+
+	if (functionName === "fetchMarkets") {
+		if (
+			typeof discoveryBroker.fetchMarkets === "function" &&
+			discoveryBroker.has?.fetchMarkets !== false
+		) {
+			return {
+				handled: true,
+				result: await discoveryBroker.fetchMarkets(...callArgs(args, params)),
+			};
+		}
+		if (typeof discoveryBroker.loadMarkets === "function") {
+			const loaded = await discoveryBroker.loadMarkets(false, params);
+			const markets =
+				loaded && typeof loaded === "object" && !Array.isArray(loaded)
+					? Object.values(loaded as Record<string, unknown>)
+					: Object.values(discoveryBroker.markets ?? {});
+			return { handled: true, result: markets };
+		}
+		throw new Error(
+			"venue_discovery_unavailable: fetchMarkets unavailable on broker",
+		);
+	}
+
+	if (functionName === "fetchCurrencies") {
+		if (
+			typeof discoveryBroker.fetchCurrencies === "function" &&
+			discoveryBroker.has?.fetchCurrencies !== false
+		) {
+			return {
+				handled: true,
+				result: await discoveryBroker.fetchCurrencies(
+					...callArgs(args, params),
+				),
+			};
+		}
+		if (
+			discoveryBroker.currencies &&
+			Object.keys(discoveryBroker.currencies).length > 0
+		) {
+			return { handled: true, result: discoveryBroker.currencies };
+		}
+		throw new Error(
+			"venue_discovery_unavailable: fetchCurrencies unavailable on broker",
+		);
+	}
+
+	return { handled: false };
+}
+
+async function fetchCurrencyMetadata(
+	broker: Exchange,
+	assetCode: string,
+): Promise<Record<string, unknown> | undefined> {
+	const discoveryBroker = broker as ExchangeWithDiscovery;
+	const normalizedAsset = assetCode.trim().toUpperCase();
+	if (
+		typeof discoveryBroker.fetchCurrencies === "function" &&
+		discoveryBroker.has?.fetchCurrencies !== false
+	) {
+		const currencies = await discoveryBroker.fetchCurrencies();
+		return currencies[normalizedAsset] as Record<string, unknown> | undefined;
+	}
+	return discoveryBroker.currencies?.[normalizedAsset] as
+		| Record<string, unknown>
+		| undefined;
+}
+
+type TransferNetworkResolution = {
+	operatorAlias: string;
+	brokerNetworkId: string;
+	exchangeNetworkId: string;
+	networkKey: string | null;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function networkAliasSet(
+	brokerNetworkId: string,
+	networkKey: string,
+): string[] {
+	const aliases = new Set<string>([
+		brokerNetworkId,
+		networkKey.trim().toUpperCase(),
+	]);
+	if (brokerNetworkId === "BNB") {
+		aliases.add("BNB");
+		aliases.add("BSC");
+		aliases.add("BEP20");
+	}
+	return [...aliases].filter((alias) => alias.length > 0);
+}
+
+function buildTransferNetworkEvidence(currencyInfo: Record<string, unknown>) {
+	const rawNetworks = isRecord(currencyInfo.networks)
+		? currencyInfo.networks
+		: {};
+	const networks: Record<string, unknown> = {};
+	const aliases: Record<string, TransferNetworkResolution> = {};
+
+	for (const [networkKey, networkValue] of Object.entries(rawNetworks)) {
+		const networkRecord = isRecord(networkValue) ? networkValue : {};
+		const exchangeNetworkId = String(
+			networkRecord.id ?? networkRecord.network ?? networkKey,
+		);
+		const brokerNetworkId = normalizeBrokerNetworkId(
+			String(networkRecord.network ?? networkKey),
+		);
+		const evidence = {
+			operatorAlias: networkKey,
+			brokerNetworkId,
+			exchangeNetworkId,
+			networkKey,
+		};
+		networks[networkKey] = {
+			...networkRecord,
+			operatorAlias: networkKey,
+			brokerNetworkId,
+			exchangeNetworkId,
+		};
+		for (const alias of networkAliasSet(brokerNetworkId, networkKey)) {
+			aliases[alias] = { ...evidence, operatorAlias: alias };
+		}
+	}
+
+	return { networks, aliases };
+}
+
+async function resolveTransferNetwork(
+	broker: Exchange,
+	assetCode: string,
+	operatorAlias: string,
+): Promise<TransferNetworkResolution> {
+	const requestedAlias = operatorAlias.trim().toUpperCase();
+	const brokerNetworkId = normalizeBrokerNetworkId(requestedAlias);
+	let currencyInfo: Record<string, unknown> | null | undefined = null;
+	try {
+		currencyInfo = await fetchCurrencyMetadata(broker, assetCode);
+	} catch (error) {
+		safeLogError(
+			`Network discovery failed for ${assetCode}/${operatorAlias}; using operator alias as exchange network id`,
+			error,
+		);
+	}
+	if (currencyInfo) {
+		const evidence = buildTransferNetworkEvidence(currencyInfo);
+		const resolved =
+			evidence.aliases[requestedAlias] ?? evidence.aliases[brokerNetworkId];
+		if (resolved) {
+			return { ...resolved, operatorAlias: requestedAlias, brokerNetworkId };
+		}
+		throw new Error(
+			`network_alias_unresolved: ${assetCode}/${requestedAlias} is not available in discovered transfer networks`,
+		);
+	}
+	return {
+		operatorAlias: requestedAlias,
+		brokerNetworkId,
+		exchangeNetworkId: requestedAlias,
+		networkKey: null,
+	};
+}
+
+function depositField(deposit: Record<string, unknown>, fields: string[]) {
+	for (const field of fields) {
+		const value = deposit[field];
+		if (value !== undefined && value !== null && String(value).length > 0) {
+			return value;
+		}
+	}
+	return undefined;
+}
+
+function normalizeDepositStatus(
+	status: unknown,
+):
+	| "unsupported"
+	| "not_found"
+	| "pending"
+	| "credited"
+	| "failed"
+	| "timed_out" {
+	const normalized = String(status ?? "")
+		.trim()
+		.toLowerCase();
+	if (
+		["ok", "credited", "complete", "completed", "success"].includes(normalized)
+	) {
+		return "credited";
+	}
+	if (
+		["failed", "failure", "canceled", "cancelled", "rejected"].includes(
+			normalized,
+		)
+	) {
+		return "failed";
+	}
+	if (["timeout", "timed_out", "timedout", "expired"].includes(normalized)) {
+		return "timed_out";
+	}
+	if (["pending", "processing", "confirming", "waiting"].includes(normalized)) {
+		return "pending";
+	}
+	return normalized ? "pending" : "credited";
+}
+
+function depositMatchesTransaction(
+	deposit: Record<string, unknown>,
+	transactionHash: string,
+): boolean {
+	const candidates = [
+		depositField(deposit, [
+			"txid",
+			"txId",
+			"tx_hash",
+			"txHash",
+			"transactionHash",
+		]),
+		depositField(deposit, ["id"]),
+	];
+	return candidates.some((candidate) => String(candidate) === transactionHash);
+}
+
+function stringAmountEquals(left: unknown, right: unknown): boolean {
+	const leftNum = Number(left);
+	const rightNum = Number(right);
+	if (Number.isFinite(leftNum) && Number.isFinite(rightNum)) {
+		return Math.abs(leftNum - rightNum) < 1e-12;
+	}
+	return String(left) === String(right);
+}
+
+function normalizeAddress(value: unknown): string | undefined {
+	if (value === undefined || value === null) {
+		return undefined;
+	}
+	return String(value).trim().toLowerCase();
 }
 
 function emitOrderExecutionTelemetryInBackground(
@@ -418,6 +717,15 @@ export function getServer(
 
 				switch (action) {
 					case Action.Deposit: {
+						if (!symbol) {
+							return wrappedCallback(
+								{
+									code: grpc.status.INVALID_ARGUMENT,
+									message: "ValidationError: Symbol required",
+								},
+								null,
+							);
+						}
 						const parsedPayload = parsePayload(
 							DepositPayloadSchema,
 							call.request.payload,
@@ -432,41 +740,182 @@ export function getServer(
 							);
 						}
 						const value = parsedPayload.data;
+						let depositNetwork: TransferNetworkResolution | undefined;
 						try {
-							const deposits = await broker.fetchDeposits(
+							const depositBroker = broker as ExchangeWithDiscovery;
+							const requestedNetwork =
+								typeof value.params.network === "string"
+									? value.params.network
+									: typeof value.params.chain === "string"
+										? value.params.chain
+										: undefined;
+							depositNetwork = requestedNetwork
+								? await resolveTransferNetwork(broker, symbol, requestedNetwork)
+								: undefined;
+							const depositParams: Record<string, unknown> = {
+								...(value.params ?? {}),
+							};
+							if (depositNetwork) {
+								depositParams.network = depositNetwork.exchangeNetworkId;
+							}
+							if (
+								typeof depositBroker.fetchDeposits !== "function" ||
+								depositBroker.has?.fetchDeposits === false
+							) {
+								return wrappedCallback(null, {
+									proof: verityProof,
+									result: JSON.stringify({
+										status: "unsupported",
+										exchange: normalizedCex,
+										accountSelector: selectedBrokerAccount?.label,
+										asset: symbol,
+										operatorAlias: depositNetwork?.operatorAlias ?? null,
+										brokerNetworkId: depositNetwork?.brokerNetworkId ?? null,
+										exchangeNetworkId:
+											depositNetwork?.exchangeNetworkId ?? null,
+										txid: value.transactionHash,
+										transactionId: value.transactionHash,
+										address: value.recipientAddress,
+										expectedAmount: value.amount,
+										raw: null,
+									}),
+								});
+							}
+
+							const deposits = (await depositBroker.fetchDeposits(
 								symbol,
 								value.since,
 								50,
-								{ ...(value.params ?? {}) },
-							);
-							const deposit = deposits.find(
-								(deposit) =>
-									deposit.id === value.transactionHash ||
-									deposit.txid === value.transactionHash,
+								depositParams,
+							)) as unknown as Array<Record<string, unknown>>;
+							const deposit = deposits.find((deposit) =>
+								depositMatchesTransaction(deposit, value.transactionHash),
 							);
 
 							if (deposit) {
+								const observedAmount = depositField(deposit, ["amount"]);
+								if (
+									observedAmount !== undefined &&
+									!stringAmountEquals(observedAmount, value.amount)
+								) {
+									return wrappedCallback(
+										{
+											code: grpc.status.FAILED_PRECONDITION,
+											message: `deposit_amount_mismatch: expected ${value.amount}, observed ${observedAmount}`,
+										},
+										null,
+									);
+								}
+								const observedAddress = depositField(deposit, [
+									"address",
+									"recipientAddress",
+									"to",
+									"destination",
+								]);
+								if (
+									normalizeAddress(observedAddress) !== undefined &&
+									normalizeAddress(observedAddress) !==
+										normalizeAddress(value.recipientAddress)
+								) {
+									return wrappedCallback(
+										{
+											code: grpc.status.FAILED_PRECONDITION,
+											message: `deposit_amount_mismatch: expected address ${value.recipientAddress}, observed ${String(observedAddress)}`,
+										},
+										null,
+									);
+								}
+								const status = normalizeDepositStatus(
+									depositField(deposit, ["status", "state"]),
+								);
 								log.info(
 									`Amount ${value.amount} at ${value.transactionHash} . Paid to ${value.recipientAddress}`,
 								);
 								return wrappedCallback(null, {
 									proof: verityProof,
-									result: JSON.stringify({ ...deposit }),
+									result: JSON.stringify({
+										status,
+										exchange: normalizedCex,
+										accountSelector: selectedBrokerAccount?.label,
+										asset: symbol,
+										operatorAlias: depositNetwork?.operatorAlias ?? null,
+										brokerNetworkId: depositNetwork?.brokerNetworkId ?? null,
+										exchangeNetworkId:
+											depositNetwork?.exchangeNetworkId ?? null,
+										txid:
+											depositField(deposit, [
+												"txid",
+												"txId",
+												"tx_hash",
+												"txHash",
+											]) ?? value.transactionHash,
+										transactionId: value.transactionHash,
+										amount: observedAmount,
+										observedAmount,
+										expectedAmount: value.amount,
+										address: value.recipientAddress,
+										observedAddress,
+										confirmations: depositField(deposit, ["confirmations"]),
+										creditedAt: depositField(deposit, [
+											"creditedAt",
+											"credited_at",
+											"updated",
+											"updatedAt",
+											"timestamp",
+											"datetime",
+										]),
+										raw: deposit,
+									}),
 								});
 							}
-							wrappedCallback(
-								{
-									code: grpc.status.INTERNAL,
-									message: "Deposit confirmation failed",
-								},
-								null,
-							);
+							return wrappedCallback(null, {
+								proof: verityProof,
+								result: JSON.stringify({
+									status: "not_found",
+									exchange: normalizedCex,
+									accountSelector: selectedBrokerAccount?.label,
+									asset: symbol,
+									operatorAlias: depositNetwork?.operatorAlias ?? null,
+									brokerNetworkId: depositNetwork?.brokerNetworkId ?? null,
+									exchangeNetworkId: depositNetwork?.exchangeNetworkId ?? null,
+									txid: value.transactionHash,
+									transactionId: value.transactionHash,
+									address: value.recipientAddress,
+									expectedAmount: value.amount,
+									raw: null,
+								}),
+							});
 						} catch (error) {
 							safeLogError("Deposit confirmation failed", error);
+							const message = getErrorMessage(error);
+							if (error instanceof ccxt.NotSupported) {
+								return wrappedCallback(null, {
+									proof: verityProof,
+									result: JSON.stringify({
+										status: "unsupported",
+										exchange: normalizedCex,
+										accountSelector: selectedBrokerAccount?.label,
+										asset: symbol,
+										operatorAlias: depositNetwork?.operatorAlias ?? null,
+										brokerNetworkId: depositNetwork?.brokerNetworkId ?? null,
+										exchangeNetworkId:
+											depositNetwork?.exchangeNetworkId ?? null,
+										txid: value.transactionHash,
+										transactionId: value.transactionHash,
+										address: value.recipientAddress,
+										expectedAmount: value.amount,
+										raw: { error: message },
+									}),
+								});
+							}
+							const code =
+								stableGrpcErrorCode(message) ??
+								mapCcxtErrorToGrpcStatus(error) ??
+								grpc.status.INTERNAL;
 							wrappedCallback(
 								{
-									code: grpc.status.INTERNAL,
-									message: "Deposit confirmation failed",
+									code,
+									message: `deposit_observation_unavailable: ${message}`,
 								},
 								null,
 							);
@@ -485,30 +934,50 @@ export function getServer(
 							);
 						}
 						try {
-							const currencies = await broker.fetchCurrencies(symbol);
-							const currencyInfo = currencies[symbol];
+							const assetCode = symbol.trim().toUpperCase();
+							const currencyInfo = await fetchCurrencyMetadata(
+								broker,
+								assetCode,
+							);
 							if (!currencyInfo) {
 								return wrappedCallback(
 									{
 										code: grpc.status.NOT_FOUND,
-										message: `Currency not found for ${symbol}`,
+										message: `venue_discovery_unavailable: currency not found for ${assetCode}`,
 									},
 									null,
 								);
 							}
+							const networkEvidence =
+								buildTransferNetworkEvidence(currencyInfo);
 							wrappedCallback(null, {
 								proof: verityProof,
-								result: JSON.stringify(currencyInfo),
+								result: JSON.stringify({
+									...currencyInfo,
+									exchange: normalizedCex,
+									asset: assetCode,
+									code: currencyInfo.code ?? assetCode,
+									id: currencyInfo.id ?? null,
+									networks: networkEvidence.networks,
+									networkAliases: networkEvidence.aliases,
+									raw: currencyInfo,
+								}),
 							});
 						} catch (error) {
 							safeLogError(
 								`Error fetching currency ${symbol} from ${cex}`,
 								error,
 							);
+							const message = getErrorMessage(error);
 							wrappedCallback(
 								{
-									code: grpc.status.INTERNAL,
-									message: `Failed to fetch currency for ${symbol} from ${cex}`,
+									code:
+										stableGrpcErrorCode(message) ??
+										mapCcxtErrorToGrpcStatus(error) ??
+										grpc.status.INTERNAL,
+									message: message.startsWith("venue_discovery_unavailable:")
+										? message
+										: `venue_discovery_unavailable: ${message}`,
 								},
 								null,
 							);
@@ -736,23 +1205,6 @@ export function getServer(
 						const callValue = parsedPayload.data;
 
 						try {
-							// Ensure function exists and is callable on the broker
-							const fn = (broker as unknown as Record<string, unknown>)[
-								callValue.functionName
-							];
-							if (
-								typeof fn !== "function" ||
-								!broker.has[callValue.functionName]
-							) {
-								return wrappedCallback(
-									{
-										code: grpc.status.INVALID_ARGUMENT,
-										message: `Function not found on broker: ${callValue.functionName}`,
-									},
-									null,
-								);
-							}
-
 							// Prevent access to dangerous names
 							if (
 								callValue.functionName.startsWith("_") ||
@@ -769,12 +1221,38 @@ export function getServer(
 							}
 
 							// Prepare arguments
-							const argsArray: unknown[] = Array.isArray(callValue.args)
-								? [...callValue.args]
-								: [];
-							const paramsObject = callValue.params ?? {};
-							if (Object.keys(paramsObject).length > 0) {
-								argsArray.push(paramsObject);
+							const argsArray = callArgs(
+								callValue.args,
+								callValue.params ?? {},
+							);
+							const treasuryDiscovery = await handleTreasuryDiscoveryCall(
+								broker,
+								callValue.functionName,
+								callValue.args,
+								callValue.params ?? {},
+							);
+							if (treasuryDiscovery.handled) {
+								return wrappedCallback(null, {
+									proof: verityProof,
+									result: JSON.stringify(treasuryDiscovery.result),
+								});
+							}
+
+							// Ensure function exists and is callable on the broker.
+							const fn = (broker as unknown as Record<string, unknown>)[
+								callValue.functionName
+							];
+							if (
+								typeof fn !== "function" ||
+								!broker.has[callValue.functionName]
+							) {
+								return wrappedCallback(
+									{
+										code: grpc.status.INVALID_ARGUMENT,
+										message: `Function not found on broker: ${callValue.functionName}`,
+									},
+									null,
+								);
 							}
 
 							// Invoke
@@ -790,8 +1268,14 @@ export function getServer(
 							const message = getErrorMessage(error);
 							wrappedCallback(
 								{
-									code: grpc.status.INTERNAL,
-									message: `Call failed: ${message}`,
+									code:
+										stableGrpcErrorCode(message) ??
+										mapCcxtErrorToGrpcStatus(error) ??
+										grpc.status.INTERNAL,
+									message:
+										stableGrpcErrorCode(message) !== undefined
+											? message
+											: `Call failed: ${message}`,
 								},
 								null,
 							);
@@ -823,17 +1307,36 @@ export function getServer(
 							);
 						}
 						const fetchDepositAddresses = parsedPayload.data;
+						let depositNetwork: TransferNetworkResolution;
+						try {
+							depositNetwork = await resolveTransferNetwork(
+								broker,
+								symbol,
+								fetchDepositAddresses.chain,
+							);
+						} catch (error) {
+							const message = getErrorMessage(error);
+							return wrappedCallback(
+								{
+									code:
+										stableGrpcErrorCode(message) ??
+										grpc.status.INVALID_ARGUMENT,
+									message,
+								},
+								null,
+							);
+						}
 						const depositValidation = validateDeposit(
 							policy,
 							cex,
-							fetchDepositAddresses.chain,
+							depositNetwork.brokerNetworkId,
 							symbol,
 						);
 						if (!depositValidation.valid) {
 							return wrappedCallback(
 								{
 									code: grpc.status.PERMISSION_DENIED,
-									message: depositValidation.error,
+									message: `policy_deposit_denied: ${depositValidation.error}`,
 								},
 								null,
 							);
@@ -843,19 +1346,26 @@ export function getServer(
 								broker.has.fetchDepositAddress === true
 									? [
 											await broker.fetchDepositAddress(symbol, {
-												network: fetchDepositAddresses.chain,
+												network: depositNetwork.exchangeNetworkId,
 												...(fetchDepositAddresses.params ?? {}),
 											}),
 										]
 									: await broker.fetchDepositAddressesByNetwork(symbol, {
-											network: fetchDepositAddresses.chain,
+											network: depositNetwork.exchangeNetworkId,
 											...(fetchDepositAddresses.params ?? {}),
 										});
 
 							if (depositAddresses.length > 0) {
 								return wrappedCallback(null, {
 									proof: verityProof,
-									result: JSON.stringify(depositAddresses),
+									result: JSON.stringify(
+										depositAddresses.map((depositAddress) => ({
+											...depositAddress,
+											operatorAlias: depositNetwork.operatorAlias,
+											brokerNetworkId: depositNetwork.brokerNetworkId,
+											exchangeNetworkId: depositNetwork.exchangeNetworkId,
+										})),
+									),
 								});
 							}
 							wrappedCallback(
@@ -906,10 +1416,29 @@ export function getServer(
 							);
 						}
 						const transferValue = parsedPayload.data;
+						let withdrawNetwork: TransferNetworkResolution;
+						try {
+							withdrawNetwork = await resolveTransferNetwork(
+								broker,
+								symbol,
+								transferValue.chain,
+							);
+						} catch (error) {
+							const message = getErrorMessage(error);
+							return wrappedCallback(
+								{
+									code:
+										stableGrpcErrorCode(message) ??
+										grpc.status.INVALID_ARGUMENT,
+									message,
+								},
+								null,
+							);
+						}
 						const transferValidation = validateWithdraw(
 							policy,
 							cex,
-							transferValue.chain,
+							withdrawNetwork.brokerNetworkId,
 							transferValue.recipientAddress,
 							transferValue.amount,
 							symbol,
@@ -918,7 +1447,7 @@ export function getServer(
 							return wrappedCallback(
 								{
 									code: grpc.status.PERMISSION_DENIED,
-									message: transferValidation.error,
+									message: `policy_withdrawal_denied: ${transferValidation.error}`,
 								},
 								null,
 							);
@@ -931,14 +1460,19 @@ export function getServer(
 								undefined,
 								{
 									...(transferValue.params ?? {}),
-									network: transferValue.chain,
+									network: withdrawNetwork.exchangeNetworkId,
 								},
 							);
 							log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 
 							wrappedCallback(null, {
 								proof: verityProof,
-								result: JSON.stringify({ ...transaction }),
+								result: JSON.stringify({
+									...transaction,
+									operatorAlias: withdrawNetwork.operatorAlias,
+									brokerNetworkId: withdrawNetwork.brokerNetworkId,
+									exchangeNetworkId: withdrawNetwork.exchangeNetworkId,
+								}),
 							});
 						} catch (error) {
 							safeLogError("Withdraw failed", error);
