@@ -431,7 +431,7 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 			rule: policy.withdraw.rule.map((rule) => ({
 				...rule,
 				exchange: rule.exchange.trim().toUpperCase(),
-				network: rule.network.trim().toUpperCase(),
+				network: normalizeBrokerNetworkId(rule.network),
 				whitelist: rule.whitelist.map((address) =>
 					address.trim().toLowerCase(),
 				),
@@ -446,7 +446,7 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 				rule: policy.deposit.rule.map((rule) => ({
 					...rule,
 					exchange: rule.exchange.trim().toUpperCase(),
-					network: rule.network.trim().toUpperCase(),
+					network: normalizeBrokerNetworkId(rule.network),
 					...(rule.coins && {
 						coins: rule.coins.map((c) => c.trim().toUpperCase()),
 					}),
@@ -461,6 +461,22 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 			},
 		},
 	};
+}
+
+const BROKER_NETWORK_ALIASES: Record<string, string> = {
+	ARB: "ARBITRUM",
+	ARBITRUM: "ARBITRUM",
+	ETH: "ETHEREUM",
+	ERC20: "ETHEREUM",
+	ETHEREUM: "ETHEREUM",
+	BNB: "BNB",
+	BSC: "BNB",
+	BEP20: "BNB",
+};
+
+export function normalizeBrokerNetworkId(network: string): string {
+	const normalized = network.trim().toUpperCase();
+	return BROKER_NETWORK_ALIASES[normalized] ?? normalized;
 }
 
 /**
@@ -520,7 +536,7 @@ export function validateWithdraw(
 ): { valid: boolean; error?: string } {
 	const normalizedPolicy = normalizePolicyConfig(policy);
 	const exchangeNorm = exchange.trim().toUpperCase();
-	const networkNorm = network.trim().toUpperCase();
+	const networkNorm = normalizeBrokerNetworkId(network);
 	const matchingRules = normalizedPolicy.withdraw.rule
 		.map((rule) => ({
 			rule,
@@ -901,7 +917,7 @@ export function validateDeposit(
 	}
 
 	const exchangeNorm = exchange.trim().toUpperCase();
-	const networkNorm = network.trim().toUpperCase();
+	const networkNorm = normalizeBrokerNetworkId(network);
 	const tickerNorm = ticker.trim().toUpperCase();
 
 	const matchingRules = normalizedPolicy.deposit.rule
