@@ -29,10 +29,7 @@ function createBrokerMock(
 	marketDefs: Array<{ symbol: string; type: "spot" | "swap" | "future" }>,
 ): Exchange {
 	const markets = Object.fromEntries(
-		marketDefs.map(({ symbol, type }) => [
-			symbol,
-			createMarket(symbol, type),
-		]),
+		marketDefs.map(({ symbol, type }) => [symbol, createMarket(symbol, type)]),
 	);
 	return {
 		markets,

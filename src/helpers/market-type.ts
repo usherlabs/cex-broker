@@ -99,13 +99,20 @@ export async function findTradableSymbol(
 	const fromUpper = fromToken.trim().toUpperCase();
 	const toUpper = toToken.trim().toUpperCase();
 	await broker.loadMarkets();
-	const markets = (broker as Exchange & { markets?: Record<string, CcxtMarket> })
-		.markets;
+	const markets = (
+		broker as Exchange & { markets?: Record<string, CcxtMarket> }
+	).markets;
 	if (!markets || typeof markets !== "object") {
 		return null;
 	}
 
-	const direct = findMarketByPair(markets, fromUpper, toUpper, marketType, "sell");
+	const direct = findMarketByPair(
+		markets,
+		fromUpper,
+		toUpper,
+		marketType,
+		"sell",
+	);
 	if (direct) {
 		return direct;
 	}
@@ -152,8 +159,17 @@ export function parseMarketPattern(symbolPattern: string): ParsedMarketPattern {
 	}
 
 	const basePattern = symbolPattern.slice(0, atIndex);
-	const suffix = symbolPattern.slice(atIndex + 1).trim().toLowerCase();
-	if (suffix === "spot" || suffix === "swap" || suffix === "perp" || suffix === "future" || suffix === "futures") {
+	const suffix = symbolPattern
+		.slice(atIndex + 1)
+		.trim()
+		.toLowerCase();
+	if (
+		suffix === "spot" ||
+		suffix === "swap" ||
+		suffix === "perp" ||
+		suffix === "future" ||
+		suffix === "futures"
+	) {
 		return {
 			symbolPattern: basePattern,
 			requiredMarketType: parseMarketType(suffix),

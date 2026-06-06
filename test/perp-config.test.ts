@@ -51,7 +51,11 @@ describe("perp-config handler", () => {
 		const broker = {
 			has: { fetchPositions: false },
 		} as unknown as Exchange;
-		const { ctx, getResponse } = createContext(broker, Action.GetPerpConfigState, {});
+		const { ctx, getResponse } = createContext(
+			broker,
+			Action.GetPerpConfigState,
+			{},
+		);
 		await handlePerpConfig(ctx);
 		expect(getResponse().error?.code).toBe(grpc.status.UNIMPLEMENTED);
 	});
@@ -67,7 +71,11 @@ describe("perp-config handler", () => {
 				},
 			],
 		} as unknown as Exchange;
-		const { ctx, getResponse } = createContext(broker, Action.GetPerpConfigState, {});
+		const { ctx, getResponse } = createContext(
+			broker,
+			Action.GetPerpConfigState,
+			{},
+		);
 		await handlePerpConfig(ctx);
 		expect(getResponse().error).toBeNull();
 		const parsed = JSON.parse(getResponse().result?.result ?? "{}");

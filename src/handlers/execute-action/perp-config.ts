@@ -29,22 +29,17 @@ function exchangeSupports(
 	return broker.has?.[capability] === true;
 }
 
-function extractPerpConfigs(
-	positions: Record<string, unknown>[],
-): Array<{
+function extractPerpConfigs(positions: Record<string, unknown>[]): Array<{
 	symbol?: string;
 	leverage?: number;
 	marginMode?: string;
 }> {
 	return positions.map((position) => ({
-		symbol:
-			typeof position.symbol === "string" ? position.symbol : undefined,
+		symbol: typeof position.symbol === "string" ? position.symbol : undefined,
 		leverage:
 			typeof position.leverage === "number" ? position.leverage : undefined,
 		marginMode:
-			typeof position.marginMode === "string"
-				? position.marginMode
-				: undefined,
+			typeof position.marginMode === "string" ? position.marginMode : undefined,
 	}));
 }
 
