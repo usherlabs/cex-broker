@@ -705,8 +705,28 @@ describe("Helper Functions", () => {
 	});
 
 	describe("resolveOrderExecution", () => {
-		function createBrokerMock(symbols: string[]): Exchange {
-			const markets = Object.fromEntries(symbols.map((symbol) => [symbol, {}]));
+		function createBrokerMock(
+			symbols: string[],
+			marketType: "spot" | "swap" = "spot",
+		): Exchange {
+			const markets = Object.fromEntries(
+				symbols.map((symbol) => {
+					const [baseQuote, settle] = symbol.split(":");
+					const [base, quote] = baseQuote.split("/");
+					return [
+						symbol,
+						{
+							symbol,
+							base,
+							quote,
+							type: marketType,
+							spot: marketType === "spot",
+							swap: marketType === "swap",
+							settle,
+						},
+					];
+				}),
+			);
 			return {
 				markets,
 				loadMarkets: async () => markets,
@@ -787,8 +807,70 @@ describe("Helper Functions", () => {
 
 			expect(result.valid).toBe(false);
 			expect(result.error).toContain(
-				"Exchange BINANCE does not support BTC/ETH or ETH/BTC",
+				"Exchange BINANCE does not support BTC/ETH for marketType spot",
 			);
+		});
+
+		test("should resolve swap market when marketType is swap", async () => {
+			const broker = createBrokerMock(["ETH/USDC", "ETH/USDC:USDC"], "swap");
+			(broker as Exchange & { markets: Record<string, unknown> }).markets[
+				"ETH/USDC"
+			] = {
+				symbol: "ETH/USDC",
+				base: "ETH",
+				quote: "USDC",
+				type: "spot",
+				spot: true,
+				swap: false,
+			};
+			const policy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						markets: ["HYPERLIQUID:ETH/USDC@swap"],
+						limits: [],
+					},
+				},
+			};
+			const result = await resolveOrderExecution(
+				policy,
+				broker,
+				"HYPERLIQUID",
+				"ETH",
+				"USDC",
+				1,
+				2500,
+				"swap",
+			);
+
+			expect(result.valid).toBe(true);
+			expect(result.symbol).toBe("ETH/USDC:USDC");
+		});
+
+		test("should reject swap request when policy requires spot only", async () => {
+			const broker = createBrokerMock(["ETH/USDC:USDC"], "swap");
+			const policy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						markets: ["HYPERLIQUID:ETH/USDC@spot"],
+						limits: [],
+					},
+				},
+			};
+			const result = await resolveOrderExecution(
+				policy,
+				broker,
+				"HYPERLIQUID",
+				"ETH",
+				"USDC",
+				1,
+				2500,
+				"swap",
+			);
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("is not allowed");
 		});
 	});
 

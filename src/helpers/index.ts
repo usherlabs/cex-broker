@@ -17,6 +17,12 @@ import type {
 } from "../types";
 import { CCXT_METHODS_WITH_VERITY } from "./constants";
 import { buildCcxtConfig } from "./exchange-credentials";
+import {
+	type BrokerMarketType,
+	findTradableSymbol,
+	parseMarketPattern,
+	parseMarketType,
+} from "./market-type";
 import { log } from "./logger";
 
 export type BrokerAccount = {
@@ -741,6 +747,7 @@ function isMarketPatternMatch(
 	broker: string,
 	fromToken: string,
 	toToken: string,
+	marketType: BrokerMarketType = "spot",
 ): boolean {
 	const normalizedPattern = pattern.toUpperCase().trim();
 	const directPair = `${fromToken}/${toToken}`;
@@ -750,8 +757,8 @@ function isMarketPatternMatch(
 		return true;
 	}
 
-	const [exchangePattern, symbolPattern] = normalizedPattern.split(":");
-	if (!exchangePattern || !symbolPattern) {
+	const [exchangePattern, rawSymbolPattern] = normalizedPattern.split(":");
+	if (!exchangePattern || !rawSymbolPattern) {
 		return false;
 	}
 
@@ -760,11 +767,25 @@ function isMarketPatternMatch(
 		return false;
 	}
 
+	const parsedPattern = parseMarketPattern(rawSymbolPattern);
+	if (
+		parsedPattern.requiredMarketType !== undefined &&
+		parsedPattern.requiredMarketType !== marketType
+	) {
+		return false;
+	}
+
+	const symbolPattern = parsedPattern.symbolPattern.toUpperCase();
 	if (symbolPattern === "*") {
 		return true;
 	}
 
-	return symbolPattern === directPair || symbolPattern === reversePair;
+	return (
+		symbolPattern === directPair ||
+		symbolPattern === reversePair ||
+		symbolPattern === `${directPair}:${toToken}` ||
+		symbolPattern === `${reversePair}:${fromToken}`
+	);
 }
 
 function getMatchedMarketPatterns(
@@ -772,9 +793,10 @@ function getMatchedMarketPatterns(
 	broker: string,
 	fromToken: string,
 	toToken: string,
+	marketType: BrokerMarketType = "spot",
 ): string[] {
 	return markets.filter((pattern) =>
-		isMarketPatternMatch(pattern, broker, fromToken, toToken),
+		isMarketPatternMatch(pattern, broker, fromToken, toToken, marketType),
 	);
 }
 
@@ -821,35 +843,37 @@ export async function resolveOrderExecution(
 	toToken: string,
 	amount: number,
 	price: number,
+	marketTypeInput?: unknown,
 ): Promise<OrderExecutionResolution> {
 	const brokerUpper = cex.trim().toUpperCase();
 	const fromUpper = fromToken.trim().toUpperCase();
 	const toUpper = toToken.trim().toUpperCase();
+	const marketType = parseMarketType(marketTypeInput);
 	const matchedPatterns = getMatchedMarketPatterns(
 		policy.order.rule.markets,
 		brokerUpper,
 		fromUpper,
 		toUpper,
+		marketType,
 	);
 	if (matchedPatterns.length === 0) {
 		return {
 			valid: false,
-			error: `Market ${brokerUpper}:${fromUpper}/${toUpper} is not allowed. Allowed markets: ${policy.order.rule.markets.join(", ")}`,
+			error: `Market ${brokerUpper}:${fromUpper}/${toUpper} (${marketType}) is not allowed. Allowed markets: ${policy.order.rule.markets.join(", ")}`,
 			matchedPatterns,
 		};
 	}
 
-	const directSymbol = `${fromUpper}/${toUpper}`;
-	const reverseSymbol = `${toUpper}/${fromUpper}`;
-	const hasDirectSymbol = await doesExchangeSupportSymbol(broker, directSymbol);
-	const hasReverseSymbol = await doesExchangeSupportSymbol(
+	const tradable = await findTradableSymbol(
 		broker,
-		reverseSymbol,
+		fromUpper,
+		toUpper,
+		marketType,
 	);
-	if (!hasDirectSymbol && !hasReverseSymbol) {
+	if (!tradable) {
 		return {
 			valid: false,
-			error: `Exchange ${brokerUpper} does not support ${directSymbol} or ${reverseSymbol}`,
+			error: `Exchange ${brokerUpper} does not support ${fromUpper}/${toUpper} for marketType ${marketType}`,
 			matchedPatterns,
 		};
 	}
@@ -887,10 +911,10 @@ export async function resolveOrderExecution(
 		}
 	}
 
-	if (hasDirectSymbol) {
+	if (tradable.side === "sell") {
 		return {
 			valid: true,
-			symbol: directSymbol,
+			symbol: tradable.symbol,
 			side: "sell",
 			amountBase: amount,
 			limitsApplied: limits.length > 0,
@@ -910,7 +934,7 @@ export async function resolveOrderExecution(
 
 	return {
 		valid: true,
-		symbol: reverseSymbol,
+		symbol: tradable.symbol,
 		side: "buy",
 		amountBase: amount / price,
 		limitsApplied: limits.length > 0,

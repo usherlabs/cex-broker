@@ -1,5 +1,9 @@
 import * as grpc from "@grpc/grpc-js";
 import { validateDeposit } from "../../helpers";
+import {
+	marketTypeToCcxtType,
+	parseMarketType,
+} from "../../helpers/market-type";
 import { Action } from "../../helpers/constants";
 import {
 	mapCcxtErrorToGrpcStatus,
@@ -460,9 +464,11 @@ async function handleFetchBalances(ctx: ExecuteActionContext): Promise<void> {
 		}
 		const params = { ...payload } as Record<string, unknown>;
 		delete (params as Record<string, unknown>).balanceType; // Remove balanceType from params before passing to CCXT
+		const marketType = parseMarketType(params.marketType);
+		delete params.marketType;
 		// Default market type to spot unless explicitly provided
 		if (params.type === undefined) {
-			params.type = "spot";
+			params.type = marketTypeToCcxtType(marketType);
 		}
 		// Always return the same schema with empty objects when not requested
 		let responseBalances: Record<string, number> = {};

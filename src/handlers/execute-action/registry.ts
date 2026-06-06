@@ -6,6 +6,7 @@ import { handleInternalTransfer } from "./internal-transfer";
 import { handleOrders } from "./orders";
 import { handlePassThrough } from "./pass-through";
 import { handleTreasuryCall } from "./treasury-call";
+import { handlePerpConfig } from "./perp-config";
 import { handleWithdraw } from "./withdraw";
 
 /** Maps each ExecuteAction to its handler module. Cluster routers (orders, pass-through) are registered per action. */
@@ -23,6 +24,8 @@ export const ACTION_HANDLERS: Partial<Record<ActionType, ActionHandler>> = {
 	[Action.FetchDepositAddresses]: handlePassThrough,
 	[Action.FetchBalances]: handlePassThrough,
 	[Action.FetchTicker]: handlePassThrough,
+	[Action.GetPerpConfigState]: handlePerpConfig,
+	[Action.SetPerpConfigState]: handlePerpConfig,
 };
 
 export async function dispatchExecuteAction(

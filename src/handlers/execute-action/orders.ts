@@ -59,6 +59,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			orderValue.toToken,
 			orderValue.amount,
 			orderValue.price,
+			orderValue.marketType,
 		);
 		if (!resolution.valid || !resolution.symbol || !resolution.side) {
 			return ctx.wrappedCallback(

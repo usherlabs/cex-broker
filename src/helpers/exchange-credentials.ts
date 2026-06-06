@@ -10,7 +10,7 @@ type RequiredCredentials = Exchange["requiredCredentials"];
 
 const walletBasedCache = new Map<string, boolean>();
 
-function resolveExchangeClass(cex: string): (typeof Exchange) | null {
+function resolveExchangeClass(cex: string): typeof Exchange | null {
 	const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[cex];
 	return ExchangeClass ?? null;
 }

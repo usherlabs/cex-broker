@@ -98,6 +98,61 @@ Detection is automatic from CCXT `requiredCredentials`. A `dex: true` flag does 
 
 Treat `API_SECRET` values for wallet exchanges as signing keys with the same operational security as API secrets.
 
+#### Spot vs perp (`marketType`)
+
+The broker **defaults to spot everywhere** unless a request explicitly opts into perps/futures. This overrides exchange-level CCXT defaults (for example Hyperliquid's internal `defaultType: swap`).
+
+Pass `marketType` in action payloads (string map) or subscribe `options`:
+
+| `marketType` | Meaning |
+|--------------|---------|
+| omitted / `spot` | Spot markets and spot balances |
+| `swap` or `perp` | Perpetuals (resolves symbols like `ETH/USDC:USDC` on Hyperliquid) |
+| `future` | Dated futures where supported |
+
+Examples:
+
+```json
+// CreateOrder payload
+{
+  "fromToken": "ETH",
+  "toToken": "USDC",
+  "amount": "1",
+  "price": "2500",
+  "marketType": "swap",
+  "params": { "slippage": "0.05" }
+}
+```
+
+```json
+// FetchBalances payload
+{ "marketType": "swap", "balanceType": "total" }
+```
+
+Policy markets support optional suffixes:
+
+- `HYPERLIQUID:ETH/USDC@swap` — perp only
+- `HYPERLIQUID:ETH/USDC@spot` — spot only
+- `HYPERLIQUID:ETH/USDC:USDC` — explicit unified perp symbol
+- `BINANCEUSDM:ETH/USDT` — use the futures exchange id directly
+
+For split futures exchanges (`binanceusdm`, `krakenfutures`, `kucoinfutures`), register the futures `cex` id separately. Fund movement between spot and futures wallets uses `Action.Call` or exchange-specific transfer actions.
+
+#### Perp configuration actions
+
+Two capability-gated actions complement `Action.Call`:
+
+| Action | Value | Requires CCXT | Purpose |
+|--------|-------|---------------|---------|
+| `GetPerpConfigState` | `14` | `fetchPositions` | Read positions and per-symbol leverage/margin mode |
+| `SetPerpConfigState` | `15` | `setLeverage` | Set leverage (and margin mode) for a symbol |
+
+`GetPerpConfigState` payload: optional `symbol`, optional `params` (JSON).
+
+`SetPerpConfigState` payload: `symbol`, `leverage`, optional `marginMode` (`cross` | `isolated`), optional `params`.
+
+Exchanges without the required capability return gRPC `UNIMPLEMENTED`. Use `Action.Call` for other perp operations (`transfer`, `addMargin`, `closePosition`, etc.).
+
 **Metrics (OpenTelemetry)**: Metrics are exported via OTLP. If neither `OTEL_EXPORTER_OTLP_ENDPOINT` nor `CEX_BROKER_OTEL_HOST` (or legacy `CEX_BROKER_CLICKHOUSE_HOST`) is set, metrics are disabled. When enabled, the broker sends metrics to the configured OTLP endpoint (e.g. an OpenTelemetry Collector).
 
 ### Policy Configuration

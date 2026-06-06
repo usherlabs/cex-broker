@@ -14,6 +14,7 @@ import {
 	type SubscriptionType as SubscriptionTypeValue,
 } from "../../helpers/constants";
 import { log } from "../../helpers/logger";
+import { resolveSubscriptionSymbol } from "../../helpers/market-type";
 import {
 	normalizeOrderBookSnapshot,
 	parseOptionalDepthLimit,
@@ -115,6 +116,12 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				return;
 			}
 
+			const resolvedSymbol = await resolveSubscriptionSymbol(
+				broker,
+				symbol,
+				options?.marketType,
+			);
+
 			// Handle different subscription types
 			switch (subscriptionType) {
 				case SubscriptionType.ORDERBOOK:
@@ -125,14 +132,14 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							);
 							const orderbook =
 								depthLimit === undefined
-									? await broker.watchOrderBook(symbol)
-									: await broker.watchOrderBook(symbol, depthLimit);
+									? await broker.watchOrderBook(resolvedSymbol)
+									: await broker.watchOrderBook(resolvedSymbol, depthLimit);
 							const receivedTimestamp = Date.now();
 							call.write({
 								data: JSON.stringify(
 									normalizeOrderBookSnapshot(orderbook, {
 										exchange: normalizedCex,
-										symbol,
+										symbol: resolvedSymbol,
 										depthLimit:
 											depthLimit ??
 											Math.max(
@@ -147,13 +154,13 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 									}),
 								),
 								timestamp: receivedTimestamp,
-								symbol,
+								symbol: resolvedSymbol,
 								type: subscriptionType,
 							});
 						}
 					} catch (error: unknown) {
 						log.error(
-							`Error fetching orderbook for ${symbol} on ${cex}:`,
+							`Error fetching orderbook for ${resolvedSymbol} on ${cex}:`,
 							error,
 						);
 						const message = getErrorMessage(error);
@@ -162,7 +169,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 								error: `Failed to fetch orderbook: ${message}`,
 							}),
 							timestamp: Date.now(),
-							symbol,
+							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
 					}
@@ -171,23 +178,26 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				case SubscriptionType.TRADES:
 					try {
 						while (true) {
-							const trades = await broker.watchTrades(symbol);
+							const trades = await broker.watchTrades(resolvedSymbol);
 							call.write({
 								data: JSON.stringify(trades),
 								timestamp: Date.now(),
-								symbol,
+								symbol: resolvedSymbol,
 								type: subscriptionType,
 							});
 						}
 					} catch (error: unknown) {
 						const message = getErrorMessage(error);
-						log.error(`Error fetching trades for ${symbol} on ${cex}:`, error);
+						log.error(
+							`Error fetching trades for ${resolvedSymbol} on ${cex}:`,
+							error,
+						);
 						call.write({
 							data: JSON.stringify({
 								error: `Failed to fetch trades: ${message}`,
 							}),
 							timestamp: Date.now(),
-							symbol,
+							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
 					}
@@ -196,23 +206,26 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				case SubscriptionType.TICKER:
 					try {
 						while (true) {
-							const ticker = await broker.watchTicker(symbol);
+							const ticker = await broker.watchTicker(resolvedSymbol);
 							call.write({
 								data: JSON.stringify(ticker),
 								timestamp: Date.now(),
-								symbol,
+								symbol: resolvedSymbol,
 								type: subscriptionType,
 							});
 						}
 					} catch (error: unknown) {
 						const message = getErrorMessage(error);
-						log.error(`Error fetching ticker for ${symbol} on ${cex}:`, error);
+						log.error(
+							`Error fetching ticker for ${resolvedSymbol} on ${cex}:`,
+							error,
+						);
 						call.write({
 							data: JSON.stringify({
 								error: `Failed to fetch ticker: ${message}`,
 							}),
 							timestamp: Date.now(),
-							symbol,
+							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
 					}
@@ -222,23 +235,29 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					try {
 						while (true) {
 							const timeframe = options?.timeframe || "1m";
-							const ohlcv = await broker.fetchOHLCVWs(symbol, timeframe);
+							const ohlcv = await broker.fetchOHLCVWs(
+								resolvedSymbol,
+								timeframe,
+							);
 							call.write({
 								data: JSON.stringify(ohlcv),
 								timestamp: Date.now(),
-								symbol,
+								symbol: resolvedSymbol,
 								type: subscriptionType,
 							});
 						}
 					} catch (error: unknown) {
-						log.error(`Error fetching OHLCV for ${symbol} on ${cex}:`, error);
+						log.error(
+							`Error fetching OHLCV for ${resolvedSymbol} on ${cex}:`,
+							error,
+						);
 						const message = getErrorMessage(error);
 						call.write({
 							data: JSON.stringify({
 								error: `Failed to fetch OHLCV: ${message}`,
 							}),
 							timestamp: Date.now(),
-							symbol,
+							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
 					}
@@ -272,23 +291,26 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				case SubscriptionType.ORDERS:
 					try {
 						while (true) {
-							const orders = await broker.watchOrders(symbol);
+							const orders = await broker.watchOrders(resolvedSymbol);
 							call.write({
 								data: JSON.stringify(orders),
 								timestamp: Date.now(),
-								symbol,
+								symbol: resolvedSymbol,
 								type: subscriptionType,
 							});
 						}
 					} catch (error: unknown) {
-						log.error(`Error fetching orders for ${symbol} on ${cex}:`, error);
+						log.error(
+							`Error fetching orders for ${resolvedSymbol} on ${cex}:`,
+							error,
+						);
 						const message = getErrorMessage(error);
 						call.write({
 							data: JSON.stringify({
 								error: `Failed to fetch orders: ${message}`,
 							}),
 							timestamp: Date.now(),
-							symbol,
+							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
 					}
