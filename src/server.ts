@@ -18,6 +18,12 @@ import {
 	verityHttpClientOverridePredicate,
 } from "./helpers";
 import {
+	BinanceSpotUserDataStream,
+	type BinanceUserDataEvent,
+	isBinanceBalanceUserDataEvent,
+	isBinanceOrderUserDataEvent,
+} from "./helpers/binance-user-data-stream";
+import {
 	Action,
 	type ActionName,
 	type Action as ActionType,
@@ -137,6 +143,144 @@ function emitOrderExecutionTelemetryInBackground(
 			}
 		},
 	);
+}
+
+type SubscribeCall = grpc.ServerWritableStream<
+	SubscribeRequest,
+	SubscribeResponse
+>;
+
+function normalizeCex(cex: string | undefined): string {
+	return cex?.trim().toLowerCase() ?? "";
+}
+
+function isBinanceSpotAccountSubscription(
+	cex: string,
+	subscriptionType: SubscriptionTypeValue,
+): boolean {
+	return (
+		cex === "binance" &&
+		(subscriptionType === SubscriptionType.BALANCE ||
+			subscriptionType === SubscriptionType.ORDERS)
+	);
+}
+
+function writeSubscribeFrame(
+	call: SubscribeCall,
+	isClosed: () => boolean,
+	frame: SubscribeResponse,
+): boolean {
+	if (isClosed() || call.destroyed) {
+		return false;
+	}
+	call.write(frame);
+	return true;
+}
+
+function getBinanceEventMarketId(
+	event: Record<string, unknown>,
+): string | null {
+	const value = event.s;
+	return typeof value === "string" ? value : null;
+}
+
+async function getBinanceMarketId(
+	broker: Exchange,
+	symbol: string,
+): Promise<string> {
+	const loadMarkets = (broker as unknown as { loadMarkets?: unknown })
+		.loadMarkets;
+	if (typeof loadMarkets === "function") {
+		await loadMarkets.call(broker);
+	}
+	const market = (broker as unknown as { market?: unknown }).market;
+	if (typeof market === "function") {
+		const resolvedMarket = market.call(broker, symbol) as
+			| { id?: unknown }
+			| undefined;
+		if (typeof resolvedMarket?.id === "string") {
+			return resolvedMarket.id;
+		}
+	}
+	return symbol.replace("/", "").toUpperCase();
+}
+
+async function streamBinanceUserData(
+	call: SubscribeCall,
+	broker: Exchange,
+	symbol: string,
+	subscriptionType: SubscriptionTypeValue,
+	isClosed: () => boolean,
+): Promise<void> {
+	const userDataStream = new BinanceSpotUserDataStream(broker);
+	call.once("close", () => userDataStream.close());
+	call.once("cancelled", () => userDataStream.close());
+	call.once("error", () => userDataStream.close());
+
+	const marketId =
+		subscriptionType === SubscriptionType.ORDERS
+			? await getBinanceMarketId(broker, symbol)
+			: null;
+
+	try {
+		for await (const message of userDataStream) {
+			if (isClosed()) {
+				break;
+			}
+			const event = message.event;
+			if (subscriptionType === SubscriptionType.BALANCE) {
+				if (!isBinanceBalanceUserDataEvent(event)) {
+					continue;
+				}
+			} else {
+				if (!isBinanceOrderUserDataEvent(event)) {
+					continue;
+				}
+				const eventMarketId = getBinanceEventMarketId(event);
+				if (eventMarketId && marketId && eventMarketId !== marketId) {
+					continue;
+				}
+			}
+
+			if (
+				!writeSubscribeFrame(call, isClosed, {
+					data: JSON.stringify({
+						subscriptionId: message.subscriptionId,
+						event,
+					} satisfies BinanceUserDataEvent),
+					timestamp: Date.now(),
+					symbol,
+					type: subscriptionType,
+				})
+			) {
+				break;
+			}
+		}
+	} finally {
+		userDataStream.close();
+	}
+}
+
+async function runCcxtSubscribeLoop(
+	call: SubscribeCall,
+	isClosed: () => boolean,
+	symbol: string,
+	subscriptionType: SubscriptionTypeValue,
+	watch: () => Promise<unknown>,
+): Promise<void> {
+	while (!isClosed()) {
+		const data = await watch();
+		if (
+			!writeSubscribeFrame(call, isClosed, {
+				data: JSON.stringify(data),
+				timestamp: Date.now(),
+				symbol,
+				type: subscriptionType,
+			})
+		) {
+			break;
+		}
+	}
 }
 
 /** Maps CCXT typed errors to appropriate gRPC status codes. Returns undefined for unrecognized errors. */
@@ -1305,6 +1449,30 @@ export function getServer(
 			call: grpc.ServerWritableStream<SubscribeRequest, SubscribeResponse>,
 		) => {
 			const subscribeStartTime = Date.now();
+			let streamClosed = false;
+			const markStreamClosed = () => {
+				streamClosed = true;
+			};
+			const isStreamClosed = () => streamClosed;
+			call.once("close", markStreamClosed);
+			call.once("cancelled", markStreamClosed);
+			call.once("end", () => {
+				markStreamClosed();
+				log.info("Subscribe stream ended");
+				const duration = Date.now() - subscribeStartTime;
+				otelMetrics?.recordHistogram("subscribe_duration_ms", duration, {
+					cex: call.request?.cex || "unknown",
+					symbol: call.request?.symbol || "unknown",
+				});
+			});
+			call.once("error", (error) => {
+				markStreamClosed();
+				log.error("Subscribe stream error:", error);
+				otelMetrics?.recordCounter("subscribe_errors_total", 1, {
+					error_type: error instanceof Error ? error.message : "unknown",
+				});
+			});
+
 			// IP Authentication
 			if (!authenticateRequest(call, whitelistIps)) {
 				otelMetrics?.recordCounter("subscribe_errors_total", 1, {
@@ -1330,6 +1498,7 @@ export function getServer(
 				// The request should be available in the call object
 				const request = call.request as SubscribeRequest;
 				const { cex, symbol, type, options } = request;
+				const normalizedCex = normalizeCex(cex);
 
 				// proto-loader with defaults:true materializes omitted enums as NO_ACTION.
 				const subscriptionType = resolveSubscriptionType(type);
@@ -1364,8 +1533,10 @@ export function getServer(
 
 				// Get or create broker (no Verity override in Subscribe)
 				broker =
-					selectBroker(brokers[cex as keyof typeof brokers], metadata) ??
-					createBroker(cex, metadata);
+					selectBroker(
+						brokers[normalizedCex as keyof typeof brokers],
+						metadata,
+					) ?? createBroker(normalizedCex, metadata);
 
 				if (!broker) {
 					call.write({
@@ -1379,20 +1550,30 @@ export function getServer(
 					call.end();
 					return;
 				}
+				const activeBroker = broker;
+
+				if (isBinanceSpotAccountSubscription(normalizedCex, subscriptionType)) {
+					await streamBinanceUserData(
+						call,
+						activeBroker,
+						symbol,
+						subscriptionType,
+						isStreamClosed,
+					);
+					return;
+				}
 
 				// Handle different subscription types
 				switch (subscriptionType) {
 					case SubscriptionType.ORDERBOOK:
 						try {
-							while (true) {
-								const orderbook = await broker.watchOrderBook(symbol);
-								call.write({
-									data: JSON.stringify(orderbook),
-									timestamp: Date.now(),
-									symbol,
-									type: subscriptionType,
-								});
-							}
+							await runCcxtSubscribeLoop(
+								call,
+								isStreamClosed,
+								symbol,
+								subscriptionType,
+								() => activeBroker.watchOrderBook(symbol),
+							);
 						} catch (error: unknown) {
 							log.error(
 								`Error fetching orderbook for ${symbol} on ${cex}:`,
@@ -1417,15 +1598,13 @@ export function getServer(
 
 					case SubscriptionType.TRADES:
 						try {
-							while (true) {
-								const trades = await broker.watchTrades(symbol);
-								call.write({
-									data: JSON.stringify(trades),
-									timestamp: Date.now(),
-									symbol,
-									type: subscriptionType,
-								});
-							}
+							await runCcxtSubscribeLoop(
+								call,
+								isStreamClosed,
+								symbol,
+								subscriptionType,
+								() => activeBroker.watchTrades(symbol),
+							);
 						} catch (error: unknown) {
 							const message =
 								error instanceof Error
@@ -1450,15 +1629,13 @@ export function getServer(
 
 					case SubscriptionType.TICKER:
 						try {
-							while (true) {
-								const ticker = await broker.watchTicker(symbol);
-								call.write({
-									data: JSON.stringify(ticker),
-									timestamp: Date.now(),
-									symbol,
-									type: subscriptionType,
-								});
-							}
+							await runCcxtSubscribeLoop(
+								call,
+								isStreamClosed,
+								symbol,
+								subscriptionType,
+								() => activeBroker.watchTicker(symbol),
+							);
 						} catch (error: unknown) {
 							const message =
 								error instanceof Error
@@ -1483,16 +1660,14 @@ export function getServer(
 
 					case SubscriptionType.OHLCV:
 						try {
-							while (true) {
-								const timeframe = options?.timeframe || "1m";
-								const ohlcv = await broker.fetchOHLCVWs(symbol, timeframe);
-								call.write({
-									data: JSON.stringify(ohlcv),
-									timestamp: Date.now(),
-									symbol,
-									type: subscriptionType,
-								});
-							}
+							await runCcxtSubscribeLoop(
+								call,
+								isStreamClosed,
+								symbol,
+								subscriptionType,
+								() =>
+									activeBroker.fetchOHLCVWs(symbol, options?.timeframe || "1m"),
+							);
 						} catch (error: unknown) {
 							log.error(`Error fetching OHLCV for ${symbol} on ${cex}:`, error);
 							const message =
@@ -1514,15 +1689,13 @@ export function getServer(
 
 					case SubscriptionType.BALANCE:
 						try {
-							while (true) {
-								const balance = await broker.watchBalance();
-								call.write({
-									data: JSON.stringify(balance),
-									timestamp: Date.now(),
-									symbol,
-									type: subscriptionType,
-								});
-							}
+							await runCcxtSubscribeLoop(
+								call,
+								isStreamClosed,
+								symbol,
+								subscriptionType,
+								() => activeBroker.watchBalance(),
+							);
 						} catch (error: unknown) {
 							const message =
 								error instanceof Error
@@ -1544,15 +1717,13 @@ export function getServer(
 
 					case SubscriptionType.ORDERS:
 						try {
-							while (true) {
-								const orders = await broker.watchOrders(symbol);
-								call.write({
-									data: JSON.stringify(orders),
-									timestamp: Date.now(),
-									symbol,
-									type: subscriptionType,
-								});
-							}
+							await runCcxtSubscribeLoop(
+								call,
+								isStreamClosed,
+								symbol,
+								subscriptionType,
+								() => activeBroker.watchOrders(symbol),
+							);
 						} catch (error: unknown) {
 							log.error(
 								`Error fetching orders for ${symbol} on ${cex}:`,
@@ -1598,22 +1769,6 @@ export function getServer(
 					type: SubscriptionType.ORDERBOOK,
 				});
 			}
-
-			call.on("end", () => {
-				log.info("Subscribe stream ended");
-				const duration = Date.now() - subscribeStartTime;
-				otelMetrics?.recordHistogram("subscribe_duration_ms", duration, {
-					cex: call.request?.cex || "unknown",
-					symbol: call.request?.symbol || "unknown",
-				});
-			});
-
-			call.on("error", (error) => {
-				log.error("Subscribe stream error:", error);
-				otelMetrics?.recordCounter("subscribe_errors_total", 1, {
-					error_type: error instanceof Error ? error.message : "unknown",
-				});
-			});
 		},
 	});
 	return server;
