@@ -78,6 +78,26 @@ OTEL_SERVICE_NAME=cex-broker
 
 **Note**: Only configure API keys for exchanges you plan to use. The system will automatically detect and initialize configured exchanges.
 
+#### Wallet-authenticated exchanges
+
+Some exchanges (for example Hyperliquid, Vertex, Paradex, and Derive) authenticate with an on-chain wallet instead of exchange-issued API keys. The broker keeps the same `API_KEY` / `API_SECRET` interface and maps credentials internally based on each exchange's CCXT `requiredCredentials`:
+
+- `CEX_BROKER_<EXCHANGE>_API_KEY` → wallet address (`0x…`)
+- `CEX_BROKER_<EXCHANGE>_API_SECRET` → private key (`0x…` hex)
+
+Example:
+
+```env
+CEX_BROKER_HYPERLIQUID_API_KEY=0x1234567890abcdef1234567890abcdef12345678
+CEX_BROKER_HYPERLIQUID_API_SECRET=0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+```
+
+gRPC metadata uses the same parity interface: `api-key` carries the wallet address and `api-secret` carries the private key.
+
+Detection is automatic from CCXT `requiredCredentials`. A `dex: true` flag does not imply wallet auth; exchanges such as WOOFi Pro and Modetrade still use API keys.
+
+Treat `API_SECRET` values for wallet exchanges as signing keys with the same operational security as API secrets.
+
 **Metrics (OpenTelemetry)**: Metrics are exported via OTLP. If neither `OTEL_EXPORTER_OTLP_ENDPOINT` nor `CEX_BROKER_OTEL_HOST` (or legacy `CEX_BROKER_CLICKHOUSE_HOST`) is set, metrics are disabled. When enabled, the broker sends metrics to the configured OTLP endpoint (e.g. an OpenTelemetry Collector).
 
 ### Policy Configuration

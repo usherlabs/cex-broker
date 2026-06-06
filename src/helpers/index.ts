@@ -16,6 +16,7 @@ import type {
 	WithdrawRuleEntry,
 } from "../types";
 import { CCXT_METHODS_WITH_VERITY } from "./constants";
+import { buildCcxtConfig } from "./exchange-credentials";
 import { log } from "./logger";
 
 export type BrokerAccount = {
@@ -156,7 +157,12 @@ export function createBroker(
 		return null;
 	}
 
-	const exchange = new ExchangeClass({ apiKey, secret: apiSecret });
+	const config = buildCcxtConfig(cex, { apiKey, apiSecret });
+	if (!config) {
+		return null;
+	}
+
+	const exchange = new ExchangeClass(config);
 	applyCommonExchangeConfig(exchange);
 	return exchange;
 }
