@@ -302,12 +302,15 @@ message SubscribeResponse {
 ```
 
 **Available Subscription Types:**
-- `ORDERBOOK` (0): Real-time order book updates
-- `TRADES` (1): Live trade feed
-- `TICKER` (2): Ticker information updates
-- `OHLCV` (3): Candlestick data (configurable timeframe)
-- `BALANCE` (4): Account balance updates
-- `ORDERS` (5): Order status updates
+- `NO_ACTION` (0): Defaults to `ORDERBOOK`
+- `ORDERBOOK` (1): Real-time order book updates
+- `TRADES` (2): Live trade feed
+- `TICKER` (3): Ticker information updates
+- `OHLCV` (4): Candlestick data (configurable timeframe)
+- `BALANCE` (5): Account balance updates
+- `ORDERS` (6): Order status updates
+
+For Binance spot account streams, `BALANCE` and `ORDERS` use Binance's WebSocket API user-data subscription (`userDataStream.subscribe.signature`). They use the broker account selected by request metadata and do not rely on the retired Spot listenKey REST lifecycle.
 
 **Example Usage:**
 
@@ -316,7 +319,7 @@ message SubscribeResponse {
 const orderbookRequest = {
   cex: "binance",
   symbol: "BTC/USDT",
-  type: 0, // ORDERBOOK
+  type: 1, // ORDERBOOK
   options: {}
 };
 
@@ -324,7 +327,7 @@ const orderbookRequest = {
 const ohlcvRequest = {
   cex: "binance",
   symbol: "BTC/USDT",
-  type: 3, // OHLCV
+  type: 4, // OHLCV
   options: {
     timeframe: "1h"
   }
