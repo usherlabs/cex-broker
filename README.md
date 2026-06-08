@@ -463,6 +463,8 @@ message SubscribeResponse {
 
 For backward compatibility, omitted, `NO_ACTION`, or invalid subscription type values are resolved to `ORDERBOOK`.
 
+For Binance spot account streams, `BALANCE` and `ORDERS` use Binance's WebSocket API user-data subscription (`userDataStream.subscribe.signature`). They use the broker account selected by request metadata and do not rely on the retired Spot listenKey REST lifecycle.
+
 **Example Usage:**
 
 ```typescript

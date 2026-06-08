@@ -34,6 +34,7 @@ function createSubscribeCall(request: SubscribeRequest) {
 			state.endCount += 1;
 		},
 		on: () => call,
+		once: () => call,
 		emit: () => true,
 		destroy: () => undefined,
 	} as unknown as grpc.ServerWritableStream<
@@ -44,9 +45,12 @@ function createSubscribeCall(request: SubscribeRequest) {
 	return { call, state };
 }
 
-function createPool(exchange: Exchange): Record<string, BrokerPoolEntry> {
+function createPool(
+	exchange: Exchange,
+	cex = "binance",
+): Record<string, BrokerPoolEntry> {
 	return {
-		binance: {
+		[cex]: {
 			primary: { exchange, label: "primary" },
 			secondaryBrokers: [],
 		},
@@ -100,35 +104,39 @@ describe("subscribe handler", () => {
 		},
 		{
 			type: SubscriptionType.BALANCE,
+			cex: "mexc",
 			method: "watchBalance",
 			errorMessage: "balance boom",
 			expectedError: "Failed to fetch balance: balance boom",
 		},
 		{
 			type: SubscriptionType.ORDERS,
+			cex: "mexc",
 			method: "watchOrders",
 			errorMessage: "orders boom",
 			expectedError: "Failed to fetch orders: orders boom",
 		},
 	] satisfies Array<{
 		type: SubscriptionTypeValue;
+		cex?: string;
 		method: ThrowingSubscriptionMethod;
 		errorMessage: string;
 		expectedError: string;
 	}>)("closes $method stream after writing terminal error", async ({
 		type,
+		cex = "binance",
 		method,
 		errorMessage,
 		expectedError,
 	}) => {
 		const exchange = createThrowingExchange(method, errorMessage);
 		const { call, state } = createSubscribeCall({
-			cex: "binance",
+			cex,
 			symbol: "BTC/USDT",
 			type,
 		});
 		const handler = createSubscribeHandler({
-			brokers: createPool(exchange),
+			brokers: createPool(exchange, cex),
 			whitelistIps: ["*"],
 		});
 

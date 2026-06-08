@@ -53,7 +53,12 @@ function parsePeerEndpoint(
 
 	const host = hostWithPort[1];
 	const port = hostWithPort[2];
-	if (!host || !isValidHost(host, expectedIpVersion) || !isValidPort(port)) {
+	if (
+		!host ||
+		!port ||
+		!isValidHost(host, expectedIpVersion) ||
+		!isValidPort(port)
+	) {
 		return undefined;
 	}
 
