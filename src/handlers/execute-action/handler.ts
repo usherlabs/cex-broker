@@ -1,18 +1,17 @@
 import type { Metadata } from "@grpc/grpc-js";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
-import {
-	authenticateRequest,
-	type BrokerPoolEntry,
-	buildHttpClientOverrideFromMetadata,
-	createBroker,
-	verityHttpClientOverridePredicate,
-} from "../../helpers";
+import { authenticateRequest } from "../../helpers/auth";
+import { type BrokerPoolEntry, createBroker } from "../../helpers/broker";
 import { Action, getActionName, resolveAction } from "../../helpers/constants";
 import { selectBrokerAccountForCex } from "../../helpers/grpc/broker";
 import { log } from "../../helpers/logger";
 import type { OtelMetrics } from "../../helpers/otel";
 import { safeLogError } from "../../helpers/shared/errors";
+import {
+	buildHttpClientOverrideFromMetadata,
+	verityHttpClientOverridePredicate,
+} from "../../helpers/verity";
 import type { PolicyConfig } from "../../types";
 import type { ActionRequest, ActionResponse } from "../types";
 import type { ExecuteActionContext } from "./context";

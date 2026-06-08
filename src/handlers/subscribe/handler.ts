@@ -1,12 +1,12 @@
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
+import { authenticateRequest } from "../../helpers/auth";
 import {
-	authenticateRequest,
 	type BrokerPoolEntry,
 	createBroker,
 	createPublicBroker,
 	selectBroker,
-} from "../../helpers";
+} from "../../helpers/broker";
 import {
 	getSubscriptionTypeName,
 	resolveSubscriptionType,
