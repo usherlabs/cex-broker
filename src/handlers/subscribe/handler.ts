@@ -55,6 +55,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		// Read incoming metadata
 		const metadata = call.metadata;
 		let broker: Exchange | null = null;
+		let subscriptionType: SubscriptionTypeValue = SubscriptionType.ORDERBOOK;
 
 		try {
 			// For ServerWritableStream, we need to get the request from the call
@@ -63,7 +64,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			const { cex, symbol, type, options } = request;
 
 			// proto-loader with defaults:true materializes omitted enums as NO_ACTION.
-			const subscriptionType = resolveSubscriptionType(type);
+			subscriptionType = resolveSubscriptionType(type);
 
 			log.info(`Request - Subscribe:`, {
 				cex: request.cex,
@@ -172,6 +173,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
+						call.end();
 					}
 					break;
 
@@ -200,6 +202,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
+						call.end();
 					}
 					break;
 
@@ -228,6 +231,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
+						call.end();
 					}
 					break;
 
@@ -260,6 +264,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
+						call.end();
 					}
 					break;
 
@@ -285,6 +290,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							symbol,
 							type: subscriptionType,
 						});
+						call.end();
 					}
 					break;
 
@@ -313,6 +319,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							symbol: resolvedSymbol,
 							type: subscriptionType,
 						});
+						call.end();
 					}
 					break;
 
@@ -331,8 +338,9 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				data: JSON.stringify({ error: `Internal server error: ${message}` }),
 				timestamp: Date.now(),
 				symbol: "",
-				type: SubscriptionType.ORDERBOOK,
+				type: subscriptionType,
 			});
+			call.end();
 		}
 
 		call.on("end", () => {
