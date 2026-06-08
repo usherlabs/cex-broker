@@ -78,6 +78,81 @@ OTEL_SERVICE_NAME=cex-broker
 
 **Note**: Only configure API keys for exchanges you plan to use. The system will automatically detect and initialize configured exchanges.
 
+#### Wallet-authenticated exchanges
+
+Some exchanges (for example Hyperliquid, Vertex, Paradex, and Derive) authenticate with an on-chain wallet instead of exchange-issued API keys. The broker keeps the same `API_KEY` / `API_SECRET` interface and maps credentials internally based on each exchange's CCXT `requiredCredentials`:
+
+- `CEX_BROKER_<EXCHANGE>_API_KEY` → wallet address (`0x…`)
+- `CEX_BROKER_<EXCHANGE>_API_SECRET` → private key (`0x…` hex)
+
+Example:
+
+```env
+CEX_BROKER_HYPERLIQUID_API_KEY=0x1234567890abcdef1234567890abcdef12345678
+CEX_BROKER_HYPERLIQUID_API_SECRET=0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+```
+
+gRPC metadata uses the same parity interface: `api-key` carries the wallet address and `api-secret` carries the private key.
+
+Detection is automatic from CCXT `requiredCredentials`. A `dex: true` flag does not imply wallet auth; exchanges such as WOOFi Pro and Modetrade still use API keys.
+
+Treat `API_SECRET` values for wallet exchanges as signing keys with the same operational security as API secrets.
+
+#### Spot vs perp (`marketType`)
+
+The broker **defaults to spot everywhere** unless a request explicitly opts into perps/futures. This overrides exchange-level CCXT defaults (for example Hyperliquid's internal `defaultType: swap`).
+
+Pass `marketType` in action payloads (string map) or subscribe `options`:
+
+| `marketType` | Meaning |
+|--------------|---------|
+| omitted / `spot` | Spot markets and spot balances |
+| `swap` or `perp` | Perpetuals (resolves symbols like `ETH/USDC:USDC` on Hyperliquid) |
+| `future` | Dated futures where supported |
+
+Examples:
+
+```json
+// CreateOrder payload
+{
+  "fromToken": "ETH",
+  "toToken": "USDC",
+  "amount": "1",
+  "price": "2500",
+  "marketType": "swap",
+  "params": { "slippage": "0.05" }
+}
+```
+
+```json
+// FetchBalances payload
+{ "marketType": "swap", "balanceType": "total" }
+```
+
+Policy markets support optional suffixes:
+
+- `HYPERLIQUID:ETH/USDC@swap` — perp only
+- `HYPERLIQUID:ETH/USDC@spot` — spot only
+- `HYPERLIQUID:ETH/USDC:USDC` — explicit unified perp symbol
+- `BINANCEUSDM:ETH/USDT` — use the futures exchange id directly
+
+For split futures exchanges (`binanceusdm`, `krakenfutures`, `kucoinfutures`), register the futures `cex` id separately. Fund movement between spot and futures wallets uses `Action.Call` or exchange-specific transfer actions.
+
+#### Perp configuration actions
+
+Two capability-gated actions complement `Action.Call`:
+
+| Action | Value | Requires CCXT | Purpose |
+|--------|-------|---------------|---------|
+| `GetPerpConfigState` | `14` | `fetchPositions` | Read positions and per-symbol leverage/margin mode |
+| `SetPerpConfigState` | `15` | `setLeverage` | Set leverage (and margin mode) for a symbol |
+
+`GetPerpConfigState` payload: optional `symbol`, optional `params` (JSON).
+
+`SetPerpConfigState` payload: `symbol`, `leverage`, optional `marginMode` (`cross` | `isolated`), optional `params`.
+
+Exchanges without the required capability return gRPC `UNIMPLEMENTED`. Use `Action.Call` for other perp operations (`transfer`, `addMargin`, `closePosition`, etc.).
+
 **Metrics (OpenTelemetry)**: Metrics are exported via OTLP. If neither `OTEL_EXPORTER_OTLP_ENDPOINT` nor `CEX_BROKER_OTEL_HOST` (or legacy `CEX_BROKER_CLICKHOUSE_HOST`) is set, metrics are disabled. When enabled, the broker sends metrics to the configured OTLP endpoint (e.g. an OpenTelemetry Collector).
 
 ### Policy Configuration
@@ -86,6 +161,10 @@ Configure trading policies in `policy/policy.json`.
 
 - **Full reference**: see `POLICY.md` (supported options, matching rules, reload behaviour, and troubleshooting)
 - **Example policy**: `policy/policy.json`
+- **Treasury corridor example**: `policy/policy.binance-mexc-usdc-bep20.example.json`
+  permits only USDC over the normalized BNB/BSC/BEP20 network between Binance
+  and MEXC; use explicit ceremony-time overrides for non-default acquired-asset
+  transfers.
 
 ```json
 {
@@ -220,6 +299,78 @@ message ActionResponse {
 - `FetchCurrency` (9): Get currency metadata (networks, fees, etc.) for a symbol
 - `Call` (10): Generic method invocation on the underlying broker instance. Provide `functionName`, optional `args` array, and optional `params` object.
 
+#### Order Book Call Methods
+
+`Call` also supports broker-defined order-book methods for HB strategy compatibility. These methods use the `method` payload field and return JSON in `ActionResponse.result`.
+
+```typescript
+// Discover order-book capability
+const capabilityRequest = {
+  action: 10, // Call
+  cex: "mexc",
+  symbol: "ARB/USDT",
+  payload: {
+    method: "fetch_order_book_capability",
+    depthLimit: "100",
+    constructionMode: "sampled_top_n_snapshot"
+  }
+};
+
+// Fetch current top-N order-book snapshot
+const snapshotRequest = {
+  action: 10, // Call
+  cex: "binance",
+  symbol: "BTC/USDT",
+  payload: {
+    method: "fetch_order_book_snapshot",
+    depthLimit: "100"
+  }
+};
+
+// Request historical sampled snapshots
+const historicalRequest = {
+  action: 10, // Call
+  cex: "mexc",
+  symbol: "ARB/USDT",
+  payload: {
+    method: "fetch_historical_order_book_snapshots",
+    start: "2026-06-02T00:00:00Z",
+    end: "2026-06-02T00:01:00Z",
+    cadence: "1s",
+    depthLimit: "100",
+    constructionMode: "sampled_top_n_snapshot"
+  }
+};
+```
+
+Current snapshot responses include top-level `bids` and `asks` arrays plus metadata:
+
+```json
+{
+  "bids": [[100.0, 1.0]],
+  "asks": [[101.0, 2.0]],
+  "timestamp": 1760000000000,
+  "receivedTimestamp": 1760000000100,
+  "exchange": "binance",
+  "symbol": "BTC/USDT",
+  "sequence": 123,
+  "depthLimit": 100
+}
+```
+
+If historical sampled top-N depth is unavailable, the broker returns a typed unsupported result instead of a gRPC transport failure:
+
+```json
+{
+  "exchange": "mexc",
+  "symbol": "ARB/USDT",
+  "unsupported": true,
+  "unsupportedReason": "historical_order_book_provider_unsupported"
+}
+```
+
+Capability responses are conservative: current snapshot and live stream support reflect available broker/provider methods, historical sampled top-N support is only true when implemented for the requested parameters, and exact L2 reconstruction remains false until a validated snapshot-plus-delta reconstruction path exists.
+
 **Example Usage:**
 
 ```typescript
@@ -302,13 +453,15 @@ message SubscribeResponse {
 ```
 
 **Available Subscription Types:**
-- `NO_ACTION` (0): Defaults to `ORDERBOOK`
+- `NO_ACTION` (0): Compatibility default; resolved to `ORDERBOOK`
 - `ORDERBOOK` (1): Real-time order book updates
 - `TRADES` (2): Live trade feed
 - `TICKER` (3): Ticker information updates
 - `OHLCV` (4): Candlestick data (configurable timeframe)
 - `BALANCE` (5): Account balance updates
 - `ORDERS` (6): Order status updates
+
+For backward compatibility, omitted, `NO_ACTION`, or invalid subscription type values are resolved to `ORDERBOOK`.
 
 For Binance spot account streams, `BALANCE` and `ORDERS` use Binance's WebSocket API user-data subscription (`userDataStream.subscribe.signature`). They use the broker account selected by request metadata and do not rely on the retired Spot listenKey REST lifecycle.
 
@@ -320,7 +473,9 @@ const orderbookRequest = {
   cex: "binance",
   symbol: "BTC/USDT",
   type: 1, // ORDERBOOK
-  options: {}
+  options: {
+    depthLimit: "100"
+  }
 };
 
 // Subscribe to OHLCV with custom timeframe
@@ -590,16 +745,18 @@ cex-broker/
 │   ├── client.dev.ts      # Development client
 │   ├── commands/          # CLI commands
 │   │   └── start-broker.ts # Broker startup command
-│   ├── helpers/           # Utility functions
-│   │   ├── index.ts       # Policy validation helpers
-│   │   ├── index.test.ts  # Helper tests
+│   ├── handlers/          # RPC dispatch (execute-action, subscribe)
+│   ├── helpers/           # Domain utilities (shared/, grpc/, order-book, …)
+│   │   ├── index.ts       # Broker pool and policy helpers
+│   │   ├── shared/        # Cross-cutting guards and errors
+│   │   ├── grpc/          # Payload validation and status mapping
 │   │   └── logger.ts      # Logging configuration
 │   ├── index.ts           # Main broker class
 │   ├── proto/             # Generated protobuf types
 │   │   ├── cex_broker/    # Generated broker types
 │   │   ├── node.proto     # Service definition
 │   │   └── node.ts        # Type exports
-│   ├── server.ts          # gRPC server implementation
+│   ├── server.ts          # gRPC wiring only (delegates to handlers/)
 │   └── types.ts           # TypeScript type definitions
 ├── proto/                 # Protocol buffer definitions
 │   ├── cexBroker/         # Legacy generated types

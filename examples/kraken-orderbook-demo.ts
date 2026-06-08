@@ -47,7 +47,9 @@ stream.on("data", (response: SubscribeResponse__Output) => {
 	console.log("LIVE ORDERBOOK - ETH/USDT (Kraken)");
 	console.log("━".repeat(50));
 	console.log(`Update #${dataCount}`);
-	console.log(`${new Date(parseInt(response.timestamp)).toLocaleTimeString()}`);
+	console.log(
+		`${new Date(parseInt(response.timestamp, 10)).toLocaleTimeString()}`,
+	);
 	console.log("");
 
 	try {

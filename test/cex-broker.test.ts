@@ -245,8 +245,12 @@ describe("CEXBroker", () => {
 				/^(\d{1,3}\.){3}\d{1,3}$/.test(ip) &&
 				ip.split(".").every((part) => Number(part) >= 0 && Number(part) <= 255);
 
-			validIPs.forEach((ip) => expect(isValidIPv4(ip)).toBe(true));
-			invalidIPs.forEach((ip) => expect(isValidIPv4(ip)).toBe(false));
+			for (const ip of validIPs) {
+				expect(isValidIPv4(ip)).toBe(true);
+			}
+			for (const ip of invalidIPs) {
+				expect(isValidIPv4(ip)).toBe(false);
+			}
 		});
 
 		test("should validate Verity URL", () => {

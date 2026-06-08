@@ -67,14 +67,30 @@ export function createOrderExchangeFixture(options: {
 	};
 	const exchange: Record<string, unknown> = {
 		markets: {
-			"ARB/USDT": {},
+			"ARB/USDT": {
+				symbol: "ARB/USDT",
+				base: "ARB",
+				quote: "USDT",
+				type: "spot",
+				spot: true,
+				swap: false,
+			},
 		},
-		loadMarkets: async () => undefined,
+		loadMarkets: async function (this: { markets: Record<string, unknown> }) {
+			return this.markets;
+		},
 		market: (symbol: string) => {
 			if (symbol !== "ARB/USDT") {
 				throw new Error(`unsupported symbol ${symbol}`);
 			}
-			return { symbol, base: "ARB", quote: "USDT" };
+			return {
+				symbol,
+				base: "ARB",
+				quote: "USDT",
+				type: "spot",
+				spot: true,
+				swap: false,
+			};
 		},
 		createOrder: async (...args: unknown[]) => {
 			calls.createOrder.push(args);

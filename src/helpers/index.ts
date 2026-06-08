@@ -16,7 +16,14 @@ import type {
 	WithdrawRuleEntry,
 } from "../types";
 import { CCXT_METHODS_WITH_VERITY } from "./constants";
+import { buildCcxtConfig } from "./exchange-credentials";
 import { log } from "./logger";
+import {
+	type BrokerMarketType,
+	findTradableSymbol,
+	parseMarketPattern,
+	parseMarketType,
+} from "./market-type";
 
 export type BrokerAccount = {
 	exchange: Exchange;
@@ -156,7 +163,23 @@ export function createBroker(
 		return null;
 	}
 
-	const exchange = new ExchangeClass({ apiKey, secret: apiSecret });
+	const config = buildCcxtConfig(cex, { apiKey, apiSecret });
+	if (!config) {
+		return null;
+	}
+
+	const exchange = new ExchangeClass(config);
+	applyCommonExchangeConfig(exchange);
+	return exchange;
+}
+
+export function createPublicBroker(cex: string): Exchange | null {
+	const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[cex];
+	if (!ExchangeClass) {
+		return null;
+	}
+
+	const exchange = new ExchangeClass({});
 	applyCommonExchangeConfig(exchange);
 	return exchange;
 }
@@ -431,7 +454,7 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 			rule: policy.withdraw.rule.map((rule) => ({
 				...rule,
 				exchange: rule.exchange.trim().toUpperCase(),
-				network: rule.network.trim().toUpperCase(),
+				network: normalizeBrokerNetworkId(rule.network),
 				whitelist: rule.whitelist.map((address) =>
 					address.trim().toLowerCase(),
 				),
@@ -446,7 +469,7 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 				rule: policy.deposit.rule.map((rule) => ({
 					...rule,
 					exchange: rule.exchange.trim().toUpperCase(),
-					network: rule.network.trim().toUpperCase(),
+					network: normalizeBrokerNetworkId(rule.network),
 					...(rule.coins && {
 						coins: rule.coins.map((c) => c.trim().toUpperCase()),
 					}),
@@ -461,6 +484,22 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 			},
 		},
 	};
+}
+
+const BROKER_NETWORK_ALIASES: Record<string, string> = {
+	ARB: "ARBITRUM",
+	ARBITRUM: "ARBITRUM",
+	ETH: "ETHEREUM",
+	ERC20: "ETHEREUM",
+	ETHEREUM: "ETHEREUM",
+	BNB: "BNB",
+	BSC: "BNB",
+	BEP20: "BNB",
+};
+
+export function normalizeBrokerNetworkId(network: string): string {
+	const normalized = network.trim().toUpperCase();
+	return BROKER_NETWORK_ALIASES[normalized] ?? normalized;
 }
 
 /**
@@ -520,7 +559,7 @@ export function validateWithdraw(
 ): { valid: boolean; error?: string } {
 	const normalizedPolicy = normalizePolicyConfig(policy);
 	const exchangeNorm = exchange.trim().toUpperCase();
-	const networkNorm = network.trim().toUpperCase();
+	const networkNorm = normalizeBrokerNetworkId(network);
 	const matchingRules = normalizedPolicy.withdraw.rule
 		.map((rule) => ({
 			rule,
@@ -708,6 +747,7 @@ function isMarketPatternMatch(
 	broker: string,
 	fromToken: string,
 	toToken: string,
+	marketType: BrokerMarketType = "spot",
 ): boolean {
 	const normalizedPattern = pattern.toUpperCase().trim();
 	const directPair = `${fromToken}/${toToken}`;
@@ -717,8 +757,8 @@ function isMarketPatternMatch(
 		return true;
 	}
 
-	const [exchangePattern, symbolPattern] = normalizedPattern.split(":");
-	if (!exchangePattern || !symbolPattern) {
+	const [exchangePattern, rawSymbolPattern] = normalizedPattern.split(":");
+	if (!exchangePattern || !rawSymbolPattern) {
 		return false;
 	}
 
@@ -727,11 +767,25 @@ function isMarketPatternMatch(
 		return false;
 	}
 
+	const parsedPattern = parseMarketPattern(rawSymbolPattern);
+	if (
+		parsedPattern.requiredMarketType !== undefined &&
+		parsedPattern.requiredMarketType !== marketType
+	) {
+		return false;
+	}
+
+	const symbolPattern = parsedPattern.symbolPattern.toUpperCase();
 	if (symbolPattern === "*") {
 		return true;
 	}
 
-	return symbolPattern === directPair || symbolPattern === reversePair;
+	return (
+		symbolPattern === directPair ||
+		symbolPattern === reversePair ||
+		symbolPattern === `${directPair}:${toToken}` ||
+		symbolPattern === `${reversePair}:${fromToken}`
+	);
 }
 
 function getMatchedMarketPatterns(
@@ -739,9 +793,10 @@ function getMatchedMarketPatterns(
 	broker: string,
 	fromToken: string,
 	toToken: string,
+	marketType: BrokerMarketType = "spot",
 ): string[] {
 	return markets.filter((pattern) =>
-		isMarketPatternMatch(pattern, broker, fromToken, toToken),
+		isMarketPatternMatch(pattern, broker, fromToken, toToken, marketType),
 	);
 }
 
@@ -788,35 +843,37 @@ export async function resolveOrderExecution(
 	toToken: string,
 	amount: number,
 	price: number,
+	marketTypeInput?: unknown,
 ): Promise<OrderExecutionResolution> {
 	const brokerUpper = cex.trim().toUpperCase();
 	const fromUpper = fromToken.trim().toUpperCase();
 	const toUpper = toToken.trim().toUpperCase();
+	const marketType = parseMarketType(marketTypeInput);
 	const matchedPatterns = getMatchedMarketPatterns(
 		policy.order.rule.markets,
 		brokerUpper,
 		fromUpper,
 		toUpper,
+		marketType,
 	);
 	if (matchedPatterns.length === 0) {
 		return {
 			valid: false,
-			error: `Market ${brokerUpper}:${fromUpper}/${toUpper} is not allowed. Allowed markets: ${policy.order.rule.markets.join(", ")}`,
+			error: `Market ${brokerUpper}:${fromUpper}/${toUpper} (${marketType}) is not allowed. Allowed markets: ${policy.order.rule.markets.join(", ")}`,
 			matchedPatterns,
 		};
 	}
 
-	const directSymbol = `${fromUpper}/${toUpper}`;
-	const reverseSymbol = `${toUpper}/${fromUpper}`;
-	const hasDirectSymbol = await doesExchangeSupportSymbol(broker, directSymbol);
-	const hasReverseSymbol = await doesExchangeSupportSymbol(
+	const tradable = await findTradableSymbol(
 		broker,
-		reverseSymbol,
+		fromUpper,
+		toUpper,
+		marketType,
 	);
-	if (!hasDirectSymbol && !hasReverseSymbol) {
+	if (!tradable) {
 		return {
 			valid: false,
-			error: `Exchange ${brokerUpper} does not support ${directSymbol} or ${reverseSymbol}`,
+			error: `Exchange ${brokerUpper} does not support ${fromUpper}/${toUpper} for marketType ${marketType}`,
 			matchedPatterns,
 		};
 	}
@@ -854,10 +911,10 @@ export async function resolveOrderExecution(
 		}
 	}
 
-	if (hasDirectSymbol) {
+	if (tradable.side === "sell") {
 		return {
 			valid: true,
-			symbol: directSymbol,
+			symbol: tradable.symbol,
 			side: "sell",
 			amountBase: amount,
 			limitsApplied: limits.length > 0,
@@ -877,7 +934,7 @@ export async function resolveOrderExecution(
 
 	return {
 		valid: true,
-		symbol: reverseSymbol,
+		symbol: tradable.symbol,
 		side: "buy",
 		amountBase: amount / price,
 		limitsApplied: limits.length > 0,
@@ -901,7 +958,7 @@ export function validateDeposit(
 	}
 
 	const exchangeNorm = exchange.trim().toUpperCase();
-	const networkNorm = network.trim().toUpperCase();
+	const networkNorm = normalizeBrokerNetworkId(network);
 	const tickerNorm = ticker.trim().toUpperCase();
 
 	const matchingRules = normalizedPolicy.deposit.rule

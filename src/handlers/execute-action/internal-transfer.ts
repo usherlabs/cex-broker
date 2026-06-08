@@ -1,0 +1,147 @@
+import * as grpc from "@grpc/grpc-js";
+import {
+	BrokerAccountPreconditionError,
+	buildHttpClientOverrideFromMetadata,
+	getCurrentBrokerSelector,
+	resolveBrokerAccount,
+	transferBinanceInternal,
+	verityHttpClientOverridePredicate,
+} from "../../helpers";
+import { mapCcxtErrorToGrpcStatus } from "../../helpers/grpc/status";
+import { log } from "../../helpers/logger";
+import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
+import { InternalTransferPayloadSchema } from "../../schemas/action-payloads";
+import type { ExecuteActionContext } from "./context";
+import { parsePayloadForAction, rejectWithGrpcError } from "./context";
+
+export async function handleInternalTransfer(
+	ctx: ExecuteActionContext,
+): Promise<void> {
+	const {
+		call,
+		wrappedCallback,
+		policy,
+		brokers,
+		metadata,
+		normalizedCex,
+		cex,
+		symbol,
+		selectedBrokerAccount,
+		broker,
+		verity,
+		applyVerityToBroker,
+		useVerity,
+		verityProverUrl,
+		otelMetrics,
+	} = ctx;
+	const verityProof = verity.proof;
+
+	if (!symbol) {
+		return ctx.wrappedCallback(
+			{
+				code: grpc.status.INVALID_ARGUMENT,
+				message: `ValidationError: Symbol required`,
+			},
+			null,
+		);
+	}
+	const transferPayload = parsePayloadForAction(
+		ctx,
+		InternalTransferPayloadSchema,
+	);
+	if (transferPayload === null) return;
+	if (normalizedCex !== "binance") {
+		return ctx.wrappedCallback(
+			{
+				code: grpc.status.UNIMPLEMENTED,
+				message: `InternalTransfer is only supported for Binance`,
+			},
+			null,
+		);
+	}
+	const pool = brokers[normalizedCex as keyof typeof brokers];
+	if (!pool) {
+		return ctx.wrappedCallback(
+			{
+				code: grpc.status.FAILED_PRECONDITION,
+				message: `No broker accounts configured for ${normalizedCex}`,
+			},
+			null,
+		);
+	}
+	const fromSelector =
+		transferPayload.fromAccount ?? getCurrentBrokerSelector(metadata);
+	const toSelector = transferPayload.toAccount ?? "primary";
+	const sourceAccount = resolveBrokerAccount(pool, fromSelector);
+	if (!sourceAccount) {
+		return ctx.wrappedCallback(
+			{
+				code: grpc.status.INVALID_ARGUMENT,
+				message: `Source account "${fromSelector}" is not configured`,
+			},
+			null,
+		);
+	}
+	const destAccount = resolveBrokerAccount(pool, toSelector);
+	if (!destAccount) {
+		return ctx.wrappedCallback(
+			{
+				code: grpc.status.INVALID_ARGUMENT,
+				message: `Destination account "${toSelector}" is not configured`,
+			},
+			null,
+		);
+	}
+	try {
+		if (useVerity) {
+			sourceAccount.exchange.setHttpClientOverride(
+				buildHttpClientOverrideFromMetadata(
+					metadata,
+					verityProverUrl,
+					(proof, notaryPubKey) => {
+						ctx.verity.proof = proof;
+						log.debug(`Verity proof:`, { proof, notaryPubKey });
+					},
+				),
+				verityHttpClientOverridePredicate,
+			);
+		}
+		const result = await transferBinanceInternal(
+			sourceAccount,
+			destAccount,
+			symbol,
+			transferPayload.amount,
+		);
+		ctx.wrappedCallback(null, {
+			proof: ctx.verity.proof,
+			result: JSON.stringify(result),
+		});
+	} catch (error) {
+		safeLogError("InternalTransfer failed", error);
+		if (error instanceof BrokerAccountPreconditionError) {
+			return ctx.wrappedCallback(
+				{
+					code: grpc.status.FAILED_PRECONDITION,
+					message: getErrorMessage(error),
+				},
+				null,
+			);
+		}
+		const msg = getErrorMessage(error);
+		let code: grpc.status;
+		if (msg.includes("Unsupported transfer direction")) {
+			code = grpc.status.INVALID_ARGUMENT;
+		} else if (msg.includes("unavailable in this CCXT build")) {
+			code = grpc.status.UNIMPLEMENTED;
+		} else {
+			code = mapCcxtErrorToGrpcStatus(error) ?? grpc.status.INTERNAL;
+		}
+		ctx.wrappedCallback(
+			{
+				code,
+				message: `InternalTransfer failed: ${msg}`,
+			},
+			null,
+		);
+	}
+}

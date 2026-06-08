@@ -14,7 +14,7 @@
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"devDependencies": {
-		"@biomejs/biome": "2.0.6",
+		"@biomejs/biome": "^2.4.16",
 		"@types/bun": "latest",
 		"bun-plugin-dts": "latest",
 		"bun-types": "latest",
@@ -43,6 +43,7 @@
 		"lint:fix": "bunx biome lint --write",
 		"check": "bunx biome check",
 		"check:fix": "bunx biome check --write",
+		"check:server-lines": "bash scripts/check-server-line-budget.sh",
 		"copy:dts": "cpx \"build/**/*.d.ts\" ./dist/",
 		"copy:proto": "cpx \"src/proto/*.proto\" ./dist/proto",
 		"prepare": "bunx husky"
