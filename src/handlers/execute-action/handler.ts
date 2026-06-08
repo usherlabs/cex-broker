@@ -163,7 +163,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				return wrappedCallback(
 					{
 						code: grpc.status.UNAUTHENTICATED,
-						message: `This Exchange is not registered and No API metadata ws found`,
+						message: `This Exchange is not registered and No API metadata was found`,
 					},
 					null,
 				);
