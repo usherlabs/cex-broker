@@ -232,17 +232,22 @@ export function createBrokerPool(
 		const secondaryEntries =
 			secondaryEntriesFromValidated ?? secondaryEntriesFromMap;
 
-		secondaryEntries.forEach(([index, sec]) => {
-			const secEx = createBrokerAccount(
-				brokerName,
-				`secondary:${index}`,
-				sec,
-				index,
-			);
-			if (secEx) secondaryBrokers[index - 1] = secEx;
-			else
-				log.warn(`⚠️ Failed to create secondary #${index} for "${brokerName}"`);
-		});
+		secondaryEntries
+			.filter(([index]) => Number.isInteger(index) && index > 0)
+			.sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+			.forEach(([index, sec]) => {
+				const secEx = createBrokerAccount(
+					brokerName,
+					`secondary:${index}`,
+					sec,
+					index,
+				);
+				if (secEx) secondaryBrokers.push(secEx);
+				else
+					log.warn(
+						`⚠️ Failed to create secondary #${index} for "${brokerName}"`,
+					);
+			});
 
 		pool[brokerName] = { primary, secondaryBrokers };
 		log.info(
@@ -288,7 +293,8 @@ export function resolveBrokerAccount(
 	}
 	const index = Number.parseInt(match[1] ?? "", 10);
 	return Number.isInteger(index) && index > 0
-		? (brokers.secondaryBrokers[index - 1] ?? null)
+		? (brokers.secondaryBrokers.find((account) => account.index === index) ??
+				null)
 		: null;
 }
 

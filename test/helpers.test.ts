@@ -1077,7 +1077,7 @@ describe("Helper Functions", () => {
 			expect(resolveBrokerAccount(pool, "secondary:3")).toBeNull();
 		});
 
-		test("should preserve sparse secondary indices and metadata from env-style config", () => {
+		test("should store env-style secondary accounts densely while resolving by configured index", () => {
 			const pool = createBrokerPool({
 				binance: {
 					apiKey: "primary-key",
@@ -1088,18 +1088,32 @@ describe("Helper Functions", () => {
 							apiSecret: "secondary-secret-2",
 							role: "subaccount",
 							email: "sub2@example.com",
+							subAccountId: "sub-account-2",
+							uid: "uid-2",
 						},
 					},
 				},
 			});
 
+			expect(pool.binance?.secondaryBrokers).toHaveLength(1);
+			expect(pool.binance?.secondaryBrokers[0]).toMatchObject({
+				label: "secondary:2",
+				index: 2,
+				role: "subaccount",
+				email: "sub2@example.com",
+				subAccountId: "sub-account-2",
+				uid: "uid-2",
+			});
 			expect(resolveBrokerAccount(pool.binance, "secondary:1")).toBeNull();
 			expect(resolveBrokerAccount(pool.binance, "secondary:2")).toMatchObject({
 				label: "secondary:2",
 				index: 2,
 				role: "subaccount",
 				email: "sub2@example.com",
+				subAccountId: "sub-account-2",
+				uid: "uid-2",
 			});
+			expect(resolveBrokerAccount(pool.binance, "secondary:3")).toBeNull();
 		});
 	});
 
