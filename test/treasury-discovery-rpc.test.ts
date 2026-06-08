@@ -609,6 +609,37 @@ describe("Treasury discovery and deposit observation RPC", () => {
 		});
 	});
 
+	test("rejects deposit observations with mismatched address", async () => {
+		const { exchange } = createTreasuryExchange({
+			deposits: [
+				{
+					txid: "0xtx",
+					amount: "25.5",
+					address: "0xother",
+					status: "ok",
+				},
+			],
+		});
+		const rpc = await start(exchange);
+
+		await expect(
+			executeAction(rpc, {
+				action: Action.Deposit,
+				cex: "binance",
+				symbol: "USDC",
+				payload: {
+					recipientAddress: "0xdeposit",
+					amount: "25.5",
+					transactionHash: "0xtx",
+				},
+			}),
+		).rejects.toMatchObject({
+			code: grpc.status.FAILED_PRECONDITION,
+			details:
+				"deposit_address_mismatch: expected address 0xdeposit, observed 0xother",
+		});
+	});
+
 	test("keeps pre-existing balance fetch action backward compatible", async () => {
 		const { exchange, calls } = createTreasuryExchange({
 			balances: { USDC: 42, ARB: 7 },

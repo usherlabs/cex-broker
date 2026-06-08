@@ -12,6 +12,12 @@ describe("deposit helpers", () => {
 		expect(normalizeDepositStatus("pending")).toBe("pending");
 	});
 
+	test("normalizeDepositStatus keeps empty and unknown states pending", () => {
+		expect(normalizeDepositStatus(undefined)).toBe("pending");
+		expect(normalizeDepositStatus("")).toBe("pending");
+		expect(normalizeDepositStatus("not-yet-indexed")).toBe("pending");
+	});
+
 	test("depositMatchesTransaction matches txid", () => {
 		expect(depositMatchesTransaction({ txid: "0xabc" }, "0xabc")).toBe(true);
 	});

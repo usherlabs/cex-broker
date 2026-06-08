@@ -7,10 +7,6 @@ import {
 	normalizeDepositStatus,
 	stringAmountEquals,
 } from "../../helpers/deposit";
-import {
-	mapCcxtErrorToGrpcStatus,
-	stableGrpcErrorCode,
-} from "../../helpers/grpc/status";
 import { log } from "../../helpers/logger";
 import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
 import {
@@ -23,24 +19,7 @@ import type { ExecuteActionContext } from "./context";
 import { parsePayloadForAction, rejectWithGrpcError } from "./context";
 
 export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
-	const {
-		call,
-		wrappedCallback,
-		policy,
-		brokers,
-		metadata,
-		normalizedCex,
-		cex,
-		symbol,
-		selectedBrokerAccount,
-		broker,
-		verity,
-		applyVerityToBroker,
-		useVerity,
-		verityProverUrl,
-		otelMetrics,
-	} = ctx;
-	const verityProof = verity.proof;
+	const { normalizedCex, symbol, selectedBrokerAccount, broker } = ctx;
 
 	if (!symbol) {
 		return ctx.wrappedCallback(
@@ -130,7 +109,7 @@ export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
 				return ctx.wrappedCallback(
 					{
 						code: grpc.status.FAILED_PRECONDITION,
-						message: `deposit_amount_mismatch: expected address ${value.recipientAddress}, observed ${String(observedAddress)}`,
+						message: `deposit_address_mismatch: expected address ${value.recipientAddress}, observed ${String(observedAddress)}`,
 					},
 					null,
 				);

@@ -5,8 +5,8 @@ import { handleDeposit } from "./deposit";
 import { handleInternalTransfer } from "./internal-transfer";
 import { handleOrders } from "./orders";
 import { handlePassThrough } from "./pass-through";
-import { handleTreasuryCall } from "./treasury-call";
 import { handlePerpConfig } from "./perp-config";
+import { handleTreasuryCall } from "./treasury-call";
 import { handleWithdraw } from "./withdraw";
 
 /** Maps each ExecuteAction to its handler module. Cluster routers (orders, pass-through) are registered per action. */

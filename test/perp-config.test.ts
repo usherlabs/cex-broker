@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
-import { Action } from "../src/helpers/constants";
-import { handlePerpConfig } from "../src/handlers/execute-action/perp-config";
 import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
+import { handlePerpConfig } from "../src/handlers/execute-action/perp-config";
+import { Action } from "../src/helpers/constants";
 
 function createContext(
 	broker: Exchange | null,

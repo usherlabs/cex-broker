@@ -1,15 +1,15 @@
 import * as grpc from "@grpc/grpc-js";
 import { validateDeposit } from "../../helpers";
-import {
-	marketTypeToCcxtType,
-	parseMarketType,
-} from "../../helpers/market-type";
 import { Action } from "../../helpers/constants";
 import {
 	mapCcxtErrorToGrpcStatus,
 	stableGrpcErrorCode,
 } from "../../helpers/grpc/status";
 import { log } from "../../helpers/logger";
+import {
+	marketTypeToCcxtType,
+	parseMarketType,
+} from "../../helpers/market-type";
 import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
 import {
 	buildTransferNetworkEvidence,

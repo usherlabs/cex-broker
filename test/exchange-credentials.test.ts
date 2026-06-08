@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createBroker } from "../src/helpers/index";
 import {
 	buildCcxtConfig,
 	isWalletBasedExchange,
 } from "../src/helpers/exchange-credentials";
+import { createBroker } from "../src/helpers/index";
 
 const WALLET_ADDRESS = "0x1234567890abcdef1234567890abcdef12345678";
 const PRIVATE_KEY =

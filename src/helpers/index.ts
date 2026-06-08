@@ -17,13 +17,13 @@ import type {
 } from "../types";
 import { CCXT_METHODS_WITH_VERITY } from "./constants";
 import { buildCcxtConfig } from "./exchange-credentials";
+import { log } from "./logger";
 import {
 	type BrokerMarketType,
 	findTradableSymbol,
 	parseMarketPattern,
 	parseMarketType,
 } from "./market-type";
-import { log } from "./logger";
 
 export type BrokerAccount = {
 	exchange: Exchange;

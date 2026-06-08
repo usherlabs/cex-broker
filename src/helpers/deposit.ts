@@ -41,7 +41,7 @@ export function normalizeDepositStatus(
 	if (["pending", "processing", "confirming", "waiting"].includes(normalized)) {
 		return "pending";
 	}
-	return normalized ? "pending" : "credited";
+	return "pending";
 }
 
 export function depositMatchesTransaction(
