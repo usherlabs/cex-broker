@@ -11,25 +11,7 @@ import { parsePayloadForAction, rejectWithGrpcError } from "./context";
 export async function handleTreasuryCall(
 	ctx: ExecuteActionContext,
 ): Promise<void> {
-	const {
-		call,
-		wrappedCallback,
-		policy,
-		brokers,
-		metadata,
-		normalizedCex,
-		cex,
-		symbol,
-		selectedBrokerAccount,
-		broker,
-		verity,
-		applyVerityToBroker,
-		useVerity,
-		verityProverUrl,
-		otelMetrics,
-	} = ctx;
-	const verityProof = verity.proof;
-
+	const { broker } = ctx;
 	const callValue = parsePayloadForAction(ctx, CallPayloadSchema);
 	if (callValue === null) return;
 	try {
@@ -65,7 +47,10 @@ export async function handleTreasuryCall(
 		const fn = (broker as unknown as Record<string, unknown>)[
 			callValue.functionName
 		];
-		if (typeof fn !== "function" || !broker.has[callValue.functionName]) {
+		if (
+			typeof fn !== "function" ||
+			broker.has?.[callValue.functionName] === false
+		) {
 			return ctx.wrappedCallback(
 				{
 					code: grpc.status.INVALID_ARGUMENT,

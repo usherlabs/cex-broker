@@ -180,6 +180,42 @@ describe("Treasury discovery and deposit observation RPC", () => {
 		expect(calls.loadMarkets).toHaveLength(1);
 	});
 
+	test("allows callable treasury methods when capability metadata is missing", async () => {
+		const { exchange, calls } = createTreasuryExchange();
+		const rpc = await start(exchange);
+
+		const response = await executeAction(rpc, {
+			action: Action.Call,
+			cex: "binance",
+			payload: { functionName: "fetchTotalBalance", args: "[]", params: "{}" },
+		});
+
+		expect(JSON.parse(response.result)).toEqual({ USDC: 42 });
+		expect(calls.fetchTotalBalance).toHaveLength(1);
+	});
+
+	test("rejects callable treasury methods when capability is explicitly false", async () => {
+		const { exchange, calls } = createTreasuryExchange({
+			has: { fetchTotalBalance: false },
+		});
+		const rpc = await start(exchange);
+
+		await expect(
+			executeAction(rpc, {
+				action: Action.Call,
+				cex: "binance",
+				payload: {
+					functionName: "fetchTotalBalance",
+					args: "[]",
+					params: "{}",
+				},
+			}),
+		).rejects.toMatchObject({
+			code: grpc.status.INVALID_ARGUMENT,
+		});
+		expect(calls.fetchTotalBalance).toHaveLength(0);
+	});
+
 	test("serves transfer-network metadata through FetchCurrency", async () => {
 		const { exchange } = createTreasuryExchange();
 		const rpc = await start(exchange);
