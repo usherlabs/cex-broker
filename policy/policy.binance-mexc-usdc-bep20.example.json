@@ -1,0 +1,41 @@
+{
+	"withdraw": {
+		"rule": [
+			{
+				"exchange": "BINANCE",
+				"network": "BEP20",
+				"coins": ["USDC"],
+				"whitelist": ["0x1111111111111111111111111111111111111111"]
+			},
+			{
+				"exchange": "MEXC",
+				"network": "BEP20",
+				"coins": ["USDC"],
+				"whitelist": ["0x2222222222222222222222222222222222222222"]
+			}
+		]
+	},
+	"deposit": {
+		"rule": [
+			{
+				"exchange": "MEXC",
+				"network": "BEP20",
+				"coins": ["USDC"]
+			},
+			{
+				"exchange": "BINANCE",
+				"network": "BEP20",
+				"coins": ["USDC"]
+			}
+		]
+	},
+	"order": {
+		"rule": {
+			"markets": ["BINANCE:ARB/USDC", "MEXC:ARB/USDC"],
+			"limits": [
+				{ "from": "USDC", "to": "ARB", "min": 1, "max": 10000 },
+				{ "from": "ARB", "to": "USDC", "min": 1, "max": 1000 }
+			]
+		}
+	}
+}

@@ -9,6 +9,7 @@ import {
 	createBrokerPool,
 	getCurrentBrokerSelector,
 	loadPolicy,
+	normalizeBrokerNetworkId,
 	resolveBrokerAccount,
 	resolveOrderExecution,
 	transferBinanceInternal,
@@ -107,6 +108,61 @@ describe("Helper Functions", () => {
 				fs.unlinkSync(tempPath);
 			}
 		});
+
+		test("should load narrow Binance/MEXC USDC BEP20 corridor policy", () => {
+			const policy = loadPolicy(
+				"./policy/policy.binance-mexc-usdc-bep20.example.json",
+			);
+
+			expect(policy.withdraw.rule).toEqual([
+				{
+					exchange: "BINANCE",
+					network: "BNB",
+					coins: ["USDC"],
+					whitelist: ["0x1111111111111111111111111111111111111111"],
+				},
+				{
+					exchange: "MEXC",
+					network: "BNB",
+					coins: ["USDC"],
+					whitelist: ["0x2222222222222222222222222222222222222222"],
+				},
+			]);
+			expect(
+				validateWithdraw(
+					policy,
+					"BINANCE",
+					"BSC",
+					"0x1111111111111111111111111111111111111111",
+					100,
+					"USDC",
+				).valid,
+			).toBe(true);
+			expect(
+				validateWithdraw(
+					policy,
+					"BINANCE",
+					"BEP20",
+					"0x1111111111111111111111111111111111111111",
+					100,
+					"ARB",
+				).valid,
+			).toBe(false);
+			expect(
+				validateWithdraw(
+					policy,
+					"MEXC",
+					"BNB",
+					"0x1111111111111111111111111111111111111111",
+					100,
+					"USDC",
+				).valid,
+			).toBe(false);
+			expect(validateDeposit(policy, "MEXC", "BEP20", "USDC").valid).toBe(true);
+			expect(validateDeposit(policy, "MEXC", "BEP20", "USDT").valid).toBe(
+				false,
+			);
+		});
 	});
 
 	describe("validateWithdraw", () => {
@@ -135,7 +191,7 @@ describe("Helper Functions", () => {
 			);
 
 			expect(result.valid).toBe(false);
-			expect(result.error).toContain("Network ETH is not allowed");
+			expect(result.error).toContain("Network ETHEREUM is not allowed");
 		});
 
 		test("should reject non-whitelisted address", () => {
@@ -443,6 +499,45 @@ describe("Helper Functions", () => {
 			);
 			expect(result.valid).toBe(true);
 		});
+
+		test("should match BNB, BSC, and BEP20 network aliases", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				withdraw: {
+					rule: [
+						{
+							exchange: "BINANCE",
+							network: "BNB",
+							whitelist: ["0x9d467fa9062b6e9b1a46e26007ad82db116c67cb"],
+							coins: ["USDC"],
+						},
+					],
+				},
+			};
+
+			expect(normalizeBrokerNetworkId("BEP20")).toBe("BNB");
+			expect(normalizeBrokerNetworkId("BSC")).toBe("BNB");
+			expect(
+				validateWithdraw(
+					policy,
+					"BINANCE",
+					"BEP20",
+					"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+					1000,
+					"USDC",
+				).valid,
+			).toBe(true);
+			expect(
+				validateWithdraw(
+					policy,
+					"BINANCE",
+					"BSC",
+					"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb",
+					1000,
+					"USDC",
+				).valid,
+			).toBe(true);
+		});
 	});
 
 	describe("validateOrder", () => {
@@ -610,8 +705,28 @@ describe("Helper Functions", () => {
 	});
 
 	describe("resolveOrderExecution", () => {
-		function createBrokerMock(symbols: string[]): Exchange {
-			const markets = Object.fromEntries(symbols.map((symbol) => [symbol, {}]));
+		function createBrokerMock(
+			symbols: string[],
+			marketType: "spot" | "swap" = "spot",
+		): Exchange {
+			const markets = Object.fromEntries(
+				symbols.map((symbol) => {
+					const [baseQuote, settle] = symbol.split(":");
+					const [base, quote] = baseQuote.split("/");
+					return [
+						symbol,
+						{
+							symbol,
+							base,
+							quote,
+							type: marketType,
+							spot: marketType === "spot",
+							swap: marketType === "swap",
+							settle,
+						},
+					];
+				}),
+			);
 			return {
 				markets,
 				loadMarkets: async () => markets,
@@ -692,8 +807,70 @@ describe("Helper Functions", () => {
 
 			expect(result.valid).toBe(false);
 			expect(result.error).toContain(
-				"Exchange BINANCE does not support BTC/ETH or ETH/BTC",
+				"Exchange BINANCE does not support BTC/ETH for marketType spot",
 			);
+		});
+
+		test("should resolve swap market when marketType is swap", async () => {
+			const broker = createBrokerMock(["ETH/USDC", "ETH/USDC:USDC"], "swap");
+			(broker as Exchange & { markets: Record<string, unknown> }).markets[
+				"ETH/USDC"
+			] = {
+				symbol: "ETH/USDC",
+				base: "ETH",
+				quote: "USDC",
+				type: "spot",
+				spot: true,
+				swap: false,
+			};
+			const policy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						markets: ["HYPERLIQUID:ETH/USDC@swap"],
+						limits: [],
+					},
+				},
+			};
+			const result = await resolveOrderExecution(
+				policy,
+				broker,
+				"HYPERLIQUID",
+				"ETH",
+				"USDC",
+				1,
+				2500,
+				"swap",
+			);
+
+			expect(result.valid).toBe(true);
+			expect(result.symbol).toBe("ETH/USDC:USDC");
+		});
+
+		test("should reject swap request when policy requires spot only", async () => {
+			const broker = createBrokerMock(["ETH/USDC:USDC"], "swap");
+			const policy: PolicyConfig = {
+				...testPolicy,
+				order: {
+					rule: {
+						markets: ["HYPERLIQUID:ETH/USDC@spot"],
+						limits: [],
+					},
+				},
+			};
+			const result = await resolveOrderExecution(
+				policy,
+				broker,
+				"HYPERLIQUID",
+				"ETH",
+				"USDC",
+				1,
+				2500,
+				"swap",
+			);
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toContain("is not allowed");
 		});
 	});
 
@@ -819,6 +996,21 @@ describe("Helper Functions", () => {
 			expect(result.valid).toBe(true);
 		});
 
+		test("should match BNB, BSC, and BEP20 deposit aliases", () => {
+			const policy: PolicyConfig = {
+				...testPolicy,
+				deposit: {
+					rule: [{ exchange: "BINANCE", network: "BSC", coins: ["USDC"] }],
+				},
+			};
+			expect(validateDeposit(policy, "BINANCE", "BNB", "USDC").valid).toBe(
+				true,
+			);
+			expect(validateDeposit(policy, "BINANCE", "BEP20", "USDC").valid).toBe(
+				true,
+			);
+		});
+
 		test("should allow all coins when coins is empty array", () => {
 			const policy: PolicyConfig = {
 				...testPolicy,
@@ -885,7 +1077,7 @@ describe("Helper Functions", () => {
 			expect(resolveBrokerAccount(pool, "secondary:3")).toBeNull();
 		});
 
-		test("should preserve sparse secondary indices and metadata from env-style config", () => {
+		test("should store env-style secondary accounts densely while resolving by configured index", () => {
 			const pool = createBrokerPool({
 				binance: {
 					apiKey: "primary-key",
@@ -896,18 +1088,32 @@ describe("Helper Functions", () => {
 							apiSecret: "secondary-secret-2",
 							role: "subaccount",
 							email: "sub2@example.com",
+							subAccountId: "sub-account-2",
+							uid: "uid-2",
 						},
 					},
 				},
 			});
 
+			expect(pool.binance?.secondaryBrokers).toHaveLength(1);
+			expect(pool.binance?.secondaryBrokers[0]).toMatchObject({
+				label: "secondary:2",
+				index: 2,
+				role: "subaccount",
+				email: "sub2@example.com",
+				subAccountId: "sub-account-2",
+				uid: "uid-2",
+			});
 			expect(resolveBrokerAccount(pool.binance, "secondary:1")).toBeNull();
 			expect(resolveBrokerAccount(pool.binance, "secondary:2")).toMatchObject({
 				label: "secondary:2",
 				index: 2,
 				role: "subaccount",
 				email: "sub2@example.com",
+				subAccountId: "sub-account-2",
+				uid: "uid-2",
 			});
+			expect(resolveBrokerAccount(pool.binance, "secondary:3")).toBeNull();
 		});
 	});
 

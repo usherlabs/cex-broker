@@ -117,6 +117,8 @@ const descriptor = {
 						FetchAccountId: 11,
 						FetchFees: 12,
 						InternalTransfer: 13,
+						GetPerpConfigState: 14,
+						SetPerpConfigState: 15,
 					},
 				},
 			},
