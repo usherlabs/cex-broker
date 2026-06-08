@@ -6,11 +6,11 @@ import type {
 	SubscribeRequest,
 	SubscribeResponse,
 } from "../src/handlers/types";
+import type { BrokerPoolEntry } from "../src/helpers/broker";
 import {
 	SubscriptionType,
 	type SubscriptionType as SubscriptionTypeValue,
 } from "../src/helpers/constants";
-import type { BrokerPoolEntry } from "../src/helpers/index";
 
 type MockCallState = {
 	writes: SubscribeResponse[];
