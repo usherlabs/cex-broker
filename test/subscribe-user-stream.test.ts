@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { Exchange } from "@usherlabs/ccxt";
-import type { BrokerPoolEntry } from "../src/helpers";
+import type { BrokerPoolEntry } from "../src/helpers/broker";
 import { SubscriptionType } from "../src/helpers/constants";
 import { PROTO_LOADER_OPTIONS } from "../src/proto-loader-options";
 import { getServer } from "../src/server";

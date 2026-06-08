@@ -33,10 +33,13 @@ export async function dispatchExecuteAction(
 ): Promise<void> {
 	const handler = ACTION_HANDLERS[ctx.action];
 	if (!handler) {
-		ctx.wrappedCallback({
-			code: grpc.status.INVALID_ARGUMENT,
-			message: "Invalid Action",
-		});
+		ctx.wrappedCallback(
+			{
+				code: grpc.status.INVALID_ARGUMENT,
+				message: "Invalid Action",
+			},
+			null,
+		);
 		return;
 	}
 	await handler(ctx);

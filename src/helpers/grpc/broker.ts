@@ -6,7 +6,7 @@ import {
 	createBroker,
 	createPublicBroker,
 	selectBrokerAccount,
-} from "../index";
+} from "../broker";
 
 export function resolveActionBroker(
 	normalizedCex: string,

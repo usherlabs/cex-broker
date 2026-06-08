@@ -12,29 +12,20 @@ import { log } from "../../helpers/logger";
 import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
 import { InternalTransferPayloadSchema } from "../../schemas/action-payloads";
 import type { ExecuteActionContext } from "./context";
-import { parsePayloadForAction, rejectWithGrpcError } from "./context";
+import { parsePayloadForAction } from "./context";
 
 export async function handleInternalTransfer(
 	ctx: ExecuteActionContext,
 ): Promise<void> {
 	const {
-		call,
-		wrappedCallback,
-		policy,
 		brokers,
 		metadata,
 		normalizedCex,
-		cex,
 		symbol,
-		selectedBrokerAccount,
-		broker,
 		verity,
-		applyVerityToBroker,
 		useVerity,
 		verityProverUrl,
-		otelMetrics,
 	} = ctx;
-	const verityProof = verity.proof;
 
 	if (!symbol) {
 		return ctx.wrappedCallback(
@@ -99,7 +90,7 @@ export async function handleInternalTransfer(
 					metadata,
 					verityProverUrl,
 					(proof, notaryPubKey) => {
-						ctx.verity.proof = proof;
+						verity.proof = proof;
 						log.debug(`Verity proof:`, { proof, notaryPubKey });
 					},
 				),
@@ -113,7 +104,7 @@ export async function handleInternalTransfer(
 			transferPayload.amount,
 		);
 		ctx.wrappedCallback(null, {
-			proof: ctx.verity.proof,
+			proof: verity.proof,
 			result: JSON.stringify(result),
 		});
 	} catch (error) {

@@ -82,10 +82,14 @@ function signUserDataStreamParams(
 }
 
 export function getBinanceSpotWsApiUrl(exchange: Exchange): string {
-	const urls = exchange.urls as unknown as {
-		api?: { ws?: { "ws-api"?: { spot?: string } } };
-	};
-	return urls.api?.ws?.["ws-api"]?.spot ?? BINANCE_SPOT_WS_API_URL;
+	const urls = (
+		exchange as unknown as {
+			urls?: {
+				api?: { ws?: { "ws-api"?: { spot?: string } } };
+			};
+		}
+	).urls;
+	return urls?.api?.ws?.["ws-api"]?.spot ?? BINANCE_SPOT_WS_API_URL;
 }
 
 export class BinanceSpotUserDataStream

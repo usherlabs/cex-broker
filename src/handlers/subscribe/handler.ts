@@ -1,18 +1,18 @@
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
-import {
-	authenticateRequest,
-	type BrokerPoolEntry,
-	createBroker,
-	createPublicBroker,
-	selectBroker,
-} from "../../helpers";
+import { authenticateRequest } from "../../helpers/auth";
 import {
 	BinanceSpotUserDataStream,
 	type BinanceUserDataEvent,
 	isBinanceBalanceUserDataEvent,
 	isBinanceOrderUserDataEvent,
 } from "../../helpers/binance-user-data-stream";
+import {
+	type BrokerPoolEntry,
+	createBroker,
+	createPublicBroker,
+	selectBroker,
+} from "../../helpers/broker";
 import {
 	getSubscriptionTypeName,
 	resolveSubscriptionType,
@@ -232,11 +232,14 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		}
 
 		const metadata = call.metadata;
+		let subscriptionType: SubscriptionTypeValue = SubscriptionType.ORDERBOOK;
 
 		try {
 			const request = call.request as SubscribeRequest;
 			const { cex, symbol, type, options } = request;
-			const subscriptionType = resolveSubscriptionType(type);
+
+			// proto-loader with defaults:true materializes omitted enums as NO_ACTION.
+			subscriptionType = resolveSubscriptionType(type);
 
 			log.info(`Request - Subscribe:`, {
 				cex: request.cex,
@@ -516,7 +519,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				data: JSON.stringify({ error: `Internal server error: ${message}` }),
 				timestamp: Date.now(),
 				symbol: "",
-				type: SubscriptionType.ORDERBOOK,
+				type: subscriptionType,
 			});
 		}
 	};

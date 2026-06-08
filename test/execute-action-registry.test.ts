@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { ACTION_HANDLERS } from "../src/handlers/execute-action/registry";
+import * as grpc from "@grpc/grpc-js";
+import {
+	ACTION_HANDLERS,
+	dispatchExecuteAction,
+} from "../src/handlers/execute-action/registry";
 import { Action } from "../src/helpers/constants";
 
 const REGISTERED_ACTIONS = [
@@ -23,5 +27,26 @@ describe("execute-action registry", () => {
 		for (const action of REGISTERED_ACTIONS) {
 			expect(typeof ACTION_HANDLERS[action]).toBe("function");
 		}
+	});
+
+	test("rejects invalid actions with a unary callback error and null response", async () => {
+		const calls: unknown[][] = [];
+
+		await dispatchExecuteAction({
+			action: "InvalidAction",
+			wrappedCallback: (...args) => {
+				calls.push(args);
+			},
+		} as unknown as Parameters<typeof dispatchExecuteAction>[0]);
+
+		expect(calls).toEqual([
+			[
+				{
+					code: grpc.status.INVALID_ARGUMENT,
+					message: "Invalid Action",
+				},
+				null,
+			],
+		]);
 	});
 });

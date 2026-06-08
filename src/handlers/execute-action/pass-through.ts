@@ -51,7 +51,7 @@ async function handleFetchCurrency(ctx: ExecuteActionContext): Promise<void> {
 		return ctx.wrappedCallback(
 			{
 				code: grpc.status.INVALID_ARGUMENT,
-				message: `ValidationError: Symbol requied`,
+				message: `ValidationError: Symbol required`,
 			},
 			null,
 		);
@@ -339,7 +339,7 @@ async function handleFetchDepositAddresses(
 		return ctx.wrappedCallback(
 			{
 				code: grpc.status.INVALID_ARGUMENT,
-				message: `ValidationError: Symbol requied`,
+				message: `ValidationError: Symbol required`,
 			},
 			null,
 		);
@@ -538,7 +538,7 @@ async function handleFetchTicker(ctx: ExecuteActionContext): Promise<void> {
 		return ctx.wrappedCallback(
 			{
 				code: grpc.status.INVALID_ARGUMENT,
-				message: `ValidationError: Symbol requied`,
+				message: `ValidationError: Symbol required`,
 			},
 			null,
 		);
