@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import type { Exchange } from "@usherlabs/ccxt";
+import WebSocket from "ws";
 
 export const BINANCE_SPOT_WS_API_URL = "wss://ws-api.binance.com:443/ws-api/v3";
 
@@ -28,18 +29,6 @@ type WebSocketLike = {
 	send(data: string): void;
 	close(code?: number, reason?: string): void;
 };
-
-type WebSocketConstructor = new (url: string) => WebSocketLike;
-
-function getWebSocketConstructor(): WebSocketConstructor {
-	const WebSocketCtor = globalThis.WebSocket as unknown as
-		| WebSocketConstructor
-		| undefined;
-	if (!WebSocketCtor) {
-		throw new Error("WebSocket is not available in this runtime");
-	}
-	return WebSocketCtor;
-}
 
 function getExchangeString(
 	exchange: Exchange,
@@ -92,6 +81,54 @@ export function getBinanceSpotWsApiUrl(exchange: Exchange): string {
 	return urls?.api?.ws?.["ws-api"]?.spot ?? BINANCE_SPOT_WS_API_URL;
 }
 
+function getRecord(value: unknown): Record<string, unknown> | null {
+	return typeof value === "object" && value !== null
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function getMessage(value: unknown): string | null {
+	if (value instanceof Error) {
+		return value.message;
+	}
+	if (typeof value === "string" && value.length > 0) {
+		return value;
+	}
+	const record = getRecord(value);
+	const message = record?.message;
+	return typeof message === "string" && message.length > 0 ? message : null;
+}
+
+function formatBinanceUserDataWebSocketError(event: unknown): Error {
+	const record = getRecord(event);
+	const message =
+		getMessage(record?.error) ??
+		getMessage(record?.message) ??
+		getMessage(event);
+	return new Error(
+		message
+			? `Binance user-data WebSocket error: ${message}`
+			: "Binance user-data WebSocket error",
+	);
+}
+
+function formatBinanceUserDataWebSocketClose(event: unknown): Error {
+	const record = getRecord(event);
+	const code = record?.code;
+	const reason = record?.reason;
+	const details = [
+		typeof code === "number" || typeof code === "string"
+			? `code=${code}`
+			: null,
+		typeof reason === "string" && reason.length > 0 ? `reason=${reason}` : null,
+	].filter((detail): detail is string => detail !== null);
+	return new Error(
+		details.length > 0
+			? `Binance user-data WebSocket closed unexpectedly (${details.join(", ")})`
+			: "Binance user-data WebSocket closed unexpectedly",
+	);
+}
+
 export class BinanceSpotUserDataStream
 	implements AsyncIterable<BinanceUserDataEvent>
 {
@@ -107,17 +144,12 @@ export class BinanceSpotUserDataStream
 	private subscriptionId: number | null = null;
 
 	constructor(private readonly exchange: Exchange) {
-		const WebSocketCtor = getWebSocketConstructor();
-		this.ws = new WebSocketCtor(getBinanceSpotWsApiUrl(exchange));
+		this.ws = new WebSocket(getBinanceSpotWsApiUrl(exchange)) as WebSocketLike;
 		this.ws.onopen = () => this.subscribe();
 		this.ws.onmessage = (message) => this.handleMessage(message.data);
 		this.ws.onerror = (error) =>
-			this.fail(
-				error instanceof Error
-					? error
-					: new Error("Binance user-data WebSocket error"),
-			);
-		this.ws.onclose = () => this.close();
+			this.fail(formatBinanceUserDataWebSocketError(error));
+		this.ws.onclose = (event) => this.handleClose(event);
 	}
 
 	async *[Symbol.asyncIterator](): AsyncIterator<BinanceUserDataEvent> {
@@ -141,6 +173,13 @@ export class BinanceSpotUserDataStream
 			// Closing is best-effort; stream cancellation should still unblock waiters.
 		}
 		this.flushWaiters();
+	}
+
+	private handleClose(event: unknown): void {
+		if (this.closed) {
+			return;
+		}
+		this.fail(formatBinanceUserDataWebSocketClose(event));
 	}
 
 	private subscribe(): void {
