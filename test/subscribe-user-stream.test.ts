@@ -3,7 +3,10 @@ import { Buffer } from "node:buffer";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { Exchange } from "@usherlabs/ccxt";
-import { setBinanceUserDataWebSocketFactoryForTests } from "../src/helpers/binance-user-data-stream";
+import {
+	BinanceSpotUserDataStream,
+	setBinanceUserDataWebSocketFactoryForTests,
+} from "../src/helpers/binance-user-data-stream";
 import type { BrokerPoolEntry } from "../src/helpers/broker";
 import { SubscriptionType } from "../src/helpers/constants";
 import { PROTO_LOADER_OPTIONS } from "../src/proto-loader-options";
@@ -272,6 +275,43 @@ describe("Binance Subscribe user-data streams", () => {
 		);
 		return client;
 	}
+
+	test("closes Binance user-data stream when unread WebSocket events exceed the bounded buffer", async () => {
+		const primary = createBinanceExchange("primary-key", "primary-secret");
+		const stream = new BinanceSpotUserDataStream(primary.exchange, {
+			maxBufferedEvents: 1,
+		});
+
+		try {
+			const iterator = stream[Symbol.asyncIterator]();
+			const socket = await waitForSocket();
+			socket.emitEvent({
+				e: "outboundAccountPosition",
+				E: 1,
+				B: [{ a: "BTC", f: "1.0", l: "0.0" }],
+			});
+			socket.emitEvent({
+				e: "outboundAccountPosition",
+				E: 2,
+				B: [{ a: "ETH", f: "2.0", l: "0.0" }],
+			});
+
+			let error: unknown;
+			try {
+				await iterator.next();
+			} catch (caught) {
+				error = caught;
+			}
+
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).toContain(
+				"Binance user-data stream buffered event limit exceeded (1)",
+			);
+			expect(socket.closed).toBe(true);
+		} finally {
+			stream.close();
+		}
+	});
 
 	test("streams Binance BALANCE frames through WebSocket API user-data subscription", async () => {
 		expect(globalThis.WebSocket).toBeUndefined();
