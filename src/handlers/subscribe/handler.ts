@@ -56,25 +56,64 @@ function isBinanceSpotAccountSubscription(
 	);
 }
 
-function writeSubscribeFrame(
+function waitForSubscribeDrain(
+	call: SubscribeCall,
+	isClosed: () => boolean,
+): Promise<boolean> {
+	if (isClosed() || call.destroyed) {
+		return Promise.resolve(false);
+	}
+
+	return new Promise((resolve) => {
+		let settled = false;
+		const cleanup = () => {
+			call.off("drain", onDrain);
+			call.off("close", onClosed);
+			call.off("cancelled", onClosed);
+			call.off("end", onClosed);
+			call.off("error", onClosed);
+		};
+		const settle = (drained: boolean) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			cleanup();
+			resolve(drained && !isClosed() && !call.destroyed);
+		};
+		const onDrain = () => settle(true);
+		const onClosed = () => settle(false);
+
+		call.once("drain", onDrain);
+		call.once("close", onClosed);
+		call.once("cancelled", onClosed);
+		call.once("end", onClosed);
+		call.once("error", onClosed);
+	});
+}
+
+async function writeSubscribeFrame(
 	call: SubscribeCall,
 	isClosed: () => boolean,
 	frame: SubscribeResponse,
-): boolean {
+): Promise<boolean> {
 	if (isClosed() || call.destroyed) {
 		return false;
 	}
-	call.write(frame);
-	return true;
+	const canContinue = call.write(frame);
+	if (canContinue) {
+		return true;
+	}
+	return waitForSubscribeDrain(call, isClosed);
 }
 
-function writeSubscribeError(
+async function writeSubscribeError(
 	call: SubscribeCall,
 	isClosed: () => boolean,
 	frame: SubscribeResponse,
-): void {
-	writeSubscribeFrame(call, isClosed, frame);
-	if (!isClosed() && !call.destroyed) {
+): Promise<void> {
+	const frameWritten = await writeSubscribeFrame(call, isClosed, frame);
+	if (frameWritten && !isClosed() && !call.destroyed) {
 		call.end();
 	}
 }
@@ -145,7 +184,7 @@ async function streamBinanceUserData(
 			}
 
 			if (
-				!writeSubscribeFrame(call, isClosed, {
+				!(await writeSubscribeFrame(call, isClosed, {
 					data: JSON.stringify({
 						subscriptionId: message.subscriptionId,
 						event,
@@ -153,7 +192,7 @@ async function streamBinanceUserData(
 					timestamp: Date.now(),
 					symbol,
 					type: subscriptionType,
-				})
+				}))
 			) {
 				break;
 			}
@@ -173,12 +212,12 @@ async function runCcxtSubscribeLoop(
 	while (!isClosed()) {
 		const data = await watch();
 		if (
-			!writeSubscribeFrame(call, isClosed, {
+			!(await writeSubscribeFrame(call, isClosed, {
 				data: JSON.stringify(data),
 				timestamp: Date.now(),
 				symbol,
 				type: subscriptionType,
-			})
+			}))
 		) {
 			break;
 		}
@@ -255,7 +294,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			});
 
 			if (!cex || !symbol) {
-				writeSubscribeError(call, isStreamClosed, {
+				await writeSubscribeError(call, isStreamClosed, {
 					data: JSON.stringify({
 						error: "cex, symbol, and type are required",
 					}),
@@ -275,7 +314,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			const broker = selectedBroker ?? createPublicBroker(normalizedCex);
 
 			if (!broker) {
-				writeSubscribeError(call, isStreamClosed, {
+				await writeSubscribeError(call, isStreamClosed, {
 					data: JSON.stringify({
 						error: "Exchange not registered and no API metadata found",
 					}),
@@ -300,7 +339,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				)
 			) {
 				if (!selectedBroker) {
-					writeSubscribeError(call, isStreamClosed, {
+					await writeSubscribeError(call, isStreamClosed, {
 						data: JSON.stringify({
 							error: "Binance account subscriptions require API credentials",
 						}),
@@ -333,7 +372,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 									: await broker.watchOrderBook(resolvedSymbol, depthLimit);
 							const receivedTimestamp = Date.now();
 							if (
-								!writeSubscribeFrame(call, isStreamClosed, {
+								!(await writeSubscribeFrame(call, isStreamClosed, {
 									data: JSON.stringify(
 										normalizeOrderBookSnapshot(orderbook, {
 											exchange: normalizedCex,
@@ -354,7 +393,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 									timestamp: receivedTimestamp,
 									symbol: resolvedSymbol,
 									type: subscriptionType,
-								})
+								}))
 							) {
 								break;
 							}
@@ -365,7 +404,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							error,
 						);
 						const message = getErrorMessage(error);
-						writeSubscribeError(call, isStreamClosed, {
+						await writeSubscribeError(call, isStreamClosed, {
 							data: JSON.stringify({
 								error: `Failed to fetch orderbook: ${message}`,
 							}),
@@ -391,7 +430,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							`Error fetching trades for ${resolvedSymbol} on ${cex}:`,
 							error,
 						);
-						writeSubscribeError(call, isStreamClosed, {
+						await writeSubscribeError(call, isStreamClosed, {
 							data: JSON.stringify({
 								error: `Failed to fetch trades: ${message}`,
 							}),
@@ -417,7 +456,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							`Error fetching ticker for ${resolvedSymbol} on ${cex}:`,
 							error,
 						);
-						writeSubscribeError(call, isStreamClosed, {
+						await writeSubscribeError(call, isStreamClosed, {
 							data: JSON.stringify({
 								error: `Failed to fetch ticker: ${message}`,
 							}),
@@ -444,7 +483,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							error,
 						);
 						const message = getErrorMessage(error);
-						writeSubscribeError(call, isStreamClosed, {
+						await writeSubscribeError(call, isStreamClosed, {
 							data: JSON.stringify({
 								error: `Failed to fetch OHLCV: ${message}`,
 							}),
@@ -467,7 +506,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					} catch (error: unknown) {
 						const message = getErrorMessage(error);
 						log.error(`Error fetching balance for ${cex}:`, error);
-						writeSubscribeError(call, isStreamClosed, {
+						await writeSubscribeError(call, isStreamClosed, {
 							data: JSON.stringify({
 								error: `Failed to fetch balance: ${message}`,
 							}),
@@ -493,7 +532,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							error,
 						);
 						const message = getErrorMessage(error);
-						writeSubscribeError(call, isStreamClosed, {
+						await writeSubscribeError(call, isStreamClosed, {
 							data: JSON.stringify({
 								error: `Failed to fetch orders: ${message}`,
 							}),
@@ -505,7 +544,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					break;
 
 				default:
-					writeSubscribeError(call, isStreamClosed, {
+					await writeSubscribeError(call, isStreamClosed, {
 						data: JSON.stringify({ error: "Invalid subscription type" }),
 						timestamp: Date.now(),
 						symbol,
@@ -515,7 +554,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		} catch (error) {
 			log.error("Error in Subscribe stream:", error);
 			const message = getErrorMessage(error);
-			writeSubscribeError(call, isStreamClosed, {
+			await writeSubscribeError(call, isStreamClosed, {
 				data: JSON.stringify({ error: `Internal server error: ${message}` }),
 				timestamp: Date.now(),
 				symbol: "",

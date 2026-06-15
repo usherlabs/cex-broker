@@ -4,6 +4,7 @@ import type { Exchange } from "@usherlabs/ccxt";
 import WebSocket from "ws";
 
 export const BINANCE_SPOT_WS_API_URL = "wss://ws-api.binance.com:443/ws-api/v3";
+export const DEFAULT_BINANCE_USER_DATA_MAX_BUFFERED_EVENTS = 16;
 
 export type BinanceUserDataEvent = {
 	subscriptionId: number;
@@ -35,6 +36,10 @@ type WebSocketLike = {
 };
 
 type WebSocketFactory = (url: string) => WebSocketLike;
+
+type BinanceSpotUserDataStreamOptions = {
+	maxBufferedEvents?: number;
+};
 
 let createWebSocket: WebSocketFactory = (url) =>
 	new WebSocket(url) as WebSocketLike;
@@ -230,6 +235,7 @@ export class BinanceSpotUserDataStream
 	private readonly ws: WebSocketLike;
 	private readonly secretValues: string[];
 	private readonly requestId = `user-data-${Date.now()}-${Math.random()}`;
+	private readonly maxBufferedEvents: number;
 	private readonly queue: BinanceUserDataEvent[] = [];
 	private readonly waiters: Array<{
 		resolve: (event: BinanceUserDataEvent | null) => void;
@@ -239,7 +245,13 @@ export class BinanceSpotUserDataStream
 	private closeError: Error | null = null;
 	private subscriptionId: number | null = null;
 
-	constructor(private readonly exchange: Exchange) {
+	constructor(
+		private readonly exchange: Exchange,
+		options: BinanceSpotUserDataStreamOptions = {},
+	) {
+		this.maxBufferedEvents =
+			options.maxBufferedEvents ??
+			DEFAULT_BINANCE_USER_DATA_MAX_BUFFERED_EVENTS;
 		this.secretValues = [
 			getOptionalExchangeString(exchange, "apiKey"),
 			getOptionalExchangeString(exchange, "secret"),
@@ -268,6 +280,7 @@ export class BinanceSpotUserDataStream
 			return;
 		}
 		this.closed = true;
+		this.queue.length = 0;
 		try {
 			this.ws.close();
 		} catch {
@@ -301,6 +314,10 @@ export class BinanceSpotUserDataStream
 	}
 
 	private handleMessage(data: unknown): void {
+		if (this.closed) {
+			return;
+		}
+
 		let message: BinanceUserDataMessage;
 		try {
 			const decodedData = decodeMessageData(data);
@@ -343,9 +360,21 @@ export class BinanceSpotUserDataStream
 	}
 
 	private push(event: BinanceUserDataEvent): void {
+		if (this.closed) {
+			return;
+		}
+
 		const waiter = this.waiters.shift();
 		if (waiter) {
 			waiter.resolve(event);
+			return;
+		}
+		if (this.queue.length >= this.maxBufferedEvents) {
+			this.fail(
+				new Error(
+					`Binance user-data stream buffered event limit exceeded (${this.maxBufferedEvents}); downstream consumer is not keeping up`,
+				),
+			);
 			return;
 		}
 		this.queue.push(event);
@@ -373,6 +402,7 @@ export class BinanceSpotUserDataStream
 		}
 		this.closeError = error;
 		this.closed = true;
+		this.queue.length = 0;
 		this.flushWaiters();
 		try {
 			this.ws.close();
