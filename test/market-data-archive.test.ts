@@ -7,7 +7,10 @@ import {
 	parseOhlcvBar,
 } from "../src/helpers/market-data-archive/ohlcv-bar-tracker";
 import { resolveOhlcvBootstrapLimit } from "../src/helpers/market-data-archive/ohlcv-bootstrap";
-import { extractTrades, parseTicker } from "../src/helpers/market-data-archive/parse-stream";
+import {
+	extractTrades,
+	parseTicker,
+} from "../src/helpers/market-data-archive/parse-stream";
 import { OrderbookTobSampler } from "../src/helpers/market-data-archive/orderbook-tob-sampler";
 import {
 	buildCandleRow,
@@ -78,11 +81,7 @@ describe("market data archive rows", () => {
 	test("splitOrderBookSide ignores malformed levels", () => {
 		expect(
 			splitOrderBookSide(
-				[
-					[100, 1],
-					["bad", 2] as unknown as number[],
-					[99, 3],
-				],
+				[[100, 1], ["bad", 2] as unknown as number[], [99, 3]],
 				5,
 			).prices,
 		).toEqual([100, 99]);
@@ -230,9 +229,7 @@ describe("ohlcv bar tracker", () => {
 	test("closes previous bar when open time advances", () => {
 		const tracker = new OhlcvBarTracker();
 
-		expect(
-			tracker.process([[1_000, 1, 2, 0.5, 1.5, 10]], 100),
-		).toEqual([
+		expect(tracker.process([[1_000, 1, 2, 0.5, 1.5, 10]], 100)).toEqual([
 			{
 				bar: {
 					openTimeMs: 1_000,
@@ -247,9 +244,7 @@ describe("ohlcv bar tracker", () => {
 			},
 		]);
 
-		expect(
-			tracker.process([[2_000, 2, 3, 1.5, 2.5, 20]], 200),
-		).toEqual([
+		expect(tracker.process([[2_000, 2, 3, 1.5, 2.5, 20]], 200)).toEqual([
 			{
 				bar: {
 					openTimeMs: 1_000,
