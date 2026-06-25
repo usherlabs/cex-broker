@@ -464,24 +464,17 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 									? await broker.watchOrderBook(resolvedSymbol)
 									: await broker.watchOrderBook(resolvedSymbol, depthLimit);
 							const receivedTimestamp = Date.now();
-							const normalizedSnapshot = normalizeOrderBookSnapshot(
-								orderbook,
-								{
-									exchange: normalizedCex,
-									symbol: resolvedSymbol,
-									depthLimit:
-										depthLimit ??
-										Math.max(
-											Array.isArray(orderbook?.bids)
-												? orderbook.bids.length
-												: 0,
-											Array.isArray(orderbook?.asks)
-												? orderbook.asks.length
-												: 0,
-										),
-									receivedTimestamp,
-								},
-							);
+							const normalizedSnapshot = normalizeOrderBookSnapshot(orderbook, {
+								exchange: normalizedCex,
+								symbol: resolvedSymbol,
+								depthLimit:
+									depthLimit ??
+									Math.max(
+										Array.isArray(orderbook?.bids) ? orderbook.bids.length : 0,
+										Array.isArray(orderbook?.asks) ? orderbook.asks.length : 0,
+									),
+								receivedTimestamp,
+							});
 							if (
 								!(await writeSubscribeFrame(call, isStreamClosed, {
 									data: JSON.stringify(normalizedSnapshot),
@@ -492,9 +485,8 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							) {
 								break;
 							}
-							const shouldArchive = orderbookTobSampler.shouldEmit(
-								receivedTimestamp,
-							);
+							const shouldArchive =
+								orderbookTobSampler.shouldEmit(receivedTimestamp);
 							archiveOrderbookTobInBackground(
 								brokerArchiver,
 								otelMetrics,
@@ -541,19 +533,15 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							) {
 								break;
 							}
-							archiveTradesInBackground(
-								brokerArchiver,
-								otelMetrics,
-								{
-									deploymentId,
-									exchange: normalizedCex,
-									symbol: resolvedSymbol,
-									assetType,
-									accountSelector: selectedBrokerAccount?.label,
-									payload: data,
-									receivedTimestamp,
-								},
-							);
+							archiveTradesInBackground(brokerArchiver, otelMetrics, {
+								deploymentId,
+								exchange: normalizedCex,
+								symbol: resolvedSymbol,
+								assetType,
+								accountSelector: selectedBrokerAccount?.label,
+								payload: data,
+								receivedTimestamp,
+							});
 						}
 					} catch (error: unknown) {
 						const message = getErrorMessage(error);
@@ -587,19 +575,15 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							) {
 								break;
 							}
-							archiveTickerInBackground(
-								brokerArchiver,
-								otelMetrics,
-								{
-									deploymentId,
-									exchange: normalizedCex,
-									symbol: resolvedSymbol,
-									assetType,
-									accountSelector: selectedBrokerAccount?.label,
-									payload: data,
-									receivedTimestamp,
-								},
-							);
+							archiveTickerInBackground(brokerArchiver, otelMetrics, {
+								deploymentId,
+								exchange: normalizedCex,
+								symbol: resolvedSymbol,
+								assetType,
+								accountSelector: selectedBrokerAccount?.label,
+								payload: data,
+								receivedTimestamp,
+							});
 						}
 					} catch (error: unknown) {
 						const message = getErrorMessage(error);
@@ -650,10 +634,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							});
 						}
 						while (!isStreamClosed()) {
-							const data = await broker.fetchOHLCVWs(
-								resolvedSymbol,
-								timeframe,
-							);
+							const data = await broker.fetchOHLCVWs(resolvedSymbol, timeframe);
 							const receivedTimestamp = Date.now();
 							if (
 								!(await writeSubscribeFrame(call, isStreamClosed, {

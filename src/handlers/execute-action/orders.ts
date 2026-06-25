@@ -117,7 +117,11 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			createOrderContext,
 			order,
 		);
-		archiveOrderExecutionInBackground(brokerArchiver, createOrderContext, order);
+		archiveOrderExecutionInBackground(
+			brokerArchiver,
+			createOrderContext,
+			order,
+		);
 		ctx.wrappedCallback(null, { result: JSON.stringify({ ...order }) });
 	} catch (error) {
 		safeLogError("Order Creation failed", error);

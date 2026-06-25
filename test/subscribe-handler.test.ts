@@ -319,7 +319,8 @@ describe("subscribe handler", () => {
 	test("archives orderbook snapshot rows to the forwarder", async () => {
 		const originalFetch = globalThis.fetch;
 		const originalInterval = process.env.CEX_BROKER_ORDERBOOK_TOB_INTERVAL_MS;
-		const originalArchiveEnabled = process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+		const originalArchiveEnabled =
+			process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
 		const posts: unknown[] = [];
 		globalThis.fetch = (async (_url, init) => {
 			posts.push(JSON.parse(String(init?.body)));
@@ -375,12 +376,15 @@ describe("subscribe handler", () => {
 			});
 			const rows = posts.flatMap(
 				(post) =>
-					(post as { rows: Array<{ table: string; row: Record<string, unknown> }> })
-						.rows,
+					(
+						post as {
+							rows: Array<{ table: string; row: Record<string, unknown> }>;
+						}
+					).rows,
 			);
-			expect(rows.some((entry) => entry.table === "market_data.orderbook_snapshots")).toBe(
-				true,
-			);
+			expect(
+				rows.some((entry) => entry.table === "market_data.orderbook_snapshots"),
+			).toBe(true);
 			const snapshotRow = rows.find(
 				(entry) => entry.table === "market_data.orderbook_snapshots",
 			);
@@ -409,7 +413,8 @@ describe("subscribe handler", () => {
 
 	test("archives OHLCV candle rows to the forwarder", async () => {
 		const originalFetch = globalThis.fetch;
-		const originalArchiveEnabled = process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+		const originalArchiveEnabled =
+			process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
 		const posts: unknown[] = [];
 		globalThis.fetch = (async (_url, init) => {
 			posts.push(JSON.parse(String(init?.body)));
@@ -451,7 +456,11 @@ describe("subscribe handler", () => {
 			await handlerPromise;
 
 			expect(posts.length).toBeGreaterThanOrEqual(1);
-			const rows = (posts[0] as { rows: Array<{ table: string; row: Record<string, unknown> }> }).rows;
+			const rows = (
+				posts[0] as {
+					rows: Array<{ table: string; row: Record<string, unknown> }>;
+				}
+			).rows;
 			expect(rows.some((entry) => entry.table === "market_data.candles")).toBe(
 				true,
 			);

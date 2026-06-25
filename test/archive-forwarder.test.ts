@@ -1,0 +1,106 @@
+import { describe, expect, test } from "bun:test";
+import {
+	countSkippedRows,
+	groupRowsByTable,
+	insertArchiveRows,
+} from "../services/archive-forwarder/insert";
+import {
+	handleArchiveBatch,
+	parseArchiveBatchRequest,
+} from "../services/archive-forwarder/router";
+import { isSupportedTable } from "../services/archive-forwarder/types";
+
+describe("archive forwarder batch parsing", () => {
+	test("parseArchiveBatchRequest accepts broker_write payloads", () => {
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			rows: [
+				{
+					table: "market_data.candles",
+					row: { symbol: "BTC/USDT", open_time_ms: 1_000 },
+				},
+			],
+		});
+
+		expect(parsed).toEqual({
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			rows: [
+				{
+					table: "market_data.candles",
+					row: { symbol: "BTC/USDT", open_time_ms: 1_000 },
+				},
+			],
+		});
+	});
+
+	test("parseArchiveBatchRequest rejects invalid payloads", () => {
+		expect(parseArchiveBatchRequest(null)).toBeNull();
+		expect(parseArchiveBatchRequest({ source: "x" })).toBeNull();
+	});
+});
+
+describe("archive forwarder routing", () => {
+	test("groups supported tables and skips unknown tables", () => {
+		const rows = [
+			{
+				table: "market_data.candles",
+				row: { symbol: "BTC/USDT" },
+			},
+			{
+				table: "broker_execution.order_events",
+				row: { order_id: "1" },
+			},
+			{
+				table: "market_data.orderbook_snapshots",
+				row: { symbol: "ETH/USDT" },
+			},
+		];
+
+		const grouped = groupRowsByTable(rows);
+		expect(grouped.get("market_data.candles")).toHaveLength(1);
+		expect(grouped.get("market_data.orderbook_snapshots")).toHaveLength(1);
+		expect(countSkippedRows(rows)).toBe(1);
+		expect(isSupportedTable("market_data.candles")).toBe(true);
+		expect(isSupportedTable("broker_execution.order_events")).toBe(false);
+	});
+
+	test("insertArchiveRows calls inserter per supported table", async () => {
+		const inserts: Array<{ table: string; count: number }> = [];
+		const result = await insertArchiveRows(
+			async (table, tableRows) => {
+				inserts.push({ table, count: tableRows.length });
+			},
+			[
+				{ table: "market_data.candles", row: { open_time_ms: 1 } },
+				{ table: "market_data.candles", row: { open_time_ms: 2 } },
+				{ table: "broker_execution.order_events", row: { order_id: "9" } },
+			],
+		);
+
+		expect(result).toEqual({
+			inserted: 2,
+			skipped: 1,
+			byTable: { "market_data.candles": 2 },
+		});
+		expect(inserts).toEqual([{ table: "market_data.candles", count: 2 }]);
+	});
+
+	test("handleArchiveBatch processes valid requests", async () => {
+		const inserted: string[] = [];
+		const result = await handleArchiveBatch(
+			async (table) => {
+				inserted.push(table);
+			},
+			{
+				source: "broker_write",
+				deployment_id: "deploy-a",
+				rows: [{ table: "market_data.candles", row: { symbol: "BTC/USDT" } }],
+			},
+		);
+
+		expect(result.inserted).toBe(1);
+		expect(inserted).toEqual(["market_data.candles"]);
+	});
+});

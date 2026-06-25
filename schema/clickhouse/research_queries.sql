@@ -1,0 +1,56 @@
+-- Example research queries for market_data.candles (not run automatically).
+-- Use closed candles via market_data.candles_closed for backtests.
+
+-- Load closed 1m candles for a symbol over the last 7 days
+-- SELECT
+--     open_time_ms,
+--     open, high, low, close, volume
+-- FROM market_data.candles_closed
+-- WHERE exchange = 'binance'
+--   AND symbol = 'BTC/USDT'
+--   AND timeframe = '1m'
+--   AND open_time_ms >= toUnixTimestamp(now() - INTERVAL 7 DAY) * 1000
+-- ORDER BY open_time_ms;
+
+-- Roll up 1m closed candles to 5m buckets
+-- SELECT
+--     intDiv(open_time_ms, 300000) * 300000 AS bucket_ms,
+--     argMin(open, open_time_ms) AS open,
+--     max(high) AS high,
+--     min(low) AS low,
+--     argMax(close, broker_version) AS close,
+--     sum(volume) AS volume
+-- FROM market_data.candles_closed
+-- WHERE exchange = 'binance'
+--   AND symbol = 'BTC/USDT'
+--   AND timeframe = '1m'
+-- GROUP BY bucket_ms
+-- ORDER BY bucket_ms;
+
+-- Freshness check per symbol
+-- SELECT
+--     exchange,
+--     symbol,
+--     timeframe,
+--     max(open_time_ms) AS latest_open_time_ms,
+--     count() AS closed_bars
+-- FROM market_data.candles_closed
+-- GROUP BY exchange, symbol, timeframe
+-- ORDER BY latest_open_time_ms DESC;
+
+-- Nearest top-of-book snapshot before each candle open (execution context)
+-- SELECT
+--     c.open_time_ms,
+--     c.close,
+--     t.mid,
+--     t.spread_bps
+-- FROM market_data.candles_closed AS c
+-- ASOF LEFT JOIN market_data.orderbook_tob AS t
+--     ON c.exchange = t.exchange
+--    AND c.symbol = t.symbol
+--    AND t.event_time_ms <= c.open_time_ms
+-- WHERE c.exchange = 'binance'
+--   AND c.symbol = 'BTC/USDT'
+--   AND c.timeframe = '1m'
+-- ORDER BY c.open_time_ms
+-- LIMIT 100;

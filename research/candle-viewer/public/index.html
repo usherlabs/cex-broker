@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>CEX Broker — Live Candles</title>
+	<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+	<style>
+		:root {
+			color-scheme: dark;
+			--bg: #0b0e11;
+			--panel: #141820;
+			--border: #2a2f3a;
+			--text: #e6e8ec;
+			--muted: #8b93a7;
+			--accent: #3d8bfd;
+			--green: #26a69a;
+			--red: #ef5350;
+			--live: #00c853;
+		}
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body {
+			font-family: "Segoe UI", system-ui, sans-serif;
+			background: var(--bg);
+			color: var(--text);
+			min-height: 100vh;
+			display: flex;
+			flex-direction: column;
+		}
+		header {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 12px 20px;
+			padding: 12px 16px;
+			background: var(--panel);
+			border-bottom: 1px solid var(--border);
+		}
+		.brand {
+			font-weight: 700;
+			font-size: 15px;
+			letter-spacing: 0.02em;
+		}
+		.brand span { color: var(--muted); font-weight: 500; }
+		.controls {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 8px;
+		}
+		label {
+			font-size: 12px;
+			color: var(--muted);
+			display: flex;
+			flex-direction: column;
+			gap: 4px;
+		}
+		input, select, button {
+			background: var(--bg);
+			border: 1px solid var(--border);
+			color: var(--text);
+			border-radius: 6px;
+			padding: 6px 10px;
+			font-size: 13px;
+		}
+		button {
+			cursor: pointer;
+			background: var(--accent);
+			border-color: var(--accent);
+			font-weight: 600;
+		}
+		button:hover { filter: brightness(1.08); }
+		.status {
+			margin-left: auto;
+			display: flex;
+			align-items: center;
+			gap: 14px;
+			font-size: 12px;
+			color: var(--muted);
+		}
+		.dot {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: var(--muted);
+			display: inline-block;
+		}
+		.dot.live { background: var(--live); box-shadow: 0 0 8px var(--live); }
+		.dot.error { background: var(--red); }
+		.price {
+			font-size: 18px;
+			font-weight: 700;
+			font-variant-numeric: tabular-nums;
+		}
+		.price.up { color: var(--green); }
+		.price.down { color: var(--red); }
+		#chart {
+			flex: 1;
+			min-height: 480px;
+			width: 100%;
+		}
+		.footer {
+			padding: 8px 16px;
+			font-size: 11px;
+			color: var(--muted);
+			border-top: 1px solid var(--border);
+			background: var(--panel);
+		}
+	</style>
+</head>
+<body>
+	<header>
+		<div class="brand">CEX Broker <span>/ live candles</span></div>
+		<div class="controls">
+			<label>
+				Exchange
+				<input id="exchange" value="binance" />
+			</label>
+			<label>
+				Symbol
+				<select id="symbol"></select>
+			</label>
+			<label>
+				Timeframe
+				<select id="timeframe">
+					<option value="1m" selected>1m</option>
+					<option value="5m">5m (from 1m)</option>
+					<option value="15m">15m (from 1m)</option>
+					<option value="1h">1h (from 1m)</option>
+				</select>
+			</label>
+			<button id="apply" type="button">Apply</button>
+		</div>
+		<div class="status">
+			<div id="price" class="price">—</div>
+			<div><span id="conn-dot" class="dot"></span> <span id="conn-label">connecting</span></div>
+			<div id="meta">—</div>
+		</div>
+	</header>
+	<div id="chart"></div>
+	<div class="footer">
+		Data from ClickHouse <code>market_data.candles</code> · Chart by TradingView Lightweight Charts
+	</div>
+
+	<script>
+		const { createChart, CrosshairMode } = LightweightCharts;
+
+		const chartEl = document.getElementById("chart");
+		const exchangeInput = document.getElementById("exchange");
+		const symbolSelect = document.getElementById("symbol");
+		const timeframeSelect = document.getElementById("timeframe");
+		const applyBtn = document.getElementById("apply");
+		const connDot = document.getElementById("conn-dot");
+		const connLabel = document.getElementById("conn-label");
+		const metaEl = document.getElementById("meta");
+		const priceEl = document.getElementById("price");
+
+		let ws = null;
+		let reconnectTimer = null;
+		let lastClose = null;
+		let hasInitialData = false;
+		let lastCandleCount = 0;
+
+		const chart = createChart(chartEl, {
+			layout: {
+				background: { color: "#0b0e11" },
+				textColor: "#8b93a7",
+			},
+			grid: {
+				vertLines: { color: "#1c2129" },
+				horzLines: { color: "#1c2129" },
+			},
+			crosshair: { mode: CrosshairMode.Normal },
+			rightPriceScale: { borderColor: "#2a2f3a" },
+			timeScale: {
+				borderColor: "#2a2f3a",
+				timeVisible: true,
+				secondsVisible: false,
+			},
+		});
+
+		const candleSeries = chart.addCandlestickSeries({
+			upColor: "#26a69a",
+			downColor: "#ef5350",
+			borderVisible: false,
+			wickUpColor: "#26a69a",
+			wickDownColor: "#ef5350",
+		});
+
+		const volumeSeries = chart.addHistogramSeries({
+			color: "#3d5a80",
+			priceFormat: { type: "volume" },
+			priceScaleId: "",
+		});
+		volumeSeries.priceScale().applyOptions({
+			scaleMargins: { top: 0.8, bottom: 0 },
+		});
+
+		function resize() {
+			chart.applyOptions({
+				width: chartEl.clientWidth,
+				height: Math.max(480, window.innerHeight - 120),
+			});
+		}
+		window.addEventListener("resize", resize);
+		resize();
+
+		function setConnection(state, label) {
+			connDot.className = "dot" + (state === "live" ? " live" : state === "error" ? " error" : "");
+			connLabel.textContent = label;
+		}
+
+		function updatePrice(close) {
+			if (lastClose !== null) {
+				priceEl.className = "price " + (close >= lastClose ? "up" : "down");
+			}
+			lastClose = close;
+			priceEl.textContent = close.toLocaleString(undefined, {
+				minimumFractionDigits: 2,
+				maximumFractionDigits: 2,
+			});
+		}
+
+		function applyCandles(payload) {
+			const candles = payload.candles ?? [];
+			const tf = payload.timeframe ?? timeframeSelect.value;
+
+			if (!candles.length) {
+				candleSeries.setData([]);
+				volumeSeries.setData([]);
+				hasInitialData = false;
+				lastCandleCount = 0;
+				lastClose = null;
+				priceEl.textContent = "—";
+				metaEl.textContent = `no ${tf} data yet for ${payload.symbol ?? symbolSelect.value} — start archive watch`;
+				return;
+			}
+
+			const ohlc = candles.map((c) => ({
+				time: c.time,
+				open: c.open,
+				high: c.high,
+				low: c.low,
+				close: c.close,
+			}));
+			const volumes = candles.map((c) => ({
+				time: c.time,
+				value: c.volume,
+				color: c.close >= c.open ? "rgba(38,166,154,0.5)" : "rgba(239,83,80,0.5)",
+			}));
+
+			const last = candles[candles.length - 1];
+			updatePrice(last.close);
+
+			if (!hasInitialData || candles.length !== lastCandleCount) {
+				candleSeries.setData(ohlc);
+				volumeSeries.setData(volumes);
+				chart.timeScale().fitContent();
+				hasInitialData = true;
+			} else {
+				candleSeries.update(ohlc[ohlc.length - 1]);
+				volumeSeries.update(volumes[volumes.length - 1]);
+			}
+			lastCandleCount = candles.length;
+
+			const status = last.isClosed ? "closed" : "forming";
+			metaEl.textContent = `${payload.symbol ?? symbolSelect.value} · ${tf} · ${candles.length} bars · ${status}`;
+		}
+
+		function queryParams() {
+			return new URLSearchParams({
+				exchange: exchangeInput.value.trim(),
+				symbol: symbolSelect.value.trim(),
+				timeframe: timeframeSelect.value,
+			});
+		}
+
+		function resetChart() {
+			candleSeries.setData([]);
+			volumeSeries.setData([]);
+			hasInitialData = false;
+			lastCandleCount = 0;
+			lastClose = null;
+			priceEl.textContent = "—";
+		}
+
+		function connect() {
+			if (reconnectTimer) {
+				clearTimeout(reconnectTimer);
+				reconnectTimer = null;
+			}
+			if (ws) {
+				ws.onclose = null;
+				ws.close();
+			}
+			resetChart();
+			setConnection("", "connecting");
+
+			const params = queryParams();
+			const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+			ws = new WebSocket(`${protocol}//${location.host}/ws?${params}`);
+
+			ws.onopen = () => setConnection("live", "live");
+
+			ws.onmessage = (event) => {
+				try {
+					const payload = JSON.parse(event.data);
+					if (payload.type === "candles") {
+						applyCandles(payload);
+						setConnection("live", "live");
+					}
+				} catch (err) {
+					console.error(err);
+				}
+			};
+
+			ws.onclose = () => {
+				setConnection("error", "reconnecting");
+				reconnectTimer = setTimeout(connect, 3000);
+			};
+
+			ws.onerror = () => setConnection("error", "error");
+		}
+
+		function resubscribe() {
+			connect();
+		}
+
+		applyBtn.addEventListener("click", resubscribe);
+		timeframeSelect.addEventListener("change", resubscribe);
+		symbolSelect.addEventListener("change", resubscribe);
+
+		fetch("/api/config")
+			.then((r) => r.json())
+			.then((cfg) => {
+				const symbols = cfg.symbols ?? ["BTC/USDT", "BNB/USDT", "DOGE/USDT"];
+				symbolSelect.innerHTML = symbols
+					.map((s) => `<option value="${s}">${s}</option>`)
+					.join("");
+				if (cfg.defaults) {
+					exchangeInput.value = cfg.defaults.exchange;
+					if (symbols.includes(cfg.defaults.symbol)) {
+						symbolSelect.value = cfg.defaults.symbol;
+					}
+					timeframeSelect.value = cfg.defaults.timeframe;
+				}
+				connect();
+			})
+			.catch(() => connect());
+	</script>
+</body>
+</html>
