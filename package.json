@@ -35,6 +35,9 @@
 		"build": "bun run proto-gen && bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
 		"prepack": "bun run build",
 		"start-broker": "bun run ./src/cli.ts",
+		"start-archive-forwarder": "bun run services/archive-forwarder/index.ts",
+		"start-archive-watch": "bun run examples/archive-watch-subscribe.ts",
+		"start-candle-viewer": "bun run research/candle-viewer/server.ts",
 		"start-broker-server": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll'",
 		"start-broker-server-with-verity": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll --verityProverUrl http://verity-prover:8080'",
 		"build:ts": "bunx tsc",
@@ -53,6 +56,7 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
+		"@clickhouse/client": "^1.22.0",
 		"@grpc/grpc-js": "^1.13.4",
 		"@grpc/proto-loader": "^0.7.15",
 		"@loglayer/plugin-opentelemetry": "^3.0.2",

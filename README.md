@@ -78,6 +78,21 @@ OTEL_SERVICE_NAME=cex-broker
 
 **Note**: Only configure API keys for exchanges you plan to use. The system will automatically detect and initialize configured exchanges.
 
+### Research / Backtest (ClickHouse Path B)
+
+Archive OHLCV subscribe streams to ClickHouse via the **archive forwarder**, then run Python backtests and manually tune Hummingbot from exported params. See [docs/research-backtest.md](docs/research-backtest.md).
+
+Quick start:
+
+```bash
+docker network create fiet-sandbox || true
+docker compose -f docker/clickhouse-research.compose.yml up -d
+bun run start-archive-forwarder   # if not using compose forwarder service
+bun run examples/archive-ohlcv-subscribe.ts
+```
+
+Key env vars: `CEX_BROKER_ARCHIVE_FORWARDER_HOST`, `CEX_BROKER_ARCHIVE_FORWARDER_PORT` (default `8090`), `CEX_BROKER_MARKET_ARCHIVE_ENABLED=true`.
+
 #### Wallet-authenticated exchanges
 
 Some exchanges (for example Hyperliquid, Vertex, Paradex, and Derive) authenticate with an on-chain wallet instead of exchange-issued API keys. The broker keeps the same `API_KEY` / `API_SECRET` interface and maps credentials internally based on each exchange's CCXT `requiredCredentials`:

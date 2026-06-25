@@ -2,6 +2,7 @@ import * as grpc from "@grpc/grpc-js";
 import { createExecuteActionHandler } from "./handlers/execute-action";
 import { createSubscribeHandler } from "./handlers/subscribe";
 import type { BrokerPoolEntry } from "./helpers";
+import type { BrokerExecutionArchiver } from "./helpers/broker-execution-archive";
 import type { OtelMetrics } from "./helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "./proto-package-definition";
 import type { PolicyConfig } from "./types";
@@ -24,6 +25,7 @@ export function getServer(
 	useVerity: boolean,
 	verityProverUrl: string,
 	otelMetrics?: OtelMetrics,
+	brokerArchiver?: BrokerExecutionArchiver,
 ) {
 	const server = new grpc.Server();
 
@@ -35,11 +37,13 @@ export function getServer(
 			useVerity,
 			verityProverUrl,
 			otelMetrics,
+			brokerArchiver,
 		}),
 		Subscribe: createSubscribeHandler({
 			brokers,
 			whitelistIps,
 			otelMetrics,
+			brokerArchiver,
 		}),
 	});
 	return server;

@@ -2,6 +2,10 @@ import * as grpc from "@grpc/grpc-js";
 import { resolveOrderExecution } from "../../helpers";
 import { Action } from "../../helpers/constants";
 import {
+	archiveOrderExecutionInBackground,
+	captureMarketMetadataSnapshotInBackground,
+} from "../../helpers/broker-execution-archive";
+import {
 	emitOrderExecutionTelemetryInBackground,
 	extractOrderTelemetryIds,
 } from "../../helpers/order-telemetry";
@@ -31,6 +35,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		useVerity,
 		verityProverUrl,
 		otelMetrics,
+		brokerArchiver,
 	} = ctx;
 	const verityProof = verity.proof;
 
@@ -77,6 +82,16 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			side: resolution.side,
 			requestedQuantity: resolution.amountBase ?? orderValue.amount,
 		};
+		const telemetryIds = extractOrderTelemetryIds(orderValue.params);
+		const submissionTimestamp = new Date().toISOString();
+		captureMarketMetadataSnapshotInBackground(brokerArchiver, broker, {
+			exchange: cex,
+			accountSelector: selectedBrokerAccount?.label,
+			symbol: resolution.symbol,
+			action: "CreateOrder",
+			brokerObservedTimestamp: submissionTimestamp,
+			...telemetryIds,
+		});
 		const order = await broker.createOrder(
 			resolution.symbol,
 			orderValue.orderType,
@@ -85,38 +100,48 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			orderValue.price,
 			orderValue.params ?? {},
 		);
+		const createOrderContext = {
+			action: "CreateOrder" as const,
+			cex,
+			accountLabel: selectedBrokerAccount?.label,
+			symbol: resolvedOrderTelemetry.symbol,
+			side: resolvedOrderTelemetry.side,
+			orderType: orderValue.orderType,
+			requestedQuantity: resolvedOrderTelemetry.requestedQuantity,
+			requestedNotional: orderValue.amount * orderValue.price,
+			brokerObservedTimestamp: submissionTimestamp,
+			...telemetryIds,
+		};
 		emitOrderExecutionTelemetryInBackground(
 			otelMetrics,
-			{
-				action: "CreateOrder",
-				cex,
-				accountLabel: selectedBrokerAccount?.label,
-				symbol: resolvedOrderTelemetry.symbol,
-				side: resolvedOrderTelemetry.side,
-				orderType: orderValue.orderType,
-				requestedQuantity: resolvedOrderTelemetry.requestedQuantity,
-				requestedNotional: orderValue.amount * orderValue.price,
-				...extractOrderTelemetryIds(orderValue.params),
-			},
+			createOrderContext,
 			order,
 		);
+		archiveOrderExecutionInBackground(brokerArchiver, createOrderContext, order);
 		ctx.wrappedCallback(null, { result: JSON.stringify({ ...order }) });
 	} catch (error) {
 		safeLogError("Order Creation failed", error);
+		const failedCreateContext = {
+			action: "CreateOrder" as const,
+			cex,
+			accountLabel: selectedBrokerAccount?.label,
+			symbol: resolvedOrderTelemetry.symbol ?? symbol,
+			side: resolvedOrderTelemetry.side,
+			orderType: orderValue.orderType,
+			requestedQuantity:
+				resolvedOrderTelemetry.requestedQuantity ?? orderValue.amount,
+			requestedNotional: orderValue.amount * orderValue.price,
+			...extractOrderTelemetryIds(orderValue.params),
+		};
 		emitOrderExecutionTelemetryInBackground(
 			otelMetrics,
-			{
-				action: "CreateOrder",
-				cex,
-				accountLabel: selectedBrokerAccount?.label,
-				symbol: resolvedOrderTelemetry.symbol ?? symbol,
-				side: resolvedOrderTelemetry.side,
-				orderType: orderValue.orderType,
-				requestedQuantity:
-					resolvedOrderTelemetry.requestedQuantity ?? orderValue.amount,
-				requestedNotional: orderValue.amount * orderValue.price,
-				...extractOrderTelemetryIds(orderValue.params),
-			},
+			failedCreateContext,
+			undefined,
+			error,
+		);
+		archiveOrderExecutionInBackground(
+			brokerArchiver,
+			failedCreateContext,
 			undefined,
 			error,
 		);
@@ -147,6 +172,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 		useVerity,
 		verityProverUrl,
 		otelMetrics,
+		brokerArchiver,
 	} = ctx;
 	const verityProof = verity.proof;
 
@@ -171,15 +197,21 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 			symbol,
 			{ ...getOrderValue.params },
 		);
+		const getOrderContext = {
+			action: "GetOrderDetails" as const,
+			cex,
+			accountLabel: selectedBrokerAccount?.label,
+			symbol,
+			...extractOrderTelemetryIds(getOrderValue.params),
+		};
 		emitOrderExecutionTelemetryInBackground(
 			otelMetrics,
-			{
-				action: "GetOrderDetails",
-				cex,
-				accountLabel: selectedBrokerAccount?.label,
-				symbol,
-				...extractOrderTelemetryIds(getOrderValue.params),
-			},
+			getOrderContext,
+			orderDetails,
+		);
+		archiveOrderExecutionInBackground(
+			brokerArchiver,
+			getOrderContext,
 			orderDetails,
 		);
 		ctx.wrappedCallback(null, {
@@ -196,6 +228,25 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 		});
 	} catch (error) {
 		safeLogError(`Error fetching order details from ${cex}`, error);
+		const failedGetOrderContext = {
+			action: "GetOrderDetails" as const,
+			cex,
+			accountLabel: selectedBrokerAccount?.label,
+			symbol,
+			...extractOrderTelemetryIds(getOrderValue.params),
+		};
+		emitOrderExecutionTelemetryInBackground(
+			otelMetrics,
+			failedGetOrderContext,
+			undefined,
+			error,
+		);
+		archiveOrderExecutionInBackground(
+			brokerArchiver,
+			failedGetOrderContext,
+			undefined,
+			error,
+		);
 		ctx.wrappedCallback(
 			{
 				code: grpc.status.INTERNAL,
@@ -223,22 +274,59 @@ async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
 		useVerity,
 		verityProverUrl,
 		otelMetrics,
+		brokerArchiver,
 	} = ctx;
 	const verityProof = verity.proof;
 
 	const cancelOrderValue = parsePayloadForAction(ctx, CancelOrderPayloadSchema);
 	if (cancelOrderValue === null) return;
 	try {
+		const cancelOrderContext = {
+			action: "CancelOrder" as const,
+			cex,
+			accountLabel: selectedBrokerAccount?.label,
+			symbol,
+			...extractOrderTelemetryIds(cancelOrderValue.params),
+		};
 		const cancelledOrder = await broker.cancelOrder(
 			cancelOrderValue.orderId,
 			symbol,
 			cancelOrderValue.params ?? {},
+		);
+		emitOrderExecutionTelemetryInBackground(
+			otelMetrics,
+			cancelOrderContext,
+			cancelledOrder,
+		);
+		archiveOrderExecutionInBackground(
+			brokerArchiver,
+			cancelOrderContext,
+			cancelledOrder,
 		);
 		ctx.wrappedCallback(null, {
 			result: JSON.stringify({ ...cancelledOrder }),
 		});
 	} catch (error) {
 		safeLogError(`Error cancelling order from ${cex}`, error);
+		const failedCancelContext = {
+			action: "CancelOrder" as const,
+			cex,
+			accountLabel: selectedBrokerAccount?.label,
+			symbol,
+			...extractOrderTelemetryIds(cancelOrderValue.params),
+		};
+		emitOrderExecutionTelemetryInBackground(
+			otelMetrics,
+			failedCancelContext,
+			undefined,
+			error,
+		);
+		archiveOrderExecutionInBackground(
+			brokerArchiver,
+			failedCancelContext,
+			undefined,
+			error,
+		);
 		ctx.wrappedCallback(
 			{
 				code: grpc.status.INTERNAL,
