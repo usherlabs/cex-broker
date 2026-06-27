@@ -75,3 +75,42 @@ def test_clickhouse_candle_query_defaults():
 		max_records=100,
 	)
 	assert query.include_forming_bar is True
+	assert query.start_time_ms is None
+	assert query.end_time_ms is None
+
+
+def test_fetch_candle_dataframe_applies_time_bounds_in_sql(monkeypatch):
+	captured: dict[str, object] = {}
+
+	class FakeClient:
+		def query_df(self, sql, parameters=None):
+			captured["sql"] = sql
+			captured["parameters"] = parameters
+
+			class EmptyFrame:
+				empty = True
+
+			return EmptyFrame()
+
+	monkeypatch.setattr(
+		"cex_broker_research.live_candles.get_client",
+		lambda: FakeClient(),
+	)
+	from cex_broker_research.live_candles import fetch_candle_dataframe
+
+	fetch_candle_dataframe(
+		ClickHouseCandleQuery(
+			exchange="binance",
+			symbol="BTC/USDT",
+			timeframe="1m",
+			max_records=10,
+			start_time_ms=1_000,
+			end_time_ms=2_000,
+		),
+	)
+	sql = str(captured["sql"])
+	parameters = captured["parameters"]
+	assert "open_time_ms >= %(start_time_ms)s" in sql
+	assert "open_time_ms <= %(end_time_ms)s" in sql
+	assert parameters["start_time_ms"] == 1_000  # type: ignore[index]
+	assert parameters["end_time_ms"] == 2_000  # type: ignore[index]

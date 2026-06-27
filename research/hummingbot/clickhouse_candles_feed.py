@@ -50,6 +50,31 @@ except ImportError as exc:  # pragma: no cover - exercised inside Hummingbot run
 CONNECTOR_NAME = "cex_broker_clickhouse"
 
 
+def _seconds_to_ms(timestamp_sec: Optional[int]) -> int | None:
+	if timestamp_sec is None:
+		return None
+	return int(timestamp_sec) * 1_000
+
+
+def _build_candle_query(
+	exchange: str,
+	symbol: str,
+	timeframe: str,
+	max_records: int,
+	start_time: Optional[int] = None,
+	end_time: Optional[int] = None,
+) -> ClickHouseCandleQuery:
+	return ClickHouseCandleQuery(
+		exchange=exchange,
+		symbol=symbol,
+		timeframe=timeframe,
+		max_records=max_records,
+		include_forming_bar=True,
+		start_time_ms=_seconds_to_ms(start_time),
+		end_time_ms=_seconds_to_ms(end_time),
+	)
+
+
 class CexBrokerClickHouseCandles(CandlesBase):
 	"""Poll ClickHouse market_data.candles instead of exchange websocket klines."""
 
@@ -127,20 +152,18 @@ class CexBrokerClickHouseCandles(CandlesBase):
 		}
 
 	def _parse_rest_candles(self, data: dict, end_time: Optional[int] = None) -> List[List[float]]:
-		query = ClickHouseCandleQuery(
-			exchange=data["exchange"],
-			symbol=data["symbol"],
-			timeframe=data["timeframe"],
-			max_records=int(data["limit"]),
-			include_forming_bar=True,
-		)
-		rows = fetch_candle_rows(query)
-		if end_time is not None:
-			rows = [row for row in rows if row[0] <= end_time]
 		start_time = data.get("start_time")
-		if start_time is not None:
-			rows = [row for row in rows if row[0] >= start_time]
-		return rows
+		query_end_time = end_time if end_time is not None else data.get("end_time")
+		return fetch_candle_rows(
+			_build_candle_query(
+				exchange=data["exchange"],
+				symbol=data["symbol"],
+				timeframe=data["timeframe"],
+				max_records=int(data["limit"]),
+				start_time=start_time,
+				end_time=query_end_time,
+			),
+		)
 
 	async def fetch_candles(
 		self,
@@ -153,18 +176,15 @@ class CexBrokerClickHouseCandles(CandlesBase):
 		rows = await asyncio.get_event_loop().run_in_executor(
 			None,
 			fetch_candle_rows,
-			ClickHouseCandleQuery(
+			_build_candle_query(
 				exchange=self._exchange,
 				symbol=self._ccxt_symbol,
 				timeframe=self.interval,
 				max_records=query_limit,
-				include_forming_bar=True,
+				start_time=start_time,
+				end_time=end_time,
 			),
 		)
-		if start_time is not None:
-			rows = [row for row in rows if row[0] >= start_time]
-		if end_time is not None:
-			rows = [row for row in rows if row[0] <= end_time]
 		if not rows:
 			return np.array([]).reshape(0, 10)
 		return np.array(rows[-query_limit:]).astype(float)

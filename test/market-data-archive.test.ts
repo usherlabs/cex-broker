@@ -193,6 +193,15 @@ describe("orderbook sampler", () => {
 		expect(sampler.shouldEmit(1_500)).toBe(false);
 		expect(sampler.shouldEmit(2_000)).toBe(true);
 	});
+
+	test("resets sampling window after clock rollback", () => {
+		const sampler = new OrderbookSampler(1_000);
+
+		expect(sampler.shouldEmit(2_000)).toBe(true);
+		expect(sampler.shouldEmit(1_500)).toBe(true);
+		expect(sampler.shouldEmit(1_600)).toBe(false);
+		expect(sampler.shouldEmit(2_600)).toBe(true);
+	});
 });
 
 describe("ohlcv bar tracker", () => {

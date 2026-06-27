@@ -70,14 +70,19 @@ def smoke_test_clickhouse_candle_path() -> None:
 			CexBrokerClickHouseCandles.__name__ == "CexBrokerClickHouseCandles",
 			"unexpected ClickHouse candles feed class name",
 		)
-		register_clickhouse_candles_feed()
 		from hummingbot.data_feed.candles_feed.candles_factory import CandlesFactory
 
-		_require(
-			CandlesFactory._candles_map[CONNECTOR_NAME] is CexBrokerClickHouseCandles,
-			"CandlesFactory registration did not map connector to feed class",
-		)
-		print("OK: CandlesFactory registration")
+		original_map = dict(CandlesFactory._candles_map)
+		try:
+			register_clickhouse_candles_feed()
+			_require(
+				CandlesFactory._candles_map[CONNECTOR_NAME] is CexBrokerClickHouseCandles,
+				"CandlesFactory registration did not map connector to feed class",
+			)
+			print("OK: CandlesFactory registration")
+		finally:
+			CandlesFactory._candles_map.clear()
+			CandlesFactory._candles_map.update(original_map)
 	except ImportError as error:
 		if "hummingbot" not in str(error).lower():
 			raise
