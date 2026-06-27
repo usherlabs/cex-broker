@@ -35,12 +35,12 @@ import type { OtelMetrics } from "../../helpers/otel";
 import {
 	archiveCexStreamEventInBackground,
 	archiveOhlcvInBackground,
-	archiveOrderbookTobInBackground,
+	archiveOrderbookInBackground,
 	archiveTickerInBackground,
 	archiveTradesInBackground,
 	bootstrapOhlcvHistory,
 	createOhlcvBarTracker,
-	createOrderbookTobSampler,
+	createOrderbookSampler,
 } from "../../helpers/market-data-archive";
 import { getErrorMessage } from "../../helpers/shared/errors";
 import type { SubscribeRequest, SubscribeResponse } from "../types";
@@ -454,7 +454,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			switch (subscriptionType) {
 				case SubscriptionType.ORDERBOOK:
 					try {
-						const orderbookTobSampler = createOrderbookTobSampler();
+						const orderbookSampler = createOrderbookSampler();
 						while (!isStreamClosed()) {
 							const depthLimit = parseOptionalDepthLimit(
 								options?.depthLimit ?? options?.limit,
@@ -486,8 +486,8 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 								break;
 							}
 							const shouldArchive =
-								orderbookTobSampler.shouldEmit(receivedTimestamp);
-							archiveOrderbookTobInBackground(
+								orderbookSampler.shouldEmit(receivedTimestamp);
+							archiveOrderbookInBackground(
 								brokerArchiver,
 								otelMetrics,
 								{
@@ -498,7 +498,9 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 									accountSelector: selectedBrokerAccount?.label,
 									snapshot: normalizedSnapshot,
 								},
-								{ sampledOut: !shouldArchive },
+								{
+									sampledOut: !shouldArchive,
+								},
 							);
 						}
 					} catch (error: unknown) {

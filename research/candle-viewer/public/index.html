@@ -155,11 +155,29 @@
 		const metaEl = document.getElementById("meta");
 		const priceEl = document.getElementById("price");
 
-		let ws = null;
-		let reconnectTimer = null;
+		let pollTimer = null;
+		let pollInFlight = false;
+		let pollIntervalMs = 500;
+		let candleLimit = 300;
 		let lastClose = null;
 		let hasInitialData = false;
 		let lastCandleCount = 0;
+		let lastFirstCandleTime = null;
+		let lastCandleTime = null;
+		let lastSeriesFingerprint = "";
+		let priceDecimals = 6;
+		let priceMinMove = 1 / 10 ** priceDecimals;
+
+		function applyPriceFormat() {
+			priceMinMove = 1 / 10 ** priceDecimals;
+			candleSeries.applyOptions({
+				priceFormat: {
+					type: "price",
+					precision: priceDecimals,
+					minMove: priceMinMove,
+				},
+			});
+		}
 
 		const chart = createChart(chartEl, {
 			layout: {
@@ -185,6 +203,11 @@
 			borderVisible: false,
 			wickUpColor: "#26a69a",
 			wickDownColor: "#ef5350",
+			priceFormat: {
+				type: "price",
+				precision: priceDecimals,
+				minMove: priceMinMove,
+			},
 		});
 
 		const volumeSeries = chart.addHistogramSeries({
@@ -216,9 +239,36 @@
 			}
 			lastClose = close;
 			priceEl.textContent = close.toLocaleString(undefined, {
-				minimumFractionDigits: 2,
-				maximumFractionDigits: 2,
+				minimumFractionDigits: priceDecimals,
+				maximumFractionDigits: priceDecimals,
 			});
+		}
+
+		function toChartNumber(value) {
+			const n = Number(value);
+			return Number.isFinite(n) ? n : 0;
+		}
+
+		function candleFingerprint(candles) {
+			return candles
+				.map(
+					(c) =>
+						`${c.time}:${c.open}:${c.high}:${c.low}:${c.close}:${c.volume}:${c.isClosed}:${c.brokerVersion ?? ""}`,
+				)
+				.join("|");
+		}
+
+		function shouldReplaceSeries(candles) {
+			if (!hasInitialData || candles.length === 0) {
+				return true;
+			}
+			const first = candles[0].time;
+			const last = candles[candles.length - 1].time;
+			return (
+				candles.length !== lastCandleCount ||
+				first !== lastFirstCandleTime ||
+				last !== lastCandleTime
+			);
 		}
 
 		function applyCandles(payload) {
@@ -230,41 +280,61 @@
 				volumeSeries.setData([]);
 				hasInitialData = false;
 				lastCandleCount = 0;
+				lastFirstCandleTime = null;
+				lastCandleTime = null;
+				lastSeriesFingerprint = "";
 				lastClose = null;
 				priceEl.textContent = "—";
 				metaEl.textContent = `no ${tf} data yet for ${payload.symbol ?? symbolSelect.value} — start archive watch`;
 				return;
 			}
 
+			const fingerprint = candleFingerprint(candles);
+			if (fingerprint === lastSeriesFingerprint) {
+				return;
+			}
+			lastSeriesFingerprint = fingerprint;
+
 			const ohlc = candles.map((c) => ({
 				time: c.time,
-				open: c.open,
-				high: c.high,
-				low: c.low,
-				close: c.close,
+				open: toChartNumber(c.open),
+				high: toChartNumber(c.high),
+				low: toChartNumber(c.low),
+				close: toChartNumber(c.close),
 			}));
 			const volumes = candles.map((c) => ({
 				time: c.time,
-				value: c.volume,
-				color: c.close >= c.open ? "rgba(38,166,154,0.5)" : "rgba(239,83,80,0.5)",
+				value: toChartNumber(c.volume),
+				color:
+					toChartNumber(c.close) >= toChartNumber(c.open)
+						? "rgba(38,166,154,0.5)"
+						: "rgba(239,83,80,0.5)",
 			}));
 
 			const last = candles[candles.length - 1];
-			updatePrice(last.close);
+			updatePrice(toChartNumber(last.close));
 
-			if (!hasInitialData || candles.length !== lastCandleCount) {
+			if (shouldReplaceSeries(candles)) {
 				candleSeries.setData(ohlc);
 				volumeSeries.setData(volumes);
-				chart.timeScale().fitContent();
+				if (!hasInitialData) {
+					chart.timeScale().fitContent();
+				}
 				hasInitialData = true;
 			} else {
-				candleSeries.update(ohlc[ohlc.length - 1]);
-				volumeSeries.update(volumes[volumes.length - 1]);
+				candleSeries.setData(ohlc);
+				volumeSeries.setData(volumes);
 			}
+
 			lastCandleCount = candles.length;
+			lastFirstCandleTime = candles[0].time;
+			lastCandleTime = last.time;
 
 			const status = last.isClosed ? "closed" : "forming";
-			metaEl.textContent = `${payload.symbol ?? symbolSelect.value} · ${tf} · ${candles.length} bars · ${status}`;
+			const updatedAt = payload.updatedAt
+				? new Date(payload.updatedAt).toLocaleTimeString()
+				: "";
+			metaEl.textContent = `${payload.symbol ?? symbolSelect.value} · ${tf} · ${candles.length} bars · ${status}${updatedAt ? ` · ${updatedAt}` : ""}`;
 		}
 
 		function queryParams() {
@@ -272,6 +342,7 @@
 				exchange: exchangeInput.value.trim(),
 				symbol: symbolSelect.value.trim(),
 				timeframe: timeframeSelect.value,
+				limit: String(candleLimit),
 			});
 		}
 
@@ -280,60 +351,73 @@
 			volumeSeries.setData([]);
 			hasInitialData = false;
 			lastCandleCount = 0;
+			lastFirstCandleTime = null;
+			lastCandleTime = null;
+			lastSeriesFingerprint = "";
 			lastClose = null;
 			priceEl.textContent = "—";
 		}
 
-		function connect() {
-			if (reconnectTimer) {
-				clearTimeout(reconnectTimer);
-				reconnectTimer = null;
+		function stopPolling() {
+			if (pollTimer) {
+				clearInterval(pollTimer);
+				pollTimer = null;
 			}
-			if (ws) {
-				ws.onclose = null;
-				ws.close();
+		}
+
+		function startPolling() {
+			stopPolling();
+			pollTimer = setInterval(() => {
+				void pollCandles();
+			}, pollIntervalMs);
+		}
+
+		async function pollCandles() {
+			if (pollInFlight) {
+				return;
 			}
-			resetChart();
-			setConnection("", "connecting");
-
-			const params = queryParams();
-			const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-			ws = new WebSocket(`${protocol}//${location.host}/ws?${params}`);
-
-			ws.onopen = () => setConnection("live", "live");
-
-			ws.onmessage = (event) => {
-				try {
-					const payload = JSON.parse(event.data);
-					if (payload.type === "candles") {
-						applyCandles(payload);
-						setConnection("live", "live");
-					}
-				} catch (err) {
-					console.error(err);
+			pollInFlight = true;
+			try {
+				const response = await fetch(`/api/candles?${queryParams()}`);
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}`);
 				}
-			};
-
-			ws.onclose = () => {
-				setConnection("error", "reconnecting");
-				reconnectTimer = setTimeout(connect, 3000);
-			};
-
-			ws.onerror = () => setConnection("error", "error");
+				const payload = await response.json();
+				applyCandles(payload);
+				setConnection("live", "live");
+			} catch (error) {
+				console.error("Candle poll failed:", error);
+				setConnection("error", "stale");
+			} finally {
+				pollInFlight = false;
+			}
 		}
 
 		function resubscribe() {
-			connect();
+			resetChart();
+			setConnection("", "connecting");
+			void pollCandles();
 		}
 
 		applyBtn.addEventListener("click", resubscribe);
 		timeframeSelect.addEventListener("change", resubscribe);
 		symbolSelect.addEventListener("change", resubscribe);
+		exchangeInput.addEventListener("change", resubscribe);
 
 		fetch("/api/config")
 			.then((r) => r.json())
 			.then((cfg) => {
 				const symbols = cfg.symbols ?? ["BTC/USDT", "BNB/USDT", "DOGE/USDT"];
+				if (Number.isFinite(cfg.priceDecimalPlaces) && cfg.priceDecimalPlaces > 0) {
+					priceDecimals = cfg.priceDecimalPlaces;
+					applyPriceFormat();
+				}
+				if (Number.isFinite(cfg.pollIntervalMs) && cfg.pollIntervalMs > 0) {
+					pollIntervalMs = cfg.pollIntervalMs;
+				}
+				if (cfg.defaults?.limit > 0) {
+					candleLimit = cfg.defaults.limit;
+				}
 				symbolSelect.innerHTML = symbols
 					.map((s) => `<option value="${s}">${s}</option>`)
 					.join("");
@@ -344,9 +428,14 @@
 					}
 					timeframeSelect.value = cfg.defaults.timeframe;
 				}
-				connect();
+				setConnection("", "connecting");
+				startPolling();
+				void pollCandles();
 			})
-			.catch(() => connect());
+			.catch(() => {
+				startPolling();
+				void pollCandles();
+			});
 	</script>
 </body>
 </html>

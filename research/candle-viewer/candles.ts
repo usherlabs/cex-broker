@@ -25,6 +25,7 @@ export type ChartCandle = {
 	close: number;
 	volume: number;
 	isClosed: boolean;
+	brokerVersion: number;
 };
 
 export type CandleQuery = {
@@ -60,6 +61,7 @@ export function toChartCandle(row: CandleRow): ChartCandle {
 		close: row.close,
 		volume: row.volume,
 		isClosed: row.is_closed === 1,
+		brokerVersion: row.broker_version,
 	};
 }
 
@@ -71,7 +73,7 @@ export function candleFingerprint(candles: ChartCandle[]): string {
 	return candles
 		.map(
 			(c) =>
-				`${c.time}:${c.open}:${c.high}:${c.low}:${c.close}:${c.volume}:${c.isClosed}`,
+				`${c.time}:${c.open}:${c.high}:${c.low}:${c.close}:${c.volume}:${c.isClosed}:${c.brokerVersion}`,
 		)
 		.join("|");
 }

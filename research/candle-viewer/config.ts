@@ -49,7 +49,7 @@ export function loadViewerConfig(): ViewerConfig {
 		port: parsePort(process.env.CANDLE_VIEWER_PORT, 8091),
 		pollIntervalMs: parsePositiveInt(
 			process.env.CANDLE_VIEWER_POLL_MS,
-			1_000,
+			500,
 		),
 		clickhouse: {
 			host: process.env.CLICKHOUSE_HOST?.trim() || "localhost",

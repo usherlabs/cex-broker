@@ -10,7 +10,7 @@ import type { ParsedTicker, ParsedTrade } from "./parse-stream";
 import type {
 	CexStreamArchiveInput,
 	MarketArchiveContext,
-	OrderbookSnapshotArchiveInput,
+	OrderbookArchiveInput,
 	ParsedOhlcvBar,
 	TickerArchiveInput,
 	TradesArchiveInput,
@@ -75,8 +75,21 @@ function computeSpreadBps(bestBid: number, bestAsk: number): number {
 	return ((bestAsk - bestBid) / mid) * 10_000;
 }
 
+function buildOrderbookArchiveTags(
+	input: OrderbookArchiveInput,
+	receivedTimeMs: number,
+) {
+	return buildCommonArchiveTags({
+		deploymentId: input.deploymentId,
+		accountSelector: input.accountSelector,
+		exchange: input.exchange,
+		symbol: input.symbol,
+		brokerObservedTimestamp: new Date(receivedTimeMs).toISOString(),
+	});
+}
+
 export function buildOrderbookSnapshotRow(
-	input: OrderbookSnapshotArchiveInput,
+	input: OrderbookArchiveInput,
 ): BrokerArchiveRow | null {
 	const bid = topOfBookLevel(input.snapshot.bids);
 	const ask = topOfBookLevel(input.snapshot.asks);
@@ -96,18 +109,10 @@ export function buildOrderbookSnapshotRow(
 	const mid = (bid.price + ask.price) / 2;
 	const sequence = parseSequence(input.snapshot.sequence);
 
-	const tags = buildCommonArchiveTags({
-		deploymentId: input.deploymentId,
-		accountSelector: input.accountSelector,
-		exchange: input.exchange,
-		symbol: input.symbol,
-		brokerObservedTimestamp: new Date(receivedTimeMs).toISOString(),
-	});
-
 	return {
 		table: "market_data.orderbook_snapshots",
 		row: compactUndefined({
-			...tags,
+			...buildOrderbookArchiveTags(input, receivedTimeMs),
 			asset_type: input.assetType,
 			event_time_ms: eventTimeMs,
 			received_time_ms: receivedTimeMs,

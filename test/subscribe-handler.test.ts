@@ -318,7 +318,7 @@ describe("subscribe handler", () => {
 
 	test("archives orderbook snapshot rows to the forwarder", async () => {
 		const originalFetch = globalThis.fetch;
-		const originalInterval = process.env.CEX_BROKER_ORDERBOOK_TOB_INTERVAL_MS;
+		const originalInterval = process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS;
 		const originalArchiveEnabled =
 			process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
 		const posts: unknown[] = [];
@@ -326,7 +326,7 @@ describe("subscribe handler", () => {
 			posts.push(JSON.parse(String(init?.body)));
 			return new Response(null, { status: 200 });
 		}) as typeof fetch;
-		process.env.CEX_BROKER_ORDERBOOK_TOB_INTERVAL_MS = "0";
+		process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS = "1";
 		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
 
 		try {
@@ -383,7 +383,9 @@ describe("subscribe handler", () => {
 					).rows,
 			);
 			expect(
-				rows.some((entry) => entry.table === "market_data.orderbook_snapshots"),
+				rows.some(
+					(entry) => entry.table === "market_data.orderbook_snapshots",
+				),
 			).toBe(true);
 			const snapshotRow = rows.find(
 				(entry) => entry.table === "market_data.orderbook_snapshots",
@@ -393,15 +395,17 @@ describe("subscribe handler", () => {
 				symbol: "BTC/USDT",
 				best_bid: 100,
 				best_ask: 101,
+				bids_price: [100],
+				asks_price: [101],
 			});
 
 			await archiver.close();
 		} finally {
 			globalThis.fetch = originalFetch;
 			if (originalInterval === undefined) {
-				delete process.env.CEX_BROKER_ORDERBOOK_TOB_INTERVAL_MS;
+				delete process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS;
 			} else {
-				process.env.CEX_BROKER_ORDERBOOK_TOB_INTERVAL_MS = originalInterval;
+				process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS = originalInterval;
 			}
 			if (originalArchiveEnabled === undefined) {
 				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;

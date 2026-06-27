@@ -12,7 +12,9 @@ export type ArchiveBatchRequest = {
 export type ArchiveBatchResult = {
 	inserted: number;
 	skipped: number;
+	failed: number;
 	byTable: Record<string, number>;
+	failedTables: string[];
 };
 
 export const SUPPORTED_TABLES = [

@@ -11,7 +11,7 @@ import {
 	extractTrades,
 	parseTicker,
 } from "../src/helpers/market-data-archive/parse-stream";
-import { OrderbookTobSampler } from "../src/helpers/market-data-archive/orderbook-tob-sampler";
+import { OrderbookSampler } from "../src/helpers/market-data-archive/orderbook-sampler";
 import {
 	buildCandleRow,
 	buildCexStreamEventRow,
@@ -185,9 +185,9 @@ describe("market data archive rows", () => {
 	});
 });
 
-describe("orderbook top-of-book sampler", () => {
+describe("orderbook sampler", () => {
 	test("emits first sample immediately then respects interval", () => {
-		const sampler = new OrderbookTobSampler(1_000);
+		const sampler = new OrderbookSampler(1_000);
 
 		expect(sampler.shouldEmit(1_000)).toBe(true);
 		expect(sampler.shouldEmit(1_500)).toBe(false);

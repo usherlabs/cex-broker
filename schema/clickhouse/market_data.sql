@@ -16,7 +16,7 @@
 
 CREATE DATABASE IF NOT EXISTS market_data;
 
--- Sampled order book snapshots (~1 Hz): top-of-book scalars + L2 depth arrays.
+
 CREATE TABLE IF NOT EXISTS market_data.orderbook_snapshots
 (
     source LowCardinality(String),
@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS market_data.cex_trades
     price Decimal(18, 8),
     amount Decimal(18, 8),
     cost Nullable(Decimal(18, 8)),
-    taker_or_maker Nullable(LowCardinality(String))
+    taker_or_maker LowCardinality(Nullable(String))
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))

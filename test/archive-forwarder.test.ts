@@ -82,9 +82,36 @@ describe("archive forwarder routing", () => {
 		expect(result).toEqual({
 			inserted: 2,
 			skipped: 1,
+			failed: 0,
 			byTable: { "market_data.candles": 2 },
+			failedTables: [],
 		});
 		expect(inserts).toEqual([{ table: "market_data.candles", count: 2 }]);
+	});
+
+	test("insertArchiveRows continues when one table insert fails", async () => {
+		const inserts: string[] = [];
+		const result = await insertArchiveRows(
+			async (table) => {
+				if (table === "market_data.cex_trades") {
+					throw new Error("table missing");
+				}
+				inserts.push(table);
+			},
+			[
+				{ table: "market_data.candles", row: { open_time_ms: 1 } },
+				{ table: "market_data.cex_trades", row: { trade_id: "t-1" } },
+				{ table: "market_data.orderbook_snapshots", row: { best_bid: 1 } },
+			],
+		);
+
+		expect(result.inserted).toBe(2);
+		expect(result.failed).toBe(1);
+		expect(result.failedTables).toEqual(["market_data.cex_trades"]);
+		expect(inserts).toEqual([
+			"market_data.candles",
+			"market_data.orderbook_snapshots",
+		]);
 	});
 
 	test("handleArchiveBatch processes valid requests", async () => {

@@ -4,9 +4,9 @@ import type { BrokerExecutionArchiver } from "../broker-execution-archive/writer
 import type { BrokerArchiveRow } from "../broker-execution-archive/types";
 import { OhlcvBarTracker } from "./ohlcv-bar-tracker";
 import {
-	OrderbookTobSampler,
 	isMarketArchiveEnabled,
-} from "./orderbook-tob-sampler";
+	OrderbookSampler,
+} from "./orderbook-sampler";
 import { extractTrades, parseTicker } from "./parse-stream";
 import {
 	buildCandleRow,
@@ -18,7 +18,7 @@ import {
 import type {
 	CexStreamArchiveInput,
 	OhlcvArchiveInput,
-	OrderbookSnapshotArchiveInput,
+	OrderbookArchiveInput,
 	TickerArchiveInput,
 	TradesArchiveInput,
 } from "./types";
@@ -48,10 +48,10 @@ function watchLabels(
 	};
 }
 
-export function archiveOrderbookSnapshotInBackground(
+export function archiveOrderbookInBackground(
 	archiver: BrokerExecutionArchiver | undefined,
 	otelMetrics: OtelMetrics | undefined,
-	input: OrderbookSnapshotArchiveInput,
+	input: OrderbookArchiveInput,
 	options?: { sampledOut?: boolean },
 ): void {
 	const labels = watchLabels("orderbook", input);
@@ -77,24 +77,25 @@ export function archiveOrderbookSnapshotInBackground(
 	queueMicrotask(() => {
 		try {
 			const row = buildOrderbookSnapshotRow(input);
-			if (!row) {
-				return;
+			if (row) {
+				archiver.enqueue(row);
+				void recordWatchMetric(
+					otelMetrics,
+					"cex_watch_frames_archived_total",
+					labels,
+				);
 			}
-			archiver.enqueue(row);
-			void recordWatchMetric(
-				otelMetrics,
-				"cex_watch_frames_archived_total",
-				labels,
-			);
 		} catch (error) {
 			log.warn("Failed to archive orderbook snapshot", { error });
 		}
 	});
 }
 
-/** @deprecated Use archiveOrderbookSnapshotInBackground */
-export const archiveOrderbookTobInBackground =
-	archiveOrderbookSnapshotInBackground;
+/** @deprecated Use archiveOrderbookInBackground */
+export const archiveOrderbookSnapshotInBackground = archiveOrderbookInBackground;
+
+/** @deprecated Use archiveOrderbookInBackground */
+export const archiveOrderbookTobInBackground = archiveOrderbookInBackground;
 
 export function archiveOhlcvInBackground(
 	archiver: BrokerExecutionArchiver | undefined,
@@ -142,9 +143,12 @@ export function archiveOhlcvInBackground(
 	});
 }
 
-export function createOrderbookTobSampler(): OrderbookTobSampler {
-	return new OrderbookTobSampler();
+export function createOrderbookSampler(): OrderbookSampler {
+	return new OrderbookSampler();
 }
+
+/** @deprecated Use createOrderbookSampler */
+export const createOrderbookTobSampler = createOrderbookSampler;
 
 export function createOhlcvBarTracker(): OhlcvBarTracker {
 	return new OhlcvBarTracker();

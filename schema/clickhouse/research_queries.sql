@@ -45,7 +45,7 @@
 --     t.mid,
 --     t.spread_bps
 -- FROM market_data.candles_closed AS c
--- ASOF LEFT JOIN market_data.orderbook_tob AS t
+-- ASOF LEFT JOIN market_data.orderbook_snapshots AS t
 --     ON c.exchange = t.exchange
 --    AND c.symbol = t.symbol
 --    AND t.event_time_ms <= c.open_time_ms

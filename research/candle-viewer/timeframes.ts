@@ -30,6 +30,7 @@ export type RollupCandle = {
 	close: number;
 	volume: number;
 	isClosed: boolean;
+	brokerVersion: number;
 };
 
 export function rollupCandles(
@@ -65,7 +66,10 @@ export function rollupCandles(
 			const volume = bars.reduce((sum, b) => sum + b.volume, 0);
 			const isClosed =
 				bars.length >= barsPerBucket && bars.every((b) => b.isClosed);
+			const brokerVersion = Math.max(
+				...bars.map((b) => b.brokerVersion ?? 0),
+			);
 
-			return { time, open, high, low, close, volume, isClosed };
+			return { time, open, high, low, close, volume, isClosed, brokerVersion };
 		});
 }

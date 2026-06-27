@@ -80,7 +80,10 @@ OTEL_SERVICE_NAME=cex-broker
 
 ### Research / Backtest (ClickHouse Path B)
 
-Archive OHLCV subscribe streams to ClickHouse via the **archive forwarder**, then run Python backtests and manually tune Hummingbot from exported params. See [docs/research-backtest.md](docs/research-backtest.md).
+Archive subscribe streams (OHLCV, orderbook, trades, ticker) to ClickHouse via the **archive forwarder**, visualize candles in the browser, run Python backtests, and optionally feed Hummingbot from the same warehouse.
+
+- **Overview:** [research/README.md](research/README.md)
+- **Full guide:** [docs/research-backtest.md](docs/research-backtest.md)
 
 Quick start:
 
@@ -88,10 +91,13 @@ Quick start:
 docker network create fiet-sandbox || true
 docker compose -f docker/clickhouse-research.compose.yml up -d
 bun run start-archive-forwarder   # if not using compose forwarder service
-bun run examples/archive-ohlcv-subscribe.ts
+SYMBOLS=BTC/USDT,BNB/USDT,DOGE/USDT bun run start-archive-watch
+CLICKHOUSE_PORT=8123 bun run start-candle-viewer   # http://localhost:8091
 ```
 
-Key env vars: `CEX_BROKER_ARCHIVE_FORWARDER_HOST`, `CEX_BROKER_ARCHIVE_FORWARDER_PORT` (default `8090`), `CEX_BROKER_MARKET_ARCHIVE_ENABLED=true`.
+Dev watchers: `dev:candle-viewer`, `dev:archive-forwarder`, `dev:archive-watch` (see [research/README.md](research/README.md)).
+
+Key env vars: `CEX_BROKER_ARCHIVE_FORWARDER_URL`, `CEX_BROKER_MARKET_ARCHIVE_ENABLED=true`, `CEX_BROKER_DEPLOYMENT_ID`.
 
 #### Wallet-authenticated exchanges
 

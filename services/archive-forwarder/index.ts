@@ -3,6 +3,7 @@ import { loadForwarderConfig } from "./config";
 import { createClickHouseInserter } from "./insert";
 import { pingClickHouse } from "./health";
 import { handleArchiveBatch, parseArchiveBatchRequest } from "./router";
+import { ensureMarketDataSchema } from "./schema";
 
 const config = loadForwarderConfig();
 const clickhouse = createClient({
@@ -12,6 +13,13 @@ const clickhouse = createClient({
 	database: config.clickhouse.database,
 });
 const inserter = createClickHouseInserter(clickhouse);
+
+try {
+	await ensureMarketDataSchema(clickhouse);
+	console.log("ClickHouse market_data schema ensured");
+} catch (error) {
+	console.error("Failed to ensure ClickHouse schema:", error);
+}
 
 const server = Bun.serve({
 	port: config.port,
@@ -46,6 +54,17 @@ const server = Bun.serve({
 				if (result.skipped > 0) {
 					console.warn(
 						`Skipped ${result.skipped} unsupported archive row(s) from ${batch.source}`,
+					);
+				}
+				if (result.failed > 0) {
+					console.warn(
+						`Failed ${result.failed} archive row(s) from ${batch.source}: ${result.failedTables.join(", ")}`,
+					);
+				}
+				if (result.inserted === 0 && result.failed > 0) {
+					return Response.json(
+						{ error: "Archive insert failed", ...result },
+						{ status: 500 },
 					);
 				}
 				return Response.json({ ok: true, ...result });

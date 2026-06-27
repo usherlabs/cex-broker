@@ -32,21 +32,31 @@ export async function insertArchiveRows(
 ): Promise<ArchiveBatchResult> {
 	const grouped = groupRowsByTable(rows);
 	const byTable: Record<string, number> = {};
+	const failedTables: string[] = [];
 	let inserted = 0;
+	let failed = 0;
 
 	for (const [table, tableRows] of grouped.entries()) {
 		if (tableRows.length === 0) {
 			continue;
 		}
-		await inserter(table, tableRows);
-		byTable[table] = tableRows.length;
-		inserted += tableRows.length;
+		try {
+			await inserter(table, tableRows);
+			byTable[table] = tableRows.length;
+			inserted += tableRows.length;
+		} catch (error) {
+			failedTables.push(table);
+			failed += tableRows.length;
+			console.error(`Archive insert failed for ${table}:`, error);
+		}
 	}
 
 	return {
 		inserted,
 		skipped: countSkippedRows(rows),
+		failed,
 		byTable,
+		failedTables,
 	};
 }
 

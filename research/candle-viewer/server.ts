@@ -7,6 +7,7 @@ import {
 	type ChartCandle,
 } from "./candles";
 import { loadViewerConfig } from "./config";
+import { PRICE_DECIMAL_PLACES } from "./format";
 
 const config = loadViewerConfig();
 const publicDir = path.join(import.meta.dir, "public");
@@ -36,6 +37,58 @@ type WsClientState = {
 type WsSocket = ServerWebSocket<WsClientState>;
 
 const wsClients = new Set<WsSocket>();
+let pollRunning = false;
+let pollInFlight = false;
+let lastPollFinishedAt = Date.now();
+
+async function pollAllClients(): Promise<void> {
+	await Promise.allSettled(
+		[...wsClients].map(async (ws) => {
+			try {
+				await loadAndMaybePush(ws);
+			} catch (error) {
+				console.error("Candle poll failed:", error);
+			}
+		}),
+	);
+}
+
+async function runPollTick(): Promise<void> {
+	if (pollInFlight) {
+		return;
+	}
+	pollInFlight = true;
+	try {
+		await pollAllClients();
+	} catch (error) {
+		console.error("Candle poll loop failed:", error);
+	} finally {
+		pollInFlight = false;
+		lastPollFinishedAt = Date.now();
+		setTimeout(() => {
+			void runPollTick();
+		}, config.pollIntervalMs);
+	}
+}
+
+function schedulePollLoop(): void {
+	if (pollRunning) {
+		return;
+	}
+	pollRunning = true;
+	setTimeout(() => {
+		void runPollTick();
+	}, config.pollIntervalMs);
+	setInterval(() => {
+		if (
+			!pollInFlight &&
+			Date.now() - lastPollFinishedAt > config.pollIntervalMs * 4
+		) {
+			console.warn("Candle poll loop stalled; restarting");
+			void runPollTick();
+		}
+	}, config.pollIntervalMs * 2);
+}
 
 function parseQuery(url: URL): CandleQuery {
 	return {
@@ -61,17 +114,27 @@ function normalizeLimit(limit: number): number {
 }
 
 function sendCandles(ws: WsSocket, candles: ChartCandle[]): void {
-	ws.send(
-		JSON.stringify({
-			type: "candles",
-			exchange: ws.data.query.exchange,
-			symbol: ws.data.query.symbol,
-			timeframe: ws.data.query.timeframe,
-			candles,
-			updatedAt: new Date().toISOString(),
-			total: candles.length,
-		} satisfies WsData),
-	);
+	try {
+		ws.send(
+			JSON.stringify({
+				type: "candles",
+				exchange: ws.data.query.exchange,
+				symbol: ws.data.query.symbol,
+				timeframe: ws.data.query.timeframe,
+				candles,
+				updatedAt: new Date().toISOString(),
+				total: candles.length,
+			} satisfies WsData),
+		);
+	} catch (error) {
+		console.error("Candle push failed; dropping client:", error);
+		wsClients.delete(ws);
+		try {
+			ws.close();
+		} catch {
+			// ignore close errors on dead sockets
+		}
+	}
 }
 
 async function loadAndMaybePush(ws: WsSocket, force = false): Promise<void> {
@@ -85,16 +148,6 @@ async function loadAndMaybePush(ws: WsSocket, force = false): Promise<void> {
 	}
 	ws.data.lastFingerprint = fingerprint;
 	sendCandles(ws, candles);
-}
-
-async function pollAllClients(): Promise<void> {
-	for (const ws of wsClients) {
-		try {
-			await loadAndMaybePush(ws);
-		} catch (error) {
-			console.error("Candle poll failed:", error);
-		}
-	}
 }
 
 const server = Bun.serve<WsClientState>({
@@ -147,6 +200,7 @@ const server = Bun.serve<WsClientState>({
 				timeframes: ["1m", "5m", "15m", "1h"],
 				baseTimeframe: "1m",
 				pollIntervalMs: config.pollIntervalMs,
+				priceDecimalPlaces: PRICE_DECIMAL_PLACES,
 			});
 		}
 
@@ -214,9 +268,7 @@ const server = Bun.serve<WsClientState>({
 	},
 });
 
-setInterval(() => {
-	void pollAllClients();
-}, config.pollIntervalMs);
+schedulePollLoop();
 
 console.log(
 	`Candle viewer: http://localhost:${server.port} (poll ${config.pollIntervalMs}ms)`,

@@ -42,12 +42,15 @@ export type MarketArchiveContext = {
 	deploymentId: string;
 };
 
-export type OrderbookSnapshotArchiveInput = MarketArchiveContext & {
+export type OrderbookArchiveInput = MarketArchiveContext & {
 	snapshot: NormalizedOrderBookSnapshot;
 };
 
-/** @deprecated Use OrderbookSnapshotArchiveInput */
-export type OrderbookTobArchiveInput = OrderbookSnapshotArchiveInput;
+/** @deprecated Use OrderbookArchiveInput */
+export type OrderbookSnapshotArchiveInput = OrderbookArchiveInput;
+
+/** @deprecated Use OrderbookArchiveInput */
+export type OrderbookTobArchiveInput = OrderbookArchiveInput;
 
 export type OhlcvArchiveInput = MarketArchiveContext & {
 	payload: unknown;

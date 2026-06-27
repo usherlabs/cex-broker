@@ -23,8 +23,8 @@ type ArchiverStats = {
 };
 
 const DEFAULT_MAX_QUEUE_SIZE = 10_000;
-const DEFAULT_BATCH_SIZE = 100;
-const DEFAULT_FLUSH_INTERVAL_MS = 5_000;
+const DEFAULT_BATCH_SIZE = 10;
+const DEFAULT_FLUSH_INTERVAL_MS = 1_000;
 const DEFAULT_FORWARDER_TIMEOUT_MS = 3_000;
 const DEFAULT_ARCHIVE_FORWARDER_PATH = "/archive";
 const DEFAULT_ARCHIVE_FORWARDER_PORT = 8090;
@@ -218,10 +218,12 @@ export class BrokerExecutionArchiver {
 				await this.postToForwarder(batch);
 			} catch (error) {
 				this.stats.forwarderFailures += 1;
+				this.queue.push(...batch);
 				void this.recordArchiveMetric("cex_archive_forwarder_failures_total", {
 					count: batch.length,
 				});
 				log.warn("Broker execution archive forwarder failed", { error });
+				return;
 			}
 		}
 

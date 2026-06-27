@@ -1,11 +1,13 @@
 export {
 	archiveCexStreamEventInBackground,
 	archiveOhlcvInBackground,
+	archiveOrderbookInBackground,
 	archiveOrderbookSnapshotInBackground,
 	archiveOrderbookTobInBackground,
 	archiveTickerInBackground,
 	archiveTradesInBackground,
 	createOhlcvBarTracker,
+	createOrderbookSampler,
 	createOrderbookTobSampler,
 } from "./capture";
 export {
@@ -18,15 +20,18 @@ export { bootstrapOhlcvHistory } from "./ohlcv-history";
 export { resolveOhlcvBootstrapLimit } from "./ohlcv-bootstrap";
 export { extractTrades, parseTicker, parseTrade } from "./parse-stream";
 export {
+	getOrderbookIntervalMs,
 	getOrderbookTobIntervalMs,
 	isMarketArchiveEnabled,
+	OrderbookSampler,
 	OrderbookTobSampler,
-} from "./orderbook-tob-sampler";
+} from "./orderbook-sampler";
 export {
 	buildCandleRow,
 	buildCexStreamEventRow,
 	buildCexTickerEventRow,
 	buildCexTradeRow,
+	buildOrderbookDepthRow,
 	buildOrderbookSnapshotRow,
 	buildOrderbookTobRow,
 } from "./rows";
@@ -40,6 +45,7 @@ export type {
 	MarketArchiveContext,
 	OhlcvArchiveCandidate,
 	OhlcvArchiveInput,
+	OrderbookArchiveInput,
 	OrderbookSnapshotArchiveInput,
 	OrderbookTobArchiveInput,
 	ParsedOhlcvBar,
