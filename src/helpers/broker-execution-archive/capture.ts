@@ -89,7 +89,7 @@ export function archiveSubscribeStreamInBackground(
 	});
 }
 
-export function captureMarketMetadataSnapshotInBackground(
+export async function captureMarketMetadataSnapshot(
 	archiver: BrokerExecutionArchiver | undefined,
 	broker: Exchange,
 	input: {
@@ -103,52 +103,60 @@ export function captureMarketMetadataSnapshotInBackground(
 		idempotencyId?: string;
 		brokerObservedTimestamp?: string;
 	},
-): void {
+): Promise<string | undefined> {
 	if (!archiver?.isEnabled()) {
-		return;
+		return undefined;
 	}
-	void (async () => {
-		try {
-			const fetchOrderBook = (
-				broker as unknown as {
-					fetchOrderBook?: (symbol: string, limit?: number) => Promise<unknown>;
-				}
-			).fetchOrderBook;
-			if (typeof fetchOrderBook !== "function") {
-				return;
+	try {
+		const fetchOrderBook = (
+			broker as unknown as {
+				fetchOrderBook?: (symbol: string, limit?: number) => Promise<unknown>;
 			}
-			const orderBook = await fetchOrderBook.call(broker, input.symbol, 5);
-			const record = asRecord(orderBook);
-			const snapshot = {
-				action: input.action,
-				symbol: input.symbol,
-				bids: record?.bids,
-				asks: record?.asks,
-				timestamp: record?.timestamp ?? Date.now(),
-				datetime: record?.datetime,
-				nonce: record?.nonce,
-			};
-			const tags = buildCommonArchiveTags({
-				deploymentId: archiver.getDeploymentId(),
-				accountSelector: input.accountSelector,
-				exchange: input.exchange,
-				symbol: input.symbol,
-				brokerObservedTimestamp: input.brokerObservedTimestamp,
-			});
-			archiver.enqueue(
-				buildMarketMetadataSnapshotRow({
-					tags,
-					clientOrderId: input.clientOrderId,
-					orderId: input.orderId,
-					makerActionId: input.makerActionId,
-					idempotencyId: input.idempotencyId,
-					marketSnapshot: snapshot,
-				}),
-			);
-		} catch (archiveError) {
-			log.warn("Failed to capture market metadata snapshot", {
-				error: archiveError,
-			});
+		).fetchOrderBook;
+		if (typeof fetchOrderBook !== "function") {
+			return undefined;
 		}
-	})();
+		const orderBook = await fetchOrderBook.call(broker, input.symbol, 5);
+		const record = asRecord(orderBook);
+		const snapshot = {
+			action: input.action,
+			symbol: input.symbol,
+			bids: record?.bids,
+			asks: record?.asks,
+			timestamp: record?.timestamp ?? Date.now(),
+			datetime: record?.datetime,
+			nonce: record?.nonce,
+		};
+		const tags = buildCommonArchiveTags({
+			deploymentId: archiver.getDeploymentId(),
+			accountSelector: input.accountSelector,
+			exchange: input.exchange,
+			symbol: input.symbol,
+			brokerObservedTimestamp: input.brokerObservedTimestamp,
+		});
+		const row = buildMarketMetadataSnapshotRow({
+			tags,
+			clientOrderId: input.clientOrderId,
+			orderId: input.orderId,
+			makerActionId: input.makerActionId,
+			idempotencyId: input.idempotencyId,
+			marketSnapshot: snapshot,
+		});
+		archiver.enqueue(row);
+		const hash = row.row.market_metadata_hash;
+		return typeof hash === "string" ? hash : undefined;
+	} catch (archiveError) {
+		log.warn("Failed to capture market metadata snapshot", {
+			error: archiveError,
+		});
+		return undefined;
+	}
+}
+
+export function captureMarketMetadataSnapshotInBackground(
+	archiver: BrokerExecutionArchiver | undefined,
+	broker: Exchange,
+	input: Parameters<typeof captureMarketMetadataSnapshot>[2],
+): void {
+	void captureMarketMetadataSnapshot(archiver, broker, input);
 }

@@ -17,6 +17,8 @@ export type ViewerConfig = {
 	};
 };
 
+const SUPPORTED_TIMEFRAMES = ["1m", "5m", "15m", "1h"] as const;
+
 function parseSymbols(value: string | undefined): string[] {
 	const raw =
 		value?.trim() ||
@@ -44,6 +46,15 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseTimeframe(value: string | undefined): string {
+	const normalized = value?.trim() || "1m";
+	return SUPPORTED_TIMEFRAMES.includes(
+		normalized as (typeof SUPPORTED_TIMEFRAMES)[number],
+	)
+		? normalized
+		: "1m";
+}
+
 export function loadViewerConfig(): ViewerConfig {
 	return {
 		port: parsePort(process.env.CANDLE_VIEWER_PORT, 8091),
@@ -62,7 +73,7 @@ export function loadViewerConfig(): ViewerConfig {
 			exchange: process.env.CANDLE_VIEWER_EXCHANGE?.trim() || "binance",
 			symbol: process.env.CANDLE_VIEWER_SYMBOL?.trim() || "BTC/USDT",
 			symbols: parseSymbols(process.env.CANDLE_VIEWER_SYMBOLS),
-			timeframe: process.env.CANDLE_VIEWER_TIMEFRAME?.trim() || "1m",
+			timeframe: parseTimeframe(process.env.CANDLE_VIEWER_TIMEFRAME),
 			limit: parsePositiveInt(process.env.CANDLE_VIEWER_LIMIT, 300),
 		},
 	};

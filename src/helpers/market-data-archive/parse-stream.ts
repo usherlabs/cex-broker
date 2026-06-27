@@ -66,7 +66,10 @@ export type ParsedTicker = {
 	percentage?: number;
 };
 
-export function parseTrade(value: unknown): ParsedTrade | null {
+export function parseTrade(
+	value: unknown,
+	fallbackMs: number = Date.now(),
+): ParsedTrade | null {
 	const record = asRecord(value);
 	if (!record) {
 		return null;
@@ -83,7 +86,7 @@ export function parseTrade(value: unknown): ParsedTrade | null {
 
 	const parsed: ParsedTrade = {
 		tradeId,
-		eventTimeMs: scalarTimestampMs(record.timestamp, Date.now()),
+		eventTimeMs: scalarTimestampMs(record.timestamp, fallbackMs),
 		side,
 		price,
 		amount,
@@ -98,13 +101,16 @@ export function parseTrade(value: unknown): ParsedTrade | null {
 	return parsed;
 }
 
-export function extractTrades(payload: unknown): ParsedTrade[] {
+export function extractTrades(
+	payload: unknown,
+	fallbackMs: number = Date.now(),
+): ParsedTrade[] {
 	if (Array.isArray(payload)) {
 		return payload
-			.map((entry) => parseTrade(entry))
+			.map((entry) => parseTrade(entry, fallbackMs))
 			.filter((entry): entry is ParsedTrade => entry !== null);
 	}
-	const single = parseTrade(payload);
+	const single = parseTrade(payload, fallbackMs);
 	return single ? [single] : [];
 }
 

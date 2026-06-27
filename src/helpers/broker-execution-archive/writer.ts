@@ -82,6 +82,8 @@ export class BrokerExecutionArchiver {
 	private flushInFlight: Promise<void> | null = null;
 	private closed = false;
 	private loggedMissingMarketForwarder = false;
+	private readonly enabled: boolean;
+	private readonly forwarderAuthToken?: string;
 
 	private constructor(
 		options: BrokerExecutionArchiverOptions & { enabled: boolean },
@@ -98,8 +100,11 @@ export class BrokerExecutionArchiver {
 		this.flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
 		this.forwarderTimeoutMs =
 			options.forwarderTimeoutMs ?? DEFAULT_FORWARDER_TIMEOUT_MS;
+		this.enabled = options.enabled;
+		this.forwarderAuthToken =
+			process.env.CEX_BROKER_ARCHIVE_FORWARDER_TOKEN?.trim() || undefined;
 
-		if (options.enabled) {
+		if (this.enabled) {
 			this.flushTimer = setInterval(() => {
 				void this.flush().catch((error) => {
 					log.warn("Broker execution archive flush failed", { error });
@@ -130,12 +135,18 @@ export class BrokerExecutionArchiver {
 
 	isEnabled(): boolean {
 		return (
-			!this.closed && (Boolean(this.otelLogs) || Boolean(this.forwarderUrl))
+			this.enabled &&
+			!this.closed &&
+			(Boolean(this.otelLogs) || Boolean(this.forwarderUrl))
 		);
 	}
 
 	enqueue(row: BrokerArchiveRow): void {
-		if (this.closed || (!this.otelLogs && !this.forwarderUrl)) {
+		if (
+			!this.enabled ||
+			this.closed ||
+			(!this.otelLogs && !this.forwarderUrl)
+		) {
 			return;
 		}
 		if (isMarketArchiveTable(row.table) && !this.forwarderUrl) {
@@ -172,7 +183,7 @@ export class BrokerExecutionArchiver {
 	}
 
 	async flush(): Promise<void> {
-		if (this.closed || this.queue.length === 0) {
+		if (!this.enabled || this.closed || this.queue.length === 0) {
 			return;
 		}
 		if (this.flushInFlight) {
@@ -185,12 +196,18 @@ export class BrokerExecutionArchiver {
 	}
 
 	async close(): Promise<void> {
-		this.closed = true;
 		if (this.flushTimer) {
 			clearInterval(this.flushTimer);
 			this.flushTimer = null;
 		}
-		await this.flush();
+		while (this.queue.length > 0 || this.flushInFlight) {
+			if (this.flushInFlight) {
+				await this.flushInFlight;
+				continue;
+			}
+			await this.flushBatch();
+		}
+		this.closed = true;
 	}
 
 	getStats(): Readonly<ArchiverStats> {
@@ -214,16 +231,21 @@ export class BrokerExecutionArchiver {
 		}
 
 		if (this.forwarderUrl) {
-			try {
-				await this.postToForwarder(batch);
-			} catch (error) {
-				this.stats.forwarderFailures += 1;
-				this.queue.push(...batch);
-				void this.recordArchiveMetric("cex_archive_forwarder_failures_total", {
-					count: batch.length,
-				});
-				log.warn("Broker execution archive forwarder failed", { error });
-				return;
+			const marketRows = batch.filter((entry) =>
+				isMarketArchiveTable(entry.table),
+			);
+			if (marketRows.length > 0) {
+				try {
+					await this.postToForwarder(marketRows);
+				} catch (error) {
+					this.stats.forwarderFailures += 1;
+					this.queue.push(...batch);
+					void this.recordArchiveMetric("cex_archive_forwarder_failures_total", {
+						count: batch.length,
+					});
+					log.warn("Broker execution archive forwarder failed", { error });
+					return;
+				}
 			}
 		}
 
@@ -258,7 +280,7 @@ export class BrokerExecutionArchiver {
 	}
 
 	private async postToForwarder(batch: BrokerArchiveRow[]): Promise<void> {
-		if (!this.forwarderUrl) {
+		if (!this.forwarderUrl || batch.length === 0) {
 			return;
 		}
 		const controller = new AbortController();
@@ -266,10 +288,16 @@ export class BrokerExecutionArchiver {
 			() => controller.abort(),
 			this.forwarderTimeoutMs,
 		);
+		const headers: Record<string, string> = {
+			"content-type": "application/json",
+		};
+		if (this.forwarderAuthToken) {
+			headers.authorization = `Bearer ${this.forwarderAuthToken}`;
+		}
 		try {
 			const response = await fetch(this.forwarderUrl, {
 				method: "POST",
-				headers: { "content-type": "application/json" },
+				headers,
 				body: JSON.stringify({
 					source: "broker_write",
 					deployment_id: this.deploymentId,

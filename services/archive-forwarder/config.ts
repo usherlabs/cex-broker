@@ -8,6 +8,7 @@ export type ClickHouseConfig = {
 
 export type ForwarderConfig = {
 	port: number;
+	authToken?: string;
 	clickhouse: ClickHouseConfig;
 };
 
@@ -20,8 +21,10 @@ function parsePort(value: string | undefined, fallback: number): number {
 }
 
 export function loadForwarderConfig(): ForwarderConfig {
+	const authToken = process.env.ARCHIVE_FORWARDER_TOKEN?.trim();
 	return {
 		port: parsePort(process.env.ARCHIVE_FORWARDER_PORT, 8090),
+		authToken: authToken || undefined,
 		clickhouse: {
 			host: process.env.CLICKHOUSE_HOST?.trim() || "localhost",
 			port: parsePort(process.env.CLICKHOUSE_PORT, 8123),

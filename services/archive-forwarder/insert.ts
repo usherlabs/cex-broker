@@ -64,9 +64,8 @@ export function createClickHouseInserter(
 	client: ClickHouseClient,
 ): RowInserter {
 	return async (table, rows) => {
-		const shortTable = table.split(".").pop() ?? table;
 		await client.insert({
-			table: shortTable,
+			table,
 			values: rows,
 			format: "JSONEachRow",
 		});

@@ -74,6 +74,13 @@ export class OhlcvBarTracker {
 		currentBar: ParsedOhlcvBar,
 		brokerVersion: number,
 	): OhlcvArchiveCandidate[] {
+		if (
+			this.lastOpenTimeMs !== null &&
+			currentBar.openTimeMs < this.lastOpenTimeMs
+		) {
+			return [];
+		}
+
 		const candidates: OhlcvArchiveCandidate[] = [];
 
 		if (
@@ -103,6 +110,14 @@ export class OhlcvBarTracker {
 		bars: ParsedOhlcvBar[],
 		brokerVersion: number,
 	): OhlcvArchiveCandidate[] {
+		if (
+			this.lastOpenTimeMs !== null &&
+			bars.length > 0 &&
+			bars[bars.length - 1].openTimeMs < this.lastOpenTimeMs
+		) {
+			return [];
+		}
+
 		const candidates: OhlcvArchiveCandidate[] = [];
 		const lastBar = bars[bars.length - 1];
 

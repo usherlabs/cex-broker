@@ -12,10 +12,15 @@ const PROTO_FILE = "../src/proto/node.proto";
 const brokerUrl = process.env.CEX_BROKER_URL ?? "localhost:8086";
 const cex = process.env.CEX ?? "binance";
 const timeframe = process.env.TIMEFRAME ?? "1m";
-const RECONNECT_DELAY_MS = Number.parseInt(
-	process.env.ARCHIVE_WATCH_RECONNECT_MS ?? "5000",
+const DEFAULT_RECONNECT_DELAY_MS = 5_000;
+const parsedReconnectDelay = Number.parseInt(
+	process.env.ARCHIVE_WATCH_RECONNECT_MS ?? String(DEFAULT_RECONNECT_DELAY_MS),
 	10,
 );
+const RECONNECT_DELAY_MS =
+	Number.isFinite(parsedReconnectDelay) && parsedReconnectDelay > 0
+		? parsedReconnectDelay
+		: DEFAULT_RECONNECT_DELAY_MS;
 
 function parseSymbols(): string[] {
 	const raw =
@@ -60,6 +65,15 @@ const activeStreams: grpc.ClientReadableStream<SubscribeResponse__Output>[] =
 	[];
 let shuttingDown = false;
 
+function removeStream(
+	stream: grpc.ClientReadableStream<SubscribeResponse__Output>,
+): void {
+	const index = activeStreams.indexOf(stream);
+	if (index >= 0) {
+		activeStreams.splice(index, 1);
+	}
+}
+
 function scheduleReconnect(label: string, start: () => void) {
 	if (shuttingDown) {
 		return;
@@ -90,11 +104,13 @@ function startOrderbookStream(symbol: string) {
 
 	stream.on("error", (error: grpc.ServiceError) => {
 		console.error(`[${label}] stream error:`, error.message);
+		removeStream(stream);
 		scheduleReconnect(label, () => startOrderbookStream(symbol));
 	});
 
 	stream.on("end", () => {
 		console.warn(`[${label}] stream ended`);
+		removeStream(stream);
 		scheduleReconnect(label, () => startOrderbookStream(symbol));
 	});
 
@@ -134,11 +150,13 @@ function startOhlcvStream(symbol: string) {
 
 	stream.on("error", (error: grpc.ServiceError) => {
 		console.error(`[${label}] stream error:`, error.message);
+		removeStream(stream);
 		scheduleReconnect(label, () => startOhlcvStream(symbol));
 	});
 
 	stream.on("end", () => {
 		console.warn(`[${label}] stream ended`);
+		removeStream(stream);
 		scheduleReconnect(label, () => startOhlcvStream(symbol));
 	});
 
@@ -171,6 +189,7 @@ function startSimpleStream(
 
 	stream.on("error", (error: grpc.ServiceError) => {
 		console.error(`[${label}] stream error:`, error.message);
+		removeStream(stream);
 		scheduleReconnect(label, () =>
 			startSimpleStream(symbol, streamName, subscriptionType),
 		);
@@ -178,6 +197,7 @@ function startSimpleStream(
 
 	stream.on("end", () => {
 		console.warn(`[${label}] stream ended`);
+		removeStream(stream);
 		scheduleReconnect(label, () =>
 			startSimpleStream(symbol, streamName, subscriptionType),
 		);

@@ -1,6 +1,7 @@
 export {
 	archiveOrderExecutionInBackground,
 	archiveSubscribeStreamInBackground,
+	captureMarketMetadataSnapshot,
 	captureMarketMetadataSnapshotInBackground,
 } from "./capture";
 export {

@@ -110,16 +110,23 @@ export function buildSubscribeStreamArchiveRow(input: {
 			order_id: firstString(
 				record?.id,
 				record?.orderId,
+				record?.i,
 				info?.orderId,
 				info?.i,
 			),
 			client_order_id: firstString(
 				record?.clientOrderId,
 				record?.clientOrderID,
+				record?.c,
 				info?.clientOrderId,
 				info?.c,
 			),
-			status: firstString(record?.status, info?.status, info?.X)?.toLowerCase(),
+			status: firstString(
+				record?.status,
+				record?.X,
+				info?.status,
+				info?.X,
+			)?.toLowerCase(),
 			payload_json: JSON.stringify(redactedPayload),
 		}),
 	};

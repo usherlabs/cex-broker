@@ -23,6 +23,10 @@ export class OrderbookSampler {
 	constructor(private readonly intervalMs = getOrderbookIntervalMs()) {}
 
 	shouldEmit(nowMs: number = Date.now()): boolean {
+		if (this.lastEmitMs !== null && nowMs < this.lastEmitMs) {
+			this.lastEmitMs = nowMs;
+			return true;
+		}
 		if (this.lastEmitMs !== null && nowMs - this.lastEmitMs < this.intervalMs) {
 			return false;
 		}

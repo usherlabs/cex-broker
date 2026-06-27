@@ -17,5 +17,6 @@ def rollup_candles(frame: pd.DataFrame, target_ms: int) -> pd.DataFrame:
         close=("close", "last"),
         volume=("volume", "sum"),
     )
+    grouped["open_time_ms"] = grouped["bucket_ms"]
     grouped["timestamp"] = pd.to_datetime(grouped["bucket_ms"], unit="ms", utc=True)
     return grouped

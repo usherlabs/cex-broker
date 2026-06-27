@@ -33,8 +33,27 @@ def run_sma_crossover(
 
     trades = int(data["position"].diff().abs().fillna(0).sum() / 2)
     total_return = float((1 + data["strategy_returns"]).prod() - 1)
-    wins = data.loc[data["strategy_returns"] > 0, "strategy_returns"]
-    win_rate = float(len(wins) / max(trades, 1))
+
+    completed_pnls: list[float] = []
+    entry_price: float | None = None
+    entry_side = 0
+    for row in data.itertuples(index=False):
+        position = int(row.position)
+        close = float(row.close)
+        if entry_price is None and position != 0:
+            entry_price = close
+            entry_side = position
+            continue
+        if entry_price is not None and position != entry_side:
+            if entry_side > 0:
+                completed_pnls.append((close - entry_price) / entry_price)
+            else:
+                completed_pnls.append((entry_price - close) / entry_price)
+            entry_price = close if position != 0 else None
+            entry_side = position
+
+    winning_trades = sum(1 for pnl in completed_pnls if pnl > 0)
+    win_rate = float(winning_trades / max(len(completed_pnls), 1))
     return BacktestSummary(trades=trades, total_return=total_return, win_rate=win_rate)
 
 

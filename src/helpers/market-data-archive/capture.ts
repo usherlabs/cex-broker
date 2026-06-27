@@ -195,7 +195,9 @@ export function archiveTradesInBackground(
 	input: TradesArchiveInput,
 ): void {
 	archiveMarketRowsInBackground(archiver, otelMetrics, "trades", input, () =>
-		extractTrades(input.payload).map((trade) => buildCexTradeRow(input, trade)),
+		extractTrades(input.payload, input.receivedTimestamp).map((trade) =>
+			buildCexTradeRow(input, trade),
+		),
 	);
 }
 

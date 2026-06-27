@@ -3,7 +3,7 @@ import { resolveOrderExecution } from "../../helpers";
 import { Action } from "../../helpers/constants";
 import {
 	archiveOrderExecutionInBackground,
-	captureMarketMetadataSnapshotInBackground,
+	captureMarketMetadataSnapshot,
 } from "../../helpers/broker-execution-archive";
 import {
 	emitOrderExecutionTelemetryInBackground,
@@ -84,14 +84,18 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		};
 		const telemetryIds = extractOrderTelemetryIds(orderValue.params);
 		const submissionTimestamp = new Date().toISOString();
-		captureMarketMetadataSnapshotInBackground(brokerArchiver, broker, {
-			exchange: cex,
-			accountSelector: selectedBrokerAccount?.label,
-			symbol: resolution.symbol,
-			action: "CreateOrder",
-			brokerObservedTimestamp: submissionTimestamp,
-			...telemetryIds,
-		});
+		const marketMetadataHash = await captureMarketMetadataSnapshot(
+			brokerArchiver,
+			broker,
+			{
+				exchange: cex,
+				accountSelector: selectedBrokerAccount?.label,
+				symbol: resolution.symbol,
+				action: "CreateOrder",
+				brokerObservedTimestamp: submissionTimestamp,
+				...telemetryIds,
+			},
+		);
 		const order = await broker.createOrder(
 			resolution.symbol,
 			orderValue.orderType,
@@ -121,6 +125,8 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			brokerArchiver,
 			createOrderContext,
 			order,
+			undefined,
+			{ marketMetadataHash },
 		);
 		ctx.wrappedCallback(null, { result: JSON.stringify({ ...order }) });
 	} catch (error) {
@@ -285,6 +291,15 @@ async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
 	const cancelOrderValue = parsePayloadForAction(ctx, CancelOrderPayloadSchema);
 	if (cancelOrderValue === null) return;
 	try {
+		if (!broker) {
+			return ctx.wrappedCallback(
+				{
+					code: grpc.status.INVALID_ARGUMENT,
+					message: `Invalid CEX key: ${cex}. Supported keys: ${Object.keys(brokers).join(", ")}`,
+				},
+				null,
+			);
+		}
 		const cancelOrderContext = {
 			action: "CancelOrder" as const,
 			cex,

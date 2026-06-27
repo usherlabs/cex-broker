@@ -8,7 +8,7 @@ const CLICKHOUSE_URL =
 	process.env.CLICKHOUSE_TEST_URL?.trim() ||
 	`http://${process.env.CLICKHOUSE_HOST?.trim() || "localhost"}:${process.env.CLICKHOUSE_PORT?.trim() || "18123"}`;
 
-const TEST_DEPLOYMENT = "clickhouse-integration-test";
+const TEST_DEPLOYMENT = `clickhouse-integration-test-${Date.now()}`;
 const TEST_EVENT_MS = 1_900_000_000_000;
 
 let client: ClickHouseClient | undefined;
@@ -61,6 +61,12 @@ async function cleanupTestRows(): Promise<void> {
 			DELETE WHERE deployment_id = {deployment_id:String}
 		`,
 		query_params: { deployment_id: TEST_DEPLOYMENT },
+	});
+	await client!.command({
+		query: "OPTIMIZE TABLE orderbook_snapshots FINAL",
+	});
+	await client!.command({
+		query: "OPTIMIZE TABLE candles FINAL",
 	});
 }
 

@@ -22,6 +22,29 @@ from cex_broker_research.live_candles import (  # noqa: E402
 )
 
 
+def _require(condition: bool, message: str) -> None:
+	if not condition:
+		raise RuntimeError(message)
+
+
+def _is_connection_error(error: Exception) -> bool:
+	message = str(error).lower()
+	connection_markers = (
+		"connection refused",
+		"connection reset",
+		"failed to establish",
+		"name or service not known",
+		"nodename nor servname provided",
+		"timed out",
+		"timeout",
+		"network is unreachable",
+		"errno 111",
+		"errno 61",
+		"errno 110",
+	)
+	return any(marker in message for marker in connection_markers)
+
+
 def print_coverage_matrix() -> None:
 	print("MarketDataProvider contract coverage (cex-broker repo)\n")
 	print(f"{'Group':<24} {'Coverage':<28} Methods")
@@ -35,19 +58,25 @@ def print_coverage_matrix() -> None:
 
 def smoke_test_clickhouse_candle_path() -> None:
 	exchange, symbol = parse_clickhouse_trading_pair("binance:BTC-USDT")
-	assert exchange == "binance"
-	assert symbol == "BTC/USDT"
+	_require(exchange == "binance", f"expected exchange binance, got {exchange!r}")
+	_require(symbol == "BTC/USDT", f"expected symbol BTC/USDT, got {symbol!r}")
 
 	# Feed class + registration (requires hummingbot)
 	try:
 		from clickhouse_candles_feed import CexBrokerClickHouseCandles
 		from register_clickhouse_feed import register_clickhouse_candles_feed
 
-		assert CexBrokerClickHouseCandles.__name__ == "CexBrokerClickHouseCandles"
+		_require(
+			CexBrokerClickHouseCandles.__name__ == "CexBrokerClickHouseCandles",
+			"unexpected ClickHouse candles feed class name",
+		)
 		register_clickhouse_candles_feed()
 		from hummingbot.data_feed.candles_feed.candles_factory import CandlesFactory
 
-		assert CandlesFactory._candles_map[CONNECTOR_NAME] is CexBrokerClickHouseCandles
+		_require(
+			CandlesFactory._candles_map[CONNECTOR_NAME] is CexBrokerClickHouseCandles,
+			"CandlesFactory registration did not map connector to feed class",
+		)
 		print("OK: CandlesFactory registration")
 	except ImportError as error:
 		if "hummingbot" not in str(error).lower():
@@ -68,22 +97,29 @@ def smoke_test_clickhouse_candle_path() -> None:
 		)
 		print(f"OK: ClickHouse poll returned {len(rows)} candle row(s)")
 	except Exception as error:  # noqa: BLE001
-		print(f"SKIP: ClickHouse live poll ({error})")
+		if _is_connection_error(error):
+			print(f"SKIP: ClickHouse live poll ({error})")
+			return
+		raise RuntimeError(f"ClickHouse live poll failed: {error}") from error
 
 
 def main() -> int:
-	print_coverage_matrix()
-	clickhouse_groups = [
-		g for g in MARKET_DATA_PROVIDER_CONTRACT if g.coverage is Coverage.CLICKHOUSE_CANDLES
-	]
-	native_groups = [
-		g for g in MARKET_DATA_PROVIDER_CONTRACT if g.coverage is Coverage.HUMMINGBOT_NATIVE
-	]
-	print(
-		f"Summary: {len(clickhouse_groups)} group(s) extended by cex-broker ClickHouse feed, "
-		f"{len(native_groups)} group(s) are Hummingbot-native (not reimplemented here).\n",
-	)
-	smoke_test_clickhouse_candle_path()
+	try:
+		print_coverage_matrix()
+		clickhouse_groups = [
+			g for g in MARKET_DATA_PROVIDER_CONTRACT if g.coverage is Coverage.CLICKHOUSE_CANDLES
+		]
+		native_groups = [
+			g for g in MARKET_DATA_PROVIDER_CONTRACT if g.coverage is Coverage.HUMMINGBOT_NATIVE
+		]
+		print(
+			f"Summary: {len(clickhouse_groups)} group(s) extended by cex-broker ClickHouse feed, "
+			f"{len(native_groups)} group(s) are Hummingbot-native (not reimplemented here).\n",
+		)
+		smoke_test_clickhouse_candle_path()
+	except Exception as error:  # noqa: BLE001
+		print(f"FAIL: {error}", file=sys.stderr)
+		return 1
 	return 0
 
 

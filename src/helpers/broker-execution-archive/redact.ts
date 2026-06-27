@@ -5,9 +5,9 @@ const REDACTED_ERROR_MESSAGE = "redacted_error";
 const SECRET_KEY_PATTERN =
 	/\b(api[_-]?key|api[_-]?secret|secret|signature|passphrase|password|token|credential)\b/i;
 const SECRET_VALUE_PATTERN =
-	/(\b(?:apiKey|api_key|secret|signature|passphrase|password|token)\b\s*[=:]\s*)[^\s&,;)}\]]+/gi;
+	/(\b(?:apiKey|api_key|apiSecret|api_secret|secret|signature|passphrase|password|token)\b\s*[=:]\s*)[^\s&,;)}\]]+/gi;
 const SECRET_JSON_PATTERN =
-	/("(?:apiKey|api_key|secret|signature|passphrase|password|token)"\s*:\s*")[^"]*(")/gi;
+	/("(?:apiKey|api_key|apiSecret|api_secret|secret|signature|passphrase|password|token)"\s*:\s*")[^"]*(")/gi;
 
 export function redactErrorForArchive(error: unknown): {
 	error_type?: string;
@@ -72,6 +72,11 @@ export function redactStreamPayload(
 	payload: unknown,
 	secretLiterals: readonly string[] = [],
 ): Record<string, unknown> {
+	if (Array.isArray(payload)) {
+		return {
+			items: payload.map((entry) => redactUnknownValue(entry, secretLiterals)),
+		};
+	}
 	const record = asRecord(payload);
 	if (!record) {
 		return {};

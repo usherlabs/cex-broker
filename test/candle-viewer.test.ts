@@ -78,11 +78,11 @@ describe("candle viewer price format", () => {
 describe("candle viewer chart update", () => {
 	test("replaces series when the window slides but count stays fixed", () => {
 		const previous: SeriesSnapshot = {
-			count: 300,
+			count: 2,
 			firstTime: 1_000,
-			lastTime: 1_299,
+			lastTime: 1_001,
 		};
-		const candles = [{ time: 1_001 }, { time: 1_300 }];
+		const candles = [{ time: 1_001 }, { time: 1_002 }];
 		expect(shouldReplaceCandleSeries(previous, candles)).toBe(true);
 	});
 
@@ -98,11 +98,11 @@ describe("candle viewer chart update", () => {
 
 	test("replaces series when a new bar opens", () => {
 		const previous: SeriesSnapshot = {
-			count: 300,
+			count: 2,
 			firstTime: 1_000,
-			lastTime: 1_299,
+			lastTime: 1_001,
 		};
-		const candles = [{ time: 1_000 }, { time: 1_300 }];
+		const candles = [{ time: 1_000 }, { time: 1_002 }];
 		expect(shouldReplaceCandleSeries(previous, candles)).toBe(true);
 	});
 });

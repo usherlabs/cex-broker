@@ -35,6 +35,8 @@ class ClickHouseCandleQuery:
 	timeframe: str
 	max_records: int
 	include_forming_bar: bool = True
+	start_time_ms: int | None = None
+	end_time_ms: int | None = None
 
 
 def parse_clickhouse_trading_pair(
@@ -101,6 +103,20 @@ def dataframe_to_hb_candle_rows(frame: pd.DataFrame) -> list[list[float]]:
 def fetch_candle_dataframe(query: ClickHouseCandleQuery) -> pd.DataFrame:
 	"""Load the latest OHLCV window from ClickHouse (closed + optional forming bar)."""
 	source_table = "candles" if query.include_forming_bar else "candles_closed"
+	time_filters: list[str] = []
+	parameters: dict[str, object] = {
+		"exchange": query.exchange.lower(),
+		"symbol": query.symbol,
+		"timeframe": query.timeframe,
+		"limit": query.max_records,
+	}
+	if query.start_time_ms is not None:
+		time_filters.append("open_time_ms >= %(start_time_ms)s")
+		parameters["start_time_ms"] = query.start_time_ms
+	if query.end_time_ms is not None:
+		time_filters.append("open_time_ms <= %(end_time_ms)s")
+		parameters["end_time_ms"] = query.end_time_ms
+	time_clause = f"\n\t\t\tAND {' AND '.join(time_filters)}" if time_filters else ""
 	sql = f"""
 		SELECT
 			open_time_ms,
@@ -115,19 +131,14 @@ def fetch_candle_dataframe(query: ClickHouseCandleQuery) -> pd.DataFrame:
 		FROM {source_table}
 		WHERE exchange = %(exchange)s
 			AND symbol = %(symbol)s
-			AND timeframe = %(timeframe)s
+			AND timeframe = %(timeframe)s{time_clause}
 		ORDER BY open_time_ms DESC
 		LIMIT %(limit)s
 	"""
 	client = get_client()
 	frame = client.query_df(
 		sql,
-		parameters={
-			"exchange": query.exchange.lower(),
-			"symbol": query.symbol,
-			"timeframe": query.timeframe,
-			"limit": query.max_records,
-		},
+		parameters=parameters,
 	)
 	if frame.empty:
 		return frame

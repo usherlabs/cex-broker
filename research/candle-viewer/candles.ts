@@ -35,33 +35,54 @@ export type CandleQuery = {
 	limit: number;
 };
 
-function toNumber(value: unknown): number {
+function parseFiniteNumber(value: unknown): number | null {
 	if (typeof value === "number" && Number.isFinite(value)) {
 		return value;
 	}
-	if (typeof value === "string") {
+	if (typeof value === "string" && value.trim() !== "") {
 		const parsed = Number.parseFloat(value);
 		if (Number.isFinite(parsed)) {
 			return parsed;
 		}
 	}
-	return 0;
+	return null;
 }
 
-function toUInt(value: unknown): number {
-	return Math.trunc(toNumber(value));
+function toUInt(value: unknown): number | null {
+	const parsed = parseFiniteNumber(value);
+	return parsed === null ? null : Math.trunc(parsed);
 }
 
-export function toChartCandle(row: CandleRow): ChartCandle {
+export function toChartCandle(row: CandleRow): ChartCandle | null {
+	const open = parseFiniteNumber(row.open);
+	const high = parseFiniteNumber(row.high);
+	const low = parseFiniteNumber(row.low);
+	const close = parseFiniteNumber(row.close);
+	const volume = parseFiniteNumber(row.volume);
+	const openTimeMs = toUInt(row.open_time_ms);
+	const isClosed = toUInt(row.is_closed);
+	const brokerVersion = toUInt(row.broker_version);
+	if (
+		open === null ||
+		high === null ||
+		low === null ||
+		close === null ||
+		volume === null ||
+		openTimeMs === null ||
+		isClosed === null ||
+		brokerVersion === null
+	) {
+		return null;
+	}
 	return {
-		time: Math.trunc(row.open_time_ms / 1000),
-		open: row.open,
-		high: row.high,
-		low: row.low,
-		close: row.close,
-		volume: row.volume,
-		isClosed: row.is_closed === 1,
-		brokerVersion: row.broker_version,
+		time: Math.trunc(openTimeMs / 1000),
+		open,
+		high,
+		low,
+		close,
+		volume,
+		isClosed: isClosed === 1,
+		brokerVersion,
 	};
 }
 
@@ -114,16 +135,17 @@ export async function fetchRawCandles(
 	return rows
 		.map((row) =>
 			toChartCandle({
-				open_time_ms: toUInt(row.open_time_ms),
-				open: toNumber(row.open),
-				high: toNumber(row.high),
-				low: toNumber(row.low),
-				close: toNumber(row.close),
-				volume: toNumber(row.volume),
-				is_closed: toUInt(row.is_closed),
-				broker_version: toUInt(row.broker_version),
+				open_time_ms: row.open_time_ms,
+				open: row.open,
+				high: row.high,
+				low: row.low,
+				close: row.close,
+				volume: row.volume,
+				is_closed: row.is_closed,
+				broker_version: row.broker_version,
 			}),
 		)
+		.filter((candle): candle is ChartCandle => candle !== null)
 		.sort((a, b) => a.time - b.time);
 }
 
@@ -137,10 +159,7 @@ export async function fetchCandles(
 	}
 
 	const multiplier = timeframeMultiplier(requestedTimeframe);
-	const baseLimit = Math.min(
-		Math.trunc(query.limit * multiplier),
-		10_000,
-	);
+	const baseLimit = Math.trunc(query.limit * multiplier);
 
 	const baseCandles = await fetchRawCandles(
 		client,

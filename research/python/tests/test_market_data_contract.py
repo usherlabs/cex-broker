@@ -57,5 +57,10 @@ def test_register_clickhouse_feed_when_hummingbot_present():
 	from clickhouse_candles_feed import CONNECTOR_NAME, CexBrokerClickHouseCandles
 	from hummingbot.data_feed.candles_feed.candles_factory import CandlesFactory
 
-	register_clickhouse_candles_feed()
-	assert CandlesFactory._candles_map[CONNECTOR_NAME] is CexBrokerClickHouseCandles
+	original_map = dict(CandlesFactory._candles_map)
+	try:
+		register_clickhouse_candles_feed()
+		assert CandlesFactory._candles_map[CONNECTOR_NAME] is CexBrokerClickHouseCandles
+	finally:
+		CandlesFactory._candles_map.clear()
+		CandlesFactory._candles_map.update(original_map)

@@ -404,6 +404,14 @@
 		symbolSelect.addEventListener("change", resubscribe);
 		exchangeInput.addEventListener("change", resubscribe);
 
+		function populateDefaultSymbols() {
+			const symbols = ["BTC/USDT", "BNB/USDT", "DOGE/USDT"];
+			symbolSelect.innerHTML = symbols
+				.map((s) => `<option value="${s}">${s}</option>`)
+				.join("");
+			symbolSelect.value = symbols[0];
+		}
+
 		fetch("/api/config")
 			.then((r) => r.json())
 			.then((cfg) => {
@@ -433,6 +441,8 @@
 				void pollCandles();
 			})
 			.catch(() => {
+				populateDefaultSymbols();
+				setConnection("", "connecting");
 				startPolling();
 				void pollCandles();
 			});

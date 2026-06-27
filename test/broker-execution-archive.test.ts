@@ -137,8 +137,10 @@ describe("broker execution archiver queue", () => {
 			return new Response(null, { status: 200 });
 		}) as typeof fetch;
 
+		const otelLogs = new MockOtelLogs();
 		const archiver = BrokerExecutionArchiver.create({
 			forwarderUrl: "http://127.0.0.1:9/archive",
+			otelLogs,
 			deploymentId: "test-deploy",
 			maxQueueSize: 2,
 			batchSize: 10,
@@ -162,11 +164,8 @@ describe("broker execution archiver queue", () => {
 		expect(archiver.getQueueDepth()).toBe(2);
 
 		await archiver.flush();
-		expect(posts).toHaveLength(1);
-		expect(posts[0]).toMatchObject({
-			source: "broker_write",
-			deployment_id: "test-deploy",
-		});
+		expect(posts).toHaveLength(0);
+		expect(otelLogs.emits).toHaveLength(2);
 
 		await archiver.close();
 	});
@@ -203,8 +202,12 @@ describe("broker execution archiver queue", () => {
 		expect(posts).toHaveLength(1);
 		expect(posts[0]).toMatchObject({
 			rows: expect.arrayContaining([
-				expect.objectContaining({ table: "broker_execution.order_events" }),
 				expect.objectContaining({ table: "market_data.orderbook_snapshots" }),
+			]),
+		});
+		expect(posts[0]).not.toMatchObject({
+			rows: expect.arrayContaining([
+				expect.objectContaining({ table: "broker_execution.order_events" }),
 			]),
 		});
 

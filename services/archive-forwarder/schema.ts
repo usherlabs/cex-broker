@@ -34,6 +34,22 @@ function splitSqlStatements(sql: string): string[] {
 	return statements;
 }
 
+function isIdempotentSchemaError(error: unknown): boolean {
+	const message =
+		error instanceof Error
+			? error.message
+			: typeof error === "string"
+				? error
+				: String(error);
+	const normalized = message.toLowerCase();
+	return (
+		normalized.includes("already exists") ||
+		normalized.includes("table already exists") ||
+		normalized.includes("table_exists") ||
+		normalized.includes("database already exists")
+	);
+}
+
 export async function ensureMarketDataSchema(
 	client: ClickHouseClient,
 ): Promise<void> {
@@ -46,7 +62,10 @@ export async function ensureMarketDataSchema(
 		try {
 			await client.command({ query: statement });
 		} catch (error) {
-			console.warn("Schema statement skipped:", error);
+			if (isIdempotentSchemaError(error)) {
+				continue;
+			}
+			throw error;
 		}
 	}
 }

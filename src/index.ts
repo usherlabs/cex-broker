@@ -269,14 +269,14 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
+		if (this.brokerArchiver) {
+			await this.brokerArchiver.close();
+		}
 		if (this.otelMetrics) {
 			await this.otelMetrics.close();
 		}
 		if (this.otelLogs) {
 			await this.otelLogs.close();
-		}
-		if (this.brokerArchiver) {
-			await this.brokerArchiver.close();
 		}
 	}
 

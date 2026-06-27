@@ -429,7 +429,9 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					options?.marketType,
 				)
 			) {
-				if (!selectedBrokerAccount?.exchange) {
+				const accountBroker =
+					selectedBrokerAccount?.exchange ?? selectedBroker;
+				if (!accountBroker) {
 					await writeSubscribeError(call, isStreamClosed, {
 						data: JSON.stringify({
 							error: "Binance account subscriptions require API credentials",
@@ -442,7 +444,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				}
 				await streamBinanceUserData(
 					call,
-					selectedBrokerAccount.exchange,
+					accountBroker,
 					resolvedSymbol,
 					subscriptionType,
 					isStreamClosed,
@@ -626,16 +628,24 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							ohlcvArchiveInput,
 							{ bootstrapLimit: options?.bootstrapLimit },
 						);
+						let ohlcvStreamActive = true;
 						if (bootstrapPayload) {
 							const bootstrapTimestamp = Date.now();
-							await writeSubscribeFrame(call, isStreamClosed, {
-								data: JSON.stringify(bootstrapPayload),
-								timestamp: bootstrapTimestamp,
-								symbol: resolvedSymbol,
-								type: subscriptionType,
-							});
+							const bootstrapSent = await writeSubscribeFrame(
+								call,
+								isStreamClosed,
+								{
+									data: JSON.stringify(bootstrapPayload),
+									timestamp: bootstrapTimestamp,
+									symbol: resolvedSymbol,
+									type: subscriptionType,
+								},
+							);
+							if (!bootstrapSent) {
+								ohlcvStreamActive = false;
+							}
 						}
-						while (!isStreamClosed()) {
+						while (ohlcvStreamActive && !isStreamClosed()) {
 							const data = await broker.fetchOHLCVWs(resolvedSymbol, timeframe);
 							const receivedTimestamp = Date.now();
 							if (

@@ -23,7 +23,12 @@ describe("archive forwarder batch parsing", () => {
 			],
 		});
 
-		expect(parsed).toEqual({
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) {
+			return;
+		}
+		expect(parsed.rejectedRowCount).toBe(0);
+		expect(parsed.batch).toEqual({
 			source: "broker_write",
 			deployment_id: "deploy-a",
 			rows: [
@@ -36,8 +41,27 @@ describe("archive forwarder batch parsing", () => {
 	});
 
 	test("parseArchiveBatchRequest rejects invalid payloads", () => {
-		expect(parseArchiveBatchRequest(null)).toBeNull();
-		expect(parseArchiveBatchRequest({ source: "x" })).toBeNull();
+		expect(parseArchiveBatchRequest(null).ok).toBe(false);
+		expect(parseArchiveBatchRequest({ source: "x" }).ok).toBe(false);
+	});
+
+	test("parseArchiveBatchRequest rejects array rows and malformed entries", () => {
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			rows: [
+				{ table: "market_data.candles", row: { open_time_ms: 1 } },
+				{ table: "market_data.candles", row: [] },
+				{ table: "market_data.candles", row: null },
+			],
+		});
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) {
+			return;
+		}
+		expect(parsed.inputRowCount).toBe(3);
+		expect(parsed.rejectedRowCount).toBe(2);
+		expect(parsed.batch.rows).toHaveLength(1);
 	});
 });
 

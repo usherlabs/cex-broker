@@ -29,6 +29,12 @@ function scalarTimestampMs(value: number | string | boolean | null): number {
 		return value;
 	}
 	if (typeof value === "string") {
+		if (/^\d+$/.test(value)) {
+			const numeric = Number.parseInt(value, 10);
+			if (Number.isFinite(numeric)) {
+				return numeric;
+			}
+		}
 		const parsed = Date.parse(value);
 		if (Number.isFinite(parsed)) {
 			return parsed;
