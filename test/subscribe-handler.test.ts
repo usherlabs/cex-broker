@@ -383,9 +383,7 @@ describe("subscribe handler", () => {
 					).rows,
 			);
 			expect(
-				rows.some(
-					(entry) => entry.table === "market_data.orderbook_snapshots",
-				),
+				rows.some((entry) => entry.table === "market_data.orderbook_snapshots"),
 			).toBe(true);
 			const snapshotRow = rows.find(
 				(entry) => entry.table === "market_data.orderbook_snapshots",

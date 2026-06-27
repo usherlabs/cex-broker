@@ -3,10 +3,7 @@ import type { OtelMetrics } from "../otel";
 import type { BrokerExecutionArchiver } from "../broker-execution-archive/writer";
 import type { BrokerArchiveRow } from "../broker-execution-archive/types";
 import { OhlcvBarTracker } from "./ohlcv-bar-tracker";
-import {
-	isMarketArchiveEnabled,
-	OrderbookSampler,
-} from "./orderbook-sampler";
+import { isMarketArchiveEnabled, OrderbookSampler } from "./orderbook-sampler";
 import { extractTrades, parseTicker } from "./parse-stream";
 import {
 	buildCandleRow,
@@ -92,7 +89,8 @@ export function archiveOrderbookInBackground(
 }
 
 /** @deprecated Use archiveOrderbookInBackground */
-export const archiveOrderbookSnapshotInBackground = archiveOrderbookInBackground;
+export const archiveOrderbookSnapshotInBackground =
+	archiveOrderbookInBackground;
 
 /** @deprecated Use archiveOrderbookInBackground */
 export const archiveOrderbookTobInBackground = archiveOrderbookInBackground;

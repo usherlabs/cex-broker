@@ -58,10 +58,12 @@ describe("candle viewer candles", () => {
 
 describe("candle viewer price format", () => {
 	test("uses 6 decimal places for sub-$2 assets like DOGE", () => {
-		expect(formatPrice(0.07692)).toBe((0.07692).toLocaleString(undefined, {
-			minimumFractionDigits: 6,
-			maximumFractionDigits: 6,
-		}));
+		expect(formatPrice(0.07692)).toBe(
+			(0.07692).toLocaleString(undefined, {
+				minimumFractionDigits: 6,
+				maximumFractionDigits: 6,
+			}),
+		);
 	});
 
 	test("chart price format uses 6dp min move", () => {
@@ -80,10 +82,7 @@ describe("candle viewer chart update", () => {
 			firstTime: 1_000,
 			lastTime: 1_299,
 		};
-		const candles = [
-			{ time: 1_001 },
-			{ time: 1_300 },
-		];
+		const candles = [{ time: 1_001 }, { time: 1_300 }];
 		expect(shouldReplaceCandleSeries(previous, candles)).toBe(true);
 	});
 

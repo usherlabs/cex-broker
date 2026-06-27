@@ -143,9 +143,9 @@ describe("ClickHouse market_data schema integration", () => {
 			},
 			format: "JSONEachRow",
 		});
-		expect(Number(((await snapshotCount.json()) as Array<{ c: string }>)[0]?.c)).toBe(
-			1,
-		);
+		expect(
+			Number(((await snapshotCount.json()) as Array<{ c: string }>)[0]?.c),
+		).toBe(1);
 
 		const tob = await client.query({
 			query: `
@@ -246,7 +246,9 @@ describe("ClickHouse market_data schema integration", () => {
 			query_params: { deployment_id: TEST_DEPLOYMENT },
 			format: "JSONEachRow",
 		});
-		expect(Number(((await closed.json()) as Array<{ c: string }>)[0]?.c)).toBe(1);
+		expect(Number(((await closed.json()) as Array<{ c: string }>)[0]?.c)).toBe(
+			1,
+		);
 
 		const forming = await client.query({
 			query: `
@@ -259,7 +261,9 @@ describe("ClickHouse market_data schema integration", () => {
 			query_params: { deployment_id: TEST_DEPLOYMENT },
 			format: "JSONEachRow",
 		});
-		expect(Number(((await forming.json()) as Array<{ c: string }>)[0]?.c)).toBe(1);
+		expect(Number(((await forming.json()) as Array<{ c: string }>)[0]?.c)).toBe(
+			1,
+		);
 	});
 
 	test("archive forwarder inserts into base tables (not views)", async () => {
