@@ -50,7 +50,9 @@ describe("candle viewer candles", () => {
 			is_closed: 0,
 			broker_version: 1,
 		};
-		expect(toChartCandle({ ...base, open: "123abc" as unknown as number })).toBeNull();
+		expect(
+			toChartCandle({ ...base, open: "123abc" as unknown as number }),
+		).toBeNull();
 		expect(toChartCandle({ ...base, open_time_ms: -1 })).toBeNull();
 		expect(toChartCandle({ ...base, is_closed: 1.5 })).toBeNull();
 	});
