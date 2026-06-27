@@ -240,9 +240,12 @@ export class BrokerExecutionArchiver {
 				} catch (error) {
 					this.stats.forwarderFailures += 1;
 					this.queue.push(...batch);
-					void this.recordArchiveMetric("cex_archive_forwarder_failures_total", {
-						count: batch.length,
-					});
+					void this.recordArchiveMetric(
+						"cex_archive_forwarder_failures_total",
+						{
+							count: batch.length,
+						},
+					);
 					log.warn("Broker execution archive forwarder failed", { error });
 					return;
 				}

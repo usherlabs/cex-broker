@@ -429,8 +429,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					options?.marketType,
 				)
 			) {
-				const accountBroker =
-					selectedBrokerAccount?.exchange ?? selectedBroker;
+				const accountBroker = selectedBrokerAccount?.exchange ?? selectedBroker;
 				if (!accountBroker) {
 					await writeSubscribeError(call, isStreamClosed, {
 						data: JSON.stringify({
