@@ -63,6 +63,25 @@ describe("archive forwarder batch parsing", () => {
 		expect(parsed.rejectedRowCount).toBe(2);
 		expect(parsed.batch.rows).toHaveLength(1);
 	});
+
+	test("parseArchiveBatchRequest rejects unsupported table names", () => {
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			rows: [
+				{ table: "market_data.candles", row: { open_time_ms: 1 } },
+				{ table: "broker_execution.order_events", row: { order_id: "1" } },
+				{ table: "market_data.unknown_table", row: { symbol: "BTC/USDT" } },
+			],
+		});
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) {
+			return;
+		}
+		expect(parsed.rejectedRowCount).toBe(2);
+		expect(parsed.batch.rows).toHaveLength(1);
+		expect(parsed.batch.rows[0]?.table).toBe("market_data.candles");
+	});
 });
 
 describe("archive forwarder routing", () => {

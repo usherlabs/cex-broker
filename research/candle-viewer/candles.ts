@@ -39,8 +39,15 @@ function parseFiniteNumber(value: unknown): number | null {
 	if (typeof value === "number" && Number.isFinite(value)) {
 		return value;
 	}
-	if (typeof value === "string" && value.trim() !== "") {
-		const parsed = Number.parseFloat(value);
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (
+			trimmed === "" ||
+			!/^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/.test(trimmed)
+		) {
+			return null;
+		}
+		const parsed = Number.parseFloat(trimmed);
 		if (Number.isFinite(parsed)) {
 			return parsed;
 		}
@@ -50,7 +57,10 @@ function parseFiniteNumber(value: unknown): number | null {
 
 function toUInt(value: unknown): number | null {
 	const parsed = parseFiniteNumber(value);
-	return parsed === null ? null : Math.trunc(parsed);
+	if (parsed === null || parsed < 0 || !Number.isInteger(parsed)) {
+		return null;
+	}
+	return parsed;
 }
 
 export function toChartCandle(row: CandleRow): ChartCandle | null {

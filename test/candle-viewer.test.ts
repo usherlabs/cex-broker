@@ -39,6 +39,22 @@ describe("candle viewer candles", () => {
 		});
 	});
 
+	test("toChartCandle rejects malformed numeric strings and negative uints", () => {
+		const base: CandleRow = {
+			open_time_ms: 1_700_000_000_000,
+			open: 100,
+			high: 110,
+			low: 90,
+			close: 105,
+			volume: 12.5,
+			is_closed: 0,
+			broker_version: 1,
+		};
+		expect(toChartCandle({ ...base, open: "123abc" as unknown as number })).toBeNull();
+		expect(toChartCandle({ ...base, open_time_ms: -1 })).toBeNull();
+		expect(toChartCandle({ ...base, is_closed: 1.5 })).toBeNull();
+	});
+
 	test("candleFingerprint changes when close updates", () => {
 		const base = {
 			time: 1_700_000_000,

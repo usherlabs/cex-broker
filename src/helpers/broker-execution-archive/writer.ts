@@ -141,6 +141,10 @@ export class BrokerExecutionArchiver {
 		);
 	}
 
+	canPersistMarketMetadataSnapshot(): boolean {
+		return this.isEnabled() && Boolean(this.otelLogs?.isOtelEnabled());
+	}
+
 	enqueue(row: BrokerArchiveRow): void {
 		if (
 			!this.enabled ||
@@ -205,7 +209,16 @@ export class BrokerExecutionArchiver {
 				await this.flushInFlight;
 				continue;
 			}
-			await this.flushBatch();
+			const depthBefore = this.queue.length;
+			const flushed = await this.flushBatch();
+			if (!flushed && this.queue.length >= depthBefore && depthBefore > 0) {
+				const dropped = this.queue.length;
+				this.queue.length = 0;
+				log.warn(
+					`Archive shutdown dropped ${dropped} undelivered row(s) after forwarder failure`,
+				);
+				break;
+			}
 		}
 		this.closed = true;
 	}
@@ -218,10 +231,10 @@ export class BrokerExecutionArchiver {
 		return this.queue.length;
 	}
 
-	private async flushBatch(): Promise<void> {
+	private async flushBatch(): Promise<boolean> {
 		const batch = this.queue.splice(0, this.batchSize);
 		if (batch.length === 0) {
-			return;
+			return true;
 		}
 
 		for (const entry of batch) {
@@ -239,20 +252,21 @@ export class BrokerExecutionArchiver {
 					await this.postToForwarder(marketRows);
 				} catch (error) {
 					this.stats.forwarderFailures += 1;
-					this.queue.push(...batch);
+					this.queue.push(...marketRows);
 					void this.recordArchiveMetric(
 						"cex_archive_forwarder_failures_total",
 						{
-							count: batch.length,
+							count: marketRows.length,
 						},
 					);
 					log.warn("Broker execution archive forwarder failed", { error });
-					return;
+					return false;
 				}
 			}
 		}
 
 		this.stats.flushed += batch.length;
+		return true;
 	}
 
 	private async recordArchiveMetric(

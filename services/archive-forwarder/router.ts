@@ -1,4 +1,5 @@
 import type { ArchiveBatchRequest, ArchiveBatchResult } from "./types";
+import { isSupportedTable } from "./types";
 import { insertArchiveRows, type RowInserter } from "./insert";
 
 export type ParsedArchiveBatch =
@@ -25,7 +26,7 @@ function isValidArchiveRow(entry: unknown): entry is ArchiveBatchRequest["rows"]
 	) {
 		return false;
 	}
-	return true;
+	return isSupportedTable(row.table);
 }
 
 export function parseArchiveBatchRequest(body: unknown): ParsedArchiveBatch {

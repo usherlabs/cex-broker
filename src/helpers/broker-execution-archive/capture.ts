@@ -104,7 +104,7 @@ export async function captureMarketMetadataSnapshot(
 		brokerObservedTimestamp?: string;
 	},
 ): Promise<string | undefined> {
-	if (!archiver?.isEnabled()) {
+	if (!archiver?.canPersistMarketMetadataSnapshot()) {
 		return undefined;
 	}
 	try {

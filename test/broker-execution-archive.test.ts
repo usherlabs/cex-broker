@@ -240,6 +240,60 @@ describe("broker execution archiver queue", () => {
 
 		await archiver.close();
 	});
+
+	test("close exits after forwarder failure instead of retrying forever", async () => {
+		globalThis.fetch = (async () =>
+			new Response(null, { status: 503 })) as typeof fetch;
+
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: "http://127.0.0.1:9/archive",
+			deploymentId: "test-deploy",
+			batchSize: 10,
+			flushIntervalMs: 60_000,
+		});
+
+		archiver.enqueue({
+			table: "market_data.candles",
+			row: { source: "broker_write", open_time_ms: 1_000 },
+		});
+
+		await expect(archiver.close()).resolves.toBeUndefined();
+		expect(archiver.getQueueDepth()).toBe(0);
+		expect(archiver.getStats().forwarderFailures).toBeGreaterThan(0);
+	});
+
+	test("requeues only market rows after a mixed-batch forwarder failure", async () => {
+		let postAttempts = 0;
+		globalThis.fetch = (async () => {
+			postAttempts += 1;
+			return new Response(null, { status: 503 });
+		}) as typeof fetch;
+
+		const otelLogs = new MockOtelLogs();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: "http://127.0.0.1:9/archive",
+			otelLogs,
+			deploymentId: "test-deploy",
+			batchSize: 10,
+			flushIntervalMs: 60_000,
+		});
+
+		archiver.enqueue({
+			table: "broker_execution.order_events",
+			row: { source: "broker_write", order_id: "1" },
+		});
+		archiver.enqueue({
+			table: "market_data.candles",
+			row: { source: "broker_write", open_time_ms: 1_000 },
+		});
+
+		await archiver.flush();
+		expect(otelLogs.emits).toHaveLength(1);
+		expect(archiver.getQueueDepth()).toBe(1);
+		expect(postAttempts).toBe(1);
+
+		await archiver.close();
+	});
 });
 
 describe("broker execution archiver env", () => {

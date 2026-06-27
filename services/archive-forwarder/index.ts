@@ -4,9 +4,9 @@ import { loadForwarderConfig } from "./config";
 import { createClickHouseInserter } from "./insert";
 import { pingClickHouse } from "./health";
 import {
-	MAX_ARCHIVE_BODY_BYTES,
 	MAX_ARCHIVE_ROWS,
 	isArchiveBodyTooLarge,
+	readBoundedArchiveBody,
 } from "./limits";
 import { handleArchiveBatch, parseArchiveBatchRequest } from "./router";
 import { ensureMarketDataSchema } from "./schema";
@@ -50,15 +50,19 @@ const server = Bun.serve({
 			}
 
 			let bodyText: string;
-			try {
-				bodyText = await request.text();
-			} catch {
-				return Response.json({ error: "Failed to read request body" }, { status: 400 });
+			const bodyRead = await readBoundedArchiveBody(request);
+			if (!bodyRead.ok) {
+				return Response.json(
+					{
+						error:
+							bodyRead.status === 413
+								? "Request body too large"
+								: "Failed to read request body",
+					},
+					{ status: bodyRead.status },
+				);
 			}
-
-			if (bodyText.length > MAX_ARCHIVE_BODY_BYTES) {
-				return Response.json({ error: "Request body too large" }, { status: 413 });
-			}
+			bodyText = bodyRead.text;
 
 			let body: unknown;
 			try {
