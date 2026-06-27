@@ -11,25 +11,30 @@ const CLICKHOUSE_URL =
 const TEST_DEPLOYMENT = "clickhouse-integration-test";
 const TEST_EVENT_MS = 1_900_000_000_000;
 
-let client: ClickHouseClient;
+let client: ClickHouseClient | undefined;
 let clickhouseAvailable = false;
 
-async function pingClickHouse(): Promise<boolean> {
+async function probeClickHouse(): Promise<boolean> {
+	const probe = createClient({
+		url: CLICKHOUSE_URL,
+		database: "market_data",
+	});
 	try {
-		const probe = createClient({
-			url: CLICKHOUSE_URL,
-			database: "market_data",
+		const result = await probe.query({
+			query: "SELECT 1 AS ok",
+			format: "JSONEachRow",
 		});
-		await probe.ping();
-		await probe.close();
-		return true;
+		const rows = (await result.json()) as Array<{ ok: number }>;
+		return rows[0]?.ok === 1;
 	} catch {
 		return false;
+	} finally {
+		await probe.close();
 	}
 }
 
 async function tableEngine(name: string): Promise<string | null> {
-	const result = await client.query({
+	const result = await client!.query({
 		query: `
 			SELECT engine
 			FROM system.tables
@@ -43,14 +48,14 @@ async function tableEngine(name: string): Promise<string | null> {
 }
 
 async function cleanupTestRows(): Promise<void> {
-	await client.command({
+	await client!.command({
 		query: `
 			ALTER TABLE orderbook_snapshots
 			DELETE WHERE deployment_id = {deployment_id:String}
 		`,
 		query_params: { deployment_id: TEST_DEPLOYMENT },
 	});
-	await client.command({
+	await client!.command({
 		query: `
 			ALTER TABLE candles
 			DELETE WHERE deployment_id = {deployment_id:String}
@@ -61,7 +66,7 @@ async function cleanupTestRows(): Promise<void> {
 
 describe("ClickHouse market_data schema integration", () => {
 	beforeAll(async () => {
-		clickhouseAvailable = await pingClickHouse();
+		clickhouseAvailable = await probeClickHouse();
 		if (!clickhouseAvailable) {
 			return;
 		}
@@ -70,20 +75,27 @@ describe("ClickHouse market_data schema integration", () => {
 			database: "market_data",
 		});
 		await ensureMarketDataSchema(client);
-		await cleanupTestRows();
+		try {
+			await cleanupTestRows();
+		} catch {
+			// Tables may not exist yet on a fresh instance.
+		}
 	});
 
 	afterAll(async () => {
-		if (!clickhouseAvailable) {
+		if (!clickhouseAvailable || !client) {
 			return;
 		}
-		await cleanupTestRows();
+		try {
+			await cleanupTestRows();
+		} catch {
+			// Best-effort cleanup for local dev runs.
+		}
 		await client.close();
 	});
 
 	test("orderbook_tob and orderbook_depth are views over orderbook_snapshots", async () => {
-		if (!clickhouseAvailable) {
-			console.warn(`Skipping: ClickHouse unavailable at ${CLICKHOUSE_URL}`);
+		if (!clickhouseAvailable || !client) {
 			return;
 		}
 
@@ -94,7 +106,7 @@ describe("ClickHouse market_data schema integration", () => {
 	});
 
 	test("orderbook views reflect inserts into orderbook_snapshots", async () => {
-		if (!clickhouseAvailable) {
+		if (!clickhouseAvailable || !client) {
 			return;
 		}
 
@@ -190,7 +202,7 @@ describe("ClickHouse market_data schema integration", () => {
 	});
 
 	test("candles_closed view returns only closed bars", async () => {
-		if (!clickhouseAvailable) {
+		if (!clickhouseAvailable || !client) {
 			return;
 		}
 
@@ -267,7 +279,7 @@ describe("ClickHouse market_data schema integration", () => {
 	});
 
 	test("archive forwarder inserts into base tables (not views)", async () => {
-		if (!clickhouseAvailable) {
+		if (!clickhouseAvailable || !client) {
 			return;
 		}
 
@@ -322,9 +334,8 @@ describe("ClickHouse market_data schema integration", () => {
 			},
 			format: "JSONEachRow",
 		});
-		expect((await viaView.json())[0]).toMatchObject({
-			best_bid: 50,
-			best_ask: 51,
-		});
+		const viewRow = (await viaView.json())[0] as Record<string, unknown>;
+		expect(Number(viewRow.best_bid)).toBe(50);
+		expect(Number(viewRow.best_ask)).toBe(51);
 	});
 });
