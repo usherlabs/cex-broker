@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Exchange } from "@usherlabs/ccxt";
+import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -320,5 +320,37 @@ describe("loadPolicy travel-rule validation", () => {
 		} finally {
 			fs.unlinkSync(tempPath);
 		}
+	});
+});
+
+describe("binance localentity withdraw signing (ccxt patch)", () => {
+	// Guards the @usherlabs/ccxt patch: the localentity withdraw endpoint must be
+	// signed with rawencode (raw questionnaire JSON), exactly like
+	// capital/withdraw/apply. Signing with urlencode percent-encodes the JSON and
+	// Binance rejects it with -1022 "Signature for this request is not valid" —
+	// which is what a live withdrawal actually hit before the patch. Uses the real
+	// ccxt so this fails if the patch is ever dropped (e.g. on a version bump).
+	test("signs the questionnaire raw, not percent-encoded", () => {
+		const exchange = new ccxt.binance({ apiKey: "k", secret: "s" });
+		const params = {
+			coin: "ARB",
+			address: "0x0000000000000000000000000000000000000000",
+			amount: "10",
+			network: "ARBITRUM",
+			questionnaire: JSON.stringify({
+				isAddressOwner: 1,
+				sendTo: 1,
+				declaration: true,
+			}),
+		};
+		const signed = exchange.sign(
+			"localentity/withdraw/apply",
+			"sapi",
+			"POST",
+			params,
+		);
+		const body = String(signed.body ?? "");
+		expect(body).toContain('questionnaire={"isAddressOwner":1');
+		expect(body).not.toContain("questionnaire=%7B");
 	});
 });
