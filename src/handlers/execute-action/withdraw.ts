@@ -108,6 +108,7 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 						address: transferValue.recipientAddress,
 						network: withdrawNetwork.exchangeNetworkId,
 						questionnaire: travelRule.questionnaire,
+						params: transferValue.params,
 					})
 				: await broker.withdraw(
 						symbol,

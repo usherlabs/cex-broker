@@ -136,6 +136,10 @@ type LocalEntityWithdrawArgs = {
 	address: string;
 	network: string;
 	questionnaire: TravelRuleQuestionnaire;
+	// Extra caller params (memo/tag, withdrawOrderId, etc.), forwarded to keep
+	// parity with the standard withdraw path. The fixed fields below win on
+	// collision so params can never override coin/amount/network/questionnaire.
+	params?: Record<string, string | number>;
 };
 
 type BinanceLocalEntityWithdraw = {
@@ -170,6 +174,7 @@ export async function withdrawViaLocalEntity(
 	const mappedNetwork = broker.safeString(networks, networkUpper, networkUpper);
 
 	const request: Record<string, unknown> = {
+		...args.params,
 		coin: currency.id,
 		address: args.address,
 		amount: broker.currencyToPrecision(args.code, args.amount),

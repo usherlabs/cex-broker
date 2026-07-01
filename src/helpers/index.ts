@@ -83,7 +83,10 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 		// answers keyed by destination address, validated against the AU schema at
 		// load time so a malformed questionnaire fails startup, not a live withdraw.
 		const travelRuleEntrySchema = Joi.object({
-			exchange: Joi.string().required(),
+			// Only Binance implements the travel-rule (localentity) withdraw endpoint,
+			// so reject other exchanges at load time rather than failing at withdraw
+			// time with a cryptic "endpoint not registered" error.
+			exchange: Joi.string().uppercase().valid("BINANCE").required(),
 			enabled: Joi.boolean().required(),
 			description: Joi.string().optional(),
 			addresses: Joi.object()

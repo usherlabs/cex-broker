@@ -235,6 +235,21 @@ describe("withdrawViaLocalEntity", () => {
 		expect(result).toEqual({ parsed: { id: "withdrawal-123" } });
 	});
 
+	test("forwards caller params but never lets them override fixed fields", async () => {
+		const { exchange, captured } = createMockBinance();
+		await withdrawViaLocalEntity(exchange, {
+			code: "USDC",
+			amount: 100,
+			address: ADDRESS,
+			network: "ARBITRUM",
+			questionnaire: SELF_OWNED,
+			params: { withdrawOrderId: "order-1", coin: "SHOULD_NOT_WIN" },
+		});
+		expect(captured.request?.withdrawOrderId).toBe("order-1");
+		// Fixed fields take precedence over any colliding param.
+		expect(captured.request?.coin).toBe("USDC");
+	});
+
 	test("throws when the endpoint is not registered", async () => {
 		const exchange = {
 			checkAddress: (address: string) => address,
@@ -287,6 +302,18 @@ describe("loadPolicy travel-rule validation", () => {
 			sendTo: 1,
 			declaration: false,
 		};
+		const tempPath = writeTempPolicy(bad);
+		try {
+			expect(() => loadPolicy(tempPath)).toThrow();
+		} finally {
+			fs.unlinkSync(tempPath);
+		}
+	});
+
+	test("rejects a travel-rule entry for a non-Binance exchange", () => {
+		const bad = policyWithTravelRule(true);
+		// biome-ignore lint/suspicious/noExplicitAny: intentionally invalid config
+		(bad.travelRule as any).rule[0].exchange = "BYBIT";
 		const tempPath = writeTempPolicy(bad);
 		try {
 			expect(() => loadPolicy(tempPath)).toThrow();
