@@ -26,6 +26,41 @@ export type OrderRule = {
 	}>;
 };
 
+// Binance travel-rule questionnaire answers (Australia). Optional fields are
+// conditionally required; see australiaQuestionnaireSchema for the exact rules.
+export type TravelRuleQuestionnaire = {
+	isAddressOwner: number;
+	sendTo: number;
+	declaration: boolean;
+	bnfType?: number;
+	bnfFirstName?: string;
+	bnfLastName?: string;
+	country?: string;
+	city?: string;
+	bnfCorpName?: string;
+	bnfCorpCountry?: string;
+	bnfCorpCity?: string;
+	vasp?: string;
+	vaspName?: string;
+};
+
+export type TravelRuleAddressEntry = {
+	questionnaire: TravelRuleQuestionnaire;
+};
+
+export type TravelRuleEntry = {
+	exchange: string;
+	// Opt-in switch: only when true are withdrawals for this exchange routed
+	// through the travel-rule endpoint. Keeps non-AU accounts on the standard path.
+	enabled: boolean;
+	// Free-text note explaining why this entry exists (e.g. which jurisdiction
+	// requires it). Ignored by the runtime; documents intent next to the config.
+	description?: string;
+	// Keyed by destination address; the questionnaire is resolved on demand at
+	// withdraw time. Matching is case-insensitive.
+	addresses: Record<string, TravelRuleAddressEntry>;
+};
+
 export type PolicyConfig = {
 	withdraw: {
 		rule: WithdrawRuleEntry[];
@@ -35,6 +70,9 @@ export type PolicyConfig = {
 	};
 	order: {
 		rule: OrderRule;
+	};
+	travelRule?: {
+		rule: TravelRuleEntry[];
 	};
 };
 

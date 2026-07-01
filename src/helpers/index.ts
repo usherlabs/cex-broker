@@ -14,6 +14,7 @@ import {
 	parseMarketPattern,
 	parseMarketType,
 } from "./market-type";
+import { australiaQuestionnaireSchema } from "./travel-rule";
 
 export { authenticateRequest } from "./auth";
 export {
@@ -29,6 +30,13 @@ export {
 	selectBroker,
 	selectBrokerAccount,
 } from "./broker";
+export {
+	australiaQuestionnaireSchema,
+	registerBinanceTravelRuleWithdrawEndpoint,
+	resolveTravelRuleDecision,
+	type TravelRuleDecision,
+	withdrawViaLocalEntity,
+} from "./travel-rule";
 export {
 	buildHttpClientOverrideFromMetadata,
 	createVerityHttpClientOverride,
@@ -71,6 +79,26 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 				.default([]),
 		});
 
+		// Travel-rule config: per-exchange opt-in flag plus static questionnaire
+		// answers keyed by destination address, validated against the AU schema at
+		// load time so a malformed questionnaire fails startup, not a live withdraw.
+		const travelRuleEntrySchema = Joi.object({
+			// Only Binance implements the travel-rule (localentity) withdraw endpoint,
+			// so reject other exchanges at load time rather than failing at withdraw
+			// time with a cryptic "endpoint not registered" error.
+			exchange: Joi.string().uppercase().valid("BINANCE").required(),
+			enabled: Joi.boolean().required(),
+			description: Joi.string().optional(),
+			addresses: Joi.object()
+				.pattern(
+					Joi.string(),
+					Joi.object({
+						questionnaire: australiaQuestionnaireSchema.required(),
+					}),
+				)
+				.required(),
+		});
+
 		// Full PolicyConfig schema
 		const policyConfigSchema = Joi.object({
 			withdraw: Joi.object({
@@ -84,6 +112,10 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 			order: Joi.object({
 				rule: orderRuleSchema.required(),
 			}).required(),
+
+			travelRule: Joi.object({
+				rule: Joi.array().items(travelRuleEntrySchema).required(),
+			}).optional(),
 		});
 
 		const { error, value } = policyConfigSchema.validate(
