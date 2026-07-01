@@ -1,6 +1,11 @@
 import type { Dict, Exchange } from "@usherlabs/ccxt";
 import Joi from "joi";
-import type { PolicyConfig, TravelRuleQuestionnaire } from "../types";
+import type {
+	PolicyConfig,
+	TravelRuleDepositConfig,
+	TravelRuleDepositQuestionnaire,
+	TravelRuleQuestionnaire,
+} from "../types";
 
 /**
  * Binance travel-rule ("local entity") withdrawal support.
@@ -126,6 +131,102 @@ export function registerBinanceTravelRuleWithdrawEndpoint(
 	// by all sapi private POSTs, so no ccxt fork change is needed.
 	exchange.defineRestApi(
 		{ sapi: { post: { "localentity/withdraw/apply": 4.0002 } } },
+		"request",
+	);
+}
+
+// -----------------------------------------------------------------------------
+// Deposit side: auto-clearing travel-rule-frozen deposits.
+//
+// The AUSTRAC travel rule also freezes INBOUND deposits: Binance credits the
+// deposit but holds it in `getUserAsset.freeze` (invisible to free+locked
+// balances) until a per-deposit questionnaire is answered via
+// `PUT /sapi/v1/localentity/deposit/provide-info`. Unlike the withdraw leg the
+// answer is keyed by the on-chain SENDER, not a static destination, so a deposit
+// is only auto-declared when its sender is PROVEN (on-chain) to be one of our
+// configured originator wallets. See travel-rule-deposit-reconciler.ts.
+// -----------------------------------------------------------------------------
+
+// Australia DEPOSIT questionnaire. Distinct shape from the withdraw schema
+// (`depositOriginator`/`receiveFrom` vs `isAddressOwner`/`sendTo`). Restricted
+// to the self-owned case (value 1) because that is the only case the reconciler
+// can attest: it declares a deposit only after proving the sender is our own
+// wallet. Declaring a third-party origin (value 2) would require beneficiary
+// identity fields we do not carry, so reject it at policy-load rather than
+// silently submit an incomplete questionnaire. Unknown keys are rejected by
+// Joi's default so a copy-paste of the withdraw questionnaire fails fast.
+export const australiaDepositQuestionnaireSchema = Joi.object({
+	depositOriginator: Joi.number().valid(1).required(),
+	receiveFrom: Joi.number().valid(1).required(),
+	// Binance requires an affirmative declaration; false can never clear a deposit.
+	declaration: Joi.boolean().valid(true).required(),
+});
+
+/**
+ * Returns the enabled deposit travel-rule config for an exchange, or null when
+ * the feature is absent or disabled. Gated solely by `deposits.enabled` (not the
+ * entry's withdraw `enabled` flag): when null the reconciler does nothing for the
+ * exchange, preserving exact pre-feature behavior.
+ */
+export function getEnabledTravelRuleDepositConfig(
+	policy: PolicyConfig,
+	exchange: string,
+): TravelRuleDepositConfig | null {
+	const rules = policy.travelRule?.rule ?? [];
+	const exchangeNorm = exchange.trim().toUpperCase();
+	const entry = rules.find(
+		(rule) => rule.exchange.trim().toUpperCase() === exchangeNorm,
+	);
+	const deposits = entry?.deposits;
+	if (!deposits || !deposits.enabled) {
+		return null;
+	}
+	return deposits;
+}
+
+/**
+ * Looks up the questionnaire for a PROVEN on-chain sender. Matching is
+ * case-insensitive. Returns null when the sender is not a declared originator —
+ * the reconciler must then leave the deposit frozen and surface an anomaly
+ * rather than attest an origin it cannot prove is ours.
+ */
+export function resolveDepositOriginatorQuestionnaire(
+	config: TravelRuleDepositConfig,
+	senderAddress: string,
+): TravelRuleDepositQuestionnaire | null {
+	const senderNorm = senderAddress.trim().toLowerCase();
+	const match = Object.entries(config.originators).find(
+		([address]) => address.trim().toLowerCase() === senderNorm,
+	);
+	return match ? match[1].questionnaire : null;
+}
+
+/**
+ * Registers Binance's localentity deposit endpoints used by the reconciler:
+ * the two read endpoints (deposit history + questionnaire requirements) and the
+ * provide-info write. No-op for non-Binance exchanges. Idempotent.
+ *
+ * `localentity/deposit/provide-info` must be signed with the questionnaire JSON
+ * RAW (unencoded) — see the @usherlabs/ccxt patch (`binance.sign` rawencode
+ * branch). Signing it url-encoded yields Binance error -1022. The two GETs carry
+ * only simple params and sign fine either way.
+ */
+export function registerBinanceTravelRuleDepositEndpoints(
+	exchange: Exchange,
+): void {
+	if (exchange.id !== "binance") {
+		return;
+	}
+	exchange.defineRestApi(
+		{
+			sapi: {
+				get: {
+					"localentity/deposit/history": 1,
+					"localentity/questionnaire-requirements": 1,
+				},
+				put: { "localentity/deposit/provide-info": 1 },
+			},
+		},
 		"request",
 	);
 }

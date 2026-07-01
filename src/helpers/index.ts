@@ -14,7 +14,10 @@ import {
 	parseMarketPattern,
 	parseMarketType,
 } from "./market-type";
-import { australiaQuestionnaireSchema } from "./travel-rule";
+import {
+	australiaDepositQuestionnaireSchema,
+	australiaQuestionnaireSchema,
+} from "./travel-rule";
 
 export { authenticateRequest } from "./auth";
 export {
@@ -31,12 +34,21 @@ export {
 	selectBrokerAccount,
 } from "./broker";
 export {
+	australiaDepositQuestionnaireSchema,
 	australiaQuestionnaireSchema,
+	getEnabledTravelRuleDepositConfig,
+	registerBinanceTravelRuleDepositEndpoints,
 	registerBinanceTravelRuleWithdrawEndpoint,
+	resolveDepositOriginatorQuestionnaire,
 	resolveTravelRuleDecision,
 	type TravelRuleDecision,
 	withdrawViaLocalEntity,
 } from "./travel-rule";
+export {
+	loadTravelRuleDepositReconcilerConfigFromEnv,
+	resolveOnChainSender,
+	TravelRuleDepositReconciler,
+} from "./travel-rule-deposit-reconciler";
 export {
 	buildHttpClientOverrideFromMetadata,
 	createVerityHttpClientOverride,
@@ -97,6 +109,21 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 					}),
 				)
 				.required(),
+			// Deposit auto-clear config, keyed by on-chain sender (originator). Uses
+			// the deposit questionnaire schema, which is deliberately distinct from
+			// the withdraw one so a copy-paste of the wrong shape fails at load time.
+			deposits: Joi.object({
+				enabled: Joi.boolean().required(),
+				description: Joi.string().optional(),
+				originators: Joi.object()
+					.pattern(
+						Joi.string(),
+						Joi.object({
+							questionnaire: australiaDepositQuestionnaireSchema.required(),
+						}),
+					)
+					.required(),
+			}).optional(),
 		});
 
 		// Full PolicyConfig schema

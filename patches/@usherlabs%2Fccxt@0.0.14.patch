@@ -1,8 +1,11 @@
 diff --git a/node_modules/@usherlabs/ccxt/.bun-tag-a296b4edbb70d359 b/.bun-tag-a296b4edbb70d359
 new file mode 100644
 index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@usherlabs/ccxt/.bun-tag-e1eca9fb87d1075f b/.bun-tag-e1eca9fb87d1075f
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/dist/cjs/src/binance.js b/dist/cjs/src/binance.js
-index 40b4c4e8989fcbcdc693216cdb0d43bf0f553a88..2d1083354341ee778318c53332c03897558b5137 100644
+index 40b4c4e8989fcbcdc693216cdb0d43bf0f553a88..6c7cda095c614de0527fa225ed321671488cbef9 100644
 --- a/dist/cjs/src/binance.js
 +++ b/dist/cjs/src/binance.js
 @@ -12045,7 +12045,7 @@ class binance extends binance$1 {
@@ -10,12 +13,12 @@ index 40b4c4e8989fcbcdc693216cdb0d43bf0f553a88..2d1083354341ee778318c53332c03897
                  query = this.urlencodeWithArrayRepeat(extendedParams);
              }
 -            else if ((path === 'batchOrders') || (path.indexOf('sub-account') >= 0) || (path === 'capital/withdraw/apply') || (path.indexOf('staking') >= 0) || (path.indexOf('simple-earn') >= 0)) {
-+            else if ((path === 'batchOrders') || (path.indexOf('sub-account') >= 0) || (path === 'capital/withdraw/apply') || (path === 'localentity/withdraw/apply') || (path.indexOf('staking') >= 0) || (path.indexOf('simple-earn') >= 0)) {
++            else if ((path === 'batchOrders') || (path.indexOf('sub-account') >= 0) || (path === 'capital/withdraw/apply') || (path === 'localentity/withdraw/apply') || (path === 'localentity/deposit/provide-info') || (path.indexOf('staking') >= 0) || (path.indexOf('simple-earn') >= 0)) {
                  if ((method === 'DELETE') && (path === 'batchOrders')) {
                      const orderidlist = this.safeList(extendedParams, 'orderidlist', []);
                      const origclientorderidlist = this.safeList(extendedParams, 'origclientorderidlist', []);
 diff --git a/js/src/binance.js b/js/src/binance.js
-index 9a472db82ff35f67c16bfde11b34831f503d00f9..70b1cd355fe31be954f0bd673f9b5896081a8ddc 100644
+index 9a472db82ff35f67c16bfde11b34831f503d00f9..7e7696cac61e08ac469d4d7c2b9c6fb861c84b3c 100644
 --- a/js/src/binance.js
 +++ b/js/src/binance.js
 @@ -12048,7 +12048,7 @@ export default class binance extends Exchange {
@@ -23,7 +26,7 @@ index 9a472db82ff35f67c16bfde11b34831f503d00f9..70b1cd355fe31be954f0bd673f9b5896
                  query = this.urlencodeWithArrayRepeat(extendedParams);
              }
 -            else if ((path === 'batchOrders') || (path.indexOf('sub-account') >= 0) || (path === 'capital/withdraw/apply') || (path.indexOf('staking') >= 0) || (path.indexOf('simple-earn') >= 0)) {
-+            else if ((path === 'batchOrders') || (path.indexOf('sub-account') >= 0) || (path === 'capital/withdraw/apply') || (path === 'localentity/withdraw/apply') || (path.indexOf('staking') >= 0) || (path.indexOf('simple-earn') >= 0)) {
++            else if ((path === 'batchOrders') || (path.indexOf('sub-account') >= 0) || (path === 'capital/withdraw/apply') || (path === 'localentity/withdraw/apply') || (path === 'localentity/deposit/provide-info') || (path.indexOf('staking') >= 0) || (path.indexOf('simple-earn') >= 0)) {
                  if ((method === 'DELETE') && (path === 'batchOrders')) {
                      const orderidlist = this.safeList(extendedParams, 'orderidlist', []);
                      const origclientorderidlist = this.safeList(extendedParams, 'origclientorderidlist', []);
