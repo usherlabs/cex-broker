@@ -4,6 +4,7 @@ import ccxt from "@usherlabs/ccxt";
 import type { BrokerAccountRole, BrokerCredentials } from "../types";
 import { buildCcxtConfig } from "./exchange-credentials";
 import { log } from "./logger";
+import { registerBinanceTravelRuleWithdrawEndpoint } from "./travel-rule";
 
 export type BrokerAccount = {
 	exchange: Exchange;
@@ -51,6 +52,8 @@ export function applyCommonExchangeConfig(exchange: Exchange) {
 		recvWindow: 60000,
 		adjustForTimeDifference: true,
 	});
+	// Register Binance's travel-rule withdraw endpoint (no-op for other exchanges).
+	registerBinanceTravelRuleWithdrawEndpoint(exchange);
 }
 
 export function createBroker(
