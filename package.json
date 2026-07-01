@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.2.15",
+	"version": "0.2.16",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
 	"repository": {
 		"type": "git",
@@ -83,6 +83,7 @@
 		"Oki Ayobami (https://github.com/xlassix)"
 	],
 	"patchedDependencies": {
-		"@protobufjs/inquire@1.1.0": "patches/@protobufjs%2Finquire@1.1.0.patch"
+		"@protobufjs/inquire@1.1.0": "patches/@protobufjs%2Finquire@1.1.0.patch",
+		"@usherlabs/ccxt@0.0.14": "patches/@usherlabs%2Fccxt@0.0.14.patch"
 	}
 }

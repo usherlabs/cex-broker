@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "fietcexbroker",
@@ -44,6 +43,7 @@
     },
   },
   "patchedDependencies": {
+    "@usherlabs/ccxt@0.0.14": "patches/@usherlabs%2Fccxt@0.0.14.patch",
     "@protobufjs/inquire@1.1.0": "patches/@protobufjs%2Finquire@1.1.0.patch",
   },
   "packages": {
