@@ -48,6 +48,38 @@ export type TravelRuleAddressEntry = {
 	questionnaire: TravelRuleQuestionnaire;
 };
 
+// Binance travel-rule DEPOSIT questionnaire answers (Australia). This is a
+// DIFFERENT shape from the withdraw questionnaire: it uses
+// `depositOriginator`/`receiveFrom` rather than `isAddressOwner`/`sendTo`. Only
+// the self-owned case is exercised by the auto-clear reconciler (which only ever
+// declares deposits provably sent from our own configured wallets); the proven
+// answer for that case is { depositOriginator: 1, receiveFrom: 1, declaration:
+// true }. Validated at policy-load by australiaDepositQuestionnaireSchema.
+export type TravelRuleDepositQuestionnaire = {
+	depositOriginator: number;
+	receiveFrom: number;
+	declaration: boolean;
+};
+
+export type TravelRuleDepositOriginatorEntry = {
+	questionnaire: TravelRuleDepositQuestionnaire;
+};
+
+// Deposit-side travel-rule config, nested under a TravelRuleEntry. Absent or
+// `enabled: false` means the deposit auto-clear reconciler does nothing for the
+// exchange — byte-identical to the pre-feature behavior.
+export type TravelRuleDepositConfig = {
+	enabled: boolean;
+	// Free-text note documenting intent (e.g. that keys are SENDERS, and how to add
+	// a new funding wallet). Ignored by the runtime.
+	description?: string;
+	// Keyed by the on-chain SENDER (originator) address. A travel-rule-frozen
+	// deposit is auto-declared only when its PROVEN on-chain sender matches one of
+	// these entries; matching is case-insensitive. A deposit from any other sender
+	// is left frozen and surfaced — never auto-attested.
+	originators: Record<string, TravelRuleDepositOriginatorEntry>;
+};
+
 export type TravelRuleEntry = {
 	exchange: string;
 	// Opt-in switch: only when true are withdrawals for this exchange routed
@@ -59,6 +91,10 @@ export type TravelRuleEntry = {
 	// Keyed by destination address; the questionnaire is resolved on demand at
 	// withdraw time. Matching is case-insensitive.
 	addresses: Record<string, TravelRuleAddressEntry>;
+	// Deposit-side auto-clear config. Independent of `enabled` (which gates the
+	// withdraw leg only): the deposit reconciler is gated solely by
+	// `deposits.enabled` so the two legs can be toggled separately.
+	deposits?: TravelRuleDepositConfig;
 };
 
 export type PolicyConfig = {
