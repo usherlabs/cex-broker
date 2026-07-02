@@ -3,6 +3,7 @@ import type { Metadata } from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import type { z } from "zod";
 import type { BrokerAccount, BrokerPoolEntry } from "../../helpers";
+import type { BrokerExecutionArchiver } from "../../helpers/broker-execution-archive";
 import type { Action as ActionType } from "../../helpers/constants";
 import {
 	invalidArgumentError,
@@ -36,6 +37,7 @@ export type ExecuteActionContext = {
 	useVerity: boolean;
 	verityProverUrl: string;
 	otelMetrics?: OtelMetrics;
+	brokerArchiver?: BrokerExecutionArchiver;
 };
 
 export function requireSymbol(

@@ -3,6 +3,7 @@ import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import { authenticateRequest } from "../../helpers/auth";
 import { type BrokerPoolEntry, createBroker } from "../../helpers/broker";
+import type { BrokerExecutionArchiver } from "../../helpers/broker-execution-archive";
 import { Action, getActionName, resolveAction } from "../../helpers/constants";
 import { selectBrokerAccountForCex } from "../../helpers/grpc/broker";
 import { log } from "../../helpers/logger";
@@ -25,6 +26,7 @@ export type ExecuteActionDeps = {
 	useVerity: boolean;
 	verityProverUrl: string;
 	otelMetrics?: OtelMetrics;
+	brokerArchiver?: BrokerExecutionArchiver;
 };
 
 export function createExecuteActionHandler(deps: ExecuteActionDeps) {
@@ -35,6 +37,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 		useVerity,
 		verityProverUrl,
 		otelMetrics,
+		brokerArchiver,
 	} = deps;
 
 	return async (
@@ -147,6 +150,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				useVerity,
 				verityProverUrl,
 				otelMetrics,
+				brokerArchiver,
 			};
 
 			if (action === Action.Call) {

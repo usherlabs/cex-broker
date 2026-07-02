@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
@@ -8,6 +8,7 @@ import type {
 	SubscribeResponse,
 } from "../src/handlers/types";
 import type { BrokerPoolEntry } from "../src/helpers/broker";
+import { BrokerExecutionArchiver } from "../src/helpers/broker-execution-archive/writer";
 import {
 	SubscriptionType,
 	type SubscriptionType as SubscriptionTypeValue,
@@ -313,5 +314,172 @@ describe("subscribe handler", () => {
 			type: SubscriptionType.TICKER,
 		});
 		expect(state.endCount).toBe(1);
+	});
+
+	test("archives orderbook snapshot rows to the forwarder", async () => {
+		const originalFetch = globalThis.fetch;
+		const originalInterval = process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS;
+		const originalArchiveEnabled =
+			process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+		const posts: unknown[] = [];
+		globalThis.fetch = (async (_url, init) => {
+			posts.push(JSON.parse(String(init?.body)));
+			return new Response(null, { status: 200 });
+		}) as typeof fetch;
+		process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS = "1";
+		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
+
+		try {
+			const controlledWatch = createControlledWatch();
+			const exchange = {
+				watchOrderBook: controlledWatch.watch,
+			} as unknown as Exchange;
+			const archiver = BrokerExecutionArchiver.create({
+				forwarderUrl: "http://127.0.0.1:9/archive",
+				deploymentId: "test-deploy",
+				batchSize: 1,
+				flushIntervalMs: 60_000,
+			});
+			const { call } = createSubscribeCall({
+				cex: "binance",
+				symbol: "BTC/USDT",
+				type: SubscriptionType.ORDERBOOK,
+			});
+			const handler = createSubscribeHandler({
+				brokers: createPool(exchange),
+				whitelistIps: ["*"],
+				brokerArchiver: archiver,
+			});
+
+			const handlerPromise = handler(call);
+			await waitFor(() => controlledWatch.calls.length === 1);
+			controlledWatch.resolvers[0]?.({
+				bids: [[100, 1.5]],
+				asks: [[101, 2]],
+				timestamp: 1_700_000_000_000,
+			});
+			await waitFor(() => archiver.getStats().enqueued >= 1);
+			await archiver.flush();
+			await waitFor(() => controlledWatch.calls.length >= 2);
+			call.emit("close");
+			controlledWatch.resolvers[1]?.({
+				bids: [[100, 1.5]],
+				asks: [[101, 2]],
+				timestamp: 1_700_000_000_001,
+			});
+			await handlerPromise;
+
+			expect(posts.length).toBeGreaterThanOrEqual(1);
+			expect(posts[0]).toMatchObject({
+				source: "broker_write",
+				deployment_id: "test-deploy",
+			});
+			const rows = posts.flatMap(
+				(post) =>
+					(
+						post as {
+							rows: Array<{ table: string; row: Record<string, unknown> }>;
+						}
+					).rows,
+			);
+			expect(
+				rows.some((entry) => entry.table === "market_data.orderbook_snapshots"),
+			).toBe(true);
+			const snapshotRow = rows.find(
+				(entry) => entry.table === "market_data.orderbook_snapshots",
+			);
+			expect(snapshotRow?.row).toMatchObject({
+				exchange: "binance",
+				symbol: "BTC/USDT",
+				best_bid: 100,
+				best_ask: 101,
+				bids_price: [100],
+				asks_price: [101],
+			});
+
+			await archiver.close();
+		} finally {
+			globalThis.fetch = originalFetch;
+			if (originalInterval === undefined) {
+				delete process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS;
+			} else {
+				process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS = originalInterval;
+			}
+			if (originalArchiveEnabled === undefined) {
+				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+			} else {
+				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalArchiveEnabled;
+			}
+		}
+	});
+
+	test("archives OHLCV candle rows to the forwarder", async () => {
+		const originalFetch = globalThis.fetch;
+		const originalArchiveEnabled =
+			process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+		const posts: unknown[] = [];
+		globalThis.fetch = (async (_url, init) => {
+			posts.push(JSON.parse(String(init?.body)));
+			return new Response(null, { status: 200 });
+		}) as typeof fetch;
+		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
+
+		try {
+			const controlledWatch = createControlledWatch();
+			const exchange = {
+				fetchOHLCVWs: controlledWatch.watch,
+			} as unknown as Exchange;
+			const archiver = BrokerExecutionArchiver.create({
+				forwarderUrl: "http://127.0.0.1:9/archive",
+				deploymentId: "test-deploy",
+				batchSize: 1,
+				flushIntervalMs: 60_000,
+			});
+			const { call } = createSubscribeCall({
+				cex: "binance",
+				symbol: "BTC/USDT",
+				type: SubscriptionType.OHLCV,
+				options: { timeframe: "1m" },
+			});
+			const handler = createSubscribeHandler({
+				brokers: createPool(exchange),
+				whitelistIps: ["*"],
+				brokerArchiver: archiver,
+			});
+
+			const handlerPromise = handler(call);
+			await waitFor(() => controlledWatch.calls.length === 1);
+			controlledWatch.resolvers[0]?.([[1_700_000_000_000, 1, 2, 0.5, 1.5, 10]]);
+			await waitFor(() => archiver.getStats().enqueued >= 1);
+			await archiver.flush();
+			await waitFor(() => controlledWatch.calls.length >= 2);
+			call.emit("close");
+			controlledWatch.resolvers[1]?.([[1_700_000_000_000, 1, 2, 0.5, 1.5, 10]]);
+			await handlerPromise;
+
+			expect(posts.length).toBeGreaterThanOrEqual(1);
+			const rows = (
+				posts[0] as {
+					rows: Array<{ table: string; row: Record<string, unknown> }>;
+				}
+			).rows;
+			expect(rows.some((entry) => entry.table === "market_data.candles")).toBe(
+				true,
+			);
+			expect(rows[0]?.row).toMatchObject({
+				timeframe: "1m",
+				open_time_ms: 1_700_000_000_000,
+				is_closed: 0,
+			});
+
+			await archiver.close();
+		} finally {
+			globalThis.fetch = originalFetch;
+			if (originalArchiveEnabled === undefined) {
+				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+			} else {
+				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalArchiveEnabled;
+			}
+		}
 	});
 });

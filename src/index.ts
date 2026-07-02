@@ -10,6 +10,10 @@ import {
 	normalizePolicyConfig,
 	TravelRuleDepositReconciler,
 } from "./helpers";
+import {
+	type BrokerExecutionArchiver,
+	createBrokerExecutionArchiverFromEnv,
+} from "./helpers/broker-execution-archive";
 import { log } from "./helpers/logger";
 import {
 	createOtelLogsFromEnv,
@@ -46,6 +50,7 @@ export default class CEXBroker {
 	private useVerity: boolean = false;
 	private otelMetrics?: OtelMetrics;
 	private otelLogs?: OtelLogs;
+	private brokerArchiver?: BrokerExecutionArchiver;
 	private depositReconciler?: TravelRuleDepositReconciler;
 
 	/**
@@ -222,6 +227,10 @@ export default class CEXBroker {
 			this.otelMetrics = createOtelMetricsFromEnv();
 			this.otelLogs = createOtelLogsFromEnv();
 		}
+		this.brokerArchiver = createBrokerExecutionArchiverFromEnv(
+			this.otelLogs,
+			this.otelMetrics,
+		);
 
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
@@ -267,6 +276,9 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
+		if (this.brokerArchiver) {
+			await this.brokerArchiver.close();
+		}
 		if (this.otelMetrics) {
 			await this.otelMetrics.close();
 		}
@@ -302,6 +314,7 @@ export default class CEXBroker {
 			this.useVerity,
 			this.#verityProverUrl,
 			this.otelMetrics,
+			this.brokerArchiver,
 		);
 
 		this.server.bindAsync(

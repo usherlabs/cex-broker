@@ -11,8 +11,10 @@ import {
 	type BrokerPoolEntry,
 	createBroker,
 	createPublicBroker,
-	selectBroker,
+	selectBrokerAccount,
 } from "../../helpers/broker";
+import type { BrokerExecutionArchiver } from "../../helpers/broker-execution-archive";
+import { archiveSubscribeStreamInBackground } from "../../helpers/broker-execution-archive";
 import {
 	getSubscriptionTypeName,
 	resolveSubscriptionType,
@@ -23,12 +25,23 @@ import { log } from "../../helpers/logger";
 import {
 	parseMarketType,
 	resolveSubscriptionSymbol,
+	type BrokerMarketType,
 } from "../../helpers/market-type";
 import {
 	normalizeOrderBookSnapshot,
 	parseOptionalDepthLimit,
 } from "../../helpers/order-book";
 import type { OtelMetrics } from "../../helpers/otel";
+import {
+	archiveCexStreamEventInBackground,
+	archiveOhlcvInBackground,
+	archiveOrderbookInBackground,
+	archiveTickerInBackground,
+	archiveTradesInBackground,
+	bootstrapOhlcvHistory,
+	createOhlcvBarTracker,
+	createOrderbookSampler,
+} from "../../helpers/market-data-archive";
 import { getErrorMessage } from "../../helpers/shared/errors";
 import type { SubscribeRequest, SubscribeResponse } from "../types";
 
@@ -36,6 +49,7 @@ export type SubscribeDeps = {
 	brokers: Record<string, BrokerPoolEntry>;
 	whitelistIps: string[];
 	otelMetrics?: OtelMetrics;
+	brokerArchiver?: BrokerExecutionArchiver;
 };
 
 type SubscribeCall = grpc.ServerWritableStream<
@@ -152,6 +166,14 @@ async function streamBinanceUserData(
 	symbol: string,
 	subscriptionType: SubscriptionTypeValue,
 	isClosed: () => boolean,
+	archiveContext?: {
+		archiver?: BrokerExecutionArchiver;
+		otelMetrics?: OtelMetrics;
+		exchange: string;
+		accountSelector?: string;
+		deploymentId: string;
+		assetType: BrokerMarketType;
+	},
 ): Promise<void> {
 	const userDataStream = new BinanceSpotUserDataStream(broker);
 	call.once("close", () => userDataStream.close());
@@ -183,18 +205,44 @@ async function streamBinanceUserData(
 				}
 			}
 
+			const receivedTimestamp = Date.now();
 			if (
 				!(await writeSubscribeFrame(call, isClosed, {
 					data: JSON.stringify({
 						subscriptionId: message.subscriptionId,
 						event,
 					} satisfies BinanceUserDataEvent),
-					timestamp: Date.now(),
+					timestamp: receivedTimestamp,
 					symbol,
 					type: subscriptionType,
 				}))
 			) {
 				break;
+			}
+			const archiveSubscriptionType =
+				subscriptionType === SubscriptionType.BALANCE ? "BALANCE" : "ORDERS";
+			archiveSubscribeStreamInBackground(archiveContext?.archiver, {
+				exchange: archiveContext?.exchange ?? "binance",
+				accountSelector: archiveContext?.accountSelector,
+				symbol,
+				subscriptionType: archiveSubscriptionType,
+				streamPayload: event,
+			});
+			if (archiveContext) {
+				archiveCexStreamEventInBackground(
+					archiveContext.archiver,
+					archiveContext.otelMetrics,
+					{
+						deploymentId: archiveContext.deploymentId,
+						exchange: archiveContext.exchange,
+						symbol,
+						assetType: archiveContext.assetType,
+						accountSelector: archiveContext.accountSelector,
+						streamType: archiveSubscriptionType,
+						payload: event,
+						receivedTimestamp,
+					},
+				);
 			}
 		}
 	} finally {
@@ -208,24 +256,57 @@ async function runCcxtSubscribeLoop(
 	symbol: string,
 	subscriptionType: SubscriptionTypeValue,
 	watch: () => Promise<unknown>,
+	archiveContext?: {
+		archiver?: BrokerExecutionArchiver;
+		otelMetrics?: OtelMetrics;
+		exchange: string;
+		accountSelector?: string;
+		deploymentId: string;
+		assetType: BrokerMarketType;
+		archiveSubscriptionType?: "ORDERS" | "BALANCE";
+	},
 ): Promise<void> {
 	while (!isClosed()) {
 		const data = await watch();
+		const receivedTimestamp = Date.now();
 		if (
 			!(await writeSubscribeFrame(call, isClosed, {
 				data: JSON.stringify(data),
-				timestamp: Date.now(),
+				timestamp: receivedTimestamp,
 				symbol,
 				type: subscriptionType,
 			}))
 		) {
 			break;
 		}
+		if (archiveContext?.archiveSubscriptionType) {
+			archiveSubscribeStreamInBackground(archiveContext.archiver, {
+				exchange: archiveContext.exchange,
+				accountSelector: archiveContext.accountSelector,
+				symbol,
+				subscriptionType: archiveContext.archiveSubscriptionType,
+				streamPayload: data,
+			});
+			archiveCexStreamEventInBackground(
+				archiveContext.archiver,
+				archiveContext.otelMetrics,
+				{
+					deploymentId: archiveContext.deploymentId,
+					exchange: archiveContext.exchange,
+					symbol,
+					assetType: archiveContext.assetType,
+					accountSelector: archiveContext.accountSelector,
+					streamType: archiveContext.archiveSubscriptionType,
+					payload: data,
+					receivedTimestamp,
+				},
+			);
+		}
 	}
 }
 
 export function createSubscribeHandler(deps: SubscribeDeps) {
-	const { brokers, whitelistIps, otelMetrics } = deps;
+	const { brokers, whitelistIps, otelMetrics, brokerArchiver } = deps;
 
 	return async (call: SubscribeCall) => {
 		const subscribeStartTime = Date.now();
@@ -306,11 +387,11 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			}
 
 			const normalizedCex = cex.trim().toLowerCase();
+			const brokerPool = brokers[normalizedCex as keyof typeof brokers];
+			const selectedBrokerAccount = selectBrokerAccount(brokerPool, metadata);
 			const selectedBroker =
-				selectBroker(
-					brokers[normalizedCex as keyof typeof brokers],
-					metadata,
-				) ?? createBroker(normalizedCex, metadata);
+				selectedBrokerAccount?.exchange ??
+				createBroker(normalizedCex, metadata);
 			const broker = selectedBroker ?? createPublicBroker(normalizedCex);
 
 			if (!broker) {
@@ -330,6 +411,16 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				symbol,
 				options?.marketType,
 			);
+			const assetType = parseMarketType(options?.marketType);
+			const deploymentId = brokerArchiver?.getDeploymentId() ?? "unknown";
+			const streamArchiveContext = {
+				archiver: brokerArchiver,
+				otelMetrics,
+				exchange: normalizedCex,
+				accountSelector: selectedBrokerAccount?.label,
+				deploymentId,
+				assetType,
+			};
 
 			if (
 				isBinanceSpotAccountSubscription(
@@ -338,7 +429,8 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					options?.marketType,
 				)
 			) {
-				if (!selectedBroker) {
+				const accountBroker = selectedBrokerAccount?.exchange ?? selectedBroker;
+				if (!accountBroker) {
 					await writeSubscribeError(call, isStreamClosed, {
 						data: JSON.stringify({
 							error: "Binance account subscriptions require API credentials",
@@ -351,10 +443,11 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				}
 				await streamBinanceUserData(
 					call,
-					selectedBroker,
+					accountBroker,
 					resolvedSymbol,
 					subscriptionType,
 					isStreamClosed,
+					streamArchiveContext,
 				);
 				return;
 			}
@@ -362,6 +455,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			switch (subscriptionType) {
 				case SubscriptionType.ORDERBOOK:
 					try {
+						const orderbookSampler = createOrderbookSampler();
 						while (!isStreamClosed()) {
 							const depthLimit = parseOptionalDepthLimit(
 								options?.depthLimit ?? options?.limit,
@@ -371,25 +465,20 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 									? await broker.watchOrderBook(resolvedSymbol)
 									: await broker.watchOrderBook(resolvedSymbol, depthLimit);
 							const receivedTimestamp = Date.now();
+							const normalizedSnapshot = normalizeOrderBookSnapshot(orderbook, {
+								exchange: normalizedCex,
+								symbol: resolvedSymbol,
+								depthLimit:
+									depthLimit ??
+									Math.max(
+										Array.isArray(orderbook?.bids) ? orderbook.bids.length : 0,
+										Array.isArray(orderbook?.asks) ? orderbook.asks.length : 0,
+									),
+								receivedTimestamp,
+							});
 							if (
 								!(await writeSubscribeFrame(call, isStreamClosed, {
-									data: JSON.stringify(
-										normalizeOrderBookSnapshot(orderbook, {
-											exchange: normalizedCex,
-											symbol: resolvedSymbol,
-											depthLimit:
-												depthLimit ??
-												Math.max(
-													Array.isArray(orderbook?.bids)
-														? orderbook.bids.length
-														: 0,
-													Array.isArray(orderbook?.asks)
-														? orderbook.asks.length
-														: 0,
-												),
-											receivedTimestamp,
-										}),
-									),
+									data: JSON.stringify(normalizedSnapshot),
 									timestamp: receivedTimestamp,
 									symbol: resolvedSymbol,
 									type: subscriptionType,
@@ -397,6 +486,23 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							) {
 								break;
 							}
+							const shouldArchive =
+								orderbookSampler.shouldEmit(receivedTimestamp);
+							archiveOrderbookInBackground(
+								brokerArchiver,
+								otelMetrics,
+								{
+									deploymentId,
+									exchange: normalizedCex,
+									symbol: resolvedSymbol,
+									assetType,
+									accountSelector: selectedBrokerAccount?.label,
+									snapshot: normalizedSnapshot,
+								},
+								{
+									sampledOut: !shouldArchive,
+								},
+							);
 						}
 					} catch (error: unknown) {
 						log.error(
@@ -417,13 +523,29 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 
 				case SubscriptionType.TRADES:
 					try {
-						await runCcxtSubscribeLoop(
-							call,
-							isStreamClosed,
-							resolvedSymbol,
-							subscriptionType,
-							() => broker.watchTrades(resolvedSymbol),
-						);
+						while (!isStreamClosed()) {
+							const data = await broker.watchTrades(resolvedSymbol);
+							const receivedTimestamp = Date.now();
+							if (
+								!(await writeSubscribeFrame(call, isStreamClosed, {
+									data: JSON.stringify(data),
+									timestamp: receivedTimestamp,
+									symbol: resolvedSymbol,
+									type: subscriptionType,
+								}))
+							) {
+								break;
+							}
+							archiveTradesInBackground(brokerArchiver, otelMetrics, {
+								deploymentId,
+								exchange: normalizedCex,
+								symbol: resolvedSymbol,
+								assetType,
+								accountSelector: selectedBrokerAccount?.label,
+								payload: data,
+								receivedTimestamp,
+							});
+						}
 					} catch (error: unknown) {
 						const message = getErrorMessage(error);
 						log.error(
@@ -443,13 +565,29 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 
 				case SubscriptionType.TICKER:
 					try {
-						await runCcxtSubscribeLoop(
-							call,
-							isStreamClosed,
-							resolvedSymbol,
-							subscriptionType,
-							() => broker.watchTicker(resolvedSymbol),
-						);
+						while (!isStreamClosed()) {
+							const data = await broker.watchTicker(resolvedSymbol);
+							const receivedTimestamp = Date.now();
+							if (
+								!(await writeSubscribeFrame(call, isStreamClosed, {
+									data: JSON.stringify(data),
+									timestamp: receivedTimestamp,
+									symbol: resolvedSymbol,
+									type: subscriptionType,
+								}))
+							) {
+								break;
+							}
+							archiveTickerInBackground(brokerArchiver, otelMetrics, {
+								deploymentId,
+								exchange: normalizedCex,
+								symbol: resolvedSymbol,
+								assetType,
+								accountSelector: selectedBrokerAccount?.label,
+								payload: data,
+								receivedTimestamp,
+							});
+						}
 					} catch (error: unknown) {
 						const message = getErrorMessage(error);
 						log.error(
@@ -470,13 +608,71 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				case SubscriptionType.OHLCV:
 					try {
 						const timeframe = options?.timeframe || "1m";
-						await runCcxtSubscribeLoop(
-							call,
-							isStreamClosed,
-							resolvedSymbol,
-							subscriptionType,
-							() => broker.fetchOHLCVWs(resolvedSymbol, timeframe),
+						const ohlcvBarTracker = createOhlcvBarTracker();
+						const ohlcvArchiveInput = {
+							deploymentId,
+							exchange: normalizedCex,
+							symbol: resolvedSymbol,
+							assetType,
+							timeframe,
+							accountSelector: selectedBrokerAccount?.label,
+							receivedTimestamp: Date.now(),
+							payload: [],
+						};
+						const bootstrapPayload = await bootstrapOhlcvHistory(
+							broker,
+							brokerArchiver,
+							otelMetrics,
+							ohlcvBarTracker,
+							ohlcvArchiveInput,
+							{ bootstrapLimit: options?.bootstrapLimit },
 						);
+						let ohlcvStreamActive = true;
+						if (bootstrapPayload) {
+							const bootstrapTimestamp = Date.now();
+							const bootstrapSent = await writeSubscribeFrame(
+								call,
+								isStreamClosed,
+								{
+									data: JSON.stringify(bootstrapPayload),
+									timestamp: bootstrapTimestamp,
+									symbol: resolvedSymbol,
+									type: subscriptionType,
+								},
+							);
+							if (!bootstrapSent) {
+								ohlcvStreamActive = false;
+							}
+						}
+						while (ohlcvStreamActive && !isStreamClosed()) {
+							const data = await broker.fetchOHLCVWs(resolvedSymbol, timeframe);
+							const receivedTimestamp = Date.now();
+							if (
+								!(await writeSubscribeFrame(call, isStreamClosed, {
+									data: JSON.stringify(data),
+									timestamp: receivedTimestamp,
+									symbol: resolvedSymbol,
+									type: subscriptionType,
+								}))
+							) {
+								break;
+							}
+							archiveOhlcvInBackground(
+								brokerArchiver,
+								otelMetrics,
+								ohlcvBarTracker,
+								{
+									deploymentId,
+									exchange: normalizedCex,
+									symbol: resolvedSymbol,
+									assetType,
+									timeframe,
+									accountSelector: selectedBrokerAccount?.label,
+									payload: data,
+									receivedTimestamp,
+								},
+							);
+						}
 					} catch (error: unknown) {
 						log.error(
 							`Error fetching OHLCV for ${resolvedSymbol} on ${cex}:`,
@@ -502,6 +698,10 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							symbol,
 							subscriptionType,
 							() => broker.watchBalance(),
+							{
+								...streamArchiveContext,
+								archiveSubscriptionType: "BALANCE",
+							},
 						);
 					} catch (error: unknown) {
 						const message = getErrorMessage(error);
@@ -525,6 +725,10 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							resolvedSymbol,
 							subscriptionType,
 							() => broker.watchOrders(resolvedSymbol),
+							{
+								...streamArchiveContext,
+								archiveSubscriptionType: "ORDERS",
+							},
 						);
 					} catch (error: unknown) {
 						log.error(

@@ -4,7 +4,10 @@ import { asRecord } from "./shared/guards";
 
 type JsonRecord = Record<string, unknown>;
 
-export type OrderTelemetryAction = "CreateOrder" | "GetOrderDetails";
+export type OrderTelemetryAction =
+	| "CreateOrder"
+	| "CancelOrder"
+	| "GetOrderDetails";
 
 export type OrderTelemetryContext = {
 	action: OrderTelemetryAction;
