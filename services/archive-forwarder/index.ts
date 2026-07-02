@@ -9,7 +9,7 @@ import {
 	readBoundedArchiveBody,
 } from "./limits";
 import { handleArchiveBatch, parseArchiveBatchRequest } from "./router";
-import { ensureMarketDataSchema } from "./schema";
+import { ensureArchiveSchema } from "./schema";
 
 const config = loadForwarderConfig();
 const clickhouse = createClient({
@@ -21,8 +21,10 @@ const clickhouse = createClient({
 const inserter = createClickHouseInserter(clickhouse);
 
 try {
-	await ensureMarketDataSchema(clickhouse);
-	console.log("ClickHouse market_data schema ensured");
+	await ensureArchiveSchema(clickhouse);
+	console.log(
+		"ClickHouse archive schema ensured (market_data, broker_execution, strategy_data)",
+	);
 } catch (error) {
 	console.error("Failed to ensure ClickHouse schema:", error);
 	process.exit(1);

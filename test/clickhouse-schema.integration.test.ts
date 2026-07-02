@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createClient, type ClickHouseClient } from "@clickhouse/client";
-import { ensureMarketDataSchema } from "../services/archive-forwarder/schema";
-import { handleArchiveBatch } from "../services/archive-forwarder/router";
+import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import { createClickHouseInserter } from "../services/archive-forwarder/insert";
+import { handleArchiveBatch } from "../services/archive-forwarder/router";
+import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
 
 const CLICKHOUSE_URL =
 	process.env.CLICKHOUSE_TEST_URL?.trim() ||
@@ -80,7 +80,7 @@ describe("ClickHouse market_data schema integration", () => {
 			url: CLICKHOUSE_URL,
 			database: "market_data",
 		});
-		await ensureMarketDataSchema(client);
+		await ensureArchiveSchema(client);
 		try {
 			await cleanupTestRows();
 		} catch {
