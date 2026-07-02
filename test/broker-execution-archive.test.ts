@@ -1,22 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { LogRecord } from "@opentelemetry/api-logs";
 import {
-	buildOrderEventArchiveRow,
-	buildSubscribeStreamArchiveRow,
-	buildCommonArchiveTags,
-} from "../src/helpers/broker-execution-archive/rows";
-import {
 	redactSecretLiterals,
 	redactStreamPayload,
 } from "../src/helpers/broker-execution-archive/redact";
+import {
+	buildCommonArchiveTags,
+	buildOrderEventArchiveRow,
+	buildSubscribeStreamArchiveRow,
+} from "../src/helpers/broker-execution-archive/rows";
 import {
 	BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
 	isArchiveOtelLogsEnabled,
 	resolveArchiveForwarderUrlFromEnv,
 } from "../src/helpers/broker-execution-archive/writer";
-import type { OtelLogs } from "../src/helpers/otel";
 import { buildOrderExecutionTelemetry } from "../src/helpers/order-telemetry";
+import type { OtelLogs } from "../src/helpers/otel";
 
 class MockOtelLogs implements OtelLogs {
 	readonly emits: LogRecord[] = [];
@@ -164,13 +164,14 @@ describe("broker execution archiver queue", () => {
 		expect(archiver.getQueueDepth()).toBe(2);
 
 		await archiver.flush();
-		expect(posts).toHaveLength(0);
+		expect(posts).toHaveLength(1);
+		expect((posts[0] as { rows: unknown[] }).rows).toHaveLength(2);
 		expect(otelLogs.emits).toHaveLength(2);
 
 		await archiver.close();
 	});
 
-	test("mirrors broker_execution rows to OTel logs but not market_data rows", async () => {
+	test("mirrors broker_execution rows to OTel logs and posts every table to the forwarder", async () => {
 		const posts: unknown[] = [];
 		globalThis.fetch = (async (_url, init) => {
 			posts.push(JSON.parse(String(init?.body)));
@@ -197,17 +198,15 @@ describe("broker execution archiver queue", () => {
 
 		await archiver.flush();
 
+		// Only execution rows mirror to OTel (market_data has no OTel schema)...
 		expect(otelLogs.emits).toHaveLength(1);
 		expect(otelLogs.emits[0]?.body).toBe("broker_execution.order_events");
+		// ...but the forwarder is the durable sink for both tables.
 		expect(posts).toHaveLength(1);
 		expect(posts[0]).toMatchObject({
 			rows: expect.arrayContaining([
-				expect.objectContaining({ table: "market_data.orderbook_snapshots" }),
-			]),
-		});
-		expect(posts[0]).not.toMatchObject({
-			rows: expect.arrayContaining([
 				expect.objectContaining({ table: "broker_execution.order_events" }),
+				expect.objectContaining({ table: "market_data.orderbook_snapshots" }),
 			]),
 		});
 
@@ -262,7 +261,7 @@ describe("broker execution archiver queue", () => {
 		expect(archiver.getStats().forwarderFailures).toBeGreaterThan(0);
 	});
 
-	test("requeues only market rows after a mixed-batch forwarder failure", async () => {
+	test("requeues the whole batch after a forwarder failure", async () => {
 		let postAttempts = 0;
 		globalThis.fetch = (async () => {
 			postAttempts += 1;
@@ -288,11 +287,55 @@ describe("broker execution archiver queue", () => {
 		});
 
 		await archiver.flush();
+		// The execution row still reached OTel (mirror happens before the post),
+		// and both rows are requeued for a later forwarder retry — neither is lost.
 		expect(otelLogs.emits).toHaveLength(1);
-		expect(archiver.getQueueDepth()).toBe(1);
+		expect(archiver.getQueueDepth()).toBe(2);
 		expect(postAttempts).toBe(1);
 
 		await archiver.close();
+	});
+
+	test("posts broker_execution rows to the forwarder even without OTel logs", async () => {
+		const posts: unknown[] = [];
+		globalThis.fetch = (async (_url, init) => {
+			posts.push(JSON.parse(String(init?.body)));
+			return new Response(null, { status: 200 });
+		}) as typeof fetch;
+
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: "http://127.0.0.1:9/archive",
+			deploymentId: "test-deploy",
+			batchSize: 10,
+			flushIntervalMs: 60_000,
+		});
+
+		archiver.enqueue({
+			table: "broker_execution.order_events",
+			row: { source: "broker_write", order_id: "1" },
+		});
+
+		await archiver.flush();
+		expect(posts).toHaveLength(1);
+		expect(posts[0]).toMatchObject({
+			rows: expect.arrayContaining([
+				expect.objectContaining({ table: "broker_execution.order_events" }),
+			]),
+		});
+
+		await archiver.close();
+	});
+
+	test("canPersistMarketMetadataSnapshot is true with a forwarder-only config", () => {
+		const forwarderOnly = BrokerExecutionArchiver.create({
+			forwarderUrl: "http://127.0.0.1:9/archive",
+			deploymentId: "test-deploy",
+			flushIntervalMs: 60_000,
+		});
+		expect(forwarderOnly.canPersistMarketMetadataSnapshot()).toBe(true);
+
+		const disabled = BrokerExecutionArchiver.disabled();
+		expect(disabled.canPersistMarketMetadataSnapshot()).toBe(false);
 	});
 });
 
@@ -303,11 +346,18 @@ describe("broker execution archiver env", () => {
 		const originalClickhousePort = process.env.CEX_BROKER_CLICKHOUSE_PORT;
 		const originalOtelLogsEnabled =
 			process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED;
+		const originalFetch = globalThis.fetch;
 
 		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
 		process.env.CEX_BROKER_CLICKHOUSE_HOST = "clickhouse.local";
 		delete process.env.CEX_BROKER_CLICKHOUSE_PORT;
 		delete process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED;
+
+		const posts: unknown[] = [];
+		globalThis.fetch = (async (_url, init) => {
+			posts.push(JSON.parse(String(init?.body)));
+			return new Response(null, { status: 200 });
+		}) as typeof fetch;
 
 		try {
 			expect(resolveArchiveForwarderUrlFromEnv()).toBe(
@@ -322,9 +372,12 @@ describe("broker execution archiver env", () => {
 				row: { source: "broker_write", order_id: "1" },
 			});
 			await archiver.flush();
+			// No OTel mirror (flag off), but the row still lands at the forwarder.
 			expect(otelLogs.emits).toHaveLength(0);
+			expect(posts).toHaveLength(1);
 			await archiver.close();
 		} finally {
+			globalThis.fetch = originalFetch;
 			if (originalForwarderUrl === undefined) {
 				delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
 			} else {
@@ -352,7 +405,14 @@ describe("broker execution archiver env", () => {
 	test("createBrokerExecutionArchiverFromEnv mirrors to OTel logs only when enabled", async () => {
 		const originalOtelLogsEnabled =
 			process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED;
+		const originalForwarderUrl = process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
+		const originalForwarderHost = process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
+		const originalClickhouseHost = process.env.CEX_BROKER_CLICKHOUSE_HOST;
 		process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED = "true";
+		// Isolate the OTel mirror: no forwarder configured so flush has a single sink.
+		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
+		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
+		delete process.env.CEX_BROKER_CLICKHOUSE_HOST;
 
 		try {
 			const otelLogs = new MockOtelLogs();
@@ -370,6 +430,21 @@ describe("broker execution archiver env", () => {
 			} else {
 				process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED =
 					originalOtelLogsEnabled;
+			}
+			if (originalForwarderUrl === undefined) {
+				delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
+			} else {
+				process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL = originalForwarderUrl;
+			}
+			if (originalForwarderHost === undefined) {
+				delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
+			} else {
+				process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST = originalForwarderHost;
+			}
+			if (originalClickhouseHost === undefined) {
+				delete process.env.CEX_BROKER_CLICKHOUSE_HOST;
+			} else {
+				process.env.CEX_BROKER_CLICKHOUSE_HOST = originalClickhouseHost;
 			}
 		}
 	});

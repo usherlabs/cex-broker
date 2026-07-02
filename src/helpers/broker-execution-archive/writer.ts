@@ -1,7 +1,7 @@
 import { SeverityNumber } from "@opentelemetry/api-logs";
 import { log } from "../logger";
-import type { OtelLogs, OtelMetrics } from "../otel";
 import { isMarketArchiveTable } from "../market-data-archive/types";
+import type { OtelLogs, OtelMetrics } from "../otel";
 import type { BrokerArchiveRow } from "./types";
 
 export type BrokerExecutionArchiverOptions = {
@@ -142,7 +142,10 @@ export class BrokerExecutionArchiver {
 	}
 
 	canPersistMarketMetadataSnapshot(): boolean {
-		return this.isEnabled() && Boolean(this.otelLogs?.isOtelEnabled());
+		return (
+			this.isEnabled() &&
+			(Boolean(this.otelLogs?.isOtelEnabled()) || Boolean(this.forwarderUrl))
+		);
 	}
 
 	enqueue(row: BrokerArchiveRow): void {
@@ -237,31 +240,32 @@ export class BrokerExecutionArchiver {
 			return true;
 		}
 
+		// Secondary observability mirror: execution rows (not market_data.*, which
+		// has no OTel schema) are echoed to OTel logs when
+		// CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED gated an otelLogs sink in. This is in
+		// addition to the forwarder, never instead of it, so a durable record exists
+		// even while a forwarder is unreachable. A requeued batch re-emits here on
+		// the retry flush; OTel logs are observability, not the audit source.
 		for (const entry of batch) {
 			if (!isMarketArchiveTable(entry.table)) {
 				this.emitOtelLog(entry);
 			}
 		}
 
+		// The forwarder is the durable sink for every archive table it supports
+		// (market_data.*, broker_execution.*, strategy_data.*). Requeue the whole
+		// batch on failure so nothing is silently dropped while a forwarder is set.
 		if (this.forwarderUrl) {
-			const marketRows = batch.filter((entry) =>
-				isMarketArchiveTable(entry.table),
-			);
-			if (marketRows.length > 0) {
-				try {
-					await this.postToForwarder(marketRows);
-				} catch (error) {
-					this.stats.forwarderFailures += 1;
-					this.queue.push(...marketRows);
-					void this.recordArchiveMetric(
-						"cex_archive_forwarder_failures_total",
-						{
-							count: marketRows.length,
-						},
-					);
-					log.warn("Broker execution archive forwarder failed", { error });
-					return false;
-				}
+			try {
+				await this.postToForwarder(batch);
+			} catch (error) {
+				this.stats.forwarderFailures += 1;
+				this.queue.push(...batch);
+				void this.recordArchiveMetric("cex_archive_forwarder_failures_total", {
+					count: batch.length,
+				});
+				log.warn("Broker execution archive forwarder failed", { error });
+				return false;
 			}
 		}
 

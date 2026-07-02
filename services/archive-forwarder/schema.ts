@@ -50,12 +50,23 @@ function isIdempotentSchemaError(error: unknown): boolean {
 	);
 }
 
-export async function ensureMarketDataSchema(
+// Every archive database owned by the forwarder. Each file self-creates its
+// database and tables idempotently; the forwarder fail-closes if any cannot be
+// applied (see index.ts).
+const ARCHIVE_SCHEMA_FILES = [
+	"market_data.sql",
+	"broker_execution.sql",
+	"strategy_data.sql",
+] as const;
+
+async function applySchemaFile(
 	client: ClickHouseClient,
+	fileName: string,
 ): Promise<void> {
 	const schemaPath = path.resolve(
 		import.meta.dir,
-		"../../schema/clickhouse/market_data.sql",
+		"../../schema/clickhouse",
+		fileName,
 	);
 	const sql = await Bun.file(schemaPath).text();
 	for (const statement of splitSqlStatements(sql)) {
@@ -67,5 +78,13 @@ export async function ensureMarketDataSchema(
 			}
 			throw error;
 		}
+	}
+}
+
+export async function ensureArchiveSchema(
+	client: ClickHouseClient,
+): Promise<void> {
+	for (const fileName of ARCHIVE_SCHEMA_FILES) {
+		await applySchemaFile(client, fileName);
 	}
 }

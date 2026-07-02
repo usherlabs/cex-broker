@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ClickHouseClient } from "@clickhouse/client";
 import {
 	countSkippedRows,
 	groupRowsByTable,
@@ -8,6 +9,7 @@ import {
 	handleArchiveBatch,
 	parseArchiveBatchRequest,
 } from "../services/archive-forwarder/router";
+import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
 import { isSupportedTable } from "../services/archive-forwarder/types";
 
 describe("archive forwarder batch parsing", () => {
@@ -64,13 +66,17 @@ describe("archive forwarder batch parsing", () => {
 		expect(parsed.batch.rows).toHaveLength(1);
 	});
 
-	test("parseArchiveBatchRequest rejects unsupported table names", () => {
+	test("parseArchiveBatchRequest accepts broker_execution and strategy_data, rejects unknown tables", () => {
 		const parsed = parseArchiveBatchRequest({
-			source: "broker_write",
+			source: "hb_runtime",
 			deployment_id: "deploy-a",
 			rows: [
 				{ table: "market_data.candles", row: { open_time_ms: 1 } },
 				{ table: "broker_execution.order_events", row: { order_id: "1" } },
+				{
+					table: "strategy_data.policy_evaluation_events",
+					row: { event_time_ms: 1 },
+				},
 				{ table: "market_data.unknown_table", row: { symbol: "BTC/USDT" } },
 			],
 		});
@@ -78,14 +84,18 @@ describe("archive forwarder batch parsing", () => {
 		if (!parsed.ok) {
 			return;
 		}
-		expect(parsed.rejectedRowCount).toBe(2);
-		expect(parsed.batch.rows).toHaveLength(1);
-		expect(parsed.batch.rows[0]?.table).toBe("market_data.candles");
+		expect(parsed.rejectedRowCount).toBe(1);
+		expect(parsed.batch.rows).toHaveLength(3);
+		expect(parsed.batch.rows.map((row) => row.table)).toEqual([
+			"market_data.candles",
+			"broker_execution.order_events",
+			"strategy_data.policy_evaluation_events",
+		]);
 	});
 });
 
 describe("archive forwarder routing", () => {
-	test("groups supported tables and skips unknown tables", () => {
+	test("groups every supported archive database and skips unknown tables", () => {
 		const rows = [
 			{
 				table: "market_data.candles",
@@ -96,17 +106,28 @@ describe("archive forwarder routing", () => {
 				row: { order_id: "1" },
 			},
 			{
-				table: "market_data.orderbook_snapshots",
+				table: "strategy_data.inventory_settlement_events",
+				row: { event_time_ms: 1 },
+			},
+			{
+				table: "market_data.unknown_table",
 				row: { symbol: "ETH/USDT" },
 			},
 		];
 
 		const grouped = groupRowsByTable(rows);
 		expect(grouped.get("market_data.candles")).toHaveLength(1);
-		expect(grouped.get("market_data.orderbook_snapshots")).toHaveLength(1);
+		expect(grouped.get("broker_execution.order_events")).toHaveLength(1);
+		expect(
+			grouped.get("strategy_data.inventory_settlement_events"),
+		).toHaveLength(1);
 		expect(countSkippedRows(rows)).toBe(1);
 		expect(isSupportedTable("market_data.candles")).toBe(true);
-		expect(isSupportedTable("broker_execution.order_events")).toBe(false);
+		expect(isSupportedTable("broker_execution.order_events")).toBe(true);
+		expect(isSupportedTable("strategy_data.policy_evaluation_events")).toBe(
+			true,
+		);
+		expect(isSupportedTable("market_data.unknown_table")).toBe(false);
 	});
 
 	test("insertArchiveRows calls inserter per supported table", async () => {
@@ -118,7 +139,7 @@ describe("archive forwarder routing", () => {
 			[
 				{ table: "market_data.candles", row: { open_time_ms: 1 } },
 				{ table: "market_data.candles", row: { open_time_ms: 2 } },
-				{ table: "broker_execution.order_events", row: { order_id: "9" } },
+				{ table: "market_data.unknown_table", row: { order_id: "9" } },
 			],
 		);
 
@@ -130,6 +151,37 @@ describe("archive forwarder routing", () => {
 			failedTables: [],
 		});
 		expect(inserts).toEqual([{ table: "market_data.candles", count: 2 }]);
+	});
+
+	test("insertArchiveRows routes broker_execution and strategy_data tables", async () => {
+		const inserts: Array<{ table: string; count: number }> = [];
+		const result = await insertArchiveRows(
+			async (table, tableRows) => {
+				inserts.push({ table, count: tableRows.length });
+			},
+			[
+				{ table: "broker_execution.order_events", row: { order_id: "1" } },
+				{
+					table: "strategy_data.policy_evaluation_events",
+					row: { event_time_ms: 1 },
+				},
+				{
+					table: "strategy_data.policy_evaluation_events",
+					row: { event_time_ms: 2 },
+				},
+			],
+		);
+
+		expect(result.inserted).toBe(3);
+		expect(result.skipped).toBe(0);
+		expect(inserts).toContainEqual({
+			table: "broker_execution.order_events",
+			count: 1,
+		});
+		expect(inserts).toContainEqual({
+			table: "strategy_data.policy_evaluation_events",
+			count: 2,
+		});
 	});
 
 	test("insertArchiveRows continues when one table insert fails", async () => {
@@ -172,5 +224,46 @@ describe("archive forwarder routing", () => {
 
 		expect(result.inserted).toBe(1);
 		expect(inserted).toEqual(["market_data.candles"]);
+	});
+});
+
+describe("archive forwarder schema init", () => {
+	test("ensureArchiveSchema applies every archive database from its SQL files", async () => {
+		const statements: string[] = [];
+		const client = {
+			command: async ({ query }: { query: string }) => {
+				statements.push(query);
+			},
+		} as unknown as ClickHouseClient;
+
+		await ensureArchiveSchema(client);
+
+		const createdDatabases = statements
+			.map(
+				(query) => query.match(/CREATE DATABASE IF NOT EXISTS\s+(\w+)/i)?.[1],
+			)
+			.filter((name): name is string => Boolean(name));
+		expect(createdDatabases).toEqual(
+			expect.arrayContaining([
+				"market_data",
+				"broker_execution",
+				"strategy_data",
+			]),
+		);
+
+		const createdTables = statements
+			.map(
+				(query) => query.match(/CREATE TABLE IF NOT EXISTS\s+([\w.]+)/i)?.[1],
+			)
+			.filter((name): name is string => Boolean(name));
+		expect(createdTables).toEqual(
+			expect.arrayContaining([
+				"broker_execution.order_events",
+				"broker_execution.market_metadata_snapshots",
+				"strategy_data.policy_evaluation_events",
+				"strategy_data.strategy_policy_snapshots",
+				"strategy_data.inventory_settlement_events",
+			]),
+		);
 	});
 });
