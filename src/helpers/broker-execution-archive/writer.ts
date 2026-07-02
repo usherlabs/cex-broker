@@ -196,10 +196,15 @@ export class BrokerExecutionArchiver {
 		if (this.flushInFlight) {
 			return this.flushInFlight;
 		}
-		this.flushInFlight = this.flushBatch().finally(() => {
-			this.flushInFlight = null;
-		});
-		return this.flushInFlight;
+		// flushBatch resolves a boolean the callers read directly; the in-flight
+		// handle only needs completion, so discard it to keep this a Promise<void>.
+		const inFlight = this.flushBatch()
+			.then(() => undefined)
+			.finally(() => {
+				this.flushInFlight = null;
+			});
+		this.flushInFlight = inFlight;
+		return inFlight;
 	}
 
 	async close(): Promise<void> {
