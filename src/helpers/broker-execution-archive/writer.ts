@@ -1,3 +1,5 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { SeverityNumber } from "@opentelemetry/api-logs";
 import { log } from "../logger";
 import { isMarketArchiveTable } from "../market-data-archive/types";
@@ -322,40 +324,65 @@ export class BrokerExecutionArchiver {
 		}
 	}
 
-	private async postToForwarder(batch: BrokerArchiveRow[]): Promise<void> {
+	// Uses node:http/node:https rather than the global fetch: inside the Gramine
+	// SGX enclave undici (which backs fetch) fails on every request when it lazily
+	// instantiates its llhttp WASM parser — `WebAssembly.Instance(): Out of memory`
+	// under the enclave's constrained memory — which silently kills the whole
+	// archive plane. node's request stays on the transport proven to work in the
+	// enclave. Same failure class and mitigation as resolveOnChainSender in
+	// travel-rule-deposit-reconciler.ts.
+	private postToForwarder(batch: BrokerArchiveRow[]): Promise<void> {
 		if (!this.forwarderUrl || batch.length === 0) {
-			return;
+			return Promise.resolve();
 		}
-		const controller = new AbortController();
-		const timeout = setTimeout(
-			() => controller.abort(),
-			this.forwarderTimeoutMs,
-		);
-		const headers: Record<string, string> = {
+		const body = JSON.stringify({
+			source: "broker_write",
+			deployment_id: this.deploymentId,
+			rows: batch,
+		});
+		const url = new URL(this.forwarderUrl);
+		const doRequest = url.protocol === "http:" ? httpRequest : httpsRequest;
+		const headers: Record<string, string | number> = {
 			"content-type": "application/json",
+			"content-length": Buffer.byteLength(body),
 		};
 		if (this.forwarderAuthToken) {
 			headers.authorization = `Bearer ${this.forwarderAuthToken}`;
 		}
-		try {
-			const response = await fetch(this.forwarderUrl, {
-				method: "POST",
-				headers,
-				body: JSON.stringify({
-					source: "broker_write",
-					deployment_id: this.deploymentId,
-					rows: batch,
-				}),
-				signal: controller.signal,
+		return new Promise<void>((resolve, reject) => {
+			const req = doRequest(
+				url,
+				{
+					method: "POST",
+					headers,
+					// Bound the request: a hung forwarder would otherwise stall the flush
+					// loop (flushes are serialized behind flushInFlight) indefinitely.
+					timeout: this.forwarderTimeoutMs,
+				},
+				(res) => {
+					// Drain the body so the socket can be released/reused.
+					res.on("data", () => {});
+					res.on("end", () => {
+						const status = res.statusCode ?? 0;
+						if (status < 200 || status >= 300) {
+							reject(
+								new Error(
+									`Archive forwarder returned ${status} ${res.statusMessage ?? ""}`,
+								),
+							);
+							return;
+						}
+						resolve();
+					});
+				},
+			);
+			req.on("error", reject);
+			req.on("timeout", () => {
+				req.destroy(new Error("Archive forwarder request timed out"));
 			});
-			if (!response.ok) {
-				throw new Error(
-					`Archive forwarder returned ${response.status} ${response.statusText}`,
-				);
-			}
-		} finally {
-			clearTimeout(timeout);
-		}
+			req.write(body);
+			req.end();
+		});
 	}
 }
 
