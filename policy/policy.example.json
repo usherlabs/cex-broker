@@ -44,5 +44,23 @@
 				{ "from": "USDT", "to": "ARB", "min": 1, "max": 10000 }
 			]
 		}
+	},
+	"travelRule": {
+		"rule": [
+			{
+				"exchange": "BINANCE",
+				"enabled": true,
+				"description": "Enable for jurisdictions that require travel-rule metadata on Binance withdrawals (e.g. Australia/AUSTRAC), where the standard withdraw endpoint returns error -4104. Each address needs a questionnaire; self-owned destinations use isAddressOwner=1, sendTo=1, declaration=true.",
+				"addresses": {
+					"0x9d467fa9062b6e9b1a46e26007ad82db116c67cb": {
+						"questionnaire": {
+							"isAddressOwner": 1,
+							"sendTo": 1,
+							"declaration": true
+						}
+					}
+				}
+			}
+		]
 	}
 }

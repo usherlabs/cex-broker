@@ -4,6 +4,10 @@ import ccxt from "@usherlabs/ccxt";
 import type { BrokerAccountRole, BrokerCredentials } from "../types";
 import { buildCcxtConfig } from "./exchange-credentials";
 import { log } from "./logger";
+import {
+	registerBinanceTravelRuleDepositEndpoints,
+	registerBinanceTravelRuleWithdrawEndpoint,
+} from "./travel-rule";
 
 export type BrokerAccount = {
 	exchange: Exchange;
@@ -51,6 +55,12 @@ export function applyCommonExchangeConfig(exchange: Exchange) {
 		recvWindow: 60000,
 		adjustForTimeDifference: true,
 	});
+	// Register Binance's travel-rule endpoints (no-op for other exchanges): the
+	// withdraw apply endpoint and the deposit reconciler's read/provide-info
+	// endpoints. Registered here so every account instance carries them before the
+	// reconciler's first tick.
+	registerBinanceTravelRuleWithdrawEndpoint(exchange);
+	registerBinanceTravelRuleDepositEndpoints(exchange);
 }
 
 export function createBroker(
