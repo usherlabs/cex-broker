@@ -1,3 +1,5 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import type { Exchange } from "@usherlabs/ccxt";
 import type {
 	PolicyConfig,
@@ -105,47 +107,83 @@ const EVM_TX_HASH = /^0x[0-9a-fA-F]{64}$/;
  * churn (owner wallet → Binance via a direct ERC20 transfer) that equals the
  * token originator. A transfer routed through a contract could differ; hardening
  * to the ERC20 Transfer event's `from` is possible later if that case arises.
+ *
+ * Uses `node:https` rather than the global `fetch`: inside the Gramine SGX
+ * enclave undici (which backs global fetch) fails to establish outbound
+ * connections — the same failure mode as the enclave's dead Binance user-data
+ * WebSocket — while the ccxt HTTP path (node http/https) works. Using node's
+ * request keeps this on the transport that is proven to work in the enclave.
  */
-export async function resolveOnChainSender(
+export function resolveOnChainSender(
 	rpcUrl: string,
 	txHash: string,
 	timeoutMs = 10_000,
 ): Promise<string | null> {
-	if (!EVM_TX_HASH.test(txHash)) return null;
-	// Bound the request: a hung RPC would otherwise stall the whole reconciler
-	// tick (candidates are resolved sequentially) and block the next poll.
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), timeoutMs);
-	let response: Response;
-	try {
-		response = await fetch(rpcUrl, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			signal: controller.signal,
-			body: JSON.stringify({
-				jsonrpc: "2.0",
-				id: 1,
-				method: "eth_getTransactionByHash",
-				params: [txHash],
-			}),
+	if (!EVM_TX_HASH.test(txHash)) return Promise.resolve(null);
+	const body = JSON.stringify({
+		jsonrpc: "2.0",
+		id: 1,
+		method: "eth_getTransactionByHash",
+		params: [txHash],
+	});
+	const url = new URL(rpcUrl);
+	const doRequest = url.protocol === "http:" ? httpRequest : httpsRequest;
+	return new Promise<string | null>((resolve, reject) => {
+		const req = doRequest(
+			url,
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"content-length": Buffer.byteLength(body),
+				},
+				// Bound the request: a hung RPC would otherwise stall the whole
+				// reconciler tick (candidates resolve sequentially) and block the next poll.
+				timeout: timeoutMs,
+			},
+			(res) => {
+				const chunks: Buffer[] = [];
+				res.on("data", (chunk) => chunks.push(chunk as Buffer));
+				res.on("end", () => {
+					const status = res.statusCode ?? 0;
+					if (status < 200 || status >= 300) {
+						reject(new Error(`travel_rule_rpc_http_${status}`));
+						return;
+					}
+					try {
+						const json = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+							result?: { from?: unknown } | null;
+							error?: unknown;
+						};
+						if (json.error) {
+							reject(
+								new Error(
+									`travel_rule_rpc_error: ${JSON.stringify(json.error)}`,
+								),
+							);
+							return;
+						}
+						const from = json.result?.from;
+						resolve(
+							typeof from === "string" && from.length > 0
+								? from.toLowerCase()
+								: null,
+						);
+					} catch (parseError) {
+						reject(
+							new Error(`travel_rule_rpc_parse_error: ${String(parseError)}`),
+						);
+					}
+				});
+			},
+		);
+		req.on("error", reject);
+		req.on("timeout", () => {
+			req.destroy(new Error("travel_rule_rpc_timeout"));
 		});
-	} finally {
-		clearTimeout(timeout);
-	}
-	if (!response.ok) {
-		throw new Error(`travel_rule_rpc_http_${response.status}`);
-	}
-	const json = (await response.json()) as {
-		result?: { from?: unknown } | null;
-		error?: unknown;
-	};
-	if (json.error) {
-		throw new Error(`travel_rule_rpc_error: ${JSON.stringify(json.error)}`);
-	}
-	const from = json.result?.from;
-	return typeof from === "string" && from.length > 0
-		? from.toLowerCase()
-		: null;
+		req.write(body);
+		req.end();
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +265,7 @@ export type ReconcileOutcome =
 	| { kind: "submitted"; deposit: LocalEntityDeposit; sender: string }
 	| { kind: "already-provided"; deposit: LocalEntityDeposit; sender: string }
 	| { kind: "undeclared-origin"; deposit: LocalEntityDeposit; sender: string }
-	| { kind: "unproven-origin"; deposit: LocalEntityDeposit }
+	| { kind: "unproven-origin"; deposit: LocalEntityDeposit; error?: string }
 	| {
 			kind: "entity-drift";
 			deposit: LocalEntityDeposit;
@@ -372,17 +410,22 @@ export async function reconcileAccountOnce(
 		// tick wait it out rather than compounding the -1003.
 		if (now < state.rateLimitedUntil) break;
 		let sender: string | null = null;
+		let resolveError: string | undefined;
 		try {
 			sender = await deps.resolveSender(deposit.network, deposit.txId);
 		} catch (error) {
 			sender = null;
+			// Capture the underlying RPC failure so the anomaly log distinguishes a
+			// real call failure (http/timeout/network) from a legitimately absent
+			// sender (no RPC configured, or tx not found).
+			resolveError = errorText(error);
 			if (isRateLimitError(error)) {
 				state.rateLimitedUntil = now + deps.rateLimitCooldownMs;
 			}
 		}
 		if (!sender) {
 			state.backoffUntil.set(deposit.tranId, now + deps.failureBackoffMs);
-			outcomes.push({ kind: "unproven-origin", deposit });
+			outcomes.push({ kind: "unproven-origin", deposit, error: resolveError });
 			continue;
 		}
 
@@ -771,6 +814,9 @@ export class TravelRuleDepositReconciler {
 							coin: outcome.deposit.coin,
 							network: outcome.deposit.network,
 							txId: outcome.deposit.txId,
+							// undefined when there was simply no RPC / tx not found; set when
+							// the RPC call itself failed (the reason it couldn't be proven).
+							rpcError: outcome.error ?? null,
 						},
 					);
 					void metrics?.recordCounter(

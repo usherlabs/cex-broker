@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import http from "node:http";
 import ccxt, { type Exchange } from "@usherlabs/ccxt";
 import fs from "fs";
 import os from "os";
@@ -303,37 +304,79 @@ describe("parseLocalEntityDeposit", () => {
 });
 
 describe("resolveOnChainSender", () => {
-	const originalFetch = globalThis.fetch;
-	afterEach(() => {
-		globalThis.fetch = originalFetch;
-	});
-
 	const HASH = `0x${"b".repeat(64)}`;
 
+	// Exercise the real node:http transport (the enclave-safe path) against a
+	// local server, rather than mocking global fetch which the function no
+	// longer uses.
+	function startRpc(responder: () => { status?: number; body: string }) {
+		const state = { calls: 0 };
+		const server = http.createServer((_req, res) => {
+			state.calls++;
+			const { status = 200, body } = responder();
+			res.writeHead(status, { "content-type": "application/json" });
+			res.end(body);
+		});
+		return new Promise<{
+			url: string;
+			state: { calls: number };
+			close: () => Promise<void>;
+		}>((resolve) => {
+			server.listen(0, "127.0.0.1", () => {
+				const addr = server.address();
+				const port = typeof addr === "object" && addr ? addr.port : 0;
+				resolve({
+					url: `http://127.0.0.1:${port}`,
+					state,
+					close: () => new Promise<void>((r) => server.close(() => r())),
+				});
+			});
+		});
+	}
+
 	test("returns the lowercased tx.from", async () => {
-		globalThis.fetch = (async () =>
-			new Response(
-				JSON.stringify({ result: { from: ORIGINATOR } }),
-			)) as typeof fetch;
-		expect(await resolveOnChainSender("http://rpc", HASH)).toBe(
-			ORIGINATOR_LOWER,
-		);
+		const rpc = await startRpc(() => ({
+			body: JSON.stringify({ result: { from: ORIGINATOR } }),
+		}));
+		try {
+			expect(await resolveOnChainSender(rpc.url, HASH)).toBe(ORIGINATOR_LOWER);
+		} finally {
+			await rpc.close();
+		}
 	});
 
 	test("returns null when the tx is not found (result null)", async () => {
-		globalThis.fetch = (async () =>
-			new Response(JSON.stringify({ result: null }))) as typeof fetch;
-		expect(await resolveOnChainSender("http://rpc", HASH)).toBeNull();
+		const rpc = await startRpc(() => ({
+			body: JSON.stringify({ result: null }),
+		}));
+		try {
+			expect(await resolveOnChainSender(rpc.url, HASH)).toBeNull();
+		} finally {
+			await rpc.close();
+		}
+	});
+
+	test("throws on an RPC error payload (becomes the surfaced unproven reason)", async () => {
+		const rpc = await startRpc(() => ({
+			body: JSON.stringify({ error: { code: -32000, message: "boom" } }),
+		}));
+		try {
+			await expect(resolveOnChainSender(rpc.url, HASH)).rejects.toThrow(
+				"travel_rule_rpc_error",
+			);
+		} finally {
+			await rpc.close();
+		}
 	});
 
 	test("returns null (no RPC call) for a malformed tx hash", async () => {
-		let called = false;
-		globalThis.fetch = (async () => {
-			called = true;
-			return new Response("{}");
-		}) as typeof fetch;
-		expect(await resolveOnChainSender("http://rpc", "not-a-hash")).toBeNull();
-		expect(called).toBe(false);
+		const rpc = await startRpc(() => ({ body: "{}" }));
+		try {
+			expect(await resolveOnChainSender(rpc.url, "not-a-hash")).toBeNull();
+			expect(rpc.state.calls).toBe(0);
+		} finally {
+			await rpc.close();
+		}
 	});
 });
 
