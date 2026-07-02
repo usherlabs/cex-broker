@@ -6,6 +6,7 @@ import {
 } from "../src/helpers/broker-execution-archive/redact";
 import {
 	buildCommonArchiveTags,
+	buildMarketMetadataSnapshotRow,
 	buildOrderEventArchiveRow,
 	buildSubscribeStreamArchiveRow,
 } from "../src/helpers/broker-execution-archive/rows";
@@ -120,6 +121,57 @@ describe("broker execution archive rows", () => {
 		expect(row.row.event_kind).toBe("subscribe_stream");
 		expect(row.row.subscription_type).toBe("ORDERS");
 		expect(JSON.stringify(row.row)).not.toContain("must-not-appear");
+	});
+
+	test("omits absent optional join keys so they insert as NULL, not empty string", () => {
+		const telemetry = buildOrderExecutionTelemetry(
+			{
+				action: "CreateOrder",
+				cex: "binance",
+				accountLabel: "primary",
+				symbol: "ARB/USDT",
+			},
+			{ status: "new", symbol: "ARB/USDT", side: "buy" },
+		);
+		const orderRow = buildOrderEventArchiveRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				exchange: "binance",
+				symbol: "ARB/USDT",
+			}),
+			action: "CreateOrder",
+			telemetry,
+		});
+		// Absent identifiers must be OMITTED from the payload (not "") so the
+		// Nullable(String) columns receive NULL and never spuriously join on ''.
+		for (const key of [
+			"order_id",
+			"client_order_id",
+			"idempotency_id",
+			"maker_action_id",
+			"market_metadata_hash",
+		]) {
+			expect(orderRow.row).not.toHaveProperty(key);
+		}
+
+		const snapshotRow = buildMarketMetadataSnapshotRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				exchange: "binance",
+				symbol: "ARB/USDT",
+			}),
+			marketSnapshot: { bids: [], asks: [] },
+		});
+		for (const key of [
+			"client_order_id",
+			"order_id",
+			"maker_action_id",
+			"idempotency_id",
+		]) {
+			expect(snapshotRow.row).not.toHaveProperty(key);
+		}
+		// A snapshot always computes its content hash, so it is always present.
+		expect(snapshotRow.row).toHaveProperty("market_metadata_hash");
 	});
 });
 
@@ -322,6 +374,55 @@ describe("broker execution archiver queue", () => {
 				expect.objectContaining({ table: "broker_execution.order_events" }),
 			]),
 		});
+
+		await archiver.close();
+	});
+
+	test("keeps the queue within maxQueueSize when a failed batch is requeued after refill", async () => {
+		// Gate the forwarder so a batch stays in flight while new rows refill the
+		// queue, then fail it — the classic over-cap window for the requeue path.
+		let releaseFetch: () => void = () => {};
+		const fetchGate = new Promise<void>((resolve) => {
+			releaseFetch = resolve;
+		});
+		globalThis.fetch = (async () => {
+			await fetchGate;
+			return new Response(null, { status: 503 });
+		}) as typeof fetch;
+
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: "http://127.0.0.1:9/archive",
+			deploymentId: "test-deploy",
+			maxQueueSize: 3,
+			batchSize: 4, // above the 3 rows we enqueue, so only manual flush drains
+			flushIntervalMs: 60_000,
+		});
+		const row = (id: string) =>
+			({
+				table: "broker_execution.order_events",
+				row: { source: "broker_write", order_id: id },
+			}) as const;
+
+		archiver.enqueue(row("1"));
+		archiver.enqueue(row("2"));
+		archiver.enqueue(row("3"));
+
+		// Splices [1,2,3] out and blocks on the gated fetch.
+		const flushPromise = archiver.flush();
+		expect(archiver.getQueueDepth()).toBe(0);
+
+		// Queue refills to the cap while the batch is in flight.
+		archiver.enqueue(row("4"));
+		archiver.enqueue(row("5"));
+		archiver.enqueue(row("6"));
+		expect(archiver.getQueueDepth()).toBe(3);
+
+		releaseFetch();
+		await flushPromise;
+
+		// Without bound enforcement this would be 6 (3 refill + 3 requeued).
+		expect(archiver.getQueueDepth()).toBe(3);
+		expect(archiver.getStats().shed).toBeGreaterThanOrEqual(3);
 
 		await archiver.close();
 	});

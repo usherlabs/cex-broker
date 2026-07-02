@@ -234,6 +234,19 @@ export class BrokerExecutionArchiver {
 		return this.queue.length;
 	}
 
+	// Drop oldest rows until the queue is within maxQueueSize, counting each into
+	// the shed stat/metric. Mirrors the enqueue-time shed policy for the requeue
+	// path, which can otherwise push the queue past the bound during an outage.
+	private enforceQueueBound(): void {
+		while (this.queue.length > this.maxQueueSize) {
+			const dropped = this.queue.shift();
+			this.stats.shed += 1;
+			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
+				table: dropped?.table ?? "unknown",
+			});
+		}
+	}
+
 	private async flushBatch(): Promise<boolean> {
 		const batch = this.queue.splice(0, this.batchSize);
 		if (batch.length === 0) {
@@ -260,7 +273,11 @@ export class BrokerExecutionArchiver {
 				await this.postToForwarder(batch);
 			} catch (error) {
 				this.stats.forwarderFailures += 1;
+				// Re-apply the oldest-shed bound: the batch was spliced out before the
+				// post, so new rows may have refilled the queue while it was in flight.
+				// Pushing it back can exceed maxQueueSize by up to batchSize, so trim.
 				this.queue.push(...batch);
+				this.enforceQueueBound();
 				void this.recordArchiveMetric("cex_archive_forwarder_failures_total", {
 					count: batch.length,
 				});

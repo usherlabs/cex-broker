@@ -29,11 +29,16 @@ CREATE TABLE IF NOT EXISTS broker_execution.order_events
     action LowCardinality(String),
     subscription_type LowCardinality(String),
 
-    order_id String,
-    client_order_id String,
-    idempotency_id String,
-    maker_action_id String,
-    market_metadata_hash String,
+    -- Optional join keys: the row builders omit absent identifiers, so these are
+    -- Nullable rather than plain String. A non-nullable String would default to
+    -- '' on omission, and two rows that both lack a value would spuriously match
+    -- on '' in the documented joins (maker_action_id / idempotency_id /
+    -- client_order_id / order_id / market_metadata_hash). None are ORDER BY keys.
+    order_id Nullable(String),
+    client_order_id Nullable(String),
+    idempotency_id Nullable(String),
+    maker_action_id Nullable(String),
+    market_metadata_hash Nullable(String),
 
     status LowCardinality(String),
     side LowCardinality(String),
@@ -72,10 +77,13 @@ CREATE TABLE IF NOT EXISTS broker_execution.market_metadata_snapshots
     symbol LowCardinality(String),
     broker_observed_timestamp String,
 
-    client_order_id String,
-    order_id String,
-    maker_action_id String,
-    idempotency_id String,
+    -- Optional join keys (see order_events): Nullable so an omitted identifier is
+    -- NULL, not '', avoiding spurious ''-on-'' matches. market_metadata_hash is
+    -- always computed for a snapshot row, so it stays non-nullable.
+    client_order_id Nullable(String),
+    order_id Nullable(String),
+    maker_action_id Nullable(String),
+    idempotency_id Nullable(String),
     market_metadata_hash String,
 
     snapshot_json String
