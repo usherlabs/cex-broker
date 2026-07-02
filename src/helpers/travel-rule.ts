@@ -210,6 +210,11 @@ export function resolveDepositOriginatorQuestionnaire(
  * RAW (unencoded) — see the @usherlabs/ccxt patch (`binance.sign` rawencode
  * branch). Signing it url-encoded yields Binance error -1022. The two GETs carry
  * only simple params and sign fine either way.
+ *
+ * provide-info is a 600-weight UID-limited write (same class as
+ * capital/withdraw/apply), so it carries ccxt-binance's `4.0002` cost encoding
+ * (`.0002` = charge the UID limiter) rather than a naive `1`, which would
+ * under-throttle the write and invite -1003 once attestation is active.
  */
 export function registerBinanceTravelRuleDepositEndpoints(
 	exchange: Exchange,
@@ -224,7 +229,7 @@ export function registerBinanceTravelRuleDepositEndpoints(
 					"localentity/deposit/history": 1,
 					"localentity/questionnaire-requirements": 1,
 				},
-				put: { "localentity/deposit/provide-info": 1 },
+				put: { "localentity/deposit/provide-info": 4.0002 },
 			},
 		},
 		"request",

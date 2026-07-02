@@ -190,7 +190,7 @@ describe("registerBinanceTravelRuleDepositEndpoints", () => {
 							"localentity/deposit/history": 1,
 							"localentity/questionnaire-requirements": 1,
 						},
-						put: { "localentity/deposit/provide-info": 1 },
+						put: { "localentity/deposit/provide-info": 4.0002 },
 					},
 				},
 				"request",
@@ -293,6 +293,12 @@ describe("parseLocalEntityDeposit", () => {
 
 	test("returns null when the row has no tranId (wrong id space)", () => {
 		expect(parseLocalEntityDeposit({ coin: "USDC", amount: "1" })).toBeNull();
+	});
+
+	test("does NOT accept a generic `id` as the tranId", () => {
+		// `id` belongs to the capital/deposit/hisrec id space; provide-info rejects
+		// it. Only `tranId` is a valid provide-info identifier.
+		expect(parseLocalEntityDeposit({ id: "999", coin: "USDC" })).toBeNull();
 	});
 });
 
@@ -532,5 +538,23 @@ describe("reconcileAccountOnce", () => {
 		});
 		await reconcileAccountOnce(deps);
 		expect(historyCalls).toBe(0);
+	});
+
+	test("stops the candidate loop after a mid-loop rate-limit signal", async () => {
+		const secondFrozen = { ...FROZEN_DEPOSIT, tranId: "999999999" };
+		let submitCalls = 0;
+		const deps = baseDeps({
+			fetchDepositHistory: async () => [{ ...FROZEN_DEPOSIT }, secondFrozen],
+			submitProvideInfo: async () => {
+				submitCalls++;
+				throw new Error("binance -1003 Too many requests");
+			},
+		});
+		await reconcileAccountOnce(deps);
+		// First candidate trips the cooldown; the second must NOT be attempted.
+		expect(submitCalls).toBe(1);
+		expect(deps.state.rateLimitedUntil).toBe(
+			deps.now + deps.rateLimitCooldownMs,
+		);
 	});
 });

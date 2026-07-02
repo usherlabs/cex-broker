@@ -63,7 +63,10 @@ function toBool(value: unknown): boolean {
 export function parseLocalEntityDeposit(
 	raw: Record<string, unknown>,
 ): LocalEntityDeposit | null {
-	const tranId = depositField(raw, ["tranId", "trId", "id"]);
+	// Only `tranId` is accepted: it is the sole id `provide-info` recognizes. A
+	// generic `id` fallback risks the `capital/deposit/hisrec` id space, which
+	// provide-info rejects with "Deposit request not found".
+	const tranId = depositField(raw, ["tranId"]);
 	if (tranId === undefined) return null;
 	return {
 		tranId: String(tranId),
@@ -106,18 +109,29 @@ const EVM_TX_HASH = /^0x[0-9a-fA-F]{64}$/;
 export async function resolveOnChainSender(
 	rpcUrl: string,
 	txHash: string,
+	timeoutMs = 10_000,
 ): Promise<string | null> {
 	if (!EVM_TX_HASH.test(txHash)) return null;
-	const response = await fetch(rpcUrl, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({
-			jsonrpc: "2.0",
-			id: 1,
-			method: "eth_getTransactionByHash",
-			params: [txHash],
-		}),
-	});
+	// Bound the request: a hung RPC would otherwise stall the whole reconciler
+	// tick (candidates are resolved sequentially) and block the next poll.
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	let response: Response;
+	try {
+		response = await fetch(rpcUrl, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			signal: controller.signal,
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "eth_getTransactionByHash",
+				params: [txHash],
+			}),
+		});
+	} finally {
+		clearTimeout(timeout);
+	}
 	if (!response.ok) {
 		throw new Error(`travel_rule_rpc_http_${response.status}`);
 	}
@@ -353,6 +367,10 @@ export async function reconcileAccountOnce(
 	}
 
 	for (const deposit of candidates) {
+		// A rate-limit signal from an earlier candidate this cycle set an
+		// account-wide cooldown; stop hitting the API for the rest and let the next
+		// tick wait it out rather than compounding the -1003.
+		if (now < state.rateLimitedUntil) break;
 		let sender: string | null = null;
 		try {
 			sender = await deps.resolveSender(deposit.network, deposit.txId);
