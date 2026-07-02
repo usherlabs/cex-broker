@@ -1,0 +1,73 @@
+{
+  "deployment_id": "arb-usdc-015",
+  "rows": [
+    {
+      "row": {
+        "connector_name": "fiet_cex",
+        "controller_id": "layer12-live-arb-usdc-015",
+        "controller_type": "layer12_live",
+        "decision_kind": "dex_lead",
+        "deployment_id": "arb-usdc-015",
+        "emitted_at_ms": 1720000000000,
+        "event_time_ms": 1719999999988,
+        "exchange": "binance",
+        "fidelity": "hb_runtime_policy_clock",
+        "lag_ms": 12,
+        "market_id": "arb-usdc-015",
+        "payload_json": "{\"execution_role\":\"dex_lead\",\"mid_price\":\"1.0234\"}",
+        "policy_epoch": "42",
+        "run_id": "run-2026-07-02T00-00-00Z",
+        "schema_version": "1",
+        "source": "hb_runtime",
+        "trading_pair": "ARB-USDC"
+      },
+      "table": "strategy_data.policy_evaluation_events"
+    },
+    {
+      "row": {
+        "config_file_path": "conf/controllers/layer12_live_arb_usdc_015.yml",
+        "connector_name": "fiet_cex",
+        "controller_id": "layer12-live-arb-usdc-015",
+        "controller_type": "layer12_live",
+        "deployment_id": "arb-usdc-015",
+        "emitted_at_ms": 1720000000000,
+        "event_time_ms": 1719999999995,
+        "exchange": "binance",
+        "market_id": "arb-usdc-015",
+        "payload_json": "{\"lower_tick_offset\":-60,\"position_type\":\"OffsetFromCurrent\",\"upper_tick_offset\":60}",
+        "policy_epoch": "42",
+        "run_id": "run-2026-07-02T00-00-00Z",
+        "schema_version": "1",
+        "snapshot_reason": "content_change",
+        "source": "hb_runtime",
+        "source_hash": "1ed025b4ae41b0865651beb829e16eb62119ecb867c5148858fbe4bfe35e547e",
+        "trading_pair": "ARB-USDC"
+      },
+      "table": "strategy_data.strategy_policy_snapshots"
+    },
+    {
+      "row": {
+        "account": "secondary:1",
+        "connector_name": "fiet_cex",
+        "controller_id": "layer12-live-arb-usdc-015",
+        "controller_type": "layer12_live",
+        "deployment_id": "arb-usdc-015",
+        "emitted_at_ms": 1720000000000,
+        "event_kind": "reservation_release",
+        "event_time_ms": 1719999999997,
+        "exchange": "binance",
+        "market_id": "arb-usdc-015",
+        "payload_json": "{\"amount\":\"99.81\",\"reason\":\"fill\"}",
+        "reservation_id": "resv-0001",
+        "run_id": "run-2026-07-02T00-00-00Z",
+        "schema_version": "1",
+        "source": "hb_runtime",
+        "token": "ARB",
+        "trading_pair": "ARB-USDC",
+        "workflow_state": "released"
+      },
+      "table": "strategy_data.inventory_settlement_events"
+    }
+  ],
+  "source": "hb_runtime"
+}
