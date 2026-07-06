@@ -32,3 +32,9 @@ jobs:
 
       - name: Run tests
         run: bun test
+
+      # Gate PRs on the same strict build the publish workflow runs on tag push
+      # (dts-bundle-generator + strict tsc). Without this, develop can merge code
+      # that only fails at publish time, blocking releases.
+      - name: Build project
+        run: bun run build

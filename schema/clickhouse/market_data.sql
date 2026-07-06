@@ -5,14 +5,18 @@
 --   Default URL: {protocol}://{CEX_BROKER_CLICKHOUSE_HOST}:{8090}/archive
 --   Override host: CEX_BROKER_ARCHIVE_FORWARDER_HOST
 --   Override URL: CEX_BROKER_ARCHIVE_FORWARDER_URL
---   OTel log mirroring (broker_execution.* only): CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED=true
 --   {
 --     "source": "broker_write",
 --     "deployment_id": "<deployment>",
 --     "rows": [{ "table": "<fully.qualified.table>", "row": { ...columns } }]
 --   }
 --
--- market_data.* rows are sent to the forwarder only (not mirrored to OTel logs).
+-- The forwarder is the single durable sink for every archive table: market_data.*
+-- here, plus broker_execution.* (broker_execution.sql) and strategy_data.*
+-- (strategy_data.sql). Execution rows may ALSO be mirrored to OTel logs for
+-- observability when CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED=true; that mirror is in
+-- addition to the forwarder, not a replacement, and market_data.* is never
+-- mirrored (no OTel schema exists for it).
 
 CREATE DATABASE IF NOT EXISTS market_data;
 

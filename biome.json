@@ -7,7 +7,14 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["src/**", "policy/**", "test/**", "scripts/**", "examples/**"],
+		"includes": [
+			"src/**",
+			"policy/**",
+			"test/**",
+			"scripts/**",
+			"examples/**",
+			"!test/fixtures/**"
+		],
 		"experimentalScannerIgnores": ["src/proto/**"]
 	},
 	"formatter": {

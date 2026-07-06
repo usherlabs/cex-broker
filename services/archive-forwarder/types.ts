@@ -23,6 +23,11 @@ export const SUPPORTED_TABLES = [
 	"market_data.cex_stream_events",
 	"market_data.cex_ticker_events",
 	"market_data.cex_trades",
+	"broker_execution.order_events",
+	"broker_execution.market_metadata_snapshots",
+	"strategy_data.policy_evaluation_events",
+	"strategy_data.strategy_policy_snapshots",
+	"strategy_data.inventory_settlement_events",
 ] as const;
 
 export type SupportedTable = (typeof SUPPORTED_TABLES)[number];

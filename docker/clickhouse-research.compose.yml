@@ -13,6 +13,9 @@ services:
         soft: 262144
         hard: 262144
 
+  # Research/dev forwarder: bind-mounts the repo for live-reload against a
+  # host `bun install`. For a standalone prod image build
+  # services/archive-forwarder/Dockerfile instead (self-contained, no mount).
   archive-forwarder:
     image: oven/bun:1.2
     container_name: cex-broker-archive-forwarder

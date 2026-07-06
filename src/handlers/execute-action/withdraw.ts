@@ -1,5 +1,9 @@
 import * as grpc from "@grpc/grpc-js";
-import { validateWithdraw } from "../../helpers";
+import {
+	resolveTravelRuleDecision,
+	validateWithdraw,
+	withdrawViaLocalEntity,
+} from "../../helpers";
 import {
 	mapCcxtErrorToGrpcStatus,
 	stableGrpcErrorCode,
@@ -86,17 +90,43 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 			null,
 		);
 	}
-	try {
-		const transaction = await broker.withdraw(
-			symbol,
-			transferValue.amount,
-			transferValue.recipientAddress,
-			undefined,
+
+	const travelRule = resolveTravelRuleDecision(
+		policy,
+		cex,
+		transferValue.recipientAddress,
+	);
+	if (travelRule.mode === "denied") {
+		return ctx.wrappedCallback(
 			{
-				...(transferValue.params ?? {}),
-				network: withdrawNetwork.exchangeNetworkId,
+				code: grpc.status.FAILED_PRECONDITION,
+				message: `travel_rule_denied: ${travelRule.error}`,
 			},
+			null,
 		);
+	}
+
+	try {
+		const transaction =
+			travelRule.mode === "localentity"
+				? await withdrawViaLocalEntity(broker, {
+						code: symbol,
+						amount: transferValue.amount,
+						address: transferValue.recipientAddress,
+						network: withdrawNetwork.exchangeNetworkId,
+						questionnaire: travelRule.questionnaire,
+						params: transferValue.params,
+					})
+				: await broker.withdraw(
+						symbol,
+						transferValue.amount,
+						transferValue.recipientAddress,
+						undefined,
+						{
+							...(transferValue.params ?? {}),
+							network: withdrawNetwork.exchangeNetworkId,
+						},
+					);
 		log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
 		ctx.wrappedCallback(null, {
 			proof: ctx.verity.proof,

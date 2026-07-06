@@ -6,7 +6,9 @@ import {
 	type BrokerPoolEntry,
 	createBrokerPool,
 	loadPolicy,
+	loadTravelRuleDepositReconcilerConfigFromEnv,
 	normalizePolicyConfig,
+	TravelRuleDepositReconciler,
 } from "./helpers";
 import {
 	type BrokerExecutionArchiver,
@@ -55,6 +57,7 @@ export default class CEXBroker {
 	private otelLogs?: OtelLogs;
 	private brokerArchiver?: BrokerExecutionArchiver;
 	private brokerSurface: BrokerSurface;
+	private depositReconciler?: TravelRuleDepositReconciler;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -275,6 +278,10 @@ export default class CEXBroker {
 			unwatchFile(this.#policyFilePath);
 			log.info(`Stopped watching policy file: ${this.#policyFilePath}`);
 		}
+		if (this.depositReconciler) {
+			this.depositReconciler.stop();
+			this.depositReconciler = undefined;
+		}
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
@@ -296,10 +303,18 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
-		log.info(`Running CEXBroker at ${new Date().toISOString()}`, {
-			readEnabled: this.brokerSurface.readEnabled,
-			writeEnabled: this.brokerSurface.writeEnabled,
-		});
+    
+    // run() is re-invoked on policy hot-reload; tear down the prior reconciler so
+    // it is rebuilt against the updated policy rather than duplicated.
+    if (this.depositReconciler) {
+      this.depositReconciler.stop();
+      this.depositReconciler = undefined;
+    }
+    log.info(`Running CEXBroker at ${new Date().toISOString()}`, {
+      readEnabled: this.brokerSurface.readEnabled,
+      writeEnabled: this.brokerSurface.writeEnabled,
+    });
+
 
 		// Initialize OTel metrics if enabled
 		if (this.otelMetrics?.isOtelEnabled()) {
@@ -328,6 +343,17 @@ export default class CEXBroker {
 				log.info(`Your server as started on port ${port}`);
 			},
 		);
+
+		// Start the travel-rule deposit auto-clear reconciler. It self-disables when
+		// no exchange has `travelRule.rule[].deposits.enabled` in policy, so this is a
+		// no-op (exact current behavior) unless the feature is turned on.
+		this.depositReconciler = new TravelRuleDepositReconciler({
+			policy: this.policy,
+			brokers: this.brokers,
+			config: loadTravelRuleDepositReconcilerConfigFromEnv(process.env),
+			metrics: this.otelMetrics,
+		});
+		this.depositReconciler.start();
 		return this;
 	}
 }

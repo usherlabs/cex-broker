@@ -64,7 +64,12 @@ function topOfBookLevel(
 	}
 	const price = level[0];
 	const size = level[1];
-	if (!Number.isFinite(price) || !Number.isFinite(size)) {
+	if (
+		price === undefined ||
+		size === undefined ||
+		!Number.isFinite(price) ||
+		!Number.isFinite(size)
+	) {
 		return null;
 	}
 	return { price, size };

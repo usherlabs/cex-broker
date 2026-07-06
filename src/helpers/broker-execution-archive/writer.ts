@@ -1,7 +1,9 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { SeverityNumber } from "@opentelemetry/api-logs";
 import { log } from "../logger";
-import type { OtelLogs, OtelMetrics } from "../otel";
 import { isMarketArchiveTable } from "../market-data-archive/types";
+import type { OtelLogs, OtelMetrics } from "../otel";
 import type { BrokerArchiveRow } from "./types";
 
 export type BrokerExecutionArchiverOptions = {
@@ -142,7 +144,10 @@ export class BrokerExecutionArchiver {
 	}
 
 	canPersistMarketMetadataSnapshot(): boolean {
-		return this.isEnabled() && Boolean(this.otelLogs?.isOtelEnabled());
+		return (
+			this.isEnabled() &&
+			(Boolean(this.otelLogs?.isOtelEnabled()) || Boolean(this.forwarderUrl))
+		);
 	}
 
 	enqueue(row: BrokerArchiveRow): void {
@@ -193,10 +198,15 @@ export class BrokerExecutionArchiver {
 		if (this.flushInFlight) {
 			return this.flushInFlight;
 		}
-		this.flushInFlight = this.flushBatch().finally(() => {
-			this.flushInFlight = null;
-		});
-		return this.flushInFlight;
+		// flushBatch resolves a boolean the callers read directly; the in-flight
+		// handle only needs completion, so discard it to keep this a Promise<void>.
+		const inFlight = this.flushBatch()
+			.then(() => undefined)
+			.finally(() => {
+				this.flushInFlight = null;
+			});
+		this.flushInFlight = inFlight;
+		return inFlight;
 	}
 
 	async close(): Promise<void> {
@@ -231,37 +241,55 @@ export class BrokerExecutionArchiver {
 		return this.queue.length;
 	}
 
+	// Drop oldest rows until the queue is within maxQueueSize, counting each into
+	// the shed stat/metric. Mirrors the enqueue-time shed policy for the requeue
+	// path, which can otherwise push the queue past the bound during an outage.
+	private enforceQueueBound(): void {
+		while (this.queue.length > this.maxQueueSize) {
+			const dropped = this.queue.shift();
+			this.stats.shed += 1;
+			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
+				table: dropped?.table ?? "unknown",
+			});
+		}
+	}
+
 	private async flushBatch(): Promise<boolean> {
 		const batch = this.queue.splice(0, this.batchSize);
 		if (batch.length === 0) {
 			return true;
 		}
 
+		// Secondary observability mirror: execution rows (not market_data.*, which
+		// has no OTel schema) are echoed to OTel logs when
+		// CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED gated an otelLogs sink in. This is in
+		// addition to the forwarder, never instead of it, so a durable record exists
+		// even while a forwarder is unreachable. A requeued batch re-emits here on
+		// the retry flush; OTel logs are observability, not the audit source.
 		for (const entry of batch) {
 			if (!isMarketArchiveTable(entry.table)) {
 				this.emitOtelLog(entry);
 			}
 		}
 
+		// The forwarder is the durable sink for every archive table it supports
+		// (market_data.*, broker_execution.*, strategy_data.*). Requeue the whole
+		// batch on failure so nothing is silently dropped while a forwarder is set.
 		if (this.forwarderUrl) {
-			const marketRows = batch.filter((entry) =>
-				isMarketArchiveTable(entry.table),
-			);
-			if (marketRows.length > 0) {
-				try {
-					await this.postToForwarder(marketRows);
-				} catch (error) {
-					this.stats.forwarderFailures += 1;
-					this.queue.push(...marketRows);
-					void this.recordArchiveMetric(
-						"cex_archive_forwarder_failures_total",
-						{
-							count: marketRows.length,
-						},
-					);
-					log.warn("Broker execution archive forwarder failed", { error });
-					return false;
-				}
+			try {
+				await this.postToForwarder(batch);
+			} catch (error) {
+				this.stats.forwarderFailures += 1;
+				// Re-apply the oldest-shed bound: the batch was spliced out before the
+				// post, so new rows may have refilled the queue while it was in flight.
+				// Pushing it back can exceed maxQueueSize by up to batchSize, so trim.
+				this.queue.push(...batch);
+				this.enforceQueueBound();
+				void this.recordArchiveMetric("cex_archive_forwarder_failures_total", {
+					count: batch.length,
+				});
+				log.warn("Broker execution archive forwarder failed", { error });
+				return false;
 			}
 		}
 
@@ -296,40 +324,65 @@ export class BrokerExecutionArchiver {
 		}
 	}
 
-	private async postToForwarder(batch: BrokerArchiveRow[]): Promise<void> {
+	// Uses node:http/node:https rather than the global fetch: inside the Gramine
+	// SGX enclave undici (which backs fetch) fails on every request when it lazily
+	// instantiates its llhttp WASM parser — `WebAssembly.Instance(): Out of memory`
+	// under the enclave's constrained memory — which silently kills the whole
+	// archive plane. node's request stays on the transport proven to work in the
+	// enclave. Same failure class and mitigation as resolveOnChainSender in
+	// travel-rule-deposit-reconciler.ts.
+	private postToForwarder(batch: BrokerArchiveRow[]): Promise<void> {
 		if (!this.forwarderUrl || batch.length === 0) {
-			return;
+			return Promise.resolve();
 		}
-		const controller = new AbortController();
-		const timeout = setTimeout(
-			() => controller.abort(),
-			this.forwarderTimeoutMs,
-		);
-		const headers: Record<string, string> = {
+		const body = JSON.stringify({
+			source: "broker_write",
+			deployment_id: this.deploymentId,
+			rows: batch,
+		});
+		const url = new URL(this.forwarderUrl);
+		const doRequest = url.protocol === "http:" ? httpRequest : httpsRequest;
+		const headers: Record<string, string | number> = {
 			"content-type": "application/json",
+			"content-length": Buffer.byteLength(body),
 		};
 		if (this.forwarderAuthToken) {
 			headers.authorization = `Bearer ${this.forwarderAuthToken}`;
 		}
-		try {
-			const response = await fetch(this.forwarderUrl, {
-				method: "POST",
-				headers,
-				body: JSON.stringify({
-					source: "broker_write",
-					deployment_id: this.deploymentId,
-					rows: batch,
-				}),
-				signal: controller.signal,
+		return new Promise<void>((resolve, reject) => {
+			const req = doRequest(
+				url,
+				{
+					method: "POST",
+					headers,
+					// Bound the request: a hung forwarder would otherwise stall the flush
+					// loop (flushes are serialized behind flushInFlight) indefinitely.
+					timeout: this.forwarderTimeoutMs,
+				},
+				(res) => {
+					// Drain the body so the socket can be released/reused.
+					res.on("data", () => {});
+					res.on("end", () => {
+						const status = res.statusCode ?? 0;
+						if (status < 200 || status >= 300) {
+							reject(
+								new Error(
+									`Archive forwarder returned ${status} ${res.statusMessage ?? ""}`,
+								),
+							);
+							return;
+						}
+						resolve();
+					});
+				},
+			);
+			req.on("error", reject);
+			req.on("timeout", () => {
+				req.destroy(new Error("Archive forwarder request timed out"));
 			});
-			if (!response.ok) {
-				throw new Error(
-					`Archive forwarder returned ${response.status} ${response.statusText}`,
-				);
-			}
-		} finally {
-			clearTimeout(timeout);
-		}
+			req.write(body);
+			req.end();
+		});
 	}
 }
 

@@ -13,6 +13,7 @@ import {
 	SubscriptionType,
 	type SubscriptionType as SubscriptionTypeValue,
 } from "../src/helpers/constants";
+import { startForwarderServer } from "./archive-forwarder-server";
 
 type MockCallState = {
 	writes: SubscribeResponse[];
@@ -317,15 +318,11 @@ describe("subscribe handler", () => {
 	});
 
 	test("archives orderbook snapshot rows to the forwarder", async () => {
-		const originalFetch = globalThis.fetch;
+		const server = await startForwarderServer();
+		const posts = server.requests;
 		const originalInterval = process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS;
 		const originalArchiveEnabled =
 			process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
-		const posts: unknown[] = [];
-		globalThis.fetch = (async (_url, init) => {
-			posts.push(JSON.parse(String(init?.body)));
-			return new Response(null, { status: 200 });
-		}) as typeof fetch;
 		process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS = "1";
 		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
 
@@ -335,7 +332,7 @@ describe("subscribe handler", () => {
 				watchOrderBook: controlledWatch.watch,
 			} as unknown as Exchange;
 			const archiver = BrokerExecutionArchiver.create({
-				forwarderUrl: "http://127.0.0.1:9/archive",
+				forwarderUrl: server.url,
 				deploymentId: "test-deploy",
 				batchSize: 1,
 				flushIntervalMs: 60_000,
@@ -359,7 +356,9 @@ describe("subscribe handler", () => {
 				timestamp: 1_700_000_000_000,
 			});
 			await waitFor(() => archiver.getStats().enqueued >= 1);
-			await archiver.flush();
+			// batchSize 1 auto-flushes on enqueue; wait for that post to reach the
+			// forwarder over the real transport rather than racing the round trip.
+			await waitFor(() => archiver.getStats().flushed >= 1);
 			await waitFor(() => controlledWatch.calls.length >= 2);
 			call.emit("close");
 			controlledWatch.resolvers[1]?.({
@@ -370,17 +369,16 @@ describe("subscribe handler", () => {
 			await handlerPromise;
 
 			expect(posts.length).toBeGreaterThanOrEqual(1);
-			expect(posts[0]).toMatchObject({
+			expect(posts[0]?.body).toMatchObject({
 				source: "broker_write",
 				deployment_id: "test-deploy",
 			});
 			const rows = posts.flatMap(
 				(post) =>
-					(
-						post as {
-							rows: Array<{ table: string; row: Record<string, unknown> }>;
-						}
-					).rows,
+					(post.body.rows ?? []) as Array<{
+						table: string;
+						row: Record<string, unknown>;
+					}>,
 			);
 			expect(
 				rows.some((entry) => entry.table === "market_data.orderbook_snapshots"),
@@ -399,7 +397,7 @@ describe("subscribe handler", () => {
 
 			await archiver.close();
 		} finally {
-			globalThis.fetch = originalFetch;
+			await server.close();
 			if (originalInterval === undefined) {
 				delete process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS;
 			} else {
@@ -414,14 +412,10 @@ describe("subscribe handler", () => {
 	});
 
 	test("archives OHLCV candle rows to the forwarder", async () => {
-		const originalFetch = globalThis.fetch;
+		const server = await startForwarderServer();
+		const posts = server.requests;
 		const originalArchiveEnabled =
 			process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
-		const posts: unknown[] = [];
-		globalThis.fetch = (async (_url, init) => {
-			posts.push(JSON.parse(String(init?.body)));
-			return new Response(null, { status: 200 });
-		}) as typeof fetch;
 		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
 
 		try {
@@ -430,7 +424,7 @@ describe("subscribe handler", () => {
 				fetchOHLCVWs: controlledWatch.watch,
 			} as unknown as Exchange;
 			const archiver = BrokerExecutionArchiver.create({
-				forwarderUrl: "http://127.0.0.1:9/archive",
+				forwarderUrl: server.url,
 				deploymentId: "test-deploy",
 				batchSize: 1,
 				flushIntervalMs: 60_000,
@@ -451,18 +445,19 @@ describe("subscribe handler", () => {
 			await waitFor(() => controlledWatch.calls.length === 1);
 			controlledWatch.resolvers[0]?.([[1_700_000_000_000, 1, 2, 0.5, 1.5, 10]]);
 			await waitFor(() => archiver.getStats().enqueued >= 1);
-			await archiver.flush();
+			// batchSize 1 auto-flushes on enqueue; wait for that post to reach the
+			// forwarder over the real transport rather than racing the round trip.
+			await waitFor(() => archiver.getStats().flushed >= 1);
 			await waitFor(() => controlledWatch.calls.length >= 2);
 			call.emit("close");
 			controlledWatch.resolvers[1]?.([[1_700_000_000_000, 1, 2, 0.5, 1.5, 10]]);
 			await handlerPromise;
 
 			expect(posts.length).toBeGreaterThanOrEqual(1);
-			const rows = (
-				posts[0] as {
-					rows: Array<{ table: string; row: Record<string, unknown> }>;
-				}
-			).rows;
+			const rows = (posts[0]?.body.rows ?? []) as Array<{
+				table: string;
+				row: Record<string, unknown>;
+			}>;
 			expect(rows.some((entry) => entry.table === "market_data.candles")).toBe(
 				true,
 			);
@@ -474,7 +469,7 @@ describe("subscribe handler", () => {
 
 			await archiver.close();
 		} finally {
-			globalThis.fetch = originalFetch;
+			await server.close();
 			if (originalArchiveEnabled === undefined) {
 				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
 			} else {

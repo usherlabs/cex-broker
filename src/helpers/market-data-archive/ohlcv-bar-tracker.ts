@@ -52,7 +52,7 @@ export function extractOhlcvBars(payload: unknown): ParsedOhlcvBar[] {
 
 export function extractLatestOhlcvBar(payload: unknown): ParsedOhlcvBar | null {
 	const bars = extractOhlcvBars(payload);
-	return bars.length > 0 ? bars[bars.length - 1] : null;
+	return bars[bars.length - 1] ?? null;
 }
 
 export class OhlcvBarTracker {
@@ -65,7 +65,8 @@ export class OhlcvBarTracker {
 			return [];
 		}
 		if (bars.length === 1) {
-			return this.processSingleBar(bars[0], brokerVersion);
+			const [bar] = bars;
+			return bar ? this.processSingleBar(bar, brokerVersion) : [];
 		}
 		return this.processBatch(bars, brokerVersion);
 	}
@@ -110,22 +111,26 @@ export class OhlcvBarTracker {
 		bars: ParsedOhlcvBar[],
 		brokerVersion: number,
 	): OhlcvArchiveCandidate[] {
+		const firstBar = bars[0];
+		const lastBar = bars[bars.length - 1];
+		if (!firstBar || !lastBar) {
+			return [];
+		}
+
 		if (
 			this.lastOpenTimeMs !== null &&
-			bars.length > 0 &&
-			bars[bars.length - 1].openTimeMs < this.lastOpenTimeMs
+			lastBar.openTimeMs < this.lastOpenTimeMs
 		) {
 			return [];
 		}
 
 		const candidates: OhlcvArchiveCandidate[] = [];
-		const lastBar = bars[bars.length - 1];
 
 		if (
 			this.lastBar !== null &&
 			this.lastOpenTimeMs !== null &&
 			!bars.some((bar) => bar.openTimeMs === this.lastOpenTimeMs) &&
-			this.lastOpenTimeMs < bars[0].openTimeMs
+			this.lastOpenTimeMs < firstBar.openTimeMs
 		) {
 			candidates.push({
 				bar: this.lastBar,
@@ -135,11 +140,14 @@ export class OhlcvBarTracker {
 		}
 
 		for (let index = 0; index < bars.length - 1; index += 1) {
-			candidates.push({
-				bar: bars[index],
-				isClosed: true,
-				brokerVersion,
-			});
+			const bar = bars[index];
+			if (bar) {
+				candidates.push({
+					bar,
+					isClosed: true,
+					brokerVersion,
+				});
+			}
 		}
 
 		candidates.push({
