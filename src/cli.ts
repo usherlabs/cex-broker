@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { startBrokerCommand } from "./commands/start-broker";
+import type { BrokerSurface } from "./helpers/broker-surface";
 
 const program = new Command();
 
@@ -16,6 +17,14 @@ program
 	)
 	.option("--whitelistAll", "Allow all IPv4 addresses (development mode)")
 	.option("--verityProverUrl <url>", "Verity Prover Url")
+	.option(
+		"--no-read",
+		"Disable read operations (fetch actions and market streams)",
+	)
+	.option(
+		"--no-write",
+		"Disable write operations (orders, withdrawals, and user streams)",
+	)
 	.action(async (options) => {
 		try {
 			const whitelist: string[] = options.whitelistAll
@@ -38,11 +47,20 @@ program
 				}
 			}
 
+			const brokerSurface: Partial<BrokerSurface> = {};
+			if (options.noRead) {
+				brokerSurface.readEnabled = false;
+			}
+			if (options.noWrite) {
+				brokerSurface.writeEnabled = false;
+			}
+
 			await startBrokerCommand(
 				options.policy,
 				parseInt(options.port, 10),
 				whitelist, // Pass whitelist to your command,
 				options.verityProverUrl,
+				Object.keys(brokerSurface).length > 0 ? brokerSurface : undefined,
 			);
 		} catch (err) {
 			console.error("❌ Failed to start broker:", err);

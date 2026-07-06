@@ -4,6 +4,12 @@ import type { Exchange } from "@usherlabs/ccxt";
 import type { z } from "zod";
 import type { BrokerAccount, BrokerPoolEntry } from "../../helpers";
 import type { BrokerExecutionArchiver } from "../../helpers/broker-execution-archive";
+import type { BrokerSurface } from "../../helpers/broker-surface";
+import {
+	buildBrokerSurfaceDeniedError,
+	isReadSurfaceEnabled,
+	isWriteSurfaceEnabled,
+} from "../../helpers/broker-surface";
 import type { Action as ActionType } from "../../helpers/constants";
 import {
 	invalidArgumentError,
@@ -36,9 +42,26 @@ export type ExecuteActionContext = {
 	applyVerityToBroker: (target: Exchange) => void;
 	useVerity: boolean;
 	verityProverUrl: string;
+	brokerSurface: BrokerSurface;
 	otelMetrics?: OtelMetrics;
 	brokerArchiver?: BrokerExecutionArchiver;
 };
+
+export function rejectUnlessWriteSurface(ctx: ExecuteActionContext): boolean {
+	if (!isWriteSurfaceEnabled(ctx.brokerSurface)) {
+		ctx.wrappedCallback(buildBrokerSurfaceDeniedError("write"), null);
+		return false;
+	}
+	return true;
+}
+
+export function rejectUnlessReadSurface(ctx: ExecuteActionContext): boolean {
+	if (!isReadSurfaceEnabled(ctx.brokerSurface)) {
+		ctx.wrappedCallback(buildBrokerSurfaceDeniedError("read"), null);
+		return false;
+	}
+	return true;
+}
 
 export function requireSymbol(
 	ctx: ExecuteActionContext,

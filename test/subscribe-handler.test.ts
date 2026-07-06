@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
@@ -481,5 +481,31 @@ describe("subscribe handler", () => {
 				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalArchiveEnabled;
 			}
 		}
+	});
+});
+
+describe("subscribe broker surface", () => {
+	test("rejects write subscriptions when write surface is disabled", async () => {
+		const exchange = {
+			watchOrders: async () => [],
+		} as unknown as Exchange;
+		const { call, state } = createSubscribeCall({
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: SubscriptionType.ORDERS,
+		});
+		const handler = createSubscribeHandler({
+			brokers: createPool(exchange),
+			whitelistIps: ["*"],
+			brokerSurface: { readEnabled: true, writeEnabled: false },
+		});
+
+		await handler(call);
+
+		expect(state.writes).toHaveLength(1);
+		expect(JSON.parse(state.writes[0]?.data ?? "{}")).toEqual({
+			error: "Write operations are disabled on this broker deployment",
+		});
+		expect(state.endCount).toBe(1);
 	});
 });

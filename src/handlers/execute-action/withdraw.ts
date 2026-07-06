@@ -12,9 +12,16 @@ import {
 } from "../../helpers/transfer-network";
 import { WithdrawPayloadSchema } from "../../schemas/action-payloads";
 import type { ExecuteActionContext } from "./context";
-import { parsePayloadForAction, rejectWithGrpcError } from "./context";
+import {
+	parsePayloadForAction,
+	rejectUnlessWriteSurface,
+	rejectWithGrpcError,
+} from "./context";
 
 export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
+	if (!rejectUnlessWriteSurface(ctx)) {
+		return;
+	}
 	const {
 		call,
 		wrappedCallback,

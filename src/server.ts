@@ -3,6 +3,8 @@ import { createExecuteActionHandler } from "./handlers/execute-action";
 import { createSubscribeHandler } from "./handlers/subscribe";
 import type { BrokerPoolEntry } from "./helpers";
 import type { BrokerExecutionArchiver } from "./helpers/broker-execution-archive";
+import type { BrokerSurface } from "./helpers/broker-surface";
+import { DEFAULT_BROKER_SURFACE } from "./helpers/broker-surface";
 import type { OtelMetrics } from "./helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "./proto-package-definition";
 import type { PolicyConfig } from "./types";
@@ -26,6 +28,7 @@ export function getServer(
 	verityProverUrl: string,
 	otelMetrics?: OtelMetrics,
 	brokerArchiver?: BrokerExecutionArchiver,
+	brokerSurface: BrokerSurface = DEFAULT_BROKER_SURFACE,
 ) {
 	const server = new grpc.Server();
 
@@ -36,12 +39,14 @@ export function getServer(
 			whitelistIps,
 			useVerity,
 			verityProverUrl,
+			brokerSurface,
 			otelMetrics,
 			brokerArchiver,
 		}),
 		Subscribe: createSubscribeHandler({
 			brokers,
 			whitelistIps,
+			brokerSurface,
 			otelMetrics,
 			brokerArchiver,
 		}),

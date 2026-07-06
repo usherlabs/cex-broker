@@ -16,22 +16,19 @@ import {
 import type { BrokerExecutionArchiver } from "../../helpers/broker-execution-archive";
 import { archiveSubscribeStreamInBackground } from "../../helpers/broker-execution-archive";
 import {
+	type BrokerSurface,
+	buildBrokerSurfaceDeniedError,
+	classifySubscription,
+	DEFAULT_BROKER_SURFACE,
+	isBrokerAccessAllowed,
+} from "../../helpers/broker-surface";
+import {
 	getSubscriptionTypeName,
 	resolveSubscriptionType,
 	SubscriptionType,
 	type SubscriptionType as SubscriptionTypeValue,
 } from "../../helpers/constants";
 import { log } from "../../helpers/logger";
-import {
-	parseMarketType,
-	resolveSubscriptionSymbol,
-	type BrokerMarketType,
-} from "../../helpers/market-type";
-import {
-	normalizeOrderBookSnapshot,
-	parseOptionalDepthLimit,
-} from "../../helpers/order-book";
-import type { OtelMetrics } from "../../helpers/otel";
 import {
 	archiveCexStreamEventInBackground,
 	archiveOhlcvInBackground,
@@ -42,12 +39,23 @@ import {
 	createOhlcvBarTracker,
 	createOrderbookSampler,
 } from "../../helpers/market-data-archive";
+import {
+	type BrokerMarketType,
+	parseMarketType,
+	resolveSubscriptionSymbol,
+} from "../../helpers/market-type";
+import {
+	normalizeOrderBookSnapshot,
+	parseOptionalDepthLimit,
+} from "../../helpers/order-book";
+import type { OtelMetrics } from "../../helpers/otel";
 import { getErrorMessage } from "../../helpers/shared/errors";
 import type { SubscribeRequest, SubscribeResponse } from "../types";
 
 export type SubscribeDeps = {
 	brokers: Record<string, BrokerPoolEntry>;
 	whitelistIps: string[];
+	brokerSurface?: BrokerSurface;
 	otelMetrics?: OtelMetrics;
 	brokerArchiver?: BrokerExecutionArchiver;
 };
@@ -306,7 +314,13 @@ async function runCcxtSubscribeLoop(
 }
 
 export function createSubscribeHandler(deps: SubscribeDeps) {
-	const { brokers, whitelistIps, otelMetrics, brokerArchiver } = deps;
+	const {
+		brokers,
+		whitelistIps,
+		brokerSurface = DEFAULT_BROKER_SURFACE,
+		otelMetrics,
+		brokerArchiver,
+	} = deps;
 
 	return async (call: SubscribeCall) => {
 		const subscribeStartTime = Date.now();
@@ -373,6 +387,24 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				symbol: symbol || "unknown",
 				type: subscriptionTypeName,
 			});
+
+			const subscriptionAccess = classifySubscription(subscriptionType);
+			if (!isBrokerAccessAllowed(brokerSurface, subscriptionAccess)) {
+				otelMetrics?.recordCounter("broker_surface_denied_total", 1, {
+					rpc: "Subscribe",
+					access: subscriptionAccess,
+					type: subscriptionTypeName,
+				});
+				await writeSubscribeError(call, isStreamClosed, {
+					data: JSON.stringify({
+						error: buildBrokerSurfaceDeniedError(subscriptionAccess).message,
+					}),
+					timestamp: Date.now(),
+					symbol: symbol || "",
+					type: subscriptionType,
+				});
+				return;
+			}
 
 			if (!cex || !symbol) {
 				await writeSubscribeError(call, isStreamClosed, {

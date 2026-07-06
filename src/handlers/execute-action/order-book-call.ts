@@ -1,5 +1,10 @@
 import * as grpc from "@grpc/grpc-js";
 import { createBroker, createPublicBroker } from "../../helpers";
+import {
+	buildBrokerSurfaceDeniedError,
+	classifyCcxtMethod,
+	isBrokerAccessAllowed,
+} from "../../helpers/broker-surface";
 import { mapCcxtErrorToGrpcStatus } from "../../helpers/grpc/status";
 import {
 	buildHistoricalOrderBookUnsupported,
@@ -34,6 +39,11 @@ export async function handleOrderBookCall(
 	}
 	if (parsedOrderBookCall.kind !== "order_book") {
 		return false;
+	}
+
+	if (!isBrokerAccessAllowed(ctx.brokerSurface, "read")) {
+		ctx.wrappedCallback(buildBrokerSurfaceDeniedError("read"), null);
+		return true;
 	}
 
 	const orderBookBroker =

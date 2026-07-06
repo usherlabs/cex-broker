@@ -1,4 +1,9 @@
 import * as grpc from "@grpc/grpc-js";
+import {
+	buildBrokerSurfaceDeniedError,
+	classifyCcxtMethod,
+	isBrokerAccessAllowed,
+} from "../../helpers/broker-surface";
 import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
 import {
 	callArgs,
@@ -15,6 +20,14 @@ export async function handleTreasuryCall(
 	const callValue = parsePayloadForAction(ctx, CallPayloadSchema);
 	if (callValue === null) return;
 	try {
+		const ccxtAccess = classifyCcxtMethod(callValue.functionName);
+		if (!isBrokerAccessAllowed(ctx.brokerSurface, ccxtAccess)) {
+			return ctx.wrappedCallback(
+				buildBrokerSurfaceDeniedError(ccxtAccess),
+				null,
+			);
+		}
+
 		// Prevent access to dangerous names
 		if (
 			callValue.functionName.startsWith("_") ||

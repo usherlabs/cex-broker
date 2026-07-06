@@ -4,6 +4,13 @@ import type { Exchange } from "@usherlabs/ccxt";
 import { authenticateRequest } from "../../helpers/auth";
 import { type BrokerPoolEntry, createBroker } from "../../helpers/broker";
 import type { BrokerExecutionArchiver } from "../../helpers/broker-execution-archive";
+import {
+	type BrokerSurface,
+	buildBrokerSurfaceDeniedError,
+	classifyAction,
+	DEFAULT_BROKER_SURFACE,
+	isBrokerAccessAllowed,
+} from "../../helpers/broker-surface";
 import { Action, getActionName, resolveAction } from "../../helpers/constants";
 import { selectBrokerAccountForCex } from "../../helpers/grpc/broker";
 import { log } from "../../helpers/logger";
@@ -25,6 +32,7 @@ export type ExecuteActionDeps = {
 	whitelistIps: string[];
 	useVerity: boolean;
 	verityProverUrl: string;
+	brokerSurface?: BrokerSurface;
 	otelMetrics?: OtelMetrics;
 	brokerArchiver?: BrokerExecutionArchiver;
 };
@@ -36,6 +44,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 		whitelistIps,
 		useVerity,
 		verityProverUrl,
+		brokerSurface = DEFAULT_BROKER_SURFACE,
 		otelMetrics,
 		brokerArchiver,
 	} = deps;
@@ -106,6 +115,22 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				);
 			}
 
+			const actionAccess = classifyAction(action);
+			if (
+				actionAccess !== "call" &&
+				!isBrokerAccessAllowed(brokerSurface, actionAccess)
+			) {
+				otelMetrics?.recordCounter("broker_surface_denied_total", 1, {
+					rpc: "ExecuteAction",
+					access: actionAccess,
+					action: getActionName(action),
+				});
+				return wrappedCallback(
+					buildBrokerSurfaceDeniedError(actionAccess),
+					null,
+				);
+			}
+
 			const normalizedCex = cex.trim().toLowerCase();
 			const metadata: Metadata = call.metadata;
 			const selectedBrokerAccount = selectBrokerAccountForCex(
@@ -149,6 +174,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				applyVerityToBroker,
 				useVerity,
 				verityProverUrl,
+				brokerSurface,
 				otelMetrics,
 				brokerArchiver,
 			};

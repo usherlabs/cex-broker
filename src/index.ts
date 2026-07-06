@@ -12,6 +12,11 @@ import {
 	type BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
 } from "./helpers/broker-execution-archive";
+import {
+	type BrokerSurface,
+	resolveBrokerSurfaceFromEnv,
+	validateBrokerSurface,
+} from "./helpers/broker-surface";
 import { log } from "./helpers/logger";
 import {
 	createOtelLogsFromEnv,
@@ -49,6 +54,7 @@ export default class CEXBroker {
 	private otelMetrics?: OtelMetrics;
 	private otelLogs?: OtelLogs;
 	private brokerArchiver?: BrokerExecutionArchiver;
+	private brokerSurface: BrokerSurface;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -197,9 +203,12 @@ export default class CEXBroker {
 			useVerity?: boolean;
 			verityProverUrl?: string;
 			otelConfig?: OtelConfig;
+			brokerSurface?: BrokerSurface;
 		},
 	) {
 		this.useVerity = config?.useVerity || false;
+		this.brokerSurface = config?.brokerSurface ?? resolveBrokerSurfaceFromEnv();
+		validateBrokerSurface(this.brokerSurface);
 
 		if (typeof policies === "string") {
 			this.#policyFilePath = policies;
@@ -287,7 +296,10 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
-		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
+		log.info(`Running CEXBroker at ${new Date().toISOString()}`, {
+			readEnabled: this.brokerSurface.readEnabled,
+			writeEnabled: this.brokerSurface.writeEnabled,
+		});
 
 		// Initialize OTel metrics if enabled
 		if (this.otelMetrics?.isOtelEnabled()) {
@@ -302,6 +314,7 @@ export default class CEXBroker {
 			this.#verityProverUrl,
 			this.otelMetrics,
 			this.brokerArchiver,
+			this.brokerSurface,
 		);
 
 		this.server.bindAsync(

@@ -1,10 +1,10 @@
 import * as grpc from "@grpc/grpc-js";
 import { resolveOrderExecution } from "../../helpers";
-import { Action } from "../../helpers/constants";
 import {
 	archiveOrderExecutionInBackground,
 	captureMarketMetadataSnapshot,
 } from "../../helpers/broker-execution-archive";
+import { Action } from "../../helpers/constants";
 import {
 	emitOrderExecutionTelemetryInBackground,
 	extractOrderTelemetryIds,
@@ -16,9 +16,17 @@ import {
 	GetOrderDetailsPayloadSchema,
 } from "../../schemas/action-payloads";
 import type { ExecuteActionContext } from "./context";
-import { parsePayloadForAction, rejectWithGrpcError } from "./context";
+import {
+	parsePayloadForAction,
+	rejectUnlessReadSurface,
+	rejectUnlessWriteSurface,
+	rejectWithGrpcError,
+} from "./context";
 
 async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
+	if (!rejectUnlessWriteSurface(ctx)) {
+		return;
+	}
 	const {
 		call,
 		wrappedCallback,
@@ -166,6 +174,9 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 }
 
 async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
+	if (!rejectUnlessReadSurface(ctx)) {
+		return;
+	}
 	const {
 		call,
 		wrappedCallback,
@@ -268,6 +279,9 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 }
 
 async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
+	if (!rejectUnlessWriteSurface(ctx)) {
+		return;
+	}
 	const {
 		call,
 		wrappedCallback,
