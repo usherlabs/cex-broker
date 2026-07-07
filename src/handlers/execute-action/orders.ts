@@ -36,6 +36,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		verityProverUrl,
 		otelMetrics,
 		brokerArchiver,
+		orderActivityTracker,
 	} = ctx;
 	const verityProof = verity.proof;
 
@@ -82,6 +83,14 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			side: resolution.side,
 			requestedQuantity: resolution.amountBase ?? orderValue.amount,
 		};
+		// Mark this (account, symbol) so the fill poller scans it for trade history.
+		if (selectedBrokerAccount?.label) {
+			orderActivityTracker?.record(
+				cex,
+				selectedBrokerAccount.label,
+				resolution.symbol,
+			);
+		}
 		const telemetryIds = extractOrderTelemetryIds(orderValue.params);
 		const submissionTimestamp = new Date().toISOString();
 		const marketMetadataHash = await captureMarketMetadataSnapshot(
@@ -183,6 +192,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 		verityProverUrl,
 		otelMetrics,
 		brokerArchiver,
+		orderActivityTracker,
 	} = ctx;
 	const verityProof = verity.proof;
 
@@ -207,6 +217,9 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 			symbol,
 			{ ...getOrderValue.params },
 		);
+		if (selectedBrokerAccount?.label && symbol) {
+			orderActivityTracker?.record(cex, selectedBrokerAccount.label, symbol);
+		}
 		const getOrderContext = {
 			action: "GetOrderDetails" as const,
 			cex,
@@ -285,6 +298,7 @@ async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
 		verityProverUrl,
 		otelMetrics,
 		brokerArchiver,
+		orderActivityTracker,
 	} = ctx;
 	const verityProof = verity.proof;
 
@@ -312,6 +326,9 @@ async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
 			symbol,
 			cancelOrderValue.params ?? {},
 		);
+		if (selectedBrokerAccount?.label && symbol) {
+			orderActivityTracker?.record(cex, selectedBrokerAccount.label, symbol);
+		}
 		emitOrderExecutionTelemetryInBackground(
 			otelMetrics,
 			cancelOrderContext,

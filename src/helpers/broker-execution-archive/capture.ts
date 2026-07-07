@@ -11,6 +11,8 @@ import {
 	buildMarketMetadataSnapshotRow,
 	buildOrderEventArchiveRow,
 	buildSubscribeStreamArchiveRow,
+	buildTransferEventArchiveRow,
+	type TransferArchiveFields,
 } from "./rows";
 import type { SubscribeArchiveType } from "./types";
 import type { BrokerExecutionArchiver } from "./writer";
@@ -85,6 +87,37 @@ export function archiveSubscribeStreamInBackground(
 			log.warn("Failed to archive subscribe stream event", {
 				error: archiveError,
 			});
+		}
+	});
+}
+
+export function archiveTransferEventInBackground(
+	archiver: BrokerExecutionArchiver | undefined,
+	input: {
+		exchange: string;
+		accountSelector?: string;
+		assetSymbol?: string;
+		brokerObservedTimestamp?: string;
+		transfer: TransferArchiveFields;
+	},
+): void {
+	if (!archiver?.isEnabled()) {
+		return;
+	}
+	queueMicrotask(() => {
+		try {
+			const tags = buildCommonArchiveTags({
+				deploymentId: archiver.getDeploymentId(),
+				accountSelector: input.accountSelector,
+				exchange: input.exchange,
+				symbol: input.assetSymbol,
+				brokerObservedTimestamp: input.brokerObservedTimestamp,
+			});
+			archiver.enqueue(
+				buildTransferEventArchiveRow({ tags, transfer: input.transfer }),
+			);
+		} catch (archiveError) {
+			log.warn("Failed to archive transfer event", { error: archiveError });
 		}
 	});
 }

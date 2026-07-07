@@ -7,9 +7,13 @@ import {
 } from "../src/helpers/broker-execution-archive/redact";
 import {
 	buildCommonArchiveTags,
+	buildFillEventArchiveRow,
 	buildMarketMetadataSnapshotRow,
 	buildOrderEventArchiveRow,
 	buildSubscribeStreamArchiveRow,
+	buildTransferEventArchiveRow,
+	normalizeCcxtTradeForArchive,
+	normalizeCcxtTransactionForArchive,
 } from "../src/helpers/broker-execution-archive/rows";
 import {
 	BrokerExecutionArchiver,
@@ -181,6 +185,266 @@ describe("broker execution archive rows", () => {
 		}
 		// A snapshot always computes its content hash, so it is always present.
 		expect(snapshotRow.row).toHaveProperty("market_metadata_hash");
+	});
+
+	test("builds transfer event rows in the contract column shape", () => {
+		const row = buildTransferEventArchiveRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				accountSelector: "primary",
+				exchange: "binance",
+				symbol: "USDC",
+			}),
+			transfer: {
+				eventKind: "withdrawal",
+				lifecycleAction: "submit_withdrawal",
+				status: "ok",
+				amount: "100",
+				address: "0xdead",
+				network: "ARBITRUM",
+				externalId: "wd-1",
+				txid: "0xabc",
+				feeAmount: "4.89",
+				feeCurrency: "USDC",
+				payload: { id: "wd-1" },
+			},
+		});
+
+		expect(row.table).toBe("broker_execution.transfer_events");
+		expect(row.row).toMatchObject({
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			account_selector: "primary",
+			exchange: "binance",
+			symbol: "USDC",
+			// asset_symbol mirrors the shared symbol tag for transfers, per contract.
+			asset_symbol: "USDC",
+			schema_version: "1",
+			event_kind: "withdrawal",
+			lifecycle_action: "submit_withdrawal",
+			status: "ok",
+			amount: "100",
+			external_id: "wd-1",
+			result_index: 0,
+			// Additive columns (ccxt exposes the withdrawal fee).
+			fee_amount: "4.89",
+			fee_currency: "USDC",
+		});
+	});
+
+	test("transfer rows keep the read-key columns present when ids are absent", () => {
+		const row = buildTransferEventArchiveRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				exchange: "binance",
+				symbol: "USDC",
+			}),
+			transfer: {
+				eventKind: "deposit",
+				lifecycleAction: "observe_deposit",
+				payload: {},
+			},
+		});
+		expect(row.row.external_id).toBe("");
+		expect(row.row.status).toBe("");
+		expect(row.row.result_index).toBe(0);
+		expect(row.row.event_kind).toBe("deposit");
+	});
+
+	test("normalizeCcxtTransactionForArchive captures the withdrawal fee as a string", () => {
+		const normalized = normalizeCcxtTransactionForArchive({
+			id: "wd-1",
+			txid: "0xabc",
+			address: "0xdead",
+			currency: "USDC",
+			amount: 100,
+			status: "ok",
+			network: "ARBITRUM",
+			fee: { cost: 4.89, currency: "USDC" },
+			datetime: "2026-07-04T00:00:00.000Z",
+		});
+		expect(normalized).toMatchObject({
+			externalId: "wd-1",
+			txid: "0xabc",
+			address: "0xdead",
+			network: "ARBITRUM",
+			amount: "100",
+			assetSymbol: "USDC",
+			status: "ok",
+			feeAmount: "4.89",
+			feeCurrency: "USDC",
+			exchangeTimestamp: "2026-07-04T00:00:00.000Z",
+		});
+	});
+
+	test("normalizeCcxtTransactionForArchive prefers the venue raw string amount", () => {
+		const normalized = normalizeCcxtTransactionForArchive({
+			amount: 7.5,
+			info: { amount: "7.50000000" },
+			fee: { cost: 0.1 },
+		});
+		// Venue precision preserved over ccxt's parsed number.
+		expect(normalized.amount).toBe("7.50000000");
+	});
+
+	test("builds fill event rows in the contract column shape", () => {
+		const row = buildFillEventArchiveRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				accountSelector: "primary",
+				exchange: "binance",
+				symbol: "USDC/USDT",
+			}),
+			fill: {
+				...normalizeCcxtTradeForArchive({
+					id: "t-1",
+					order: "o-1",
+					clientOrderId: "c-1",
+					side: "BUY",
+					type: "limit",
+					price: 1.0,
+					amount: 50,
+					cost: 50,
+					fee: { cost: 0.05, currency: "USDC", rate: 0.001 },
+					timestamp: 1_700_000_000_000,
+				}),
+				fillIndex: 2,
+			},
+		});
+
+		expect(row.table).toBe("broker_execution.fill_events");
+		expect(row.row).toMatchObject({
+			symbol: "USDC/USDT",
+			schema_version: "1",
+			// Honest provenance: trade-history poller, not createOrder trades[].
+			event_kind: "trade_history_fill",
+			order_id: "o-1",
+			client_order_id: "c-1",
+			fill_id: "t-1",
+			fill_index: 2,
+			side: "buy",
+			order_type: "limit",
+			price: "1",
+			base_quantity: "50",
+			quote_quantity: "50",
+			fee_amount: "0.05",
+			fee_currency: "USDC",
+			fee_rate: "0.001",
+		});
+	});
+
+	test("fill rows default order_id/fill_index (contract read keys) when the venue omits them", () => {
+		const row = buildFillEventArchiveRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				exchange: "binance",
+				symbol: "USDC/USDT",
+			}),
+			fill: normalizeCcxtTradeForArchive({ price: 1 }),
+		});
+		expect(row.row.order_id).toBe("");
+		expect(row.row.fill_index).toBe(0);
+	});
+
+	// Guards the fiet-maker CEX_EXECUTION_ARCHIVE_CONTRACT: a fully-populated row must
+	// carry every consumer-required column so the sandbox proof harness queries hold.
+	test("transfer/fill rows cover every consumer-contract column", () => {
+		const CONTRACT_TRANSFER_COLUMNS = [
+			"broker_observed_timestamp",
+			"source",
+			"deployment_id",
+			"schema_version",
+			"account_selector",
+			"exchange",
+			"symbol",
+			"event_kind",
+			"lifecycle_action",
+			"status",
+			"asset_symbol",
+			"amount",
+			"address",
+			"network",
+			"external_id",
+			"txid",
+			"result_index",
+			"exchange_timestamp",
+			"error_summary",
+			"payload_json",
+		];
+		const CONTRACT_FILL_COLUMNS = [
+			"broker_observed_timestamp",
+			"source",
+			"deployment_id",
+			"schema_version",
+			"account_selector",
+			"exchange",
+			"symbol",
+			"event_kind",
+			"order_id",
+			"client_order_id",
+			"fill_id",
+			"fill_index",
+			"side",
+			"order_type",
+			"price",
+			"base_quantity",
+			"quote_quantity",
+			"fee_amount",
+			"fee_currency",
+			"fee_rate",
+			"exchange_timestamp",
+			"payload_json",
+		];
+		const tags = buildCommonArchiveTags({
+			deploymentId: "deploy-a",
+			accountSelector: "secondary:1",
+			exchange: "binance",
+			symbol: "USDC",
+		});
+		const transferRow = buildTransferEventArchiveRow({
+			tags,
+			transfer: {
+				eventKind: "withdrawal",
+				lifecycleAction: "submit_withdrawal",
+				status: "ok",
+				amount: "7.5",
+				address: "0xwallet",
+				network: "ARBITRUM",
+				externalId: "wd-1",
+				txid: "0xabc",
+				resultIndex: 0,
+				feeAmount: "0.1",
+				feeCurrency: "USDC",
+				exchangeTimestamp: "2026-07-04T00:00:00.000Z",
+				errorSummary: "",
+				payload: {},
+			},
+		}).row;
+		for (const column of CONTRACT_TRANSFER_COLUMNS) {
+			expect(transferRow).toHaveProperty(column);
+		}
+		const fillRow = buildFillEventArchiveRow({
+			tags,
+			fill: {
+				orderId: "o-1",
+				clientOrderId: "c-1",
+				fillId: "t-1",
+				fillIndex: 0,
+				side: "buy",
+				orderType: "limit",
+				price: "1",
+				baseQuantity: "5",
+				quoteQuantity: "5",
+				feeAmount: "0.01",
+				feeCurrency: "USDC",
+				feeRate: "0.001",
+				exchangeTimestamp: "2026-07-04T00:00:00.000Z",
+				payload: {},
+			},
+		}).row;
+		for (const column of CONTRACT_FILL_COLUMNS) {
+			expect(fillRow).toHaveProperty(column);
+		}
 	});
 });
 
