@@ -7,6 +7,10 @@ import {
 	transferBinanceInternal,
 	verityHttpClientOverridePredicate,
 } from "../../helpers";
+import {
+	archiveTransferEventInBackground,
+	normalizeCcxtTransactionForArchive,
+} from "../../helpers/broker-execution-archive";
 import { mapCcxtErrorToGrpcStatus } from "../../helpers/grpc/status";
 import { log } from "../../helpers/logger";
 import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
@@ -25,6 +29,7 @@ export async function handleInternalTransfer(
 		verity,
 		useVerity,
 		verityProverUrl,
+		brokerArchiver,
 	} = ctx;
 
 	if (!symbol) {
@@ -103,6 +108,22 @@ export async function handleInternalTransfer(
 			symbol,
 			transferPayload.amount,
 		);
+		// account_selector is the source; the destination is kept in payload_json.
+		const normalized = normalizeCcxtTransactionForArchive(result);
+		archiveTransferEventInBackground(brokerArchiver, {
+			exchange: normalizedCex,
+			accountSelector: fromSelector,
+			assetSymbol: symbol,
+			transfer: {
+				eventKind: "internal_transfer",
+				lifecycleAction: "submit_internal_transfer",
+				status: normalized.status ?? "ok",
+				amount: normalized.amount ?? String(transferPayload.amount),
+				network: "internal",
+				externalId: normalized.externalId,
+				payload: { from: fromSelector, to: toSelector, result },
+			},
+		});
 		ctx.wrappedCallback(null, {
 			proof: verity.proof,
 			result: JSON.stringify(result),

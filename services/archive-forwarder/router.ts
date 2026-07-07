@@ -8,6 +8,10 @@ export type ParsedArchiveBatch =
 			batch: ArchiveBatchRequest;
 			inputRowCount: number;
 			rejectedRowCount: number;
+			// Distinct table names among rejected rows (unknown/unsupported tables),
+			// so the caller can name them in a WARN instead of dropping silently.
+			// A rejected row with no string `table` contributes "(malformed)".
+			rejectedTables: string[];
 	  }
 	| { ok: false };
 
@@ -45,6 +49,7 @@ export function parseArchiveBatchRequest(body: unknown): ParsedArchiveBatch {
 	}
 	const inputRowCount = record.rows.length;
 	const rows = record.rows.filter(isValidArchiveRow);
+	const rejectedTables = collectRejectedTables(record.rows);
 	return {
 		ok: true,
 		batch: {
@@ -54,7 +59,20 @@ export function parseArchiveBatchRequest(body: unknown): ParsedArchiveBatch {
 		},
 		inputRowCount,
 		rejectedRowCount: inputRowCount - rows.length,
+		rejectedTables,
 	};
+}
+
+function collectRejectedTables(rows: unknown[]): string[] {
+	const tables = new Set<string>();
+	for (const entry of rows) {
+		if (isValidArchiveRow(entry)) {
+			continue;
+		}
+		const table = (entry as { table?: unknown } | null)?.table;
+		tables.add(typeof table === "string" ? table : "(malformed)");
+	}
+	return [...tables];
 }
 
 /** @deprecated Use parseArchiveBatchRequest returning ParsedArchiveBatch */

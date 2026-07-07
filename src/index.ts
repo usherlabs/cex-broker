@@ -14,7 +14,9 @@ import {
 	type BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
 } from "./helpers/broker-execution-archive";
+import { FillArchivePoller } from "./helpers/fill-archive-poller";
 import { log } from "./helpers/logger";
+import { OrderActivityTracker } from "./helpers/order-activity-tracker";
 import {
 	createOtelLogsFromEnv,
 	createOtelMetricsFromEnv,
@@ -52,6 +54,10 @@ export default class CEXBroker {
 	private otelLogs?: OtelLogs;
 	private brokerArchiver?: BrokerExecutionArchiver;
 	private depositReconciler?: TravelRuleDepositReconciler;
+	// Order activity feeds the fill poller its per-market poll set; shared with the
+	// execute-action handler so orders record the (account, symbol) they touch.
+	private readonly orderActivityTracker = new OrderActivityTracker();
+	private fillArchivePoller?: FillArchivePoller;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -273,6 +279,10 @@ export default class CEXBroker {
 			this.depositReconciler.stop();
 			this.depositReconciler = undefined;
 		}
+		if (this.fillArchivePoller) {
+			this.fillArchivePoller.stop();
+			this.fillArchivePoller = undefined;
+		}
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
@@ -294,11 +304,15 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
-		// run() is re-invoked on policy hot-reload; tear down the prior reconciler so
-		// it is rebuilt against the updated policy rather than duplicated.
+		// run() is re-invoked on policy hot-reload; tear down the prior reconciler and
+		// poller so they are rebuilt rather than duplicated.
 		if (this.depositReconciler) {
 			this.depositReconciler.stop();
 			this.depositReconciler = undefined;
+		}
+		if (this.fillArchivePoller) {
+			this.fillArchivePoller.stop();
+			this.fillArchivePoller = undefined;
 		}
 		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
 
@@ -315,6 +329,7 @@ export default class CEXBroker {
 			this.#verityProverUrl,
 			this.otelMetrics,
 			this.brokerArchiver,
+			this.orderActivityTracker,
 		);
 
 		this.server.bindAsync(
@@ -339,6 +354,19 @@ export default class CEXBroker {
 			metrics: this.otelMetrics,
 		});
 		this.depositReconciler.start();
+
+		// Per-fill capture from the venue trade-history endpoint. Only runs when the
+		// archive plane is enabled (a forwarder/OTel sink is configured); otherwise
+		// there is nowhere to write fills, so it stays inert.
+		if (this.brokerArchiver?.isEnabled()) {
+			this.fillArchivePoller = new FillArchivePoller({
+				brokers: this.brokers,
+				archiver: this.brokerArchiver,
+				tracker: this.orderActivityTracker,
+				metrics: this.otelMetrics,
+			});
+			this.fillArchivePoller.start();
+		}
 		return this;
 	}
 }

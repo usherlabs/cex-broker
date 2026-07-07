@@ -66,6 +66,53 @@ describe("archive forwarder batch parsing", () => {
 		expect(parsed.batch.rows).toHaveLength(1);
 	});
 
+	test("accepts the new broker_execution transfer_events and fill_events tables", () => {
+		expect(isSupportedTable("broker_execution.transfer_events")).toBe(true);
+		expect(isSupportedTable("broker_execution.fill_events")).toBe(true);
+
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			rows: [
+				{
+					table: "broker_execution.transfer_events",
+					row: { external_id: "wd-1", event_kind: "withdrawal" },
+				},
+				{
+					table: "broker_execution.fill_events",
+					row: { order_id: "o-1", trade_id: "t-1" },
+				},
+			],
+		});
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) {
+			return;
+		}
+		expect(parsed.rejectedRowCount).toBe(0);
+		expect(parsed.batch.rows).toHaveLength(2);
+	});
+
+	test("names the offending tables in rejectedTables so a bad rollout is visible", () => {
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			rows: [
+				{ table: "broker_execution.order_events", row: { order_id: "1" } },
+				{ table: "broker_execution.mystery_table", row: { x: 1 } },
+				{ table: 123, row: {} },
+			],
+		});
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) {
+			return;
+		}
+		expect(parsed.rejectedRowCount).toBe(2);
+		expect(parsed.batch.rows).toHaveLength(1);
+		expect(parsed.rejectedTables).toEqual(
+			expect.arrayContaining(["broker_execution.mystery_table", "(malformed)"]),
+		);
+	});
+
 	test("parseArchiveBatchRequest accepts broker_execution and strategy_data, rejects unknown tables", () => {
 		const parsed = parseArchiveBatchRequest({
 			source: "hb_runtime",
@@ -260,6 +307,8 @@ describe("archive forwarder schema init", () => {
 			expect.arrayContaining([
 				"broker_execution.order_events",
 				"broker_execution.market_metadata_snapshots",
+				"broker_execution.transfer_events",
+				"broker_execution.fill_events",
 				"strategy_data.policy_evaluation_events",
 				"strategy_data.strategy_policy_snapshots",
 				"strategy_data.inventory_settlement_events",

@@ -7,6 +7,7 @@ import type { BrokerExecutionArchiver } from "../../helpers/broker-execution-arc
 import { Action, getActionName, resolveAction } from "../../helpers/constants";
 import { selectBrokerAccountForCex } from "../../helpers/grpc/broker";
 import { log } from "../../helpers/logger";
+import type { OrderActivityTracker } from "../../helpers/order-activity-tracker";
 import type { OtelMetrics } from "../../helpers/otel";
 import { safeLogError } from "../../helpers/shared/errors";
 import {
@@ -27,6 +28,7 @@ export type ExecuteActionDeps = {
 	verityProverUrl: string;
 	otelMetrics?: OtelMetrics;
 	brokerArchiver?: BrokerExecutionArchiver;
+	orderActivityTracker?: OrderActivityTracker;
 };
 
 export function createExecuteActionHandler(deps: ExecuteActionDeps) {
@@ -38,6 +40,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 		verityProverUrl,
 		otelMetrics,
 		brokerArchiver,
+		orderActivityTracker,
 	} = deps;
 
 	return async (
@@ -151,6 +154,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				verityProverUrl,
 				otelMetrics,
 				brokerArchiver,
+				orderActivityTracker,
 			};
 
 			if (action === Action.Call) {

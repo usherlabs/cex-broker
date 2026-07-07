@@ -5,6 +5,10 @@ import {
 	withdrawViaLocalEntity,
 } from "../../helpers";
 import {
+	archiveTransferEventInBackground,
+	normalizeCcxtTransactionForArchive,
+} from "../../helpers/broker-execution-archive";
+import {
 	mapCcxtErrorToGrpcStatus,
 	stableGrpcErrorCode,
 } from "../../helpers/grpc/status";
@@ -35,6 +39,7 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 		useVerity,
 		verityProverUrl,
 		otelMetrics,
+		brokerArchiver,
 	} = ctx;
 	const verityProof = verity.proof;
 
@@ -121,6 +126,28 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 						},
 					);
 		log.info(`Withdraw Result: ${JSON.stringify(transaction)}`);
+		// The ccxt transaction carries the venue-normalized withdrawal fee (the
+		// dominant cost at small commits) which the gRPC response drops; archive it.
+		const normalized = normalizeCcxtTransactionForArchive(transaction);
+		archiveTransferEventInBackground(brokerArchiver, {
+			exchange: cex,
+			accountSelector: selectedBrokerAccount?.label,
+			assetSymbol: normalized.assetSymbol ?? symbol,
+			transfer: {
+				eventKind: "withdrawal",
+				lifecycleAction: "submit_withdrawal",
+				status: normalized.status,
+				amount: normalized.amount ?? String(transferValue.amount),
+				address: normalized.address ?? transferValue.recipientAddress,
+				network: normalized.network ?? withdrawNetwork.exchangeNetworkId,
+				externalId: normalized.externalId,
+				txid: normalized.txid,
+				feeAmount: normalized.feeAmount,
+				feeCurrency: normalized.feeCurrency,
+				exchangeTimestamp: normalized.exchangeTimestamp,
+				payload: transaction,
+			},
+		});
 		ctx.wrappedCallback(null, {
 			proof: ctx.verity.proof,
 			result: JSON.stringify({
@@ -132,6 +159,23 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 		});
 	} catch (error) {
 		safeLogError("Withdraw failed", error);
+		// Record the failed submission as a movement-lifecycle fact (error_summary
+		// set). error_summary is the redacted grpc message, not the raw error.
+		archiveTransferEventInBackground(brokerArchiver, {
+			exchange: cex,
+			accountSelector: selectedBrokerAccount?.label,
+			assetSymbol: symbol,
+			transfer: {
+				eventKind: "withdrawal",
+				lifecycleAction: "submit_withdrawal",
+				status: "failed",
+				amount: String(transferValue.amount),
+				address: transferValue.recipientAddress,
+				network: withdrawNetwork.exchangeNetworkId,
+				errorSummary: getErrorMessage(error),
+				payload: { recipientAddress: transferValue.recipientAddress },
+			},
+		});
 		const code = mapCcxtErrorToGrpcStatus(error) ?? grpc.status.INTERNAL;
 		ctx.wrappedCallback(
 			{

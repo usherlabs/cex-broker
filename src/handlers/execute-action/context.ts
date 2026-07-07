@@ -13,6 +13,7 @@ import {
 	resolveGrpcError,
 	stableGrpcErrorCode,
 } from "../../helpers/grpc/status";
+import type { OrderActivityTracker } from "../../helpers/order-activity-tracker";
 import type { OtelMetrics } from "../../helpers/otel";
 import { getErrorMessage } from "../../helpers/shared/errors";
 import type { PolicyConfig } from "../../types";
@@ -38,6 +39,7 @@ export type ExecuteActionContext = {
 	verityProverUrl: string;
 	otelMetrics?: OtelMetrics;
 	brokerArchiver?: BrokerExecutionArchiver;
+	orderActivityTracker?: OrderActivityTracker;
 };
 
 export function requireSymbol(

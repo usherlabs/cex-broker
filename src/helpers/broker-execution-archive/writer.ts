@@ -294,15 +294,50 @@ export class BrokerExecutionArchiver {
 		}
 
 		this.stats.flushed += batch.length;
+		this.recordFlushHealth(batch);
 		return true;
+	}
+
+	// Self-health emitted only on a successful forwarder post (or OTel-only flush):
+	// a per-table rows-flushed counter to compare against enqueued, and a
+	// last-flush-success gauge (unix seconds) whose staleness is the "archive plane
+	// stuck" signal. Fire-and-forget so metrics never gate flushing.
+	private recordFlushHealth(batch: BrokerArchiveRow[]): void {
+		const countByTable = new Map<string, number>();
+		for (const entry of batch) {
+			countByTable.set(entry.table, (countByTable.get(entry.table) ?? 0) + 1);
+		}
+		for (const [table, count] of countByTable) {
+			void this.recordArchiveMetric(
+				"cex_archive_rows_flushed_total",
+				{ table },
+				count,
+			);
+		}
+		void this.recordArchiveGauge(
+			"cex_archive_last_flush_success",
+			Math.floor(Date.now() / 1000),
+		);
 	}
 
 	private async recordArchiveMetric(
 		metricName: string,
 		labels: Record<string, string | number>,
+		value = 1,
 	): Promise<void> {
 		try {
-			await this.otelMetrics?.recordCounter(metricName, 1, labels);
+			await this.otelMetrics?.recordCounter(metricName, value, labels);
+		} catch {
+			// Archive metrics must not affect flushing.
+		}
+	}
+
+	private async recordArchiveGauge(
+		metricName: string,
+		value: number,
+	): Promise<void> {
+		try {
+			await this.otelMetrics?.recordGauge(metricName, value, {});
 		} catch {
 			// Archive metrics must not affect flushing.
 		}

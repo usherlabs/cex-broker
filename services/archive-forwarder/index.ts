@@ -17,6 +17,12 @@ const clickhouse = createClient({
 	username: config.clickhouse.username,
 	password: config.clickhouse.password,
 	database: config.clickhouse.database,
+	// broker_execution.transfer_events/fill_events use DateTime64 columns; producers
+	// emit broker_observed_timestamp/exchange_timestamp as ISO-8601 UTC strings, so
+	// the inserter must best-effort-parse them (basic mode rejects the 'T'/'Z' form).
+	// Strictly more lenient than basic, so it never breaks the existing String/Int64
+	// timestamp columns on the other archive tables.
+	clickhouse_settings: { date_time_input_format: "best_effort" },
 });
 const inserter = createClickHouseInserter(clickhouse);
 
@@ -82,11 +88,18 @@ const server = Bun.serve({
 			}
 
 			if (parsed.rejectedRowCount > 0) {
+				// Name the offending tables: an unknown table (e.g. a forgotten
+				// SUPPORTED_TABLES entry for a new archive table) would otherwise reject
+				// the whole batch with only a count, hiding which table is at fault.
+				console.warn(
+					`Rejected ${parsed.rejectedRowCount}/${parsed.inputRowCount} archive row(s) from ${parsed.batch.source}; tables: ${parsed.rejectedTables.join(", ")}`,
+				);
 				return Response.json(
 					{
 						error: "Malformed archive rows in batch",
 						rejected: parsed.rejectedRowCount,
 						inputRows: parsed.inputRowCount,
+						rejectedTables: parsed.rejectedTables,
 					},
 					{ status: 400 },
 				);

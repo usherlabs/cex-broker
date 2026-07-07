@@ -1,5 +1,6 @@
 import * as grpc from "@grpc/grpc-js";
 import ccxt from "@usherlabs/ccxt";
+import { archiveTransferEventInBackground } from "../../helpers/broker-execution-archive";
 import {
 	depositField,
 	depositMatchesTransaction,
@@ -19,7 +20,13 @@ import type { ExecuteActionContext } from "./context";
 import { parsePayloadForAction, rejectWithGrpcError } from "./context";
 
 export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
-	const { normalizedCex, symbol, selectedBrokerAccount, broker } = ctx;
+	const {
+		normalizedCex,
+		symbol,
+		selectedBrokerAccount,
+		broker,
+		brokerArchiver,
+	} = ctx;
 
 	if (!symbol) {
 		return ctx.wrappedCallback(
@@ -117,6 +124,40 @@ export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
 			const status = normalizeDepositStatus(
 				depositField(deposit, ["status", "state"]),
 			);
+			const depositTxid = String(
+				depositField(deposit, ["txid", "txId", "tx_hash", "txHash"]) ??
+					value.transactionHash,
+			);
+			const creditedAt = depositField(deposit, [
+				"creditedAt",
+				"credited_at",
+				"updated",
+				"updatedAt",
+				"timestamp",
+				"datetime",
+			]);
+			// Observed deposit lifecycle fact (contract lifecycle_action
+			// "observe_deposit"). MergeTree keeps all observations; dedup, if needed,
+			// is at read time over (exchange, account, symbol, external_id, status).
+			archiveTransferEventInBackground(brokerArchiver, {
+				exchange: normalizedCex,
+				accountSelector: selectedBrokerAccount?.label,
+				assetSymbol: symbol,
+				transfer: {
+					eventKind: "deposit",
+					lifecycleAction: "observe_deposit",
+					status,
+					amount:
+						observedAmount !== undefined ? String(observedAmount) : undefined,
+					address: String(observedAddress ?? value.recipientAddress),
+					network: depositNetwork?.exchangeNetworkId,
+					externalId: depositTxid,
+					txid: depositTxid,
+					exchangeTimestamp:
+						typeof creditedAt === "string" ? creditedAt : undefined,
+					payload: deposit,
+				},
+			});
 			log.info(
 				`Amount ${value.amount} at ${value.transactionHash} . Paid to ${value.recipientAddress}`,
 			);
