@@ -71,6 +71,7 @@ export async function handleTreasuryCall(
 		rejectWithGrpcError(ctx, error, {
 			message: getErrorMessage(error),
 			preferStableMessageOnly: true,
+			appendClassName: true,
 		});
 	}
 }

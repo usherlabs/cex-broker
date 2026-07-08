@@ -1,7 +1,7 @@
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import { Action } from "../../helpers/constants";
-import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
+import { safeLogError, sanitizeErrorDetail } from "../../helpers/shared/errors";
 import {
 	GetPerpConfigStatePayloadSchema,
 	SetPerpConfigStatePayloadSchema,
@@ -91,7 +91,7 @@ async function handleGetPerpConfigState(
 		ctx.wrappedCallback(
 			{
 				code: grpc.status.INTERNAL,
-				message: getErrorMessage(error),
+				message: `GetPerpConfigState failed: ${sanitizeErrorDetail(error)}`,
 			},
 			null,
 		);
@@ -151,7 +151,7 @@ async function handleSetPerpConfigState(
 		ctx.wrappedCallback(
 			{
 				code: grpc.status.INTERNAL,
-				message: getErrorMessage(error),
+				message: `SetPerpConfigState failed: ${sanitizeErrorDetail(error)}`,
 			},
 			null,
 		);

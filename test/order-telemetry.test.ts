@@ -381,7 +381,9 @@ describe("order execution telemetry RPC harness", () => {
 			}),
 		).rejects.toMatchObject({
 			code: grpc.status.INTERNAL,
-			details: "Order Creation failed",
+			// Prefix preserved (consumers still match on it) with the underlying
+			// venue message now appended for diagnosis.
+			details: "Order Creation failed: exchange rejected order",
 		});
 		expect(metrics.counters).toContainEqual(
 			expect.objectContaining({

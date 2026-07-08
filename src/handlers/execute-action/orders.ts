@@ -1,15 +1,15 @@
 import * as grpc from "@grpc/grpc-js";
 import { resolveOrderExecution } from "../../helpers";
-import { Action } from "../../helpers/constants";
 import {
 	archiveOrderExecutionInBackground,
 	captureMarketMetadataSnapshot,
 } from "../../helpers/broker-execution-archive";
+import { Action } from "../../helpers/constants";
 import {
 	emitOrderExecutionTelemetryInBackground,
 	extractOrderTelemetryIds,
 } from "../../helpers/order-telemetry";
-import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
+import { safeLogError, sanitizeErrorDetail } from "../../helpers/shared/errors";
 import {
 	CancelOrderPayloadSchema,
 	CreateOrderPayloadSchema,
@@ -167,7 +167,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		ctx.wrappedCallback(
 			{
 				code: grpc.status.INTERNAL,
-				message: "Order Creation failed",
+				message: `Order Creation failed: ${sanitizeErrorDetail(error)}`,
 			},
 			null,
 		);
@@ -273,7 +273,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 		ctx.wrappedCallback(
 			{
 				code: grpc.status.INTERNAL,
-				message: `Failed to fetch order details from ${cex}`,
+				message: `Failed to fetch order details from ${cex}: ${sanitizeErrorDetail(error)}`,
 			},
 			null,
 		);
@@ -366,7 +366,7 @@ async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
 		ctx.wrappedCallback(
 			{
 				code: grpc.status.INTERNAL,
-				message: `Failed to cancel order from ${cex}`,
+				message: `Failed to cancel order from ${cex}: ${sanitizeErrorDetail(error)}`,
 			},
 			null,
 		);

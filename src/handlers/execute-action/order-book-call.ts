@@ -8,7 +8,7 @@ import {
 	ORDER_BOOK_CALL_METHODS,
 	parseOrderBookCallPayload,
 } from "../../helpers/order-book";
-import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
+import { safeLogError, sanitizeErrorDetail } from "../../helpers/shared/errors";
 import type { ExecuteActionContext } from "./context";
 
 /** Handles Action.Call order-book methods before generic broker dispatch. Returns true when fully handled. */
@@ -116,11 +116,10 @@ export async function handleOrderBookCall(
 		});
 	} catch (error: unknown) {
 		safeLogError("Order-book Call failed", error);
-		const message = getErrorMessage(error);
 		ctx.wrappedCallback(
 			{
 				code: mapCcxtErrorToGrpcStatus(error) ?? grpc.status.INTERNAL,
-				message: `Order-book Call failed: ${message}`,
+				message: `Order-book Call failed: ${sanitizeErrorDetail(error)}`,
 			},
 			null,
 		);
