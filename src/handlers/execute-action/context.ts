@@ -15,7 +15,7 @@ import {
 } from "../../helpers/grpc/status";
 import type { OrderActivityTracker } from "../../helpers/order-activity-tracker";
 import type { OtelMetrics } from "../../helpers/otel";
-import { getErrorMessage } from "../../helpers/shared/errors";
+import { errorClassName, getErrorMessage } from "../../helpers/shared/errors";
 import type { PolicyConfig } from "../../types";
 import type { ActionRequest, ActionResponse } from "../types";
 
@@ -71,6 +71,11 @@ export function rejectWithGrpcError(
 		message?: string;
 		prefix?: string;
 		preferStableMessageOnly?: boolean;
+		/** Append the caught error's class name (e.g. InsufficientFunds) as a
+		 * suffix. It goes last, not in front, because the gRPC status code is
+		 * derived from the raw message via stableGrpcErrorCode; prepending the
+		 * class name would break that prefix match. */
+		appendClassName?: boolean;
 	},
 ): void {
 	const resolvedMessage = options?.message ?? getErrorMessage(error);
@@ -85,6 +90,12 @@ export function rejectWithGrpcError(
 		finalMessage = `${options.prefix}${message}`;
 	} else {
 		finalMessage = message;
+	}
+	if (options?.appendClassName) {
+		const className = errorClassName(error);
+		if (className && !finalMessage.includes(className)) {
+			finalMessage = `${finalMessage} (${className})`;
+		}
 	}
 	ctx.wrappedCallback({ code, message: finalMessage }, null);
 }

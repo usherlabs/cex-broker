@@ -235,6 +235,7 @@ export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
 		rejectWithGrpcError(ctx, error, {
 			message,
 			prefix: "deposit_observation_unavailable: ",
+			appendClassName: true,
 		});
 	}
 }

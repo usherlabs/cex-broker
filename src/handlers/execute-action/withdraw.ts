@@ -13,7 +13,11 @@ import {
 	stableGrpcErrorCode,
 } from "../../helpers/grpc/status";
 import { log } from "../../helpers/logger";
-import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
+import {
+	getErrorMessage,
+	safeLogError,
+	sanitizeErrorDetail,
+} from "../../helpers/shared/errors";
 import {
 	resolveTransferNetwork,
 	type TransferNetworkResolution,
@@ -180,7 +184,7 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 		ctx.wrappedCallback(
 			{
 				code,
-				message: `Withdraw failed: ${getErrorMessage(error)}`,
+				message: `Withdraw failed: ${sanitizeErrorDetail(error)}`,
 			},
 			null,
 		);

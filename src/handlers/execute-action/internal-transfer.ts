@@ -13,7 +13,11 @@ import {
 } from "../../helpers/broker-execution-archive";
 import { mapCcxtErrorToGrpcStatus } from "../../helpers/grpc/status";
 import { log } from "../../helpers/logger";
-import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
+import {
+	getErrorMessage,
+	safeLogError,
+	sanitizeErrorDetail,
+} from "../../helpers/shared/errors";
 import { InternalTransferPayloadSchema } from "../../schemas/action-payloads";
 import type { ExecuteActionContext } from "./context";
 import { parsePayloadForAction } from "./context";
@@ -151,7 +155,7 @@ export async function handleInternalTransfer(
 		ctx.wrappedCallback(
 			{
 				code,
-				message: `InternalTransfer failed: ${msg}`,
+				message: `InternalTransfer failed: ${sanitizeErrorDetail(error)}`,
 			},
 			null,
 		);
