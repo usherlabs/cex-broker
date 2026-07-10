@@ -14,6 +14,13 @@ const TEST_EVENT_MS = 1_900_000_000_000;
 let client: ClickHouseClient | undefined;
 let clickhouseAvailable = false;
 
+function requireClient(): ClickHouseClient {
+	if (!client) {
+		throw new Error("ClickHouse client is not initialized");
+	}
+	return client;
+}
+
 async function probeClickHouse(): Promise<boolean> {
 	const probe = createClient({
 		url: CLICKHOUSE_URL,
@@ -34,7 +41,8 @@ async function probeClickHouse(): Promise<boolean> {
 }
 
 async function tableEngine(name: string): Promise<string | null> {
-	const result = await client!.query({
+	const activeClient = requireClient();
+	const result = await activeClient.query({
 		query: `
 			SELECT engine
 			FROM system.tables
@@ -48,24 +56,25 @@ async function tableEngine(name: string): Promise<string | null> {
 }
 
 async function cleanupTestRows(): Promise<void> {
-	await client!.command({
+	const activeClient = requireClient();
+	await activeClient.command({
 		query: `
 			ALTER TABLE orderbook_snapshots
 			DELETE WHERE deployment_id = {deployment_id:String}
 		`,
 		query_params: { deployment_id: TEST_DEPLOYMENT },
 	});
-	await client!.command({
+	await activeClient.command({
 		query: `
 			ALTER TABLE candles
 			DELETE WHERE deployment_id = {deployment_id:String}
 		`,
 		query_params: { deployment_id: TEST_DEPLOYMENT },
 	});
-	await client!.command({
+	await activeClient.command({
 		query: "OPTIMIZE TABLE orderbook_snapshots FINAL",
 	});
-	await client!.command({
+	await activeClient.command({
 		query: "OPTIMIZE TABLE candles FINAL",
 	});
 	for (const table of [
@@ -73,14 +82,14 @@ async function cleanupTestRows(): Promise<void> {
 		"market_identity",
 		"symbol_mapping",
 	]) {
-		await client!.command({
+		await activeClient.command({
 			query: `
 				ALTER TABLE strategy_data.${table}
 				DELETE WHERE deployment_id = {deployment_id:String}
 			`,
 			query_params: { deployment_id: TEST_DEPLOYMENT },
 		});
-		await client!.command({
+		await activeClient.command({
 			query: `OPTIMIZE TABLE strategy_data.${table} FINAL`,
 		});
 	}

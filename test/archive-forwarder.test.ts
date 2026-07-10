@@ -158,7 +158,11 @@ describe("archive forwarder batch parsing", () => {
 				},
 				{
 					table: "strategy_data.symbol_mapping",
-					row: { event_time_ms: 3, exchange: "binance", trading_pair: "BTC-USDT" },
+					row: {
+						event_time_ms: 3,
+						exchange: "binance",
+						trading_pair: "BTC-USDT",
+					},
 				},
 			],
 		});
