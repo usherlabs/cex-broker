@@ -7,6 +7,10 @@ on:
     tags:
       - 'v[0-9]*.[0-9]*.[0-9]*' # Matches semver tags in the format of v1.2.3
       - 'v[0-9]*.[0-9]*.[0-9]*-*' # Matches semver tags in the format of v1.2.3-beta
+  # Recovery path: republish from a branch when a tag's run failed for
+  # workflow-only reasons (a rerun executes the workflow file at the tag's
+  # commit, so a fixed workflow can never rerun under the original tag).
+  workflow_dispatch:
 
 env:
   IMAGE_NAME: ghcr.io/usherlabs/cex-broker
@@ -29,15 +33,14 @@ jobs:
         with:
           bun-version: 1.3.9
 
+      # setup-node's bundled npm already supports --provenance; installing
+      # npm@latest is what broke every tag when npm 12 dropped this Node line.
       - name: Setup Node.js for npm publishing
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           check-latest: true
           registry-url: "https://registry.npmjs.org"
-
-      - name: Ensure latest npm
-        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: bun install
@@ -74,14 +77,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=match,pattern=v(\d+\.\d+\.\d+.*),group=1
-  
+      # The release convention tags the version-bump commit, so package.json
+      # is the version authority on both tag pushes and dispatch republishes
+      # (a git-tag-derived name is empty on workflow_dispatch).
+      - name: Read package version
+        id: version
+        run: echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -89,5 +91,5 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ fromJSON(steps.meta.outputs.json).tag-names[0] }}
+            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.IMAGE_NAME }}:latest
