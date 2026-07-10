@@ -139,6 +139,41 @@ describe("archive forwarder batch parsing", () => {
 			"strategy_data.policy_evaluation_events",
 		]);
 	});
+
+	test("accepts control-plane snapshots and policy replay cursors", () => {
+		const parsed = parseArchiveBatchRequest({
+			source: "hb_runtime",
+			deployment_id: "deploy-a",
+			rows: [
+				{
+					table: "strategy_data.policy_evaluation_events",
+					row: {
+						event_time_ms: 1,
+						source_cursor: "block:12345680:log:3",
+					},
+				},
+				{
+					table: "strategy_data.market_identity",
+					row: { event_time_ms: 2, canonical_core_pool_id: "pool-1" },
+				},
+				{
+					table: "strategy_data.symbol_mapping",
+					row: {
+						event_time_ms: 3,
+						exchange: "binance",
+						trading_pair: "BTC-USDT",
+					},
+				},
+			],
+		});
+
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) {
+			return;
+		}
+		expect(parsed.rejectedRowCount).toBe(0);
+		expect(parsed.batch.rows).toHaveLength(3);
+	});
 });
 
 describe("archive forwarder routing", () => {
@@ -157,6 +192,14 @@ describe("archive forwarder routing", () => {
 				row: { event_time_ms: 1 },
 			},
 			{
+				table: "strategy_data.market_identity",
+				row: { event_time_ms: 2 },
+			},
+			{
+				table: "strategy_data.symbol_mapping",
+				row: { event_time_ms: 3 },
+			},
+			{
 				table: "market_data.unknown_table",
 				row: { symbol: "ETH/USDT" },
 			},
@@ -168,12 +211,16 @@ describe("archive forwarder routing", () => {
 		expect(
 			grouped.get("strategy_data.inventory_settlement_events"),
 		).toHaveLength(1);
+		expect(grouped.get("strategy_data.market_identity")).toHaveLength(1);
+		expect(grouped.get("strategy_data.symbol_mapping")).toHaveLength(1);
 		expect(countSkippedRows(rows)).toBe(1);
 		expect(isSupportedTable("market_data.candles")).toBe(true);
 		expect(isSupportedTable("broker_execution.order_events")).toBe(true);
 		expect(isSupportedTable("strategy_data.policy_evaluation_events")).toBe(
 			true,
 		);
+		expect(isSupportedTable("strategy_data.market_identity")).toBe(true);
+		expect(isSupportedTable("strategy_data.symbol_mapping")).toBe(true);
 		expect(isSupportedTable("market_data.unknown_table")).toBe(false);
 	});
 
@@ -311,6 +358,8 @@ describe("archive forwarder schema init", () => {
 				"broker_execution.fill_events",
 				"strategy_data.policy_evaluation_events",
 				"strategy_data.strategy_policy_snapshots",
+				"strategy_data.market_identity",
+				"strategy_data.symbol_mapping",
 				"strategy_data.inventory_settlement_events",
 			]),
 		);

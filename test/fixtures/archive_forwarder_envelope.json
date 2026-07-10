@@ -13,6 +13,7 @@
         "exchange": "binance",
         "fidelity": "hb_runtime_policy_clock",
         "lag_ms": 12,
+        "source_cursor": "block:12345680:log:3",
         "market_id": "arb-usdc-015",
         "payload_json": "{\"execution_role\":\"dex_lead\",\"mid_price\":\"1.0234\"}",
         "policy_epoch": "42",
