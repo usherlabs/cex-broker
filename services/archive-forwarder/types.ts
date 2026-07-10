@@ -29,6 +29,8 @@ export const SUPPORTED_TABLES = [
 	"broker_execution.fill_events",
 	"strategy_data.policy_evaluation_events",
 	"strategy_data.strategy_policy_snapshots",
+	"strategy_data.market_identity",
+	"strategy_data.symbol_mapping",
 	"strategy_data.inventory_settlement_events",
 ] as const;
 

@@ -68,6 +68,22 @@ async function cleanupTestRows(): Promise<void> {
 	await client!.command({
 		query: "OPTIMIZE TABLE candles FINAL",
 	});
+	for (const table of [
+		"policy_evaluation_events",
+		"market_identity",
+		"symbol_mapping",
+	]) {
+		await client!.command({
+			query: `
+				ALTER TABLE strategy_data.${table}
+				DELETE WHERE deployment_id = {deployment_id:String}
+			`,
+			query_params: { deployment_id: TEST_DEPLOYMENT },
+		});
+		await client!.command({
+			query: `OPTIMIZE TABLE strategy_data.${table} FINAL`,
+		});
+	}
 }
 
 describe("ClickHouse market_data schema integration", () => {
@@ -343,5 +359,148 @@ describe("ClickHouse market_data schema integration", () => {
 		const viewRow = (await viaView.json())[0] as Record<string, unknown>;
 		expect(Number(viewRow.best_bid)).toBe(50);
 		expect(Number(viewRow.best_ask)).toBe(51);
+	});
+
+	test("schema migration adds source_cursor to the existing policy table", async () => {
+		if (!clickhouseAvailable || !client) {
+			return;
+		}
+
+		await client.command({
+			query: `
+				ALTER TABLE strategy_data.policy_evaluation_events
+				DROP COLUMN IF EXISTS source_cursor
+			`,
+		});
+		try {
+			await ensureArchiveSchema(client);
+
+			const result = await client.query({
+				query: `
+					SELECT name
+					FROM system.columns
+					WHERE database = 'strategy_data'
+						AND table = 'policy_evaluation_events'
+						AND name = 'source_cursor'
+				`,
+				format: "JSONEachRow",
+			});
+			expect(await result.json()).toEqual([{ name: "source_cursor" }]);
+		} finally {
+			await ensureArchiveSchema(client);
+		}
+	});
+
+	test("archive forwarder stores policy cursors and control-plane snapshots", async () => {
+		if (!clickhouseAvailable || !client) {
+			return;
+		}
+
+		const eventMs = TEST_EVENT_MS + 180_000;
+		const sourceCursor = "block:12345680:log:3";
+		const result = await handleArchiveBatch(createClickHouseInserter(client), {
+			source: "hb_runtime",
+			deployment_id: TEST_DEPLOYMENT,
+			rows: [
+				{
+					table: "strategy_data.policy_evaluation_events",
+					row: {
+						event_time_ms: eventMs,
+						emitted_at_ms: eventMs,
+						source: "hb_runtime",
+						deployment_id: TEST_DEPLOYMENT,
+						schema_version: "1",
+						controller_id: "controller-1",
+						controller_type: "layer12",
+						connector_name: "binance",
+						exchange: "binance",
+						trading_pair: "BTC-USDT",
+						market_id: "market-1",
+						run_id: "run-1",
+						policy_epoch: "epoch-1",
+						fidelity: "live",
+						lag_ms: 0,
+						fallback_reason: "",
+						source_cursor: sourceCursor,
+						decision_kind: "quote",
+						payload_json: "{}",
+					},
+				},
+				{
+					table: "strategy_data.market_identity",
+					row: {
+						event_time_ms: eventMs + 1,
+						emitted_at_ms: eventMs + 1,
+						source: "hb_runtime",
+						deployment_id: TEST_DEPLOYMENT,
+						schema_version: "1",
+						controller_id: "controller-1",
+						controller_type: "layer12",
+						connector_name: "binance",
+						exchange: "binance",
+						trading_pair: "BTC-USDT",
+						market_id: "market-1",
+						run_id: "run-1",
+						snapshot_reason: "startup",
+						source_hash: "identity-hash",
+						canonical_core_pool_id: "pool-1",
+						payload_json: "{}",
+					},
+				},
+				{
+					table: "strategy_data.symbol_mapping",
+					row: {
+						event_time_ms: eventMs + 2,
+						emitted_at_ms: eventMs + 2,
+						source: "hb_runtime",
+						deployment_id: TEST_DEPLOYMENT,
+						schema_version: "1",
+						controller_id: "controller-1",
+						controller_type: "layer12",
+						connector_name: "binance",
+						exchange: "binance",
+						trading_pair: "BTC-USDT",
+						market_id: "market-1",
+						run_id: "run-1",
+						snapshot_reason: "startup",
+						source_hash: "symbol-hash",
+						payload_json: "{}",
+					},
+				},
+			],
+		});
+
+		expect(result).toMatchObject({ inserted: 3, failed: 0, skipped: 0 });
+
+		const policy = await client.query({
+			query: `
+				SELECT source_cursor
+				FROM strategy_data.policy_evaluation_events
+				WHERE deployment_id = {deployment_id:String}
+					AND event_time_ms = {event_time_ms:Int64}
+			`,
+			query_params: {
+				deployment_id: TEST_DEPLOYMENT,
+				event_time_ms: eventMs,
+			},
+			format: "JSONEachRow",
+		});
+		expect(await policy.json()).toEqual([{ source_cursor: sourceCursor }]);
+
+		for (const [table, sourceHash] of [
+			["market_identity", "identity-hash"],
+			["symbol_mapping", "symbol-hash"],
+		] as const) {
+			const snapshot = await client.query({
+				query: `
+					SELECT source_hash
+					FROM strategy_data.${table}
+					WHERE deployment_id = {deployment_id:String}
+				`,
+				query_params: { deployment_id: TEST_DEPLOYMENT },
+				format: "JSONEachRow",
+			});
+			expect(await snapshot.json()).toEqual([{ source_hash: sourceHash }]);
+		}
 	});
 });
