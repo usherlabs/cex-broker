@@ -3,7 +3,10 @@ import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import { authenticateRequest } from "../../helpers/auth";
 import { type BrokerPoolEntry, createBroker } from "../../helpers/broker";
-import type { BrokerExecutionArchiver } from "../../helpers/broker-execution-archive";
+import {
+	type BrokerExecutionArchiver,
+	WithdrawalObservationTracker,
+} from "../../helpers/broker-execution-archive";
 import { Action, getActionName, resolveAction } from "../../helpers/constants";
 import { selectBrokerAccountForCex } from "../../helpers/grpc/broker";
 import { log } from "../../helpers/logger";
@@ -29,6 +32,7 @@ export type ExecuteActionDeps = {
 	otelMetrics?: OtelMetrics;
 	brokerArchiver?: BrokerExecutionArchiver;
 	orderActivityTracker?: OrderActivityTracker;
+	withdrawalObservationTracker?: WithdrawalObservationTracker;
 };
 
 export function createExecuteActionHandler(deps: ExecuteActionDeps) {
@@ -42,6 +46,8 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 		brokerArchiver,
 		orderActivityTracker,
 	} = deps;
+	const withdrawalObservationTracker =
+		deps.withdrawalObservationTracker ?? new WithdrawalObservationTracker();
 
 	return async (
 		call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>,
@@ -155,6 +161,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				otelMetrics,
 				brokerArchiver,
 				orderActivityTracker,
+				withdrawalObservationTracker,
 			};
 
 			if (action === Action.Call) {

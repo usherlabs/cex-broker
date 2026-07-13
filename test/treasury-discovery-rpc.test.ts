@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
+import {
+	BrokerExecutionArchiver,
+	WithdrawalObservationTracker,
+} from "../src/helpers/broker-execution-archive";
 import { Action } from "../src/helpers/constants";
 import type { BrokerPoolEntry } from "../src/helpers/index";
 import { getServer } from "../src/server";
 import type { PolicyConfig } from "../src/types";
+import { startForwarderServer } from "./archive-forwarder-server";
 import { bindServer, executeAction, grpcObj } from "./order-telemetry-fixtures";
 
 const testPolicy: PolicyConfig = {
@@ -18,6 +23,7 @@ type TreasuryExchangeOptions = {
 	markets?: Record<string, unknown>;
 	currencies?: Record<string, unknown>;
 	deposits?: Array<Record<string, unknown>>;
+	withdrawals?: Array<Record<string, unknown>>;
 	depositWithdrawFees?: Record<string, unknown>;
 	balances?: Record<string, number>;
 };
@@ -28,6 +34,7 @@ function createTreasuryExchange(options: TreasuryExchangeOptions = {}) {
 		loadMarkets: [],
 		fetchCurrencies: [],
 		fetchDeposits: [],
+		fetchWithdrawals: [],
 		fetchDepositWithdrawFees: [],
 		fetchDepositAddress: [],
 		fetchTotalBalance: [],
@@ -38,6 +45,7 @@ function createTreasuryExchange(options: TreasuryExchangeOptions = {}) {
 			fetchMarkets: true,
 			fetchCurrencies: true,
 			fetchDeposits: true,
+			fetchWithdrawals: true,
 			fetchDepositAddress: true,
 			...(options.has ?? {}),
 		},
@@ -81,6 +89,10 @@ function createTreasuryExchange(options: TreasuryExchangeOptions = {}) {
 			calls.fetchDeposits.push(args);
 			return options.deposits ?? [];
 		},
+		fetchWithdrawals: async (...args: unknown[]) => {
+			calls.fetchWithdrawals.push(args);
+			return options.withdrawals ?? [];
+		},
 		fetchDepositWithdrawFees: async (...args: unknown[]) => {
 			calls.fetchDepositWithdrawFees.push(args);
 			return options.depositWithdrawFees ?? {};
@@ -117,7 +129,7 @@ function createPool(exchange: Exchange): Record<string, BrokerPoolEntry> {
 	};
 }
 
-describe("Treasury discovery and deposit observation RPC", () => {
+describe("Treasury discovery and transfer observation RPC", () => {
 	let server: grpc.Server | undefined;
 	let client: InstanceType<typeof grpcObj.cex_broker.cex_service> | undefined;
 
@@ -128,8 +140,23 @@ describe("Treasury discovery and deposit observation RPC", () => {
 		}
 	});
 
-	async function start(exchange: Exchange, policy = testPolicy) {
-		server = getServer(policy, createPool(exchange), ["*"], false, "");
+	async function start(
+		exchange: Exchange,
+		policy = testPolicy,
+		brokerArchiver?: BrokerExecutionArchiver,
+		withdrawalObservationTracker?: WithdrawalObservationTracker,
+	) {
+		server = getServer(
+			policy,
+			createPool(exchange),
+			["*"],
+			false,
+			"",
+			undefined,
+			brokerArchiver,
+			undefined,
+			withdrawalObservationTracker,
+		);
 		const port = await bindServer(server);
 		client = new grpcObj.cex_broker.cex_service(
 			`127.0.0.1:${port}`,
@@ -137,6 +164,174 @@ describe("Treasury discovery and deposit observation RPC", () => {
 		);
 		return client;
 	}
+
+	test("archives evolving fetchWithdrawals venue observations without changing the RPC result", async () => {
+		const forwarder = await startForwarderServer();
+		const withdrawals = [
+			{
+				id: "wd-1",
+				txid: "tx-1",
+				currency: "USDC",
+				status: "pending",
+				amount: 12.5,
+				address: "0xrecipient",
+				network: "ARBITRUM",
+				fee: { cost: 0, currency: "USDC" },
+				datetime: "2026-07-01T00:00:00.000Z",
+				info: { amount: "12.50000000", completeTime: "" },
+			},
+			{
+				id: "wd-2",
+				txid: "tx-2",
+				currency: "ETH",
+				status: "ok",
+				amount: "1.25",
+				fee: { cost: "0.005", currency: "ETH" },
+			},
+		];
+		const options = { withdrawals };
+		const { exchange, calls } = createTreasuryExchange(options);
+		(
+			exchange as unknown as Record<
+				string,
+				(...args: unknown[]) => Promise<unknown>
+			>
+		).fetchWithdrawalsHistory = async () => [
+			{ id: "not-an-exact-fetch-withdrawals-call", currency: "USDC" },
+		];
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: forwarder.url,
+			deploymentId: "test-deploy",
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+		});
+		const tracker = new WithdrawalObservationTracker();
+
+		try {
+			const rpc = await start(exchange, testPolicy, archiver, tracker);
+			const request = {
+				action: Action.Call,
+				cex: "binance",
+				payload: {
+					functionName: "fetchWithdrawals",
+					args: '["USDC", 1700000000000]',
+					params: '{"limit": 50}',
+				},
+			};
+
+			const initial = await executeAction(rpc, request);
+			expect(JSON.parse(initial.result)).toEqual(withdrawals);
+			expect(calls.fetchWithdrawals[0]).toEqual([
+				"USDC",
+				1700000000000,
+				{ limit: 50 },
+			]);
+			await Promise.resolve();
+			await archiver.flush();
+
+			const initialRows = forwarder.requests.flatMap(
+				(post) => post.body.rows ?? [],
+			) as Array<{ table: string; row: Record<string, unknown> }>;
+			expect(initialRows).toHaveLength(2);
+			expect(initialRows[0]).toMatchObject({
+				table: "broker_execution.transfer_events",
+				row: {
+					schema_version: "1",
+					event_kind: "withdrawal",
+					lifecycle_action: "observe_withdrawal",
+					exchange: "binance",
+					account_selector: "primary",
+					asset_symbol: "USDC",
+					external_id: "wd-1",
+					txid: "tx-1",
+					status: "pending",
+					amount: "12.50000000",
+					fee_amount: "0",
+					fee_currency: "USDC",
+					address: "0xrecipient",
+					network: "ARBITRUM",
+					exchange_timestamp: "2026-07-01T00:00:00.000Z",
+					result_index: 0,
+				},
+			});
+			expect(initialRows[0]?.row.payload_json).toBe(
+				JSON.stringify(withdrawals[0]),
+			);
+			expect(initialRows[1]?.row).toMatchObject({
+				asset_symbol: "ETH",
+				external_id: "wd-2",
+				txid: "tx-2",
+				fee_amount: "0.005",
+				fee_currency: "ETH",
+				result_index: 1,
+			});
+
+			const nonExact = await executeAction(rpc, {
+				...request,
+				payload: {
+					functionName: "fetchWithdrawalsHistory",
+					args: "[]",
+					params: "{}",
+				},
+			});
+			expect(JSON.parse(nonExact.result)).toEqual([
+				{ id: "not-an-exact-fetch-withdrawals-call", currency: "USDC" },
+			]);
+			expect(tracker.getSize()).toBe(2);
+
+			await executeAction(rpc, request);
+			await Promise.resolve();
+			expect(archiver.getQueueDepth()).toBe(0);
+
+			withdrawals[0] = {
+				...withdrawals[0],
+				status: "ok",
+				txid: "tx-1-final",
+				info: {
+					amount: "12.50000000",
+					completeTime: "2026-07-01T00:05:00.000Z",
+				},
+			};
+			await executeAction(rpc, request);
+			await Promise.resolve();
+			await archiver.flush();
+
+			const allRows = forwarder.requests.flatMap(
+				(post) => post.body.rows ?? [],
+			) as Array<{ row: Record<string, unknown> }>;
+			expect(allRows).toHaveLength(3);
+			expect(allRows[2]?.row).toMatchObject({
+				external_id: "wd-1",
+				txid: "tx-1-final",
+				status: "ok",
+				result_index: 0,
+			});
+		} finally {
+			await archiver.close();
+			await forwarder.close();
+		}
+	});
+
+	test("keeps fetchWithdrawals successful and the tracker empty when archiving is disabled", async () => {
+		const withdrawals = [{ id: "wd-1", currency: "USDC", status: "pending" }];
+		const { exchange } = createTreasuryExchange({ withdrawals });
+		const tracker = new WithdrawalObservationTracker();
+		const rpc = await start(
+			exchange,
+			testPolicy,
+			BrokerExecutionArchiver.disabled(),
+			tracker,
+		);
+
+		const response = await executeAction(rpc, {
+			action: Action.Call,
+			cex: "binance",
+			payload: { functionName: "fetchWithdrawals", args: "[]", params: "{}" },
+		});
+
+		expect(JSON.parse(response.result)).toEqual(withdrawals);
+		expect(tracker.getSize()).toBe(0);
+	});
 
 	test("serves fetchMarkets and fetchCurrencies through the Call action", async () => {
 		const { exchange, calls } = createTreasuryExchange();

@@ -45,6 +45,7 @@ export type TransferEventKind = "withdrawal" | "deposit" | "internal_transfer";
 // Which movement lifecycle step produced the row (contract `lifecycle_action`).
 export type TransferLifecycleAction =
 	| "submit_withdrawal"
+	| "observe_withdrawal"
 	| "observe_deposit"
 	| "submit_internal_transfer";
 

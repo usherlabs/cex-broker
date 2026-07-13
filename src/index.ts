@@ -13,6 +13,7 @@ import {
 import {
 	type BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
+	WithdrawalObservationTracker,
 } from "./helpers/broker-execution-archive";
 import { FillArchivePoller } from "./helpers/fill-archive-poller";
 import { log } from "./helpers/logger";
@@ -57,6 +58,10 @@ export default class CEXBroker {
 	// Order activity feeds the fill poller its per-market poll set; shared with the
 	// execute-action handler so orders record the (account, symbol) they touch.
 	private readonly orderActivityTracker = new OrderActivityTracker();
+	// Persist across server rebuilds on policy reload so repeated venue polling is
+	// suppressed for the lifetime of this broker process.
+	private readonly withdrawalObservationTracker =
+		new WithdrawalObservationTracker();
 	private fillArchivePoller?: FillArchivePoller;
 
 	/**
@@ -330,6 +335,7 @@ export default class CEXBroker {
 			this.otelMetrics,
 			this.brokerArchiver,
 			this.orderActivityTracker,
+			this.withdrawalObservationTracker,
 		);
 
 		this.server.bindAsync(

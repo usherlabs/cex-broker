@@ -12,9 +12,11 @@ import {
 	buildOrderEventArchiveRow,
 	buildSubscribeStreamArchiveRow,
 	buildTransferEventArchiveRow,
+	normalizeCcxtTransactionForArchive,
 	type TransferArchiveFields,
 } from "./rows";
 import type { SubscribeArchiveType } from "./types";
+import type { WithdrawalObservationTracker } from "./withdrawal-observation-tracker";
 import type { BrokerExecutionArchiver } from "./writer";
 
 export function archiveOrderExecutionInBackground(
@@ -120,6 +122,63 @@ export function archiveTransferEventInBackground(
 			log.warn("Failed to archive transfer event", { error: archiveError });
 		}
 	});
+}
+
+export function archiveWithdrawalObservationsInBackground(
+	archiver: BrokerExecutionArchiver | undefined,
+	tracker: WithdrawalObservationTracker,
+	input: {
+		exchange: string;
+		accountSelector?: string;
+		transactions: unknown;
+	},
+): void {
+	try {
+		if (!archiver?.isEnabled() || !Array.isArray(input.transactions)) {
+			return;
+		}
+		const brokerObservedTimestamp = new Date().toISOString();
+		for (const [resultIndex, transaction] of input.transactions.entries()) {
+			const normalized = normalizeCcxtTransactionForArchive(transaction);
+			const assetSymbol = normalized.assetSymbol;
+			if (
+				!tracker.shouldArchive({
+					exchange: input.exchange,
+					accountSelector: input.accountSelector,
+					assetSymbol,
+					transaction,
+					normalized,
+				})
+			) {
+				continue;
+			}
+			archiveTransferEventInBackground(archiver, {
+				exchange: input.exchange,
+				accountSelector: input.accountSelector,
+				assetSymbol,
+				brokerObservedTimestamp,
+				transfer: {
+					eventKind: "withdrawal",
+					lifecycleAction: "observe_withdrawal",
+					status: normalized.status,
+					amount: normalized.amount,
+					address: normalized.address,
+					network: normalized.network,
+					externalId: normalized.externalId,
+					txid: normalized.txid,
+					resultIndex,
+					feeAmount: normalized.feeAmount,
+					feeCurrency: normalized.feeCurrency,
+					exchangeTimestamp: normalized.exchangeTimestamp,
+					payload: transaction,
+				},
+			});
+		}
+	} catch (archiveError) {
+		log.warn("Failed to archive withdrawal observations", {
+			error: archiveError,
+		});
+	}
 }
 
 export async function captureMarketMetadataSnapshot(

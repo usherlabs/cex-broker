@@ -2,7 +2,10 @@ import * as grpc from "@grpc/grpc-js";
 import { createExecuteActionHandler } from "./handlers/execute-action";
 import { createSubscribeHandler } from "./handlers/subscribe";
 import type { BrokerPoolEntry } from "./helpers";
-import type { BrokerExecutionArchiver } from "./helpers/broker-execution-archive";
+import type {
+	BrokerExecutionArchiver,
+	WithdrawalObservationTracker,
+} from "./helpers/broker-execution-archive";
 import type { OrderActivityTracker } from "./helpers/order-activity-tracker";
 import type { OtelMetrics } from "./helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "./proto-package-definition";
@@ -28,6 +31,7 @@ export function getServer(
 	otelMetrics?: OtelMetrics,
 	brokerArchiver?: BrokerExecutionArchiver,
 	orderActivityTracker?: OrderActivityTracker,
+	withdrawalObservationTracker?: WithdrawalObservationTracker,
 ) {
 	const server = new grpc.Server();
 
@@ -41,6 +45,7 @@ export function getServer(
 			otelMetrics,
 			brokerArchiver,
 			orderActivityTracker,
+			withdrawalObservationTracker,
 		}),
 		Subscribe: createSubscribeHandler({
 			brokers,
