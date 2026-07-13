@@ -1,4 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
+import { archiveWithdrawalObservationsInBackground } from "../../helpers/broker-execution-archive";
 import { getErrorMessage, safeLogError } from "../../helpers/shared/errors";
 import {
 	callArgs,
@@ -62,6 +63,17 @@ export async function handleTreasuryCall(
 		// Invoke
 		// biome-ignore lint/suspicious/noExplicitAny: dynamic call required for generic broker methods
 		const result = await (fn as any).apply(broker, argsArray);
+		if (callValue.functionName === "fetchWithdrawals") {
+			archiveWithdrawalObservationsInBackground(
+				ctx.brokerArchiver,
+				ctx.withdrawalObservationTracker,
+				{
+					exchange: ctx.normalizedCex,
+					accountSelector: ctx.selectedBrokerAccount?.label,
+					transactions: result,
+				},
+			);
+		}
 		ctx.wrappedCallback(null, {
 			proof: ctx.verity.proof,
 			result: JSON.stringify(result),

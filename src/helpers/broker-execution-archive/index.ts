@@ -2,6 +2,7 @@ export {
 	archiveOrderExecutionInBackground,
 	archiveSubscribeStreamInBackground,
 	archiveTransferEventInBackground,
+	archiveWithdrawalObservationsInBackground,
 	captureMarketMetadataSnapshot,
 	captureMarketMetadataSnapshotInBackground,
 } from "./capture";
@@ -19,9 +20,9 @@ export {
 	buildSubscribeStreamArchiveRow,
 	buildTransferEventArchiveRow,
 	type FillArchiveFields,
+	type NormalizedCcxtTransfer,
 	normalizeCcxtTradeForArchive,
 	normalizeCcxtTransactionForArchive,
-	type NormalizedCcxtTransfer,
 	type TransferArchiveFields,
 } from "./rows";
 export {
@@ -35,6 +36,10 @@ export {
 	type TransferEventKind,
 	type TransferLifecycleAction,
 } from "./types";
+export {
+	DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES,
+	WithdrawalObservationTracker,
+} from "./withdrawal-observation-tracker";
 export {
 	BrokerExecutionArchiver,
 	type BrokerExecutionArchiverOptions,

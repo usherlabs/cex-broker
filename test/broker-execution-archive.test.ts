@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { LogRecord } from "@opentelemetry/api-logs";
-import { startForwarderServer } from "./archive-forwarder-server";
 import {
 	redactSecretLiterals,
 	redactStreamPayload,
@@ -16,6 +15,10 @@ import {
 	normalizeCcxtTransactionForArchive,
 } from "../src/helpers/broker-execution-archive/rows";
 import {
+	DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES,
+	WithdrawalObservationTracker,
+} from "../src/helpers/broker-execution-archive/withdrawal-observation-tracker";
+import {
 	BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
 	isArchiveOtelLogsEnabled,
@@ -23,6 +26,7 @@ import {
 } from "../src/helpers/broker-execution-archive/writer";
 import { buildOrderExecutionTelemetry } from "../src/helpers/order-telemetry";
 import type { OtelLogs } from "../src/helpers/otel";
+import { startForwarderServer } from "./archive-forwarder-server";
 
 function restoreEnv(key: string, original: string | undefined): void {
 	if (original === undefined) {
@@ -287,6 +291,14 @@ describe("broker execution archive rows", () => {
 		expect(normalized.amount).toBe("7.50000000");
 	});
 
+	test("normalizeCcxtTransactionForArchive preserves an explicit zero fee", () => {
+		const normalized = normalizeCcxtTransactionForArchive({
+			fee: { cost: 0, currency: "USDC" },
+		});
+		expect(normalized.feeAmount).toBe("0");
+		expect(normalized.feeCurrency).toBe("USDC");
+	});
+
 	test("builds fill event rows in the contract column shape", () => {
 		const row = buildFillEventArchiveRow({
 			tags: buildCommonArchiveTags({
@@ -444,6 +456,102 @@ describe("broker execution archive rows", () => {
 		}).row;
 		for (const column of CONTRACT_FILL_COLUMNS) {
 			expect(fillRow).toHaveProperty(column);
+		}
+	});
+});
+
+describe("withdrawal observation tracker", () => {
+	function shouldArchive(
+		tracker: WithdrawalObservationTracker,
+		transaction: Record<string, unknown>,
+	): boolean {
+		return tracker.shouldArchive({
+			exchange: "binance",
+			accountSelector: "primary",
+			assetSymbol: "USDC",
+			transaction,
+			normalized: normalizeCcxtTransactionForArchive(transaction),
+		});
+	}
+
+	test("suppresses identical records and captures every fingerprint field change", () => {
+		const baseline = {
+			id: "wd-1",
+			txid: "tx-1",
+			currency: "USDC",
+			status: "pending",
+			amount: "10",
+			fee: { cost: "0", currency: "USDC" },
+			datetime: "2026-07-01T00:00:00.000Z",
+			info: { completeTime: "" },
+		};
+		const changedRecords = [
+			{ ...baseline, status: "ok" },
+			{ ...baseline, txid: "tx-2" },
+			{ ...baseline, amount: "11" },
+			{ ...baseline, fee: { cost: "1", currency: "USDC" } },
+			{ ...baseline, fee: { cost: "0", currency: "USDT" } },
+			{ ...baseline, address: "0xrecipient" },
+			{ ...baseline, network: "ARBITRUM" },
+			{ ...baseline, info: { completeTime: "2026-07-01T00:01:00Z" } },
+		];
+
+		for (const changed of changedRecords) {
+			const tracker = new WithdrawalObservationTracker();
+			expect(shouldArchive(tracker, baseline)).toBe(true);
+			expect(shouldArchive(tracker, { ...baseline })).toBe(false);
+			expect(shouldArchive(tracker, changed)).toBe(true);
+		}
+	});
+
+	test("uses non-colliding identities when the venue omits ids", () => {
+		const tracker = new WithdrawalObservationTracker({ maxEntries: 2 });
+		const unidentified = {
+			currency: "USDC",
+			status: "pending",
+			amount: "10",
+		};
+
+		expect(shouldArchive(tracker, unidentified)).toBe(true);
+		expect(shouldArchive(tracker, { ...unidentified })).toBe(true);
+		expect(tracker.getSize()).toBe(2);
+	});
+
+	test("evicts the oldest identity at the configured bound and permits replay", () => {
+		const tracker = new WithdrawalObservationTracker({ maxEntries: 2 });
+		const transaction = (id: string) => ({
+			id,
+			currency: "USDC",
+			status: "pending",
+			amount: "10",
+		});
+
+		expect(shouldArchive(tracker, transaction("wd-1"))).toBe(true);
+		expect(shouldArchive(tracker, transaction("wd-2"))).toBe(true);
+		expect(shouldArchive(tracker, transaction("wd-3"))).toBe(true);
+		expect(tracker.getSize()).toBe(2);
+		expect(shouldArchive(tracker, transaction("wd-1"))).toBe(true);
+		expect(tracker.getSize()).toBe(2);
+	});
+
+	test("falls back to the default bound for non-finite capacity overrides", () => {
+		for (const maxEntries of [Number.NaN, Number.POSITIVE_INFINITY]) {
+			const tracker = new WithdrawalObservationTracker({ maxEntries });
+			for (
+				let index = 0;
+				index <= DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES;
+				index += 1
+			) {
+				shouldArchive(tracker, {
+					id: `wd-${index}`,
+					currency: "USDC",
+					status: "pending",
+					amount: "10",
+				});
+			}
+			expect(tracker.getSize()).toBe(
+				DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES,
+			);
 		}
 	});
 });
