@@ -14,7 +14,10 @@ import {
 	normalizeCcxtTradeForArchive,
 	normalizeCcxtTransactionForArchive,
 } from "../src/helpers/broker-execution-archive/rows";
-import { WithdrawalObservationTracker } from "../src/helpers/broker-execution-archive/withdrawal-observation-tracker";
+import {
+	DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES,
+	WithdrawalObservationTracker,
+} from "../src/helpers/broker-execution-archive/withdrawal-observation-tracker";
 import {
 	BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
@@ -488,6 +491,8 @@ describe("withdrawal observation tracker", () => {
 			{ ...baseline, amount: "11" },
 			{ ...baseline, fee: { cost: "1", currency: "USDC" } },
 			{ ...baseline, fee: { cost: "0", currency: "USDT" } },
+			{ ...baseline, address: "0xrecipient" },
+			{ ...baseline, network: "ARBITRUM" },
 			{ ...baseline, info: { completeTime: "2026-07-01T00:01:00Z" } },
 		];
 
@@ -527,6 +532,27 @@ describe("withdrawal observation tracker", () => {
 		expect(tracker.getSize()).toBe(2);
 		expect(shouldArchive(tracker, transaction("wd-1"))).toBe(true);
 		expect(tracker.getSize()).toBe(2);
+	});
+
+	test("falls back to the default bound for non-finite capacity overrides", () => {
+		for (const maxEntries of [Number.NaN, Number.POSITIVE_INFINITY]) {
+			const tracker = new WithdrawalObservationTracker({ maxEntries });
+			for (
+				let index = 0;
+				index <= DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES;
+				index += 1
+			) {
+				shouldArchive(tracker, {
+					id: `wd-${index}`,
+					currency: "USDC",
+					status: "pending",
+					amount: "10",
+				});
+			}
+			expect(tracker.getSize()).toBe(
+				DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES,
+			);
+		}
 	});
 });
 

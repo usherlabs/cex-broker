@@ -75,6 +75,8 @@ function observationFingerprint(observation: WithdrawalObservation): string {
 		amount: normalized.amount ?? null,
 		feeAmount: normalized.feeAmount ?? null,
 		feeCurrency: normalized.feeCurrency ?? null,
+		address: normalized.address ?? null,
+		network: normalized.network ?? null,
 		exchangeTimestamp: normalized.exchangeTimestamp ?? null,
 		venueLifecycleEvidence: venueLifecycleEvidence(transaction),
 	});
@@ -91,13 +93,11 @@ export class WithdrawalObservationTracker {
 	#missingIdSequence = 0n;
 
 	constructor(options?: { maxEntries?: number }) {
-		this.#maxEntries = Math.max(
-			1,
-			Math.floor(
-				options?.maxEntries ??
-					DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES,
-			),
-		);
+		const maxEntries =
+			options?.maxEntries ?? DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES;
+		this.#maxEntries = Number.isFinite(maxEntries)
+			? Math.max(1, Math.floor(maxEntries))
+			: DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES;
 	}
 
 	shouldArchive(observation: WithdrawalObservation): boolean {
