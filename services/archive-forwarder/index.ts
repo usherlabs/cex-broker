@@ -17,7 +17,7 @@ const clickhouse = createClient({
 	username: config.clickhouse.username,
 	password: config.clickhouse.password,
 	database: config.clickhouse.database,
-	// broker_execution.transfer_events/fill_events use DateTime64 columns; producers
+	// Broker execution and account snapshot tables use DateTime64 columns; producers
 	// emit broker_observed_timestamp/exchange_timestamp as ISO-8601 UTC strings, so
 	// the inserter must best-effort-parse them (basic mode rejects the 'T'/'Z' form).
 	// Strictly more lenient than basic, so it never breaks the existing String/Int64
@@ -29,7 +29,7 @@ const inserter = createClickHouseInserter(clickhouse);
 try {
 	await ensureArchiveSchema(clickhouse);
 	console.log(
-		"ClickHouse archive schema ensured (market_data, broker_execution, strategy_data)",
+		"ClickHouse archive schema ensured (market_data, broker_execution, broker_account, strategy_data)",
 	);
 } catch (error) {
 	console.error("Failed to ensure ClickHouse schema:", error);

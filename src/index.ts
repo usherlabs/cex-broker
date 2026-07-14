@@ -10,6 +10,7 @@ import {
 	normalizePolicyConfig,
 	TravelRuleDepositReconciler,
 } from "./helpers";
+import { AccountBalanceArchivePoller } from "./helpers/account-balance-archive-poller";
 import {
 	type BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
@@ -63,6 +64,7 @@ export default class CEXBroker {
 	private readonly withdrawalObservationTracker =
 		new WithdrawalObservationTracker();
 	private fillArchivePoller?: FillArchivePoller;
+	private accountBalanceArchivePoller?: AccountBalanceArchivePoller;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -288,6 +290,10 @@ export default class CEXBroker {
 			this.fillArchivePoller.stop();
 			this.fillArchivePoller = undefined;
 		}
+		if (this.accountBalanceArchivePoller) {
+			await this.accountBalanceArchivePoller.stop();
+			this.accountBalanceArchivePoller = undefined;
+		}
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
@@ -318,6 +324,10 @@ export default class CEXBroker {
 		if (this.fillArchivePoller) {
 			this.fillArchivePoller.stop();
 			this.fillArchivePoller = undefined;
+		}
+		if (this.accountBalanceArchivePoller) {
+			await this.accountBalanceArchivePoller.stop();
+			this.accountBalanceArchivePoller = undefined;
 		}
 		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
 
@@ -372,6 +382,17 @@ export default class CEXBroker {
 				metrics: this.otelMetrics,
 			});
 			this.fillArchivePoller.start();
+		}
+
+		if (this.brokerArchiver?.canPersistAccountBalanceSnapshots()) {
+			// Balance coverage is advertised only with the HTTP forwarder: OTel logs
+			// are an observability mirror, not durable replay evidence.
+			this.accountBalanceArchivePoller = new AccountBalanceArchivePoller({
+				brokers: this.brokers,
+				archiver: this.brokerArchiver,
+				metrics: this.otelMetrics,
+			});
+			this.accountBalanceArchivePoller.start();
 		}
 		return this;
 	}

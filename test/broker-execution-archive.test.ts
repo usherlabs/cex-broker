@@ -5,12 +5,14 @@ import {
 	redactStreamPayload,
 } from "../src/helpers/broker-execution-archive/redact";
 import {
+	buildAccountBalanceSnapshotRow,
 	buildCommonArchiveTags,
 	buildFillEventArchiveRow,
 	buildMarketMetadataSnapshotRow,
 	buildOrderEventArchiveRow,
 	buildSubscribeStreamArchiveRow,
 	buildTransferEventArchiveRow,
+	normalizeCcxtBalanceForArchive,
 	normalizeCcxtTradeForArchive,
 	normalizeCcxtTransactionForArchive,
 } from "../src/helpers/broker-execution-archive/rows";
@@ -81,6 +83,114 @@ describe("broker execution archive redaction", () => {
 });
 
 describe("broker execution archive rows", () => {
+	test("builds one coherent spot balance row without reducing venue total for locked capital", () => {
+		const balance = normalizeCcxtBalanceForArchive({
+			timestamp: 1_784_000_000_123,
+			free: { USDC: 80, BTC: 0.00000001 },
+			used: { USDC: 20, BTC: 0 },
+			total: { USDC: 100, BTC: 0.00000001 },
+			USDC: { free: 80, used: 20, total: 100 },
+			BTC: { free: 0.00000001, used: 0, total: 0.00000001 },
+		});
+		const row = buildAccountBalanceSnapshotRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				accountSelector: "secondary:2",
+				exchange: "binance",
+				brokerObservedTimestamp: "2026-07-14T12:00:00.000Z",
+			}),
+			balance,
+		});
+
+		expect(row.table).toBe("broker_account.balance_snapshots");
+		expect(row.row).toMatchObject({
+			broker_observed_timestamp: "2026-07-14T12:00:00.000Z",
+			exchange_timestamp: new Date(1_784_000_000_123).toISOString(),
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			schema_version: "1",
+			exchange: "binance",
+			account_selector: "secondary:2",
+			balance_scope: "spot",
+			reported_assets: ["BTC", "USDC"],
+			asset_entry_assets: ["BTC", "USDC"],
+			free_balances: { BTC: "0.00000001", USDC: "80" },
+			used_balances: { BTC: "0", USDC: "20" },
+			total_balances: { BTC: "0.00000001", USDC: "100" },
+			aggregate_free_map_present: 1,
+			aggregate_used_map_present: 1,
+			aggregate_total_map_present: 1,
+			precision_basis: "ccxt_normalized_number",
+		});
+		expect(row.row.observation_id).toMatch(/^[a-f0-9]{64}$/);
+		expect(row.row).not.toHaveProperty("payload_json");
+	});
+
+	test("preserves sparse map and reported-asset semantics without inventing zeros", () => {
+		const normalized = normalizeCcxtBalanceForArchive({
+			used: { USDC: 0, DOGE: null },
+			total: { BTC: 2, XRP: "1.2300" },
+			ETH: { free: 1, total: 1 },
+		});
+
+		expect(normalized).toEqual({
+			exchangeTimestamp: undefined,
+			reportedAssets: ["BTC", "DOGE", "ETH", "USDC", "XRP"],
+			assetEntryAssets: ["ETH"],
+			freeBalances: { ETH: "1" },
+			usedBalances: { USDC: "0" },
+			totalBalances: { BTC: "2", ETH: "1" },
+			freeMapPresent: false,
+			usedMapPresent: true,
+			totalMapPresent: true,
+		});
+		expect(normalized.freeBalances).not.toHaveProperty("BTC");
+		expect(normalized.totalBalances).not.toHaveProperty("USDC");
+		expect(normalized.totalBalances).not.toHaveProperty("XRP");
+		expect(normalized.usedBalances).not.toHaveProperty("DOGE");
+	});
+
+	test("excludes secrets and unfiltered info while keeping the row body bounded", () => {
+		const secret = "live-api-secret";
+		const normalized = normalizeCcxtBalanceForArchive({
+			free: { USDC: 1 },
+			used: {},
+			total: { USDC: 1 },
+			info: {
+				apiKey: secret,
+				raw: "x".repeat(6 * 1024 * 1024),
+			},
+		});
+		const row = buildAccountBalanceSnapshotRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				accountSelector: "primary",
+				exchange: "binance",
+				brokerObservedTimestamp: "2026-07-14T12:00:00.000Z",
+			}),
+			balance: normalized,
+		});
+		const serialized = JSON.stringify(row);
+
+		expect(serialized).not.toContain(secret);
+		expect(serialized).not.toContain('"info"');
+		expect(Buffer.byteLength(serialized)).toBeLessThan(2_000);
+	});
+
+	test("derives a stable observation id from the complete normalized observation", () => {
+		const balance = normalizeCcxtBalanceForArchive({ total: { USDC: 1 } });
+		const tags = buildCommonArchiveTags({
+			deploymentId: "deploy-a",
+			accountSelector: "primary",
+			exchange: "binance",
+			brokerObservedTimestamp: "2026-07-14T12:00:00.000Z",
+		});
+		const first = buildAccountBalanceSnapshotRow({ tags, balance });
+		const second = buildAccountBalanceSnapshotRow({ tags, balance });
+
+		expect(first.row.observation_id).toBe(second.row.observation_id);
+	});
+
 	test("builds order event rows tagged for broker_execution.order_events", () => {
 		const telemetry = buildOrderExecutionTelemetry(
 			{
@@ -856,6 +966,26 @@ describe("broker execution archiver queue", () => {
 
 		const disabled = BrokerExecutionArchiver.disabled();
 		expect(disabled.canPersistMarketMetadataSnapshot()).toBe(false);
+	});
+
+	test("advertises durable account balance snapshots only when an HTTP forwarder exists", async () => {
+		const forwarderOnly = BrokerExecutionArchiver.create({
+			forwarderUrl: "http://127.0.0.1:9/archive",
+			flushIntervalMs: 60_000,
+		});
+		const otelOnly = BrokerExecutionArchiver.create({
+			otelLogs: new MockOtelLogs(),
+			flushIntervalMs: 60_000,
+		});
+		const disabled = BrokerExecutionArchiver.disabled();
+
+		expect(forwarderOnly.canPersistAccountBalanceSnapshots()).toBe(true);
+		expect(otelOnly.isEnabled()).toBe(true);
+		expect(otelOnly.canPersistAccountBalanceSnapshots()).toBe(false);
+		expect(disabled.canPersistAccountBalanceSnapshots()).toBe(false);
+
+		await forwarderOnly.close();
+		await otelOnly.close();
 	});
 });
 

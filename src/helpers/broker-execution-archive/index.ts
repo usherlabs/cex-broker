@@ -13,6 +13,7 @@ export {
 	redactStreamPayload,
 } from "./redact";
 export {
+	buildAccountBalanceSnapshotRow,
 	buildCommonArchiveTags,
 	buildFillEventArchiveRow,
 	buildMarketMetadataSnapshotRow,
@@ -20,12 +21,16 @@ export {
 	buildSubscribeStreamArchiveRow,
 	buildTransferEventArchiveRow,
 	type FillArchiveFields,
+	type NormalizedCcxtBalance,
 	type NormalizedCcxtTransfer,
+	normalizeCcxtBalanceForArchive,
 	normalizeCcxtTradeForArchive,
 	normalizeCcxtTransactionForArchive,
 	type TransferArchiveFields,
 } from "./rows";
 export {
+	ACCOUNT_BALANCE_PRECISION_BASIS,
+	ACCOUNT_BALANCE_SCOPE,
 	ARCHIVE_SCHEMA_VERSION,
 	BROKER_WRITE_SOURCE,
 	type BrokerArchiveCommonTags,

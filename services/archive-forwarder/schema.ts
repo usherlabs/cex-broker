@@ -56,6 +56,7 @@ function isIdempotentSchemaError(error: unknown): boolean {
 const ARCHIVE_SCHEMA_FILES = [
 	"market_data.sql",
 	"broker_execution.sql",
+	"broker_account.sql",
 	"strategy_data.sql",
 ] as const;
 

@@ -150,6 +150,10 @@ export class BrokerExecutionArchiver {
 		);
 	}
 
+	canPersistAccountBalanceSnapshots(): boolean {
+		return this.isEnabled() && Boolean(this.forwarderUrl);
+	}
+
 	enqueue(row: BrokerArchiveRow): void {
 		if (
 			!this.enabled ||
