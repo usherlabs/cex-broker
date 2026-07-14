@@ -50,5 +50,6 @@ export {
 	type BrokerExecutionArchiverOptions,
 	createBrokerExecutionArchiverFromEnv,
 	isArchiveOtelLogsEnabled,
+	isBrokerExecutionArchiveTable,
 	resolveArchiveForwarderUrlFromEnv,
 } from "./writer";

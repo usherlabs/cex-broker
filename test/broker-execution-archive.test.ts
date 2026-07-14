@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { LogRecord } from "@opentelemetry/api-logs";
+import { MAX_ARCHIVE_BODY_BYTES } from "../services/archive-forwarder/limits";
 import {
 	redactSecretLiterals,
 	redactStreamPayload,
@@ -24,6 +25,7 @@ import {
 	BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
 	isArchiveOtelLogsEnabled,
+	isBrokerExecutionArchiveTable,
 	resolveArchiveForwarderUrlFromEnv,
 } from "../src/helpers/broker-execution-archive/writer";
 import { buildOrderExecutionTelemetry } from "../src/helpers/order-telemetry";
@@ -175,6 +177,53 @@ describe("broker execution archive rows", () => {
 		expect(serialized).not.toContain(secret);
 		expect(serialized).not.toContain('"info"');
 		expect(Buffer.byteLength(serialized)).toBeLessThan(2_000);
+	});
+
+	test("keeps a default 10-row batch of 800-asset snapshots below the forwarder body limit", () => {
+		const assets = Array.from(
+			{ length: 800 },
+			(_, index) => `ASSET_${index.toString().padStart(4, "0")}`,
+		);
+		const free = Object.fromEntries(
+			assets.map((asset, index) => [asset, index + 0.125]),
+		);
+		const used = Object.fromEntries(
+			assets.map((asset, index) => [asset, index + 0.25]),
+		);
+		const total = Object.fromEntries(
+			assets.map((asset, index) => [asset, index * 2 + 0.375]),
+		);
+		const response: Record<string, unknown> = { free, used, total };
+		for (const asset of assets) {
+			response[asset] = {
+				free: free[asset],
+				used: used[asset],
+				total: total[asset],
+			};
+		}
+		const balance = normalizeCcxtBalanceForArchive(response);
+		const rows = Array.from({ length: 10 }, (_, index) =>
+			buildAccountBalanceSnapshotRow({
+				tags: buildCommonArchiveTags({
+					deploymentId: "deploy-a",
+					accountSelector: "primary",
+					exchange: "binance",
+					brokerObservedTimestamp: new Date(
+						Date.UTC(2026, 6, 14, 12, index),
+					).toISOString(),
+				}),
+				balance,
+			}),
+		);
+		const envelope = JSON.stringify({
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			rows,
+		});
+
+		expect(balance.reportedAssets).toHaveLength(800);
+		expect(rows).toHaveLength(10);
+		expect(Buffer.byteLength(envelope)).toBeLessThan(MAX_ARCHIVE_BODY_BYTES);
 	});
 
 	test("derives a stable observation id from the complete normalized observation", () => {
@@ -667,6 +716,21 @@ describe("withdrawal observation tracker", () => {
 });
 
 describe("broker execution archiver queue", () => {
+	test("classifies only broker_execution tables for the OTel mirror", () => {
+		for (const table of [
+			"broker_execution.order_events",
+			"broker_execution.market_metadata_snapshots",
+			"broker_execution.transfer_events",
+			"broker_execution.fill_events",
+		] as const) {
+			expect(isBrokerExecutionArchiveTable(table)).toBe(true);
+		}
+		expect(
+			isBrokerExecutionArchiveTable("broker_account.balance_snapshots"),
+		).toBe(false);
+		expect(isBrokerExecutionArchiveTable("market_data.candles")).toBe(false);
+	});
+
 	test("posts JSON with the bearer token over the real node:http transport", async () => {
 		const server = await startForwarderServer();
 		const originalToken = process.env.CEX_BROKER_ARCHIVE_FORWARDER_TOKEN;
@@ -748,7 +812,7 @@ describe("broker execution archiver queue", () => {
 		}
 	});
 
-	test("mirrors broker_execution rows to OTel logs and posts every table to the forwarder", async () => {
+	test("mirrors only broker_execution rows to OTel logs and forwards every archive table", async () => {
 		const server = await startForwarderServer();
 		try {
 			const otelLogs = new MockOtelLogs();
@@ -768,6 +832,10 @@ describe("broker execution archiver queue", () => {
 				table: "market_data.orderbook_snapshots",
 				row: { source: "broker_write", best_bid: 100 },
 			});
+			archiver.enqueue({
+				table: "broker_account.balance_snapshots",
+				row: { source: "broker_write", reported_assets: ["USDC"] },
+			});
 
 			await archiver.flush();
 
@@ -780,6 +848,9 @@ describe("broker execution archiver queue", () => {
 				rows: expect.arrayContaining([
 					expect.objectContaining({ table: "broker_execution.order_events" }),
 					expect.objectContaining({ table: "market_data.orderbook_snapshots" }),
+					expect.objectContaining({
+						table: "broker_account.balance_snapshots",
+					}),
 				]),
 			});
 
@@ -789,7 +860,7 @@ describe("broker execution archiver queue", () => {
 		}
 	});
 
-	test("drops market_data rows when forwarder URL is missing", async () => {
+	test("drops market-data and account-balance rows when the forwarder is missing", async () => {
 		const otelLogs = new MockOtelLogs();
 		const archiver = BrokerExecutionArchiver.create({
 			otelLogs,
@@ -801,6 +872,10 @@ describe("broker execution archiver queue", () => {
 		archiver.enqueue({
 			table: "market_data.candles",
 			row: { source: "broker_write", open_time_ms: 1_000 },
+		});
+		archiver.enqueue({
+			table: "broker_account.balance_snapshots",
+			row: { source: "broker_write", reported_assets: ["USDC"] },
 		});
 		archiver.enqueue({
 			table: "broker_execution.order_events",
