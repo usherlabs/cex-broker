@@ -235,6 +235,8 @@ export class BinanceSpotUserDataStream
 {
 	private readonly ws: WebSocketLike;
 	private readonly secretValues: string[];
+	// Binance rejects request ids not matching ^[a-zA-Z0-9-_]{1,36}$ with
+	// error -1135 and then closes the socket (1008 "disconnected").
 	private readonly requestId =
 		`user-data-${Date.now()}-${userDataRequestCounter++}`;
 	private readonly maxBufferedEvents: number;
