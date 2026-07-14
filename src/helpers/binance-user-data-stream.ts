@@ -13,9 +13,9 @@ export type BinanceUserDataEvent = {
 
 type BinanceUserDataMessage =
 	| {
-			id?: string;
+			id?: string | null;
 			status?: number;
-			error?: { msg?: string; message?: string };
+			error?: { code?: number; msg?: string; message?: string };
 			result?: { subscriptionId?: number };
 	  }
 	| {
@@ -43,6 +43,7 @@ type BinanceSpotUserDataStreamOptions = {
 
 let createWebSocket: WebSocketFactory = (url) =>
 	new WebSocket(url) as WebSocketLike;
+let userDataRequestCounter = 0;
 
 export function setBinanceUserDataWebSocketFactoryForTests(
 	factory: WebSocketFactory,
@@ -234,7 +235,8 @@ export class BinanceSpotUserDataStream
 {
 	private readonly ws: WebSocketLike;
 	private readonly secretValues: string[];
-	private readonly requestId = `user-data-${Date.now()}-${Math.random()}`;
+	private readonly requestId =
+		`user-data-${Date.now()}-${userDataRequestCounter++}`;
 	private readonly maxBufferedEvents: number;
 	private readonly queue: BinanceUserDataEvent[] = [];
 	private readonly waiters: Array<{
@@ -346,6 +348,26 @@ export class BinanceSpotUserDataStream
 				return;
 			}
 			this.subscriptionId = message.result?.subscriptionId ?? null;
+			return;
+		}
+
+		if (
+			"status" in message &&
+			typeof message.status === "number" &&
+			message.status !== 200
+		) {
+			const errorMessage =
+				message.error?.msg ??
+				message.error?.message ??
+				`Binance user-data request failed with status ${message.status}`;
+			const errorCode = message.error?.code;
+			this.fail(
+				new Error(
+					typeof errorCode === "number"
+						? `${errorMessage} (code ${errorCode})`
+						: errorMessage,
+				),
+			);
 			return;
 		}
 

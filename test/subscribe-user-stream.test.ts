@@ -92,15 +92,14 @@ class FakeWebSocket {
 	}
 
 	emitEvent(event: Record<string, unknown>) {
-		this.emit(
-			"message",
-			Buffer.from(
-				JSON.stringify({
-					subscriptionId: FakeWebSocket.instances.indexOf(this),
-					event,
-				}),
-			),
-		);
+		this.emitMessage({
+			subscriptionId: FakeWebSocket.instances.indexOf(this),
+			event,
+		});
+	}
+
+	emitMessage(message: unknown) {
+		this.emit("message", Buffer.from(JSON.stringify(message)));
 	}
 
 	emitError(error: unknown) {
@@ -308,6 +307,75 @@ describe("Binance Subscribe user-data streams", () => {
 				"Binance user-data stream buffered event limit exceeded (1)",
 			);
 			expect(socket.closed).toBe(true);
+		} finally {
+			stream.close();
+		}
+	});
+
+	test("sends a Binance-compatible user-data request id", async () => {
+		const primary = createBinanceExchange("primary-key", "primary-secret");
+		const stream = new BinanceSpotUserDataStream(primary.exchange);
+
+		try {
+			const socket = await waitForSocket();
+			const request = JSON.parse(socket.sent[0] ?? "{}") as { id?: string };
+
+			expect(request.id).toMatch(/^[a-zA-Z0-9-_]{1,36}$/);
+		} finally {
+			stream.close();
+		}
+	});
+
+	test("uses different request ids for concurrent Binance user-data streams", async () => {
+		const primary = createBinanceExchange("primary-key", "primary-secret");
+		const firstStream = new BinanceSpotUserDataStream(primary.exchange);
+		const secondStream = new BinanceSpotUserDataStream(primary.exchange);
+
+		try {
+			await waitForSocket();
+			const requestIds = FakeWebSocket.instances.map((socket) => {
+				const request = JSON.parse(socket.sent[0] ?? "{}") as { id?: string };
+				return request.id;
+			});
+
+			expect(requestIds).toHaveLength(2);
+			expect(requestIds[0]).not.toBe(requestIds[1]);
+		} finally {
+			firstStream.close();
+			secondStream.close();
+		}
+	});
+
+	test("surfaces unmatched Binance user-data request errors", async () => {
+		const primary = createBinanceExchange("primary-key", "primary-secret");
+		const stream = new BinanceSpotUserDataStream(primary.exchange);
+
+		try {
+			const iterator = stream[Symbol.asyncIterator]();
+			const nextEvent = iterator.next();
+			const socket = await waitForSocket();
+			socket.emitMessage({
+				id: null,
+				status: 400,
+				error: {
+					code: -1135,
+					msg: "Invalid 'id' in JSON request",
+				},
+			});
+
+			let error: unknown;
+			try {
+				await nextEvent;
+			} catch (caught) {
+				error = caught;
+			}
+
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).toContain(
+				"Invalid 'id' in JSON request",
+			);
+			expect((error as Error).message).toContain("code -1135");
+			expect((error as Error).message).not.toContain("closed unexpectedly");
 		} finally {
 			stream.close();
 		}
