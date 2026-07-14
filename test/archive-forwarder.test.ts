@@ -66,9 +66,11 @@ describe("archive forwarder batch parsing", () => {
 		expect(parsed.batch.rows).toHaveLength(1);
 	});
 
-	test("accepts the new broker_execution transfer_events and fill_events tables", () => {
+	test("accepts the broker execution and account balance archive tables", () => {
 		expect(isSupportedTable("broker_execution.transfer_events")).toBe(true);
 		expect(isSupportedTable("broker_execution.fill_events")).toBe(true);
+		expect(isSupportedTable("broker_account.balance_snapshots")).toBe(true);
+		expect(isSupportedTable("broker_account.unknown")).toBe(false);
 
 		const parsed = parseArchiveBatchRequest({
 			source: "broker_write",
@@ -82,6 +84,10 @@ describe("archive forwarder batch parsing", () => {
 					table: "broker_execution.fill_events",
 					row: { order_id: "o-1", trade_id: "t-1" },
 				},
+				{
+					table: "broker_account.balance_snapshots",
+					row: { observation_id: "obs-1", balance_scope: "spot" },
+				},
 			],
 		});
 		expect(parsed.ok).toBe(true);
@@ -89,7 +95,7 @@ describe("archive forwarder batch parsing", () => {
 			return;
 		}
 		expect(parsed.rejectedRowCount).toBe(0);
-		expect(parsed.batch.rows).toHaveLength(2);
+		expect(parsed.batch.rows).toHaveLength(3);
 	});
 
 	test("names the offending tables in rejectedTables so a bad rollout is visible", () => {
@@ -188,6 +194,10 @@ describe("archive forwarder routing", () => {
 				row: { order_id: "1" },
 			},
 			{
+				table: "broker_account.balance_snapshots",
+				row: { observation_id: "obs-1" },
+			},
+			{
 				table: "strategy_data.inventory_settlement_events",
 				row: { event_time_ms: 1 },
 			},
@@ -208,6 +218,7 @@ describe("archive forwarder routing", () => {
 		const grouped = groupRowsByTable(rows);
 		expect(grouped.get("market_data.candles")).toHaveLength(1);
 		expect(grouped.get("broker_execution.order_events")).toHaveLength(1);
+		expect(grouped.get("broker_account.balance_snapshots")).toHaveLength(1);
 		expect(
 			grouped.get("strategy_data.inventory_settlement_events"),
 		).toHaveLength(1);
@@ -216,6 +227,7 @@ describe("archive forwarder routing", () => {
 		expect(countSkippedRows(rows)).toBe(1);
 		expect(isSupportedTable("market_data.candles")).toBe(true);
 		expect(isSupportedTable("broker_execution.order_events")).toBe(true);
+		expect(isSupportedTable("broker_account.balance_snapshots")).toBe(true);
 		expect(isSupportedTable("strategy_data.policy_evaluation_events")).toBe(
 			true,
 		);
@@ -341,6 +353,7 @@ describe("archive forwarder schema init", () => {
 			expect.arrayContaining([
 				"market_data",
 				"broker_execution",
+				"broker_account",
 				"strategy_data",
 			]),
 		);
@@ -356,6 +369,7 @@ describe("archive forwarder schema init", () => {
 				"broker_execution.market_metadata_snapshots",
 				"broker_execution.transfer_events",
 				"broker_execution.fill_events",
+				"broker_account.balance_snapshots",
 				"strategy_data.policy_evaluation_events",
 				"strategy_data.strategy_policy_snapshots",
 				"strategy_data.market_identity",
@@ -363,5 +377,24 @@ describe("archive forwarder schema init", () => {
 				"strategy_data.inventory_settlement_events",
 			]),
 		);
+
+		const balanceTable = statements.find((query) =>
+			/CREATE TABLE IF NOT EXISTS\s+broker_account\.balance_snapshots/i.test(
+				query,
+			),
+		);
+		expect(balanceTable).toContain(
+			"broker_observed_timestamp DateTime64(3, 'UTC')",
+		);
+		expect(balanceTable).toContain(
+			"exchange_timestamp Nullable(DateTime64(3, 'UTC'))",
+		);
+		expect(balanceTable).toContain("free_balances Map(String, String)");
+		expect(balanceTable).toContain("used_balances Map(String, String)");
+		expect(balanceTable).toContain("total_balances Map(String, String)");
+		expect(balanceTable).toContain(
+			"ORDER BY (exchange, account_selector, balance_scope, broker_observed_timestamp, observation_id)",
+		);
+		expect(balanceTable).not.toContain("TTL");
 	});
 });

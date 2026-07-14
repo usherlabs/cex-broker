@@ -12,8 +12,9 @@
 --   }
 --
 -- The forwarder is the single durable sink for every archive table: market_data.*
--- here, plus broker_execution.* (broker_execution.sql) and strategy_data.*
--- (strategy_data.sql). Execution rows may ALSO be mirrored to OTel logs for
+-- here, plus broker_execution.* (broker_execution.sql), broker_account.*
+-- (broker_account.sql), and strategy_data.* (strategy_data.sql). Execution rows
+-- may ALSO be mirrored to OTel logs for
 -- observability when CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED=true; that mirror is in
 -- addition to the forwarder, not a replacement, and market_data.* is never
 -- mirrored (no OTel schema exists for it).

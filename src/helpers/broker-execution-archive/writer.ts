@@ -4,7 +4,20 @@ import { SeverityNumber } from "@opentelemetry/api-logs";
 import { log } from "../logger";
 import { isMarketArchiveTable } from "../market-data-archive/types";
 import type { OtelLogs, OtelMetrics } from "../otel";
-import type { BrokerArchiveRow } from "./types";
+import type { BrokerArchiveRow, BrokerArchiveTable } from "./types";
+
+const BROKER_EXECUTION_ARCHIVE_TABLES = new Set<BrokerArchiveTable>([
+	"broker_execution.order_events",
+	"broker_execution.market_metadata_snapshots",
+	"broker_execution.transfer_events",
+	"broker_execution.fill_events",
+]);
+
+export function isBrokerExecutionArchiveTable(
+	table: BrokerArchiveTable,
+): boolean {
+	return BROKER_EXECUTION_ARCHIVE_TABLES.has(table);
+}
 
 export type BrokerExecutionArchiverOptions = {
 	deploymentId?: string;
@@ -150,6 +163,10 @@ export class BrokerExecutionArchiver {
 		);
 	}
 
+	canPersistAccountBalanceSnapshots(): boolean {
+		return this.isEnabled() && Boolean(this.forwarderUrl);
+	}
+
 	enqueue(row: BrokerArchiveRow): void {
 		if (
 			!this.enabled ||
@@ -166,6 +183,12 @@ export class BrokerExecutionArchiver {
 					{ table: row.table },
 				);
 			}
+			return;
+		}
+		if (
+			row.table === "broker_account.balance_snapshots" &&
+			!this.forwarderUrl
+		) {
 			return;
 		}
 		if (this.queue.length >= this.maxQueueSize) {
@@ -267,14 +290,15 @@ export class BrokerExecutionArchiver {
 		// even while a forwarder is unreachable. A requeued batch re-emits here on
 		// the retry flush; OTel logs are observability, not the audit source.
 		for (const entry of batch) {
-			if (!isMarketArchiveTable(entry.table)) {
+			if (isBrokerExecutionArchiveTable(entry.table)) {
 				this.emitOtelLog(entry);
 			}
 		}
 
 		// The forwarder is the durable sink for every archive table it supports
-		// (market_data.*, broker_execution.*, strategy_data.*). Requeue the whole
-		// batch on failure so nothing is silently dropped while a forwarder is set.
+		// (market_data.*, broker_execution.*, broker_account.*, strategy_data.*).
+		// Requeue the whole batch on failure so nothing is silently dropped while a
+		// forwarder is set.
 		if (this.forwarderUrl) {
 			try {
 				await this.postToForwarder(batch);
