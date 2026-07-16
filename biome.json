@@ -9,6 +9,7 @@
 		"ignoreUnknown": true,
 		"includes": [
 			"src/**",
+			"services/**",
 			"policy/**",
 			"test/**",
 			"scripts/**",
