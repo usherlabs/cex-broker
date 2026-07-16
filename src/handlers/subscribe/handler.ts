@@ -23,16 +23,6 @@ import {
 } from "../../helpers/constants";
 import { log } from "../../helpers/logger";
 import {
-	parseMarketType,
-	resolveSubscriptionSymbol,
-	type BrokerMarketType,
-} from "../../helpers/market-type";
-import {
-	normalizeOrderBookSnapshot,
-	parseOptionalDepthLimit,
-} from "../../helpers/order-book";
-import type { OtelMetrics } from "../../helpers/otel";
-import {
 	archiveCexStreamEventInBackground,
 	archiveOhlcvInBackground,
 	archiveOrderbookInBackground,
@@ -42,14 +32,26 @@ import {
 	createOhlcvBarTracker,
 	createOrderbookSampler,
 } from "../../helpers/market-data-archive";
+import {
+	type BrokerMarketType,
+	parseMarketType,
+	resolveSubscriptionSymbol,
+} from "../../helpers/market-type";
+import {
+	normalizeOrderBookSnapshot,
+	parseOptionalDepthLimit,
+} from "../../helpers/order-book";
+import type { OtelMetrics } from "../../helpers/otel";
 import { getErrorMessage } from "../../helpers/shared/errors";
 import type { SubscribeRequest, SubscribeResponse } from "../types";
+import { SubscribeBrokerLifecycle } from "./broker-lifecycle";
 
 export type SubscribeDeps = {
 	brokers: Record<string, BrokerPoolEntry>;
 	whitelistIps: string[];
 	otelMetrics?: OtelMetrics;
 	brokerArchiver?: BrokerExecutionArchiver;
+	brokerLifecycle?: SubscribeBrokerLifecycle;
 };
 
 type SubscribeCall = grpc.ServerWritableStream<
@@ -307,17 +309,38 @@ async function runCcxtSubscribeLoop(
 
 export function createSubscribeHandler(deps: SubscribeDeps) {
 	const { brokers, whitelistIps, otelMetrics, brokerArchiver } = deps;
+	const brokerLifecycle =
+		deps.brokerLifecycle ?? new SubscribeBrokerLifecycle();
 
 	return async (call: SubscribeCall) => {
 		const subscribeStartTime = Date.now();
 		let streamClosed = false;
+		let ownedBroker: Exchange | null = null;
+		let ownedBrokerClosePromise: Promise<unknown> | undefined;
 		const markStreamClosed = () => {
 			streamClosed = true;
 		};
-		const isStreamClosed = () => streamClosed || call.destroyed;
+		const isStreamClosed = () =>
+			streamClosed || call.cancelled || call.writableEnded;
+		const closeOwnedBroker = (): Promise<unknown> => {
+			if (ownedBrokerClosePromise) {
+				return ownedBrokerClosePromise;
+			}
+			if (!ownedBroker) {
+				return Promise.resolve();
+			}
+			const broker = ownedBroker;
+			ownedBroker = null;
+			ownedBrokerClosePromise = brokerLifecycle.close(broker);
+			return ownedBrokerClosePromise;
+		};
+		const closeOwnedBrokerOnCallEnd = () => {
+			void closeOwnedBroker();
+		};
 
-		call.once("close", markStreamClosed);
 		call.once("cancelled", markStreamClosed);
+		call.once("cancelled", closeOwnedBrokerOnCallEnd);
+		call.once("error", closeOwnedBrokerOnCallEnd);
 		call.once("end", () => {
 			markStreamClosed();
 			log.info("Subscribe stream ended");
@@ -404,6 +427,17 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					type: subscriptionType,
 				});
 				return;
+			}
+			if (!selectedBrokerAccount) {
+				ownedBroker = broker;
+				brokerLifecycle.register(broker, {
+					cex: normalizedCex,
+					symbol,
+				});
+				if (isStreamClosed()) {
+					await closeOwnedBroker();
+					return;
+				}
 			}
 
 			const resolvedSymbol = await resolveSubscriptionSymbol(
@@ -764,6 +798,10 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				symbol: "",
 				type: subscriptionType,
 			});
+		} finally {
+			call.off("cancelled", closeOwnedBrokerOnCallEnd);
+			call.off("error", closeOwnedBrokerOnCallEnd);
+			await closeOwnedBroker();
 		}
 	};
 }
