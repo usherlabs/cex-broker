@@ -41,6 +41,7 @@ const DEFAULT_MAX_QUEUE_SIZE = 10_000;
 const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_FLUSH_INTERVAL_MS = 1_000;
 const DEFAULT_FORWARDER_TIMEOUT_MS = 3_000;
+const SHED_WARN_INTERVAL_MS = 60_000;
 const DEFAULT_ARCHIVE_FORWARDER_PATH = "/archive";
 const DEFAULT_ARCHIVE_FORWARDER_PORT = 8090;
 
@@ -95,6 +96,7 @@ export class BrokerExecutionArchiver {
 	};
 	private flushTimer: ReturnType<typeof setInterval> | null = null;
 	private flushInFlight: Promise<void> | null = null;
+	private lastShedWarnAtMs = 0;
 	private closed = false;
 	private loggedMissingMarketForwarder = false;
 	private readonly enabled: boolean;
@@ -197,6 +199,17 @@ export class BrokerExecutionArchiver {
 			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
 				table: row.table,
 			});
+			// Shedding means silent archive data loss; the metric alone is invisible
+			// when OTel is disabled, so surface it in logs (rate-limited per row burst).
+			const now = Date.now();
+			if (now - this.lastShedWarnAtMs >= SHED_WARN_INTERVAL_MS) {
+				log.warn("Archive queue full: shedding oldest rows", {
+					shed_total: this.stats.shed,
+					queue_max: this.maxQueueSize,
+					table: row.table,
+				});
+				this.lastShedWarnAtMs = now;
+			}
 		}
 		this.queue.push(row);
 		this.stats.enqueued += 1;
