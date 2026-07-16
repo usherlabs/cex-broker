@@ -124,11 +124,31 @@ export class OhlcvCollector {
 		try {
 			await Promise.all(
 				this.#subscriptions.map((subscription) =>
-					this.#supervise(subscription, signal),
+					this.#keepSupervisorAlive(subscription, signal),
 				),
 			);
 		} finally {
 			this.#client.close();
+		}
+	}
+
+	async #keepSupervisorAlive(
+		subscription: OhlcvSubscription,
+		signal: AbortSignal,
+	): Promise<void> {
+		while (!signal.aborted) {
+			try {
+				await this.#supervise(subscription, signal);
+				return;
+			} catch (error) {
+				log.error("OHLCV collector pair supervisor failed; restarting", {
+					...pairLabels(subscription),
+					error,
+				});
+				if (!(await waitForDelay(this.#retry.initialDelayMs, signal))) {
+					return;
+				}
+			}
 		}
 	}
 
