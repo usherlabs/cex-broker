@@ -172,7 +172,7 @@ type ThrowingSubscriptionMethod =
 	| "watchOrderBook"
 	| "watchTrades"
 	| "watchTicker"
-	| "fetchOHLCVWs"
+	| "watchOHLCV"
 	| "watchBalance"
 	| "watchOrders";
 
@@ -267,7 +267,7 @@ describe("subscribe handler", () => {
 		},
 		{
 			type: SubscriptionType.OHLCV,
-			method: "fetchOHLCVWs",
+			method: "watchOHLCV",
 			errorMessage: "ohlcv boom",
 			expectedError: "Failed to fetch OHLCV: ohlcv boom",
 		},
@@ -456,7 +456,7 @@ describe("subscribe handler", () => {
 		try {
 			const controlledWatch = createControlledWatch();
 			const exchange = {
-				fetchOHLCVWs: controlledWatch.watch,
+				watchOHLCV: controlledWatch.watch,
 			} as unknown as Exchange;
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
