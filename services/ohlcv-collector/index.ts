@@ -1,4 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
+import { SubscribeBrokerLifecycle } from "../../src/handlers/subscribe";
 import { createBrokerExecutionArchiverFromEnv } from "../../src/helpers/broker-execution-archive";
 import { log } from "../../src/helpers/logger";
 import {
@@ -16,6 +17,43 @@ const PUBLIC_ONLY_POLICY: PolicyConfig = {
 	order: { rule: { markets: [], limits: [] } },
 };
 
+// CCXT can otherwise retain a connecting WebSocket until its own 10-second timer fires.
+const SHUTDOWN_CLOSE_TIMEOUT_MS = 2_000;
+
+type CloseResult = "closed" | "failed" | "timed_out";
+
+async function closeWithinDeadline(
+	path: string,
+	close: () => Promise<void>,
+): Promise<CloseResult> {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const result = await Promise.race([
+			close().then(() => "closed" as const),
+			new Promise<"timed_out">((resolve) => {
+				timeout = setTimeout(
+					() => resolve("timed_out"),
+					SHUTDOWN_CLOSE_TIMEOUT_MS,
+				);
+			}),
+		]);
+		if (result === "timed_out") {
+			log.warn("OHLCV collector shutdown path timed out", {
+				path,
+				timeout_ms: SHUTDOWN_CLOSE_TIMEOUT_MS,
+			});
+		}
+		return result;
+	} catch (error) {
+		log.warn("OHLCV collector shutdown path failed", { path, error });
+		return "failed";
+	} finally {
+		if (timeout) {
+			clearTimeout(timeout);
+		}
+	}
+}
+
 function bindPublicBroker(server: grpc.Server): Promise<number> {
 	return new Promise((resolve, reject) => {
 		server.bindAsync(
@@ -32,11 +70,12 @@ function bindPublicBroker(server: grpc.Server): Promise<number> {
 	});
 }
 
-async function run(): Promise<void> {
+async function run(): Promise<string[]> {
 	const subscriptions = await loadOhlcvCollectorConfig();
 	const metrics = createOtelMetricsFromEnv();
 	const otelLogs = createOtelLogsFromEnv();
 	const archiver = createBrokerExecutionArchiverFromEnv(otelLogs, metrics);
+	const subscribeBrokerLifecycle = new SubscribeBrokerLifecycle();
 	const server = getServer(
 		PUBLIC_ONLY_POLICY,
 		{},
@@ -45,6 +84,9 @@ async function run(): Promise<void> {
 		"",
 		metrics,
 		archiver,
+		undefined,
+		undefined,
+		subscribeBrokerLifecycle,
 	);
 	const shutdown = new AbortController();
 	const onSignal = (signal: NodeJS.Signals) => {
@@ -53,6 +95,7 @@ async function run(): Promise<void> {
 	};
 	process.once("SIGINT", onSignal);
 	process.once("SIGTERM", onSignal);
+	const incompletePaths: string[] = [];
 
 	try {
 		await metrics.initialize();
@@ -75,14 +118,37 @@ async function run(): Promise<void> {
 		process.off("SIGINT", onSignal);
 		process.off("SIGTERM", onSignal);
 		server.forceShutdown();
-		await archiver.close();
-		await metrics.close();
-		await otelLogs.close();
+		const closeAndRecord = async (
+			path: string,
+			close: () => Promise<void>,
+		): Promise<void> => {
+			if ((await closeWithinDeadline(path, close)) !== "closed") {
+				incompletePaths.push(path);
+			}
+		};
+		const brokerClose = closeAndRecord("subscribe_brokers", () =>
+			subscribeBrokerLifecycle.closeAll(),
+		);
+		await closeAndRecord("archiver", () => archiver.close());
+		await closeAndRecord("metrics", () => metrics.close());
+		await closeAndRecord("otel_logs", () => otelLogs.close());
+		await brokerClose;
+		log.info("OHLCV collector service stopped", {
+			incomplete_paths: incompletePaths,
+		});
 	}
+
+	return incompletePaths;
 }
 
 try {
-	await run();
+	const incompletePaths = await run();
+	if (incompletePaths.length > 0) {
+		log.warn("Forcing process exit after bounded OHLCV collector shutdown", {
+			incomplete_paths: incompletePaths,
+		});
+		process.exit(0);
+	}
 } catch (error) {
 	log.fatal("OHLCV collector service failed", { error });
 	process.exitCode = 1;

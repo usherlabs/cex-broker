@@ -1,5 +1,6 @@
 import * as grpc from "@grpc/grpc-js";
 import { createExecuteActionHandler } from "./handlers/execute-action";
+import type { SubscribeBrokerLifecycle } from "./handlers/subscribe";
 import { createSubscribeHandler } from "./handlers/subscribe";
 import type { BrokerPoolEntry } from "./helpers";
 import type {
@@ -32,6 +33,7 @@ export function getServer(
 	brokerArchiver?: BrokerExecutionArchiver,
 	orderActivityTracker?: OrderActivityTracker,
 	withdrawalObservationTracker?: WithdrawalObservationTracker,
+	subscribeBrokerLifecycle?: SubscribeBrokerLifecycle,
 ) {
 	const server = new grpc.Server();
 
@@ -52,6 +54,7 @@ export function getServer(
 			whitelistIps,
 			otelMetrics,
 			brokerArchiver,
+			brokerLifecycle: subscribeBrokerLifecycle,
 		}),
 	});
 	return server;
