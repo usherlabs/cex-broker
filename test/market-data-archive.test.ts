@@ -205,6 +205,15 @@ describe("orderbook sampler", () => {
 });
 
 describe("ohlcv bar tracker", () => {
+	const snapshot = Array.from({ length: 500 }, (_, index) => [
+		1_700_000_000_000 + index * 60_000,
+		1,
+		2,
+		0.5,
+		1.5,
+		10,
+	]);
+
 	test("parseOhlcvBar accepts CCXT tuple shape", () => {
 		expect(parseOhlcvBar([1_000, 1, 2, 0.5, 1.5, 10, 15])).toEqual({
 			openTimeMs: 1_000,
@@ -278,6 +287,63 @@ describe("ohlcv bar tracker", () => {
 				isClosed: false,
 				brokerVersion: 200,
 			},
+		]);
+	});
+
+	test("preserves all bars in the first batch and leaves the newest open", () => {
+		const tracker = new OhlcvBarTracker();
+
+		const candidates = tracker.process(snapshot, 100);
+
+		expect(candidates).toHaveLength(500);
+		expect(
+			candidates.map(({ bar, isClosed }) => ({
+				openTimeMs: bar.openTimeMs,
+				isClosed,
+			})),
+		).toEqual(
+			snapshot.map(([openTimeMs], index) => ({
+				openTimeMs,
+				isClosed: index < snapshot.length - 1,
+			})),
+		);
+	});
+
+	test("repeated snapshot only re-emits the open bar update", () => {
+		const tracker = new OhlcvBarTracker();
+		tracker.process(snapshot, 100);
+
+		const candidates = tracker.process(snapshot, 200);
+
+		expect(candidates).toHaveLength(1);
+		expect(candidates[0]).toMatchObject({
+			bar: { openTimeMs: snapshot.at(-1)?.[0] },
+			isClosed: false,
+			brokerVersion: 200,
+		});
+	});
+
+	test("overlapping snapshot closes the previous open bar and emits the new open bar", () => {
+		const tracker = new OhlcvBarTracker();
+		tracker.process(snapshot, 100);
+		const previousOpenTimeMs = snapshot.at(-1)?.[0] ?? 0;
+		const nextOpenTimeMs = previousOpenTimeMs + 60_000;
+		const overlappingSnapshot = [
+			...snapshot.slice(1),
+			[nextOpenTimeMs, 1.5, 2.5, 1, 2, 12],
+		];
+
+		const candidates = tracker.process(overlappingSnapshot, 200);
+
+		expect(
+			candidates.map(({ bar, isClosed, brokerVersion }) => ({
+				openTimeMs: bar.openTimeMs,
+				isClosed,
+				brokerVersion,
+			})),
+		).toEqual([
+			{ openTimeMs: previousOpenTimeMs, isClosed: true, brokerVersion: 200 },
+			{ openTimeMs: nextOpenTimeMs, isClosed: false, brokerVersion: 200 },
 		]);
 	});
 });

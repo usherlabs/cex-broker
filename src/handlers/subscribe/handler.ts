@@ -679,7 +679,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 							}
 						}
 						while (ohlcvStreamActive && !isStreamClosed()) {
-							const data = await broker.fetchOHLCVWs(resolvedSymbol, timeframe);
+							const data = await broker.watchOHLCV(resolvedSymbol, timeframe);
 							const receivedTimestamp = Date.now();
 							if (
 								!(await writeSubscribeFrame(call, isStreamClosed, {

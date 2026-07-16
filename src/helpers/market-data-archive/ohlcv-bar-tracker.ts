@@ -116,11 +116,18 @@ export class OhlcvBarTracker {
 		if (!firstBar || !lastBar) {
 			return [];
 		}
+		const lastOpenTimeMs = this.lastOpenTimeMs;
 
-		if (
-			this.lastOpenTimeMs !== null &&
-			lastBar.openTimeMs < this.lastOpenTimeMs
-		) {
+		if (lastOpenTimeMs !== null && lastBar.openTimeMs < lastOpenTimeMs) {
+			return [];
+		}
+		const barsToProcess =
+			lastOpenTimeMs === null
+				? bars
+				: bars.filter((bar) => bar.openTimeMs >= lastOpenTimeMs);
+		const firstBarToProcess = barsToProcess[0];
+		const lastBarToProcess = barsToProcess[barsToProcess.length - 1];
+		if (!firstBarToProcess || !lastBarToProcess) {
 			return [];
 		}
 
@@ -128,9 +135,8 @@ export class OhlcvBarTracker {
 
 		if (
 			this.lastBar !== null &&
-			this.lastOpenTimeMs !== null &&
-			!bars.some((bar) => bar.openTimeMs === this.lastOpenTimeMs) &&
-			this.lastOpenTimeMs < firstBar.openTimeMs
+			lastOpenTimeMs !== null &&
+			lastOpenTimeMs < firstBarToProcess.openTimeMs
 		) {
 			candidates.push({
 				bar: this.lastBar,
@@ -139,8 +145,8 @@ export class OhlcvBarTracker {
 			});
 		}
 
-		for (let index = 0; index < bars.length - 1; index += 1) {
-			const bar = bars[index];
+		for (let index = 0; index < barsToProcess.length - 1; index += 1) {
+			const bar = barsToProcess[index];
 			if (bar) {
 				candidates.push({
 					bar,
@@ -151,13 +157,13 @@ export class OhlcvBarTracker {
 		}
 
 		candidates.push({
-			bar: lastBar,
+			bar: lastBarToProcess,
 			isClosed: false,
 			brokerVersion,
 		});
 
-		this.lastOpenTimeMs = lastBar.openTimeMs;
-		this.lastBar = lastBar;
+		this.lastOpenTimeMs = lastBarToProcess.openTimeMs;
+		this.lastBar = lastBarToProcess;
 		return candidates;
 	}
 }

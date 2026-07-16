@@ -10,7 +10,7 @@ class ShutdownTestExchange {
 
 	extendExchangeOptions(): void {}
 
-	async fetchOHLCVWs(): Promise<number[][]> {
+	async watchOHLCV(): Promise<number[][]> {
 		this.#fetchCount += 1;
 		const countPath = process.env.OHLCV_TEST_EXCHANGE_COUNT_PATH;
 		if (countPath) {
