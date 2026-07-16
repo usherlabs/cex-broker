@@ -33,6 +33,7 @@ function createSubscribeCall(
 	};
 	const writeResults = [...(options.writeResults ?? [])];
 	const call = Object.assign(emitter, {
+		cancelled: false,
 		metadata: new grpc.Metadata(),
 		request,
 		getPeer: () => "127.0.0.1:1234",
@@ -63,6 +64,14 @@ function createSubscribeCall(
 		>,
 		state,
 	};
+}
+
+function cancelSubscribeCall(
+	call: grpc.ServerWritableStream<SubscribeRequest, SubscribeResponse>,
+): void {
+	call.cancelled = true;
+	call.emit("cancelled", "cancelled");
+	call.destroy();
 }
 
 function nextTick(): Promise<void> {
@@ -140,7 +149,7 @@ async function expectBackpressureWaitsForDrain({
 
 	call.emit("drain");
 	await waitFor(() => controlledWatch.calls.length === 2);
-	call.emit("close");
+	cancelSubscribeCall(call);
 	controlledWatch.resolvers[1]?.(secondValue);
 	await handlerPromise;
 
@@ -179,6 +188,32 @@ function createThrowingExchange(
 }
 
 describe("subscribe handler", () => {
+	test("keeps a subscription active when close fires without cancellation", async () => {
+		const controlledWatch = createControlledWatch();
+		const exchange = {
+			watchTrades: controlledWatch.watch,
+		} as unknown as Exchange;
+		const { call } = createSubscribeCall({
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: SubscriptionType.TRADES,
+		});
+		const handler = createSubscribeHandler({
+			brokers: createPool(exchange),
+			whitelistIps: ["*"],
+		});
+		const handlerPromise = handler(call);
+
+		await waitFor(() => controlledWatch.calls.length === 1);
+		call.emit("close");
+		controlledWatch.resolvers[0]?.([{ id: "trade-1" }]);
+		await waitFor(() => controlledWatch.calls.length === 2);
+
+		cancelSubscribeCall(call);
+		controlledWatch.resolvers[1]?.([{ id: "trade-2" }]);
+		await handlerPromise;
+	});
+
 	test.each([
 		{
 			type: SubscriptionType.TRADES,
@@ -360,7 +395,7 @@ describe("subscribe handler", () => {
 			// forwarder over the real transport rather than racing the round trip.
 			await waitFor(() => archiver.getStats().flushed >= 1);
 			await waitFor(() => controlledWatch.calls.length >= 2);
-			call.emit("close");
+			cancelSubscribeCall(call);
 			controlledWatch.resolvers[1]?.({
 				bids: [[100, 1.5]],
 				asks: [[101, 2]],
@@ -449,7 +484,7 @@ describe("subscribe handler", () => {
 			// forwarder over the real transport rather than racing the round trip.
 			await waitFor(() => archiver.getStats().flushed >= 1);
 			await waitFor(() => controlledWatch.calls.length >= 2);
-			call.emit("close");
+			cancelSubscribeCall(call);
 			controlledWatch.resolvers[1]?.([[1_700_000_000_000, 1, 2, 0.5, 1.5, 10]]);
 			await handlerPromise;
 

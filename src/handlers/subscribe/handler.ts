@@ -320,7 +320,8 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		const markStreamClosed = () => {
 			streamClosed = true;
 		};
-		const isStreamClosed = () => streamClosed || call.destroyed;
+		const isStreamClosed = () =>
+			streamClosed || call.cancelled || call.writableEnded;
 		const closeOwnedBroker = (): Promise<void> => {
 			if (ownedBrokerClosePromise) {
 				return ownedBrokerClosePromise;
@@ -337,9 +338,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			void closeOwnedBroker();
 		};
 
-		call.once("close", markStreamClosed);
 		call.once("cancelled", markStreamClosed);
-		call.once("close", closeOwnedBrokerOnCallEnd);
 		call.once("cancelled", closeOwnedBrokerOnCallEnd);
 		call.once("error", closeOwnedBrokerOnCallEnd);
 		call.once("end", () => {
@@ -800,7 +799,6 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				type: subscriptionType,
 			});
 		} finally {
-			call.off("close", closeOwnedBrokerOnCallEnd);
 			call.off("cancelled", closeOwnedBrokerOnCallEnd);
 			call.off("error", closeOwnedBrokerOnCallEnd);
 			await closeOwnedBroker();

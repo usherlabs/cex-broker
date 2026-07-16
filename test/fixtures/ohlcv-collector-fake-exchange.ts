@@ -6,10 +6,16 @@ class ShutdownTestExchange {
 	enableRateLimit = false;
 	timeout = 0;
 	#keepAlive: ReturnType<typeof setInterval> | undefined;
+	#fetchCount = 0;
 
 	extendExchangeOptions(): void {}
 
 	async fetchOHLCVWs(): Promise<number[][]> {
+		this.#fetchCount += 1;
+		const countPath = process.env.OHLCV_TEST_EXCHANGE_COUNT_PATH;
+		if (countPath) {
+			await Bun.write(countPath, String(this.#fetchCount));
+		}
 		if (!this.#keepAlive) {
 			this.#keepAlive = setInterval(() => {}, 1_000);
 			const activePath = process.env.OHLCV_TEST_EXCHANGE_ACTIVE_PATH;

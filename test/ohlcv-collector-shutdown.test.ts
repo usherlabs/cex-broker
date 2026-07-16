@@ -11,14 +11,33 @@ async function waitForFile(filePath: string): Promise<void> {
 	throw new Error(`Timed out waiting for ${filePath}`);
 }
 
+async function waitForFetchCount(
+	filePath: string,
+	minimum: number,
+): Promise<number> {
+	for (let attempt = 0; attempt < 200; attempt += 1) {
+		if (await Bun.file(filePath).exists()) {
+			const count = Number(await Bun.file(filePath).text());
+			if (count >= minimum) {
+				return count;
+			}
+		}
+		await Bun.sleep(10);
+	}
+	throw new Error(`Timed out waiting for ${minimum} fetches in ${filePath}`);
+}
+
 async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 	exitCode: number;
 	closeMarker: string;
+	countBeforeShutdown: number;
+	countAtShutdown: number;
 	output: string;
 }> {
 	const fixtureId = crypto.randomUUID();
 	const configPath = `/tmp/ohlcv-shutdown-${fixtureId}.json`;
 	const activePath = `/tmp/ohlcv-shutdown-${fixtureId}.active`;
+	const countPath = `/tmp/ohlcv-shutdown-${fixtureId}.count`;
 	const closedPath = `/tmp/ohlcv-shutdown-${fixtureId}.closed`;
 	await Bun.write(
 		configPath,
@@ -38,6 +57,7 @@ async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 			CEX_BROKER_OHLCV_COLLECTOR_CONFIG: configPath,
 			CEX_BROKER_OHLCV_ARCHIVE_BOOTSTRAP_LIMIT: "0",
 			OHLCV_TEST_EXCHANGE_ACTIVE_PATH: activePath,
+			OHLCV_TEST_EXCHANGE_COUNT_PATH: countPath,
 			OHLCV_TEST_EXCHANGE_CLOSED_PATH: closedPath,
 			OHLCV_TEST_EXCHANGE_CLOSE_HANG: String(exchangeCloseHangs),
 		},
@@ -49,6 +69,14 @@ async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 
 	try {
 		await waitForFile(activePath);
+		const countBeforeShutdown = await waitForFetchCount(countPath, 5);
+		expect(await Bun.file(closedPath).exists()).toBe(false);
+		await Bun.sleep(100);
+		const countAtShutdown = await waitForFetchCount(
+			countPath,
+			countBeforeShutdown + 1,
+		);
+		expect(await Bun.file(closedPath).exists()).toBe(false);
 		child.kill("SIGTERM");
 		const result = await Promise.race([
 			child.exited.then((exitCode) => ({ exitCode })),
@@ -64,6 +92,8 @@ async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 		return {
 			exitCode: result.exitCode,
 			closeMarker: await Bun.file(closedPath).text(),
+			countBeforeShutdown,
+			countAtShutdown,
 			output: `${await stdout}\n${await stderr}`,
 		};
 	} finally {
@@ -72,7 +102,7 @@ async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 			await child.exited;
 		}
 		await Promise.all(
-			[configPath, activePath, closedPath].map(async (filePath) => {
+			[configPath, activePath, countPath, closedPath].map(async (filePath) => {
 				if (await Bun.file(filePath).exists()) {
 					await Bun.file(filePath).delete();
 				}
@@ -85,6 +115,7 @@ test("entrypoint exits promptly on SIGTERM after an exchange stream opens", asyn
 	const result = await runShutdownCase(false);
 	expect(result.exitCode).toBe(0);
 	expect(result.closeMarker).toBe("closed");
+	expect(result.countAtShutdown).toBeGreaterThan(result.countBeforeShutdown);
 });
 
 test("entrypoint bounds shutdown when an exchange close does not resolve", async () => {
