@@ -22,4 +22,7 @@ COPY services/ohlcv-collector ./services/ohlcv-collector
 # roughly 16 hours of gap coverage without adding a collector-side write/backfill path.
 ENV CEX_BROKER_OHLCV_ARCHIVE_BOOTSTRAP_LIMIT=1000
 
+# The collector needs no elevated privileges; run as the base image's bun user.
+USER bun
+
 CMD ["bun", "run", "services/ohlcv-collector/index.ts"]

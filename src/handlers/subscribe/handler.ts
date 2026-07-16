@@ -316,13 +316,13 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		const subscribeStartTime = Date.now();
 		let streamClosed = false;
 		let ownedBroker: Exchange | null = null;
-		let ownedBrokerClosePromise: Promise<void> | undefined;
+		let ownedBrokerClosePromise: Promise<unknown> | undefined;
 		const markStreamClosed = () => {
 			streamClosed = true;
 		};
 		const isStreamClosed = () =>
 			streamClosed || call.cancelled || call.writableEnded;
-		const closeOwnedBroker = (): Promise<void> => {
+		const closeOwnedBroker = (): Promise<unknown> => {
 			if (ownedBrokerClosePromise) {
 				return ownedBrokerClosePromise;
 			}
