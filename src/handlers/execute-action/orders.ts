@@ -3,6 +3,7 @@ import { resolveOrderExecution } from "../../helpers";
 import {
 	archiveOrderExecutionInBackground,
 	captureMarketMetadataSnapshot,
+	rethrowArchiveDurabilityError,
 } from "../../helpers/broker-execution-archive";
 import { Action } from "../../helpers/constants";
 import {
@@ -143,6 +144,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		);
 		ctx.wrappedCallback(null, { result: JSON.stringify({ ...order }) });
 	} catch (error) {
+		rethrowArchiveDurabilityError(error);
 		safeLogRedactedError("Order Creation failed", error);
 		const failedCreateContext = {
 			action: "CreateOrder" as const,

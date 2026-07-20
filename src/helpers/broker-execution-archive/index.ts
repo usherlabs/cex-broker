@@ -46,10 +46,12 @@ export {
 	WithdrawalObservationTracker,
 } from "./withdrawal-observation-tracker";
 export {
+	BrokerExecutionArchiveDurabilityError,
 	BrokerExecutionArchiver,
 	type BrokerExecutionArchiverOptions,
 	createBrokerExecutionArchiverFromEnv,
 	isArchiveOtelLogsEnabled,
 	isBrokerExecutionArchiveTable,
 	resolveArchiveForwarderUrlFromEnv,
+	rethrowArchiveDurabilityError,
 } from "./writer";

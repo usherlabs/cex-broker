@@ -1,5 +1,13 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	closeSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LogRecord } from "@opentelemetry/api-logs";
@@ -25,11 +33,13 @@ import {
 	WithdrawalObservationTracker,
 } from "../src/helpers/broker-execution-archive/withdrawal-observation-tracker";
 import {
+	BrokerExecutionArchiveDurabilityError,
 	BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
 	isArchiveOtelLogsEnabled,
 	isBrokerExecutionArchiveTable,
 	resolveArchiveForwarderUrlFromEnv,
+	rethrowArchiveDurabilityError,
 } from "../src/helpers/broker-execution-archive/writer";
 import { log } from "../src/helpers/logger";
 import { buildOrderExecutionTelemetry } from "../src/helpers/order-telemetry";
@@ -757,6 +767,83 @@ describe("broker execution archiver queue", () => {
 		expect(isBrokerExecutionArchiveTable("market_data.candles")).toBe(false);
 	});
 
+	test("classifies and rethrows only archive durability failures", () => {
+		const durabilityError = new BrokerExecutionArchiveDurabilityError(
+			"loss journal write failed",
+		);
+		expect(() => rethrowArchiveDurabilityError(durabilityError)).toThrow(
+			durabilityError,
+		);
+		expect(() =>
+			rethrowArchiveDurabilityError(new Error("ordinary capture failure")),
+		).not.toThrow();
+	});
+
+	test("creates loss journals as owner-only without chmodding existing files", async () => {
+		const newPath = createDeadLetterPath();
+		const created = BrokerExecutionArchiver.create({
+			forwarderUrl: "http://127.0.0.1:9/archive",
+			deadLetterPath: newPath,
+			flushIntervalMs: 60_000,
+		});
+		expect(statSync(newPath).mode & 0o777).toBe(0o600);
+		await created.close();
+
+		const existingPath = createDeadLetterPath();
+		writeFileSync(existingPath, "");
+		chmodSync(existingPath, 0o640);
+		const existing = BrokerExecutionArchiver.create({
+			forwarderUrl: "http://127.0.0.1:9/archive",
+			deadLetterPath: existingPath,
+			flushIntervalMs: 60_000,
+		});
+		await existing.close();
+		expect(statSync(existingPath).mode & 0o777).toBe(0o640);
+	});
+
+	test("retains the oldest queued row when loss journaling fails", async () => {
+		const deadLetterPath = createDeadLetterPath();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: "http://127.0.0.1:9/archive",
+			deadLetterPath,
+			maxQueueSize: 1,
+			batchSize: 10,
+			flushIntervalMs: 60_000,
+		});
+		archiver.enqueue({
+			table: "broker_execution.order_events",
+			row: { order_id: "oldest" },
+		});
+
+		const deadLetterFd = Reflect.get(archiver, "deadLetterFd");
+		expect(typeof deadLetterFd).toBe("number");
+		closeSync(deadLetterFd as number);
+
+		expect(() =>
+			archiver.enqueue({
+				table: "broker_execution.order_events",
+				row: { order_id: "new" },
+			}),
+		).toThrow(BrokerExecutionArchiveDurabilityError);
+		expect(archiver.getQueueDepth()).toBe(1);
+		expect(archiver.getStats().shed).toBe(0);
+
+		// The retention assertion is complete; clear the private queue only to let
+		// close exercise and release the deliberately invalidated file handle.
+		(Reflect.get(archiver, "queue") as unknown[]).length = 0;
+		let closeError: unknown;
+		try {
+			await archiver.close();
+		} catch (error) {
+			closeError = error;
+		}
+		expect(closeError).toBeInstanceOf(BrokerExecutionArchiveDurabilityError);
+		expect((closeError as Error).message).toContain(
+			"CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH",
+		);
+		expect((closeError as Error).message).not.toContain(deadLetterPath);
+	});
+
 	test("posts JSON with the bearer token over the real node:http transport", async () => {
 		const server = await startForwarderServer();
 		const originalToken = process.env.CEX_BROKER_ARCHIVE_FORWARDER_TOKEN;
@@ -1169,9 +1256,17 @@ describe("broker execution archiver env", () => {
 			process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL =
 				"http://127.0.0.1:8090/archive";
 			process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH = archiveTestDirectory;
-			expect(() => createBrokerExecutionArchiverFromEnv()).toThrow(
-				"cannot open dead-letter path",
+			let openError: unknown;
+			try {
+				createBrokerExecutionArchiverFromEnv();
+			} catch (error) {
+				openError = error;
+			}
+			expect(openError).toBeInstanceOf(Error);
+			expect((openError as Error).message).toContain(
+				"CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH",
 			);
+			expect((openError as Error).message).not.toContain(archiveTestDirectory);
 		} finally {
 			restoreEnv("CEX_BROKER_ARCHIVE_ENABLED", originalEnabled);
 			restoreEnv("CEX_BROKER_ARCHIVE_FORWARDER_URL", originalForwarderUrl);
@@ -1220,11 +1315,14 @@ describe("broker execution archiver env", () => {
 
 	test("disabled and enabled construction each announce startup state once", async () => {
 		const info = spyOn(log, "info").mockImplementation(() => {});
+		const forwarderUrl = "http://archive.example.invalid/private/archive";
+		const deadLetterPath = createDeadLetterPath();
 		try {
 			const disabled = BrokerExecutionArchiver.disabled();
 			const enabled = BrokerExecutionArchiver.create({
-				forwarderUrl: "http://127.0.0.1:8090/archive",
-				deadLetterPath: createDeadLetterPath(),
+				forwarderUrl,
+				deadLetterPath,
+				otelLogs: new MockOtelLogs(),
 				deploymentId: "announce-test",
 				flushIntervalMs: 60_000,
 			});
@@ -1238,15 +1336,17 @@ describe("broker execution archiver env", () => {
 					([message]) => message === "Broker execution archive enabled",
 				),
 			).toHaveLength(1);
-			expect(
-				info.mock.calls.find(
-					([message]) => message === "Broker execution archive enabled",
-				)?.[1],
-			).toMatchObject({
+			const enabledCall = info.mock.calls.find(
+				([message]) => message === "Broker execution archive enabled",
+			);
+			expect(enabledCall?.[1]).toEqual({
 				enabled: true,
-				deployment_id: "announce-test",
-				forwarder: "http://127.0.0.1:8090/archive",
+				otel_mirror_enabled: true,
 			});
+			const startupOutput = JSON.stringify(enabledCall);
+			expect(startupOutput).not.toContain(forwarderUrl);
+			expect(startupOutput).not.toContain(deadLetterPath);
+			expect(startupOutput).not.toContain("announce-test");
 			await disabled.close();
 			await enabled.close();
 		} finally {

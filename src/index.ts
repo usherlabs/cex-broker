@@ -371,7 +371,6 @@ export default class CEXBroker {
 		});
 		this.depositReconciler.start();
 
-		// Per-fill capture from the venue trade-history endpoint. Only runs when the
 		// Fill capture starts only after the archive configuration has passed its
 		// forwarder and durable loss-journal validation.
 		if (this.brokerArchiver?.isEnabled()) {

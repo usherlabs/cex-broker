@@ -77,6 +77,8 @@ CEX_BROKER_MARKET_ARCHIVE_ENABLED=true
 CEX_BROKER_DEPLOYMENT_ID=local-dev
 ```
 
+For production durability, `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH` must be on persistent writable storage or a mounted volume. A container-local ephemeral path does not preserve loss records across container replacement.
+
 If broker runs in Docker on the same compose network:
 
 ```env

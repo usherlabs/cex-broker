@@ -32,6 +32,19 @@ export type BrokerExecutionArchiverOptions = {
 	forwarderTimeoutMs?: number;
 };
 
+export class BrokerExecutionArchiveDurabilityError extends Error {
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "BrokerExecutionArchiveDurabilityError";
+	}
+}
+
+export function rethrowArchiveDurabilityError(error: unknown): void {
+	if (error instanceof BrokerExecutionArchiveDurabilityError) {
+		throw error;
+	}
+}
+
 type ArchiverStats = {
 	enqueued: number;
 	shed: number;
@@ -121,18 +134,19 @@ export class BrokerExecutionArchiver {
 			return;
 		}
 
-		const forwarderUrl = validateForwarderUrl(this.forwarderUrl);
+		validateForwarderUrl(this.forwarderUrl);
 		if (!this.deadLetterPath) {
 			throw new Error(
 				"Broker execution archive is enabled but CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH is missing",
 			);
 		}
 		try {
-			this.deadLetterFd = openSync(this.deadLetterPath, "a");
-		} catch (error) {
+			// The mode applies only when creating the file; existing operator-owned
+			// files retain their configured permissions.
+			this.deadLetterFd = openSync(this.deadLetterPath, "a", 0o600);
+		} catch {
 			throw new Error(
-				`Broker execution archive cannot open dead-letter path ${this.deadLetterPath} for append`,
-				{ cause: error },
+				"Broker execution archive cannot open CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH for append",
 			);
 		}
 
@@ -143,14 +157,10 @@ export class BrokerExecutionArchiver {
 			this.flushTimer.unref?.();
 			log.info("Broker execution archive enabled", {
 				enabled: true,
-				deployment_id: this.deploymentId,
-				forwarder: describeForwarderUrl(forwarderUrl),
-				dead_letter_path: this.deadLetterPath,
 				otel_mirror_enabled: Boolean(this.otelLogs?.isOtelEnabled()),
 			});
 		} catch (error) {
-			closeSync(this.deadLetterFd);
-			this.deadLetterFd = undefined;
+			this.closeLossJournal();
 			throw error;
 		}
 	}
@@ -266,14 +276,9 @@ export class BrokerExecutionArchiver {
 		this.closed = true;
 		if (this.deadLetterFd !== undefined) {
 			try {
-				closeSync(this.deadLetterFd);
+				this.closeLossJournal();
 			} catch (error) {
-				closeError ??= new Error(
-					`Broker execution archive failed to close dead-letter path ${this.deadLetterPath}`,
-					{ cause: error },
-				);
-			} finally {
-				this.deadLetterFd = undefined;
+				closeError ??= error;
 			}
 		}
 		if (closeError) {
@@ -287,6 +292,23 @@ export class BrokerExecutionArchiver {
 
 	getQueueDepth(): number {
 		return this.queue.length;
+	}
+
+	private closeLossJournal(): void {
+		if (this.deadLetterFd === undefined) {
+			return;
+		}
+		const fd = this.deadLetterFd;
+		try {
+			closeSync(fd);
+		} catch (error) {
+			throw new BrokerExecutionArchiveDurabilityError(
+				"Broker execution archive failed to close the configured CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH loss journal",
+				{ cause: error },
+			);
+		} finally {
+			this.deadLetterFd = undefined;
+		}
 	}
 
 	// Drop oldest rows until the queue is within maxQueueSize, counting each into
@@ -315,7 +337,7 @@ export class BrokerExecutionArchiver {
 			return;
 		}
 		if (this.deadLetterFd === undefined) {
-			throw new Error(
+			throw new BrokerExecutionArchiveDurabilityError(
 				`Broker execution archive cannot record ${reason}: dead-letter file is not open`,
 			);
 		}
@@ -336,7 +358,7 @@ export class BrokerExecutionArchiver {
 			}
 			fsyncSync(this.deadLetterFd);
 		} catch (error) {
-			throw new Error(
+			throw new BrokerExecutionArchiveDurabilityError(
 				`Broker execution archive failed to durably record ${reason}; affected row(s) were retained`,
 				{ cause: error },
 			);
@@ -600,10 +622,6 @@ function validateForwarderUrl(value: string | undefined): URL {
 		);
 	}
 	return url;
-}
-
-function describeForwarderUrl(url: URL): string {
-	return `${url.protocol}//${url.host}${url.pathname}`;
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {

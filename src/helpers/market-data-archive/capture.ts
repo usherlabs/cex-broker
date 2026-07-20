@@ -1,5 +1,8 @@
 import type { BrokerArchiveRow } from "../broker-execution-archive/types";
-import type { BrokerExecutionArchiver } from "../broker-execution-archive/writer";
+import {
+	type BrokerExecutionArchiver,
+	rethrowArchiveDurabilityError,
+} from "../broker-execution-archive/writer";
 import { log } from "../logger";
 import type { OtelMetrics } from "../otel";
 import { OhlcvBarTracker } from "./ohlcv-bar-tracker";
@@ -83,6 +86,7 @@ export function archiveOrderbookInBackground(
 				);
 			}
 		} catch (error) {
+			rethrowArchiveDurabilityError(error);
 			log.warn("Failed to archive orderbook snapshot", { error });
 		}
 	});
@@ -136,6 +140,7 @@ export function archiveOhlcvInBackground(
 				);
 			}
 		} catch (error) {
+			rethrowArchiveDurabilityError(error);
 			log.warn("Failed to archive OHLCV candle", { error });
 		}
 	});
@@ -184,6 +189,7 @@ function archiveMarketRowsInBackground(
 				);
 			}
 		} catch (error) {
+			rethrowArchiveDurabilityError(error);
 			log.warn(`Failed to archive ${stream} market data`, { error });
 		}
 	});

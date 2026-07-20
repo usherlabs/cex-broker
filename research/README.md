@@ -126,6 +126,8 @@ Broker hot reload (separate from research): `bun run start-broker-server`.
 | `CEX_BROKER_ORDERBOOK_INTERVAL_MS` | `1000` | Orderbook archive sample rate |
 | `CEX_BROKER_ORDERBOOK_TOB_INTERVAL_MS` | — | Legacy alias for orderbook interval |
 
+Production deployments must place `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH` on persistent writable storage or a mounted volume. A container-local ephemeral file is not a durable loss journal.
+
 ### ClickHouse clients (viewer, Python, forwarder)
 
 | Variable | Default |
