@@ -9,7 +9,11 @@ import {
 	emitOrderExecutionTelemetryInBackground,
 	extractOrderTelemetryIds,
 } from "../../helpers/order-telemetry";
-import { safeLogError, sanitizeErrorDetail } from "../../helpers/shared/errors";
+import {
+	safeLogError,
+	safeLogRedactedError,
+	sanitizeErrorDetail,
+} from "../../helpers/shared/errors";
 import {
 	CancelOrderPayloadSchema,
 	CreateOrderPayloadSchema,
@@ -139,7 +143,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		);
 		ctx.wrappedCallback(null, { result: JSON.stringify({ ...order }) });
 	} catch (error) {
-		safeLogError("Order Creation failed", error);
+		safeLogRedactedError("Order Creation failed", error);
 		const failedCreateContext = {
 			action: "CreateOrder" as const,
 			cex,

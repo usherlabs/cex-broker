@@ -1,6 +1,6 @@
 import { redactStreamPayload } from "../broker-execution-archive/redact";
-import { type BrokerArchiveRow } from "../broker-execution-archive/types";
 import { buildCommonArchiveTags } from "../broker-execution-archive/rows";
+import type { BrokerArchiveRow } from "../broker-execution-archive/types";
 import type { NormalizedOrderBookSnapshot } from "../order-book";
 import {
 	getOrderbookArchiveDepthLimit,

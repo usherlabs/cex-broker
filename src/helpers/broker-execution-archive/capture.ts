@@ -5,6 +5,7 @@ import {
 	type OrderTelemetryAction,
 	type OrderTelemetryContext,
 } from "../order-telemetry";
+import { sanitizeErrorDetail } from "../shared/errors";
 import { asRecord } from "../shared/guards";
 import {
 	buildCommonArchiveTags,
@@ -46,6 +47,10 @@ export function archiveOrderExecutionInBackground(
 					tags,
 					action: context.action,
 					telemetry,
+					errorDetail:
+						context.action === "CreateOrder" && error !== undefined
+							? sanitizeErrorDetail(error, { includeCode: true })
+							: undefined,
 					marketMetadataHash: options?.marketMetadataHash,
 				}),
 			);

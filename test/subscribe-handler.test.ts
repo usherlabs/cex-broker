@@ -1,5 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import { createSubscribeHandler } from "../src/handlers/subscribe/handler";
@@ -14,6 +17,20 @@ import {
 	type SubscriptionType as SubscriptionTypeValue,
 } from "../src/helpers/constants";
 import { startForwarderServer } from "./archive-forwarder-server";
+
+const archiveTestDirectory = mkdtempSync(
+	join(tmpdir(), "cex-broker-subscribe-archive-test-"),
+);
+let deadLetterFileIndex = 0;
+
+function createDeadLetterPath(): string {
+	deadLetterFileIndex += 1;
+	return join(archiveTestDirectory, `loss-${deadLetterFileIndex}.jsonl`);
+}
+
+afterAll(() => {
+	rmSync(archiveTestDirectory, { recursive: true, force: true });
+});
 
 type MockCallState = {
 	writes: SubscribeResponse[];
@@ -368,6 +385,7 @@ describe("subscribe handler", () => {
 			} as unknown as Exchange;
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
+				deadLetterPath: createDeadLetterPath(),
 				deploymentId: "test-deploy",
 				batchSize: 1,
 				flushIntervalMs: 60_000,
@@ -460,6 +478,7 @@ describe("subscribe handler", () => {
 			} as unknown as Exchange;
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
+				deadLetterPath: createDeadLetterPath(),
 				deploymentId: "test-deploy",
 				batchSize: 1,
 				flushIntervalMs: 60_000,

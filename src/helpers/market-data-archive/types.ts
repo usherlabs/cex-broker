@@ -1,6 +1,6 @@
+import type { BrokerArchiveRow } from "../broker-execution-archive/types";
 import type { BrokerMarketType } from "../market-type";
 import type { NormalizedOrderBookSnapshot } from "../order-book";
-import type { BrokerArchiveRow } from "../broker-execution-archive/types";
 
 export type MarketArchiveTable =
 	| "market_data.orderbook_snapshots"

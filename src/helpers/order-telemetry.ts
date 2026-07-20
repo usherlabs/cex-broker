@@ -1,5 +1,6 @@
 import { log } from "./logger";
 import type { OtelMetrics } from "./otel";
+import { REDACTED_ERROR_MESSAGE } from "./shared/errors";
 import { asRecord } from "./shared/guards";
 
 type JsonRecord = Record<string, unknown>;
@@ -75,8 +76,6 @@ const NUMERIC_METRICS: Array<[NumericTelemetryKey, string]> = [
 	["feeAmount", "cex_market_action_fee_amount"],
 	["feeRate", "cex_market_action_fee_rate"],
 ];
-
-const REDACTED_ERROR_MESSAGE = "redacted_error";
 
 export async function emitOrderExecutionTelemetry(
 	otelMetrics: OtelMetrics | undefined,

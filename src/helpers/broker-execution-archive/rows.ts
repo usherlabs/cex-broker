@@ -273,6 +273,7 @@ export function buildOrderEventArchiveRow(input: {
 	tags: BrokerArchiveCommonTags;
 	action: OrderArchiveAction;
 	telemetry: OrderExecutionTelemetry;
+	errorDetail?: string;
 	eventKind?: "execute_action" | "subscribe_stream";
 	subscriptionType?: SubscribeArchiveType;
 	marketMetadataHash?: string;
@@ -305,7 +306,7 @@ export function buildOrderEventArchiveRow(input: {
 			fee_rate: telemetry.feeRate,
 			exchange_timestamp: telemetry.exchangeTimestamp,
 			error_type: telemetry.errorType,
-			error_message: telemetry.errorMessage,
+			error_message: input.errorDetail ?? telemetry.errorMessage,
 			payload_json: JSON.stringify(telemetry),
 		}),
 	};

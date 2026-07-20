@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { LogRecord } from "@opentelemetry/api-logs";
 import { MAX_ARCHIVE_BODY_BYTES } from "../services/archive-forwarder/limits";
 import {
@@ -28,9 +31,32 @@ import {
 	isBrokerExecutionArchiveTable,
 	resolveArchiveForwarderUrlFromEnv,
 } from "../src/helpers/broker-execution-archive/writer";
+import { log } from "../src/helpers/logger";
 import { buildOrderExecutionTelemetry } from "../src/helpers/order-telemetry";
 import type { OtelLogs } from "../src/helpers/otel";
 import { startForwarderServer } from "./archive-forwarder-server";
+
+const archiveTestDirectory = mkdtempSync(
+	join(tmpdir(), "cex-broker-archive-test-"),
+);
+let deadLetterFileIndex = 0;
+
+function createDeadLetterPath(): string {
+	deadLetterFileIndex += 1;
+	return join(archiveTestDirectory, `loss-${deadLetterFileIndex}.jsonl`);
+}
+
+function readDeadLetters(path: string): Array<Record<string, unknown>> {
+	return readFileSync(path, "utf8")
+		.trim()
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+afterAll(() => {
+	rmSync(archiveTestDirectory, { recursive: true, force: true });
+});
 
 function restoreEnv(key: string, original: string | undefined): void {
 	if (original === undefined) {
@@ -739,6 +765,7 @@ describe("broker execution archiver queue", () => {
 		try {
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
+				deadLetterPath: createDeadLetterPath(),
 				deploymentId: "test-deploy",
 				batchSize: 10,
 				flushIntervalMs: 60_000,
@@ -772,12 +799,14 @@ describe("broker execution archiver queue", () => {
 		}
 	});
 
-	test("enqueue is non-blocking and sheds oldest rows when queue is full", async () => {
+	test("queue shedding journals the oldest row before discarding it", async () => {
 		const server = await startForwarderServer();
 		try {
 			const otelLogs = new MockOtelLogs();
+			const deadLetterPath = createDeadLetterPath();
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
+				deadLetterPath,
 				otelLogs,
 				deploymentId: "test-deploy",
 				maxQueueSize: 2,
@@ -800,6 +829,18 @@ describe("broker execution archiver queue", () => {
 
 			expect(archiver.getStats().shed).toBe(1);
 			expect(archiver.getQueueDepth()).toBe(2);
+			const [loss] = readDeadLetters(deadLetterPath);
+			expect(loss).toMatchObject({
+				deployment_id: "test-deploy",
+				reason: "queue_shed",
+				payload: {
+					table: "broker_execution.order_events",
+					row: { source: "broker_write", order_id: "1" },
+				},
+			});
+			expect(new Date(String(loss?.timestamp)).toISOString()).toBe(
+				loss?.timestamp,
+			);
 
 			await archiver.flush();
 			expect(server.requests).toHaveLength(1);
@@ -818,6 +859,7 @@ describe("broker execution archiver queue", () => {
 			const otelLogs = new MockOtelLogs();
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
+				deadLetterPath: createDeadLetterPath(),
 				otelLogs,
 				deploymentId: "test-deploy",
 				batchSize: 10,
@@ -826,7 +868,11 @@ describe("broker execution archiver queue", () => {
 
 			archiver.enqueue({
 				table: "broker_execution.order_events",
-				row: { source: "broker_write", order_id: "1" },
+				row: {
+					source: "broker_write",
+					order_id: "1",
+					error_message: "sensitive exchange rejection",
+				},
 			});
 			archiver.enqueue({
 				table: "market_data.orderbook_snapshots",
@@ -842,17 +888,28 @@ describe("broker execution archiver queue", () => {
 			// Only execution rows mirror to OTel (market_data has no OTel schema)...
 			expect(otelLogs.emits).toHaveLength(1);
 			expect(otelLogs.emits[0]?.body).toBe("broker_execution.order_events");
+			expect(otelLogs.emits[0]?.attributes?.error_message).toBe(
+				"redacted_error",
+			);
 			// ...but the forwarder is the durable sink for both tables.
 			expect(server.requests).toHaveLength(1);
-			expect(server.requests[0]?.body).toMatchObject({
-				rows: expect.arrayContaining([
+			const forwardedRows = server.requests.flatMap((request) =>
+				Array.isArray(request.body.rows) ? request.body.rows : [],
+			) as Array<{ table?: string; row?: Record<string, unknown> }>;
+			expect(forwardedRows).toEqual(
+				expect.arrayContaining([
 					expect.objectContaining({ table: "broker_execution.order_events" }),
 					expect.objectContaining({ table: "market_data.orderbook_snapshots" }),
 					expect.objectContaining({
 						table: "broker_account.balance_snapshots",
 					}),
 				]),
-			});
+			);
+			expect(
+				forwardedRows.find(
+					(entry) => entry.table === "broker_execution.order_events",
+				)?.row?.error_message,
+			).toBe("sensitive exchange rejection");
 
 			await archiver.close();
 		} finally {
@@ -860,42 +917,13 @@ describe("broker execution archiver queue", () => {
 		}
 	});
 
-	test("drops market-data and account-balance rows when the forwarder is missing", async () => {
-		const otelLogs = new MockOtelLogs();
-		const archiver = BrokerExecutionArchiver.create({
-			otelLogs,
-			deploymentId: "test-deploy",
-			batchSize: 10,
-			flushIntervalMs: 60_000,
-		});
-
-		archiver.enqueue({
-			table: "market_data.candles",
-			row: { source: "broker_write", open_time_ms: 1_000 },
-		});
-		archiver.enqueue({
-			table: "broker_account.balance_snapshots",
-			row: { source: "broker_write", reported_assets: ["USDC"] },
-		});
-		archiver.enqueue({
-			table: "broker_execution.order_events",
-			row: { source: "broker_write", order_id: "1" },
-		});
-
-		expect(archiver.getQueueDepth()).toBe(1);
-
-		await archiver.flush();
-		expect(otelLogs.emits).toHaveLength(1);
-		expect(otelLogs.emits[0]?.body).toBe("broker_execution.order_events");
-
-		await archiver.close();
-	});
-
-	test("close exits after forwarder failure instead of retrying forever", async () => {
+	test("close journals every row left after a forwarder failure", async () => {
 		const server = await startForwarderServer(() => ({ status: 503 }));
 		try {
+			const deadLetterPath = createDeadLetterPath();
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
+				deadLetterPath,
 				deploymentId: "test-deploy",
 				batchSize: 10,
 				flushIntervalMs: 60_000,
@@ -905,10 +933,35 @@ describe("broker execution archiver queue", () => {
 				table: "market_data.candles",
 				row: { source: "broker_write", open_time_ms: 1_000 },
 			});
+			archiver.enqueue({
+				table: "broker_execution.order_events",
+				row: { source: "broker_write", order_id: "shutdown-order" },
+			});
 
 			await expect(archiver.close()).resolves.toBeUndefined();
 			expect(archiver.getQueueDepth()).toBe(0);
 			expect(archiver.getStats().forwarderFailures).toBeGreaterThan(0);
+			expect(readDeadLetters(deadLetterPath)).toEqual([
+				expect.objectContaining({
+					deployment_id: "test-deploy",
+					reason: "shutdown_forwarder_failure",
+					payload: {
+						table: "market_data.candles",
+						row: { source: "broker_write", open_time_ms: 1_000 },
+					},
+				}),
+				expect.objectContaining({
+					deployment_id: "test-deploy",
+					reason: "shutdown_forwarder_failure",
+					payload: {
+						table: "broker_execution.order_events",
+						row: {
+							source: "broker_write",
+							order_id: "shutdown-order",
+						},
+					},
+				}),
+			]);
 		} finally {
 			await server.close();
 		}
@@ -922,6 +975,7 @@ describe("broker execution archiver queue", () => {
 			const otelLogs = new MockOtelLogs();
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
+				deadLetterPath: createDeadLetterPath(),
 				otelLogs,
 				deploymentId: "test-deploy",
 				batchSize: 10,
@@ -955,6 +1009,7 @@ describe("broker execution archiver queue", () => {
 		try {
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
+				deadLetterPath: createDeadLetterPath(),
 				deploymentId: "test-deploy",
 				batchSize: 10,
 				flushIntervalMs: 60_000,
@@ -993,6 +1048,7 @@ describe("broker execution archiver queue", () => {
 		try {
 			const archiver = BrokerExecutionArchiver.create({
 				forwarderUrl: server.url,
+				deadLetterPath: createDeadLetterPath(),
 				deploymentId: "test-deploy",
 				maxQueueSize: 3,
 				batchSize: 4, // above the 3 rows we enqueue, so only manual flush drains
@@ -1031,9 +1087,10 @@ describe("broker execution archiver queue", () => {
 		}
 	});
 
-	test("canPersistMarketMetadataSnapshot is true with a forwarder-only config", () => {
+	test("canPersistMarketMetadataSnapshot is true with an enabled forwarder", async () => {
 		const forwarderOnly = BrokerExecutionArchiver.create({
 			forwarderUrl: "http://127.0.0.1:9/archive",
+			deadLetterPath: createDeadLetterPath(),
 			deploymentId: "test-deploy",
 			flushIntervalMs: 60_000,
 		});
@@ -1041,120 +1098,104 @@ describe("broker execution archiver queue", () => {
 
 		const disabled = BrokerExecutionArchiver.disabled();
 		expect(disabled.canPersistMarketMetadataSnapshot()).toBe(false);
+		await forwarderOnly.close();
 	});
 
-	test("advertises durable account balance snapshots only when an HTTP forwarder exists", async () => {
+	test("advertises durable account balance snapshots for an enabled archive", async () => {
 		const forwarderOnly = BrokerExecutionArchiver.create({
 			forwarderUrl: "http://127.0.0.1:9/archive",
-			flushIntervalMs: 60_000,
-		});
-		const otelOnly = BrokerExecutionArchiver.create({
-			otelLogs: new MockOtelLogs(),
+			deadLetterPath: createDeadLetterPath(),
 			flushIntervalMs: 60_000,
 		});
 		const disabled = BrokerExecutionArchiver.disabled();
 
 		expect(forwarderOnly.canPersistAccountBalanceSnapshots()).toBe(true);
-		expect(otelOnly.isEnabled()).toBe(true);
-		expect(otelOnly.canPersistAccountBalanceSnapshots()).toBe(false);
 		expect(disabled.canPersistAccountBalanceSnapshots()).toBe(false);
 
 		await forwarderOnly.close();
-		await otelOnly.close();
 	});
 });
 
 describe("broker execution archiver env", () => {
-	test("resolveArchiveForwarderUrlFromEnv derives the ClickHouse forwarder URL with defaults", () => {
+	test("only the exact true enable flag enables archive construction", async () => {
+		const originalEnabled = process.env.CEX_BROKER_ARCHIVE_ENABLED;
 		const originalForwarderUrl = process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
-		const originalForwarderHost = process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
-		const originalForwarderPort = process.env.CEX_BROKER_ARCHIVE_FORWARDER_PORT;
-		const originalClickhouseHost = process.env.CEX_BROKER_CLICKHOUSE_HOST;
-		const originalOtelLogsEnabled =
-			process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED;
-
+		const originalDeadLetterPath =
+			process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH;
 		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
-		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
-		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_PORT;
-		process.env.CEX_BROKER_CLICKHOUSE_HOST = "clickhouse.local";
-		delete process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED;
+		delete process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH;
 
 		try {
-			expect(resolveArchiveForwarderUrlFromEnv()).toBe(
-				"http://clickhouse.local:8090/archive",
-			);
-			expect(isArchiveOtelLogsEnabled()).toBe(false);
+			for (const enabled of [undefined, "false", "TRUE"]) {
+				if (enabled === undefined) {
+					delete process.env.CEX_BROKER_ARCHIVE_ENABLED;
+				} else {
+					process.env.CEX_BROKER_ARCHIVE_ENABLED = enabled;
+				}
+				const archiver = createBrokerExecutionArchiverFromEnv();
+				expect(archiver.isEnabled()).toBe(false);
+				await archiver.close();
+			}
 		} finally {
+			restoreEnv("CEX_BROKER_ARCHIVE_ENABLED", originalEnabled);
 			restoreEnv("CEX_BROKER_ARCHIVE_FORWARDER_URL", originalForwarderUrl);
-			restoreEnv("CEX_BROKER_ARCHIVE_FORWARDER_HOST", originalForwarderHost);
-			restoreEnv("CEX_BROKER_ARCHIVE_FORWARDER_PORT", originalForwarderPort);
-			restoreEnv("CEX_BROKER_CLICKHOUSE_HOST", originalClickhouseHost);
-			restoreEnv(
-				"CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED",
-				originalOtelLogsEnabled,
-			);
+			restoreEnv("CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH", originalDeadLetterPath);
 		}
 	});
 
-	test("createBrokerExecutionArchiverFromEnv posts to the derived forwarder without OTel logs", async () => {
-		const server = await startForwarderServer();
-		const port = new URL(server.url).port;
+	test("requires the explicit forwarder URL and dead-letter path when enabled", () => {
+		const originalEnabled = process.env.CEX_BROKER_ARCHIVE_ENABLED;
 		const originalForwarderUrl = process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
-		const originalForwarderHost = process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
-		const originalForwarderPort = process.env.CEX_BROKER_ARCHIVE_FORWARDER_PORT;
-		const originalClickhouseHost = process.env.CEX_BROKER_CLICKHOUSE_HOST;
+		const originalDeadLetterPath =
+			process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH;
+		process.env.CEX_BROKER_ARCHIVE_ENABLED = "true";
+		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
+		delete process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH;
+
+		try {
+			expect(() => createBrokerExecutionArchiverFromEnv()).toThrow(
+				"CEX_BROKER_ARCHIVE_FORWARDER_URL is missing",
+			);
+			process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL =
+				"http://127.0.0.1:8090/archive";
+			expect(() => createBrokerExecutionArchiverFromEnv()).toThrow(
+				"CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH is missing",
+			);
+			process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL = "file:///tmp/archive";
+			process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH = createDeadLetterPath();
+			expect(() => createBrokerExecutionArchiverFromEnv()).toThrow(
+				"must use http or https",
+			);
+			process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL =
+				"http://127.0.0.1:8090/archive";
+			process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH = archiveTestDirectory;
+			expect(() => createBrokerExecutionArchiverFromEnv()).toThrow(
+				"cannot open dead-letter path",
+			);
+		} finally {
+			restoreEnv("CEX_BROKER_ARCHIVE_ENABLED", originalEnabled);
+			restoreEnv("CEX_BROKER_ARCHIVE_FORWARDER_URL", originalForwarderUrl);
+			restoreEnv("CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH", originalDeadLetterPath);
+		}
+	});
+
+	test("posts to the explicit forwarder and mirrors to OTel only when requested", async () => {
+		const server = await startForwarderServer();
+		const originalEnabled = process.env.CEX_BROKER_ARCHIVE_ENABLED;
+		const originalForwarderUrl = process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
+		const originalDeadLetterPath =
+			process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH;
 		const originalOtelLogsEnabled =
 			process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED;
-
-		// Point the ClickHouse-host resolution path at the local forwarder so the
-		// row actually travels the production node:http transport.
-		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
-		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
-		process.env.CEX_BROKER_CLICKHOUSE_HOST = "127.0.0.1";
-		process.env.CEX_BROKER_ARCHIVE_FORWARDER_PORT = port;
-		delete process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED;
+		process.env.CEX_BROKER_ARCHIVE_ENABLED = "true";
+		process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL = server.url;
+		process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH = createDeadLetterPath();
+		process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED = "true";
 
 		try {
 			expect(resolveArchiveForwarderUrlFromEnv()).toBe(server.url);
-			expect(isArchiveOtelLogsEnabled()).toBe(false);
+			expect(isArchiveOtelLogsEnabled()).toBe(true);
 
-			const otelLogs = new MockOtelLogs();
-			const archiver = createBrokerExecutionArchiverFromEnv(otelLogs);
-			archiver.enqueue({
-				table: "broker_execution.order_events",
-				row: { source: "broker_write", order_id: "1" },
-			});
-			await archiver.flush();
-			// No OTel mirror (flag off), but the row still lands at the forwarder.
-			expect(otelLogs.emits).toHaveLength(0);
-			expect(server.requests).toHaveLength(1);
-			await archiver.close();
-		} finally {
-			await server.close();
-			restoreEnv("CEX_BROKER_ARCHIVE_FORWARDER_URL", originalForwarderUrl);
-			restoreEnv("CEX_BROKER_ARCHIVE_FORWARDER_HOST", originalForwarderHost);
-			restoreEnv("CEX_BROKER_ARCHIVE_FORWARDER_PORT", originalForwarderPort);
-			restoreEnv("CEX_BROKER_CLICKHOUSE_HOST", originalClickhouseHost);
-			restoreEnv(
-				"CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED",
-				originalOtelLogsEnabled,
-			);
-		}
-	});
-
-	test("createBrokerExecutionArchiverFromEnv mirrors to OTel logs only when enabled", async () => {
-		const originalOtelLogsEnabled =
-			process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED;
-		const originalForwarderUrl = process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
-		const originalForwarderHost = process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
-		const originalClickhouseHost = process.env.CEX_BROKER_CLICKHOUSE_HOST;
-		process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED = "true";
-		// Isolate the OTel mirror: no forwarder configured so flush has a single sink.
-		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
-		delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
-		delete process.env.CEX_BROKER_CLICKHOUSE_HOST;
-
-		try {
 			const otelLogs = new MockOtelLogs();
 			const archiver = createBrokerExecutionArchiverFromEnv(otelLogs);
 			archiver.enqueue({
@@ -1163,29 +1204,53 @@ describe("broker execution archiver env", () => {
 			});
 			await archiver.flush();
 			expect(otelLogs.emits).toHaveLength(1);
+			expect(server.requests).toHaveLength(1);
 			await archiver.close();
 		} finally {
-			if (originalOtelLogsEnabled === undefined) {
-				delete process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED;
-			} else {
-				process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED =
-					originalOtelLogsEnabled;
-			}
-			if (originalForwarderUrl === undefined) {
-				delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
-			} else {
-				process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL = originalForwarderUrl;
-			}
-			if (originalForwarderHost === undefined) {
-				delete process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST;
-			} else {
-				process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST = originalForwarderHost;
-			}
-			if (originalClickhouseHost === undefined) {
-				delete process.env.CEX_BROKER_CLICKHOUSE_HOST;
-			} else {
-				process.env.CEX_BROKER_CLICKHOUSE_HOST = originalClickhouseHost;
-			}
+			await server.close();
+			restoreEnv("CEX_BROKER_ARCHIVE_ENABLED", originalEnabled);
+			restoreEnv("CEX_BROKER_ARCHIVE_FORWARDER_URL", originalForwarderUrl);
+			restoreEnv("CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH", originalDeadLetterPath);
+			restoreEnv(
+				"CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED",
+				originalOtelLogsEnabled,
+			);
+		}
+	});
+
+	test("disabled and enabled construction each announce startup state once", async () => {
+		const info = spyOn(log, "info").mockImplementation(() => {});
+		try {
+			const disabled = BrokerExecutionArchiver.disabled();
+			const enabled = BrokerExecutionArchiver.create({
+				forwarderUrl: "http://127.0.0.1:8090/archive",
+				deadLetterPath: createDeadLetterPath(),
+				deploymentId: "announce-test",
+				flushIntervalMs: 60_000,
+			});
+			expect(
+				info.mock.calls.filter(
+					([message]) => message === "Broker execution archive disabled",
+				),
+			).toHaveLength(1);
+			expect(
+				info.mock.calls.filter(
+					([message]) => message === "Broker execution archive enabled",
+				),
+			).toHaveLength(1);
+			expect(
+				info.mock.calls.find(
+					([message]) => message === "Broker execution archive enabled",
+				)?.[1],
+			).toMatchObject({
+				enabled: true,
+				deployment_id: "announce-test",
+				forwarder: "http://127.0.0.1:8090/archive",
+			});
+			await disabled.close();
+			await enabled.close();
+		} finally {
+			info.mockRestore();
 		}
 	});
 });

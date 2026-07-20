@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
+	type CandleRow,
 	candleFingerprint,
 	toChartCandle,
-	type CandleRow,
 } from "../research/candle-viewer/candles";
 import {
-	PRICE_DECIMAL_PLACES,
+	type SeriesSnapshot,
+	shouldReplaceCandleSeries,
+} from "../research/candle-viewer/chart-update";
+import {
 	chartPriceFormat,
 	formatPrice,
+	PRICE_DECIMAL_PLACES,
 } from "../research/candle-viewer/format";
-import {
-	shouldReplaceCandleSeries,
-	type SeriesSnapshot,
-} from "../research/candle-viewer/chart-update";
 import { rollupCandles } from "../research/candle-viewer/timeframes";
 
 describe("candle viewer candles", () => {
