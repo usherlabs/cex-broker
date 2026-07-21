@@ -82,6 +82,7 @@ export const CreateOrderPayloadSchema = z.object({
 	toToken: z.string().min(1),
 	price: z.coerce.number().positive(),
 	marketType: marketTypeSchema,
+	clientOrderId: z.string().min(1).optional(),
 	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
 });
 

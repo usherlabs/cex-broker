@@ -47,6 +47,12 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 
 	const orderValue = parsePayloadForAction(ctx, CreateOrderPayloadSchema);
 	if (orderValue === null) return;
+	const createOrderParams = {
+		...orderValue.params,
+		...(orderValue.clientOrderId !== undefined && {
+			clientOrderId: orderValue.clientOrderId,
+		}),
+	};
 	let resolvedOrderTelemetry: {
 		symbol?: string;
 		side?: string;
@@ -96,7 +102,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 				resolution.symbol,
 			);
 		}
-		const telemetryIds = extractOrderTelemetryIds(orderValue.params);
+		const telemetryIds = extractOrderTelemetryIds(createOrderParams);
 		const submissionTimestamp = new Date().toISOString();
 		const marketMetadataHash = await captureMarketMetadataSnapshot(
 			brokerArchiver,
@@ -116,7 +122,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			resolution.side,
 			resolution.amountBase ?? orderValue.amount,
 			orderValue.price,
-			orderValue.params ?? {},
+			createOrderParams,
 		);
 		const createOrderContext = {
 			action: "CreateOrder" as const,
@@ -156,7 +162,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			requestedQuantity:
 				resolvedOrderTelemetry.requestedQuantity ?? orderValue.amount,
 			requestedNotional: orderValue.amount * orderValue.price,
-			...extractOrderTelemetryIds(orderValue.params),
+			...extractOrderTelemetryIds(createOrderParams),
 		};
 		emitOrderExecutionTelemetryInBackground(
 			otelMetrics,
