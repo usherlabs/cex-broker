@@ -59,11 +59,13 @@ export class CapturingOtelMetrics {
 export function createOrderExchangeFixture(options: {
 	createOrderResult?: unknown;
 	fetchOrderResult?: unknown;
+	fetchOrderBookResult?: unknown;
 	createOrderError?: Error;
 }) {
 	const calls: Record<string, unknown[][]> = {
 		createOrder: [],
 		fetchOrder: [],
+		fetchOrderBook: [],
 	};
 	const exchange: Record<string, unknown> = {
 		markets: {
@@ -104,6 +106,12 @@ export function createOrderExchangeFixture(options: {
 			return options.fetchOrderResult;
 		},
 	};
+	if (options.fetchOrderBookResult !== undefined) {
+		exchange.fetchOrderBook = async (...args: unknown[]) => {
+			calls.fetchOrderBook.push(args);
+			return options.fetchOrderBookResult;
+		};
+	}
 	return { exchange: exchange as Exchange, calls };
 }
 

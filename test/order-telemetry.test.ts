@@ -228,6 +228,93 @@ describe("order execution telemetry RPC harness", () => {
 		).toBe(21);
 	});
 
+	test("forwards and archives a top-level create-order client id", async () => {
+		const metrics = new CapturingOtelMetrics();
+		const forwarder = await startForwarderServer();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: forwarder.url,
+			deadLetterPath: join(archiveTestDirectory, "client-order-id-loss.jsonl"),
+			deploymentId: "order-test",
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+		});
+		const { exchange, calls } = createOrderExchangeFixture({
+			createOrderResult: {
+				id: "order-with-client-id",
+				symbol: "ARB/USDT",
+				side: "sell",
+				type: "limit",
+				status: "open",
+				amount: 10,
+				filled: 0,
+				remaining: 10,
+			},
+			fetchOrderBookResult: {
+				bids: [[2.09, 100]],
+				asks: [[2.1, 100]],
+				timestamp: 1_788_000_000_000,
+			},
+		});
+		server = getServer(
+			testPolicy,
+			createBinancePool(exchange),
+			["*"],
+			false,
+			"",
+			metrics.asOtelMetrics(),
+			archiver,
+		);
+		try {
+			client = createClient(await bindServer(server));
+
+			await executeAction(client, {
+				action: Action.CreateOrder,
+				cex: "binance",
+				payload: {
+					orderType: "limit",
+					amount: "10",
+					fromToken: "ARB",
+					toToken: "USDT",
+					price: "2.1",
+					clientOrderId: "caller-order-1",
+					params: JSON.stringify({
+						clientOrderId: "params-order-id",
+						idempotencyKey: "idem-1",
+					}),
+				},
+			});
+
+			expect(calls.createOrder).toHaveLength(1);
+			expect(calls.createOrder[0]?.[5]).toEqual({
+				clientOrderId: "caller-order-1",
+				idempotencyKey: "idem-1",
+			});
+
+			await Promise.resolve();
+			await archiver.flush();
+			const archivedRows = forwarder.requests.flatMap(
+				(request) => request.body.rows ?? [],
+			) as Array<{ table?: string; row: Record<string, unknown> }>;
+			const archivedOrder = archivedRows.find(
+				(entry) => entry.table === "broker_execution.order_events",
+			);
+			const archivedMarketSnapshot = archivedRows.find(
+				(entry) => entry.table === "broker_execution.market_metadata_snapshots",
+			);
+
+			expect(archivedOrder?.row.client_order_id).toBe("caller-order-1");
+			expect(JSON.parse(String(archivedOrder?.row.payload_json))).toMatchObject(
+				{ clientOrderId: "caller-order-1" },
+			);
+			expect(archivedMarketSnapshot?.row.client_order_id).toBe(
+				"caller-order-1",
+			);
+		} finally {
+			await archiver.close();
+			await forwarder.close();
+		}
+	});
+
 	test("handles create-order success without fee fields", async () => {
 		const metrics = new CapturingOtelMetrics();
 		const { exchange } = createOrderExchangeFixture({
@@ -407,6 +494,7 @@ describe("order execution telemetry RPC harness", () => {
 						fromToken: "ARB",
 						toToken: "USDT",
 						price: "2",
+						clientOrderId: "failed-client-order-1",
 					},
 				}),
 			).rejects.toMatchObject({
@@ -434,6 +522,7 @@ describe("order execution telemetry RPC harness", () => {
 						entry.table === "broker_execution.order_events",
 				) as { row: Record<string, unknown> } | undefined;
 			expect(archivedOrder?.row.status).toBe("failed");
+			expect(archivedOrder?.row.client_order_id).toBe("failed-client-order-1");
 			expect(archivedOrder?.row.error_message).toContain(
 				"ExchangeOrderRejected [code=-2010]: exchange rejected order",
 			);
