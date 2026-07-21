@@ -10,7 +10,7 @@ await Bun.build({
 await Bun.build({
 	entrypoints: ["./src/index.ts"],
 	outdir: "./dist",
-	target: "bun",
+	target: "node",
 	external: [
 		"fs",
 		"path",

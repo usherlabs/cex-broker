@@ -32,7 +32,7 @@
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
-		"build": "bun run proto-gen && bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
+		"build": "bun run proto-gen && bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto && node scripts/check-node-package.mjs",
 		"prepack": "bun run build",
 		"start-broker": "bun run ./src/cli.ts",
 		"start-archive-forwarder": "bun run services/archive-forwarder/index.ts",
