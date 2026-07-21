@@ -1,7 +1,7 @@
 import type { Exchange } from "@usherlabs/ccxt";
+import type { BrokerExecutionArchiver } from "../broker-execution-archive/writer";
 import { log } from "../logger";
 import type { OtelMetrics } from "../otel";
-import type { BrokerExecutionArchiver } from "../broker-execution-archive/writer";
 import { archiveOhlcvInBackground } from "./capture";
 import type { OhlcvBarTracker } from "./ohlcv-bar-tracker";
 import { resolveOhlcvBootstrapLimit } from "./ohlcv-bootstrap";

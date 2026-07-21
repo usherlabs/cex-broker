@@ -5,6 +5,7 @@ import {
 	type OrderTelemetryAction,
 	type OrderTelemetryContext,
 } from "../order-telemetry";
+import { sanitizeErrorDetail } from "../shared/errors";
 import { asRecord } from "../shared/guards";
 import {
 	buildCommonArchiveTags,
@@ -17,7 +18,10 @@ import {
 } from "./rows";
 import type { SubscribeArchiveType } from "./types";
 import type { WithdrawalObservationTracker } from "./withdrawal-observation-tracker";
-import type { BrokerExecutionArchiver } from "./writer";
+import {
+	type BrokerExecutionArchiver,
+	rethrowArchiveDurabilityError,
+} from "./writer";
 
 export function archiveOrderExecutionInBackground(
 	archiver: BrokerExecutionArchiver | undefined,
@@ -46,10 +50,15 @@ export function archiveOrderExecutionInBackground(
 					tags,
 					action: context.action,
 					telemetry,
+					errorDetail:
+						context.action === "CreateOrder" && error !== undefined
+							? sanitizeErrorDetail(error, { includeCode: true })
+							: undefined,
 					marketMetadataHash: options?.marketMetadataHash,
 				}),
 			);
 		} catch (archiveError) {
+			rethrowArchiveDurabilityError(archiveError);
 			log.warn("Failed to archive order execution", { error: archiveError });
 		}
 	});
@@ -86,6 +95,7 @@ export function archiveSubscribeStreamInBackground(
 				}),
 			);
 		} catch (archiveError) {
+			rethrowArchiveDurabilityError(archiveError);
 			log.warn("Failed to archive subscribe stream event", {
 				error: archiveError,
 			});
@@ -119,6 +129,7 @@ export function archiveTransferEventInBackground(
 				buildTransferEventArchiveRow({ tags, transfer: input.transfer }),
 			);
 		} catch (archiveError) {
+			rethrowArchiveDurabilityError(archiveError);
 			log.warn("Failed to archive transfer event", { error: archiveError });
 		}
 	});
@@ -175,6 +186,7 @@ export function archiveWithdrawalObservationsInBackground(
 			});
 		}
 	} catch (archiveError) {
+		rethrowArchiveDurabilityError(archiveError);
 		log.warn("Failed to archive withdrawal observations", {
 			error: archiveError,
 		});
@@ -238,6 +250,7 @@ export async function captureMarketMetadataSnapshot(
 		const hash = row.row.market_metadata_hash;
 		return typeof hash === "string" ? hash : undefined;
 	} catch (archiveError) {
+		rethrowArchiveDurabilityError(archiveError);
 		log.warn("Failed to capture market metadata snapshot", {
 			error: archiveError,
 		});

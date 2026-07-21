@@ -2,9 +2,9 @@
 -- (ORDERBOOK, OHLCV, TRADES, TICKER, BALANCE, ORDERS).
 --
 -- Forwarder contract (HTTP POST from BrokerExecutionArchiver):
---   Default URL: {protocol}://{CEX_BROKER_CLICKHOUSE_HOST}:{8090}/archive
---   Override host: CEX_BROKER_ARCHIVE_FORWARDER_HOST
---   Override URL: CEX_BROKER_ARCHIVE_FORWARDER_URL
+--   Enabled only by CEX_BROKER_ARCHIVE_ENABLED=true.
+--   URL: CEX_BROKER_ARCHIVE_FORWARDER_URL (required, no derived default).
+--   Loss journal: CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH (required, writable).
 --   {
 --     "source": "broker_write",
 --     "deployment_id": "<deployment>",

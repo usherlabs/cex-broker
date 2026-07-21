@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
+import { REDACTED_ERROR_MESSAGE } from "../shared/errors";
 import { asRecord } from "../shared/guards";
 
-const REDACTED_ERROR_MESSAGE = "redacted_error";
 const SECRET_KEY_PATTERN =
 	/\b(api[_-]?key|api[_-]?secret|secret|signature|passphrase|password|token|credential)\b/i;
 const SECRET_VALUE_PATTERN =

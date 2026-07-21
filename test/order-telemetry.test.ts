@@ -1,12 +1,18 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as grpc from "@grpc/grpc-js";
+import { BrokerExecutionArchiver } from "../src/helpers/broker-execution-archive";
 import { Action } from "../src/helpers/constants";
+import { log } from "../src/helpers/logger";
 import {
 	buildOrderExecutionTelemetry,
 	extractOrderTelemetryIds,
 } from "../src/helpers/order-telemetry";
 import { getServer } from "../src/server";
 import type { PolicyConfig } from "../src/types";
+import { startForwarderServer } from "./archive-forwarder-server";
 import {
 	bindServer,
 	CapturingOtelMetrics,
@@ -15,6 +21,18 @@ import {
 	executeAction,
 	grpcObj,
 } from "./order-telemetry-fixtures";
+
+const archiveTestDirectory = mkdtempSync(
+	join(tmpdir(), "cex-broker-order-archive-test-"),
+);
+
+afterAll(() => {
+	rmSync(archiveTestDirectory, { recursive: true, force: true });
+});
+
+class ExchangeOrderRejected extends Error {
+	readonly code = -2010;
+}
 
 const testPolicy: PolicyConfig = {
 	withdraw: { rule: [] },
@@ -354,8 +372,18 @@ describe("order execution telemetry RPC harness", () => {
 
 	test("emits failed order telemetry while preserving RPC error behavior", async () => {
 		const metrics = new CapturingOtelMetrics();
+		const forwarder = await startForwarderServer();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: forwarder.url,
+			deadLetterPath: join(archiveTestDirectory, "failed-order-loss.jsonl"),
+			deploymentId: "order-test",
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+		});
+		const exchangeMessage = `exchange rejected order\n${"x".repeat(700)}`;
+		const errorLog = spyOn(log, "error").mockImplementation(() => {});
 		const { exchange } = createOrderExchangeFixture({
-			createOrderError: new Error("exchange rejected order"),
+			createOrderError: new ExchangeOrderRejected(exchangeMessage),
 		});
 		server = getServer(
 			testPolicy,
@@ -364,32 +392,71 @@ describe("order execution telemetry RPC harness", () => {
 			false,
 			"",
 			metrics.asOtelMetrics(),
+			archiver,
 		);
-		client = createClient(await bindServer(server));
+		try {
+			client = createClient(await bindServer(server));
 
-		await expect(
-			executeAction(client, {
-				action: Action.CreateOrder,
-				cex: "binance",
-				payload: {
-					orderType: "market",
-					amount: "10",
-					fromToken: "ARB",
-					toToken: "USDT",
-					price: "2",
-				},
-			}),
-		).rejects.toMatchObject({
-			code: grpc.status.INTERNAL,
-			// Prefix preserved (consumers still match on it) with the underlying
-			// venue message now appended for diagnosis.
-			details: "Order Creation failed: exchange rejected order",
-		});
-		expect(metrics.counters).toContainEqual(
-			expect.objectContaining({
-				name: "cex_market_action_executions_total",
-				labels: expect.objectContaining({ status: "failed", result: "error" }),
-			}),
-		);
+			await expect(
+				executeAction(client, {
+					action: Action.CreateOrder,
+					cex: "binance",
+					payload: {
+						orderType: "market",
+						amount: "10",
+						fromToken: "ARB",
+						toToken: "USDT",
+						price: "2",
+					},
+				}),
+			).rejects.toMatchObject({
+				code: grpc.status.INTERNAL,
+				details: expect.stringContaining(
+					"ExchangeOrderRejected: exchange rejected order",
+				),
+			});
+			expect(metrics.counters).toContainEqual(
+				expect.objectContaining({
+					name: "cex_market_action_executions_total",
+					labels: expect.objectContaining({
+						status: "failed",
+						result: "error",
+					}),
+				}),
+			);
+
+			await Promise.resolve();
+			await archiver.flush();
+			const archivedOrder = forwarder.requests
+				.flatMap((request) => request.body.rows ?? [])
+				.find(
+					(entry: { table?: string }) =>
+						entry.table === "broker_execution.order_events",
+				) as { row: Record<string, unknown> } | undefined;
+			expect(archivedOrder?.row.status).toBe("failed");
+			expect(archivedOrder?.row.error_message).toContain(
+				"ExchangeOrderRejected [code=-2010]: exchange rejected order",
+			);
+			expect(String(archivedOrder?.row.error_message)).not.toContain("\n");
+			expect(String(archivedOrder?.row.error_message)).toHaveLength(512);
+			const telemetryPayload = JSON.parse(
+				String(archivedOrder?.row.payload_json),
+			) as Record<string, unknown>;
+			expect(telemetryPayload).toMatchObject({
+				status: "failed",
+				errorMessage: "redacted_error",
+			});
+			expect(JSON.stringify(telemetryPayload)).not.toContain(
+				"exchange rejected order",
+			);
+			expect(JSON.stringify(errorLog.mock.calls)).toContain("redacted_error");
+			expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+				"exchange rejected order",
+			);
+		} finally {
+			errorLog.mockRestore();
+			await archiver.close();
+			await forwarder.close();
+		}
 	});
 });

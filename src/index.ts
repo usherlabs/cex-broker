@@ -371,9 +371,8 @@ export default class CEXBroker {
 		});
 		this.depositReconciler.start();
 
-		// Per-fill capture from the venue trade-history endpoint. Only runs when the
-		// archive plane is enabled (a forwarder/OTel sink is configured); otherwise
-		// there is nowhere to write fills, so it stays inert.
+		// Fill capture starts only after the archive configuration has passed its
+		// forwarder and durable loss-journal validation.
 		if (this.brokerArchiver?.isEnabled()) {
 			this.fillArchivePoller = new FillArchivePoller({
 				brokers: this.brokers,

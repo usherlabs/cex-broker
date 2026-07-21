@@ -1,9 +1,10 @@
+import { closeSync, fsyncSync, openSync, writeSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { SeverityNumber } from "@opentelemetry/api-logs";
 import { log } from "../logger";
-import { isMarketArchiveTable } from "../market-data-archive/types";
 import type { OtelLogs, OtelMetrics } from "../otel";
+import { REDACTED_ERROR_MESSAGE } from "../shared/errors";
 import type { BrokerArchiveRow, BrokerArchiveTable } from "./types";
 
 const BROKER_EXECUTION_ARCHIVE_TABLES = new Set<BrokerArchiveTable>([
@@ -23,12 +24,26 @@ export type BrokerExecutionArchiverOptions = {
 	deploymentId?: string;
 	otelLogs?: OtelLogs;
 	otelMetrics?: OtelMetrics;
-	forwarderUrl?: string;
+	forwarderUrl: string;
+	deadLetterPath: string;
 	maxQueueSize?: number;
 	batchSize?: number;
 	flushIntervalMs?: number;
 	forwarderTimeoutMs?: number;
 };
+
+export class BrokerExecutionArchiveDurabilityError extends Error {
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "BrokerExecutionArchiveDurabilityError";
+	}
+}
+
+export function rethrowArchiveDurabilityError(error: unknown): void {
+	if (error instanceof BrokerExecutionArchiveDurabilityError) {
+		throw error;
+	}
+}
 
 type ArchiverStats = {
 	enqueued: number;
@@ -42,40 +57,22 @@ const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_FLUSH_INTERVAL_MS = 1_000;
 const DEFAULT_FORWARDER_TIMEOUT_MS = 3_000;
 const SHED_WARN_INTERVAL_MS = 60_000;
-const DEFAULT_ARCHIVE_FORWARDER_PATH = "/archive";
-const DEFAULT_ARCHIVE_FORWARDER_PORT = 8090;
+
+type ArchiveLossReason = "queue_shed" | "shutdown_forwarder_failure";
+
+type ArchiveLossRecord = {
+	timestamp: string;
+	deployment_id: string;
+	reason: ArchiveLossReason;
+	payload: BrokerArchiveRow;
+};
 
 export function isArchiveOtelLogsEnabled(): boolean {
 	return process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED === "true";
 }
 
 export function resolveArchiveForwarderUrlFromEnv(): string | undefined {
-	const explicit = process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL?.trim();
-	if (explicit) {
-		return explicit;
-	}
-
-	const host =
-		process.env.CEX_BROKER_ARCHIVE_FORWARDER_HOST?.trim() ||
-		process.env.CEX_BROKER_CLICKHOUSE_HOST?.trim();
-	if (!host) {
-		return undefined;
-	}
-
-	const protocol =
-		(process.env.CEX_BROKER_CLICKHOUSE_PROTOCOL as
-			| "http"
-			| "https"
-			| undefined) || "http";
-	const port = parsePositiveInt(
-		process.env.CEX_BROKER_ARCHIVE_FORWARDER_PORT,
-		DEFAULT_ARCHIVE_FORWARDER_PORT,
-	);
-	const path =
-		process.env.CEX_BROKER_ARCHIVE_FORWARDER_PATH?.trim() ||
-		DEFAULT_ARCHIVE_FORWARDER_PATH;
-	const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-	return `${protocol}://${host}:${port}${normalizedPath}`;
+	return process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL?.trim() || undefined;
 }
 
 export class BrokerExecutionArchiver {
@@ -83,6 +80,8 @@ export class BrokerExecutionArchiver {
 	private readonly otelLogs?: OtelLogs;
 	private readonly otelMetrics?: OtelMetrics;
 	private readonly forwarderUrl?: string;
+	private readonly deadLetterPath?: string;
+	private deadLetterFd?: number;
 	private readonly maxQueueSize: number;
 	private readonly batchSize: number;
 	private readonly flushIntervalMs: number;
@@ -98,13 +97,21 @@ export class BrokerExecutionArchiver {
 	private flushInFlight: Promise<void> | null = null;
 	private lastShedWarnAtMs = 0;
 	private closed = false;
-	private loggedMissingMarketForwarder = false;
 	private readonly enabled: boolean;
 	private readonly forwarderAuthToken?: string;
 
-	private constructor(
-		options: BrokerExecutionArchiverOptions & { enabled: boolean },
-	) {
+	private constructor(options: {
+		enabled: boolean;
+		deploymentId?: string;
+		otelLogs?: OtelLogs;
+		otelMetrics?: OtelMetrics;
+		forwarderUrl?: string;
+		deadLetterPath?: string;
+		maxQueueSize?: number;
+		batchSize?: number;
+		flushIntervalMs?: number;
+		forwarderTimeoutMs?: number;
+	}) {
 		this.deploymentId =
 			options.deploymentId?.trim() ||
 			process.env.CEX_BROKER_DEPLOYMENT_ID?.trim() ||
@@ -112,6 +119,7 @@ export class BrokerExecutionArchiver {
 		this.otelLogs = options.otelLogs;
 		this.otelMetrics = options.otelMetrics;
 		this.forwarderUrl = options.forwarderUrl?.trim();
+		this.deadLetterPath = options.deadLetterPath?.trim();
 		this.maxQueueSize = options.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE;
 		this.batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
 		this.flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
@@ -121,13 +129,39 @@ export class BrokerExecutionArchiver {
 		this.forwarderAuthToken =
 			process.env.CEX_BROKER_ARCHIVE_FORWARDER_TOKEN?.trim() || undefined;
 
-		if (this.enabled) {
+		if (!this.enabled) {
+			log.info("Broker execution archive disabled", { enabled: false });
+			return;
+		}
+
+		validateForwarderUrl(this.forwarderUrl);
+		if (!this.deadLetterPath) {
+			throw new Error(
+				"Broker execution archive is enabled but CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH is missing",
+			);
+		}
+		try {
+			// The mode applies only when creating the file; existing operator-owned
+			// files retain their configured permissions.
+			this.deadLetterFd = openSync(this.deadLetterPath, "a", 0o600);
+		} catch {
+			throw new Error(
+				"Broker execution archive cannot open CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH for append",
+			);
+		}
+
+		try {
 			this.flushTimer = setInterval(() => {
-				void this.flush().catch((error) => {
-					log.warn("Broker execution archive flush failed", { error });
-				});
+				void this.flush();
 			}, this.flushIntervalMs);
 			this.flushTimer.unref?.();
+			log.info("Broker execution archive enabled", {
+				enabled: true,
+				otel_mirror_enabled: Boolean(this.otelLogs?.isOtelEnabled()),
+			});
+		} catch (error) {
+			this.closeLossJournal();
+			throw error;
 		}
 	}
 
@@ -138,12 +172,7 @@ export class BrokerExecutionArchiver {
 	static create(
 		options: BrokerExecutionArchiverOptions,
 	): BrokerExecutionArchiver {
-		const hasSink =
-			Boolean(options.otelLogs?.isOtelEnabled()) ||
-			Boolean(options.forwarderUrl);
-		const enabled =
-			process.env.CEX_BROKER_ARCHIVE_ENABLED !== "false" && hasSink;
-		return new BrokerExecutionArchiver({ ...options, enabled });
+		return new BrokerExecutionArchiver({ ...options, enabled: true });
 	}
 
 	getDeploymentId(): string {
@@ -151,18 +180,11 @@ export class BrokerExecutionArchiver {
 	}
 
 	isEnabled(): boolean {
-		return (
-			this.enabled &&
-			!this.closed &&
-			(Boolean(this.otelLogs) || Boolean(this.forwarderUrl))
-		);
+		return this.enabled && !this.closed;
 	}
 
 	canPersistMarketMetadataSnapshot(): boolean {
-		return (
-			this.isEnabled() &&
-			(Boolean(this.otelLogs?.isOtelEnabled()) || Boolean(this.forwarderUrl))
-		);
+		return this.isEnabled();
 	}
 
 	canPersistAccountBalanceSnapshots(): boolean {
@@ -170,43 +192,27 @@ export class BrokerExecutionArchiver {
 	}
 
 	enqueue(row: BrokerArchiveRow): void {
-		if (
-			!this.enabled ||
-			this.closed ||
-			(!this.otelLogs && !this.forwarderUrl)
-		) {
-			return;
-		}
-		if (isMarketArchiveTable(row.table) && !this.forwarderUrl) {
-			if (!this.loggedMissingMarketForwarder) {
-				this.loggedMissingMarketForwarder = true;
-				log.warn(
-					"Market data archive row dropped: configure CEX_BROKER_ARCHIVE_FORWARDER_URL or CEX_BROKER_CLICKHOUSE_HOST",
-					{ table: row.table },
-				);
-			}
-			return;
-		}
-		if (
-			row.table === "broker_account.balance_snapshots" &&
-			!this.forwarderUrl
-		) {
+		if (!this.enabled || this.closed) {
 			return;
 		}
 		if (this.queue.length >= this.maxQueueSize) {
-			this.queue.shift();
+			const shedRow = this.queue[0];
+			if (shedRow) {
+				this.appendLossRecords([shedRow], "queue_shed");
+				this.queue.shift();
+			}
 			this.stats.shed += 1;
 			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
-				table: row.table,
+				table: shedRow?.table ?? "unknown",
 			});
-			// Shedding means silent archive data loss; the metric alone is invisible
-			// when OTel is disabled, so surface it in logs (rate-limited per row burst).
+			// The durable journal is authoritative; this rate-limited warning makes
+			// sustained queue pressure visible without becoming another loss sink.
 			const now = Date.now();
 			if (now - this.lastShedWarnAtMs >= SHED_WARN_INTERVAL_MS) {
 				log.warn("Archive queue full: shedding oldest rows", {
 					shed_total: this.stats.shed,
 					queue_max: this.maxQueueSize,
-					table: row.table,
+					table: shedRow?.table ?? "unknown",
 				});
 				this.lastShedWarnAtMs = now;
 			}
@@ -217,9 +223,7 @@ export class BrokerExecutionArchiver {
 			table: row.table,
 		});
 		if (this.queue.length >= this.batchSize) {
-			void this.flush().catch((error) => {
-				log.warn("Broker execution archive flush failed", { error });
-			});
+			void this.flush();
 		}
 	}
 
@@ -250,23 +254,36 @@ export class BrokerExecutionArchiver {
 			clearInterval(this.flushTimer);
 			this.flushTimer = null;
 		}
-		while (this.queue.length > 0 || this.flushInFlight) {
-			if (this.flushInFlight) {
-				await this.flushInFlight;
-				continue;
+		let closeError: unknown;
+		try {
+			while (this.queue.length > 0 || this.flushInFlight) {
+				if (this.flushInFlight) {
+					await this.flushInFlight;
+					continue;
+				}
+				const depthBefore = this.queue.length;
+				const flushed = await this.flushBatch();
+				if (!flushed && this.queue.length >= depthBefore && depthBefore > 0) {
+					const undelivered = [...this.queue];
+					this.appendLossRecords(undelivered, "shutdown_forwarder_failure");
+					this.queue.length = 0;
+					break;
+				}
 			}
-			const depthBefore = this.queue.length;
-			const flushed = await this.flushBatch();
-			if (!flushed && this.queue.length >= depthBefore && depthBefore > 0) {
-				const dropped = this.queue.length;
-				this.queue.length = 0;
-				log.warn(
-					`Archive shutdown dropped ${dropped} undelivered row(s) after forwarder failure`,
-				);
-				break;
-			}
+		} catch (error) {
+			closeError = error;
 		}
 		this.closed = true;
+		if (this.deadLetterFd !== undefined) {
+			try {
+				this.closeLossJournal();
+			} catch (error) {
+				closeError ??= error;
+			}
+		}
+		if (closeError) {
+			throw closeError;
+		}
 	}
 
 	getStats(): Readonly<ArchiverStats> {
@@ -277,16 +294,74 @@ export class BrokerExecutionArchiver {
 		return this.queue.length;
 	}
 
+	private closeLossJournal(): void {
+		if (this.deadLetterFd === undefined) {
+			return;
+		}
+		const fd = this.deadLetterFd;
+		try {
+			closeSync(fd);
+		} catch (error) {
+			throw new BrokerExecutionArchiveDurabilityError(
+				"Broker execution archive failed to close the configured CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH loss journal",
+				{ cause: error },
+			);
+		} finally {
+			this.deadLetterFd = undefined;
+		}
+	}
+
 	// Drop oldest rows until the queue is within maxQueueSize, counting each into
 	// the shed stat/metric. Mirrors the enqueue-time shed policy for the requeue
 	// path, which can otherwise push the queue past the bound during an outage.
 	private enforceQueueBound(): void {
 		while (this.queue.length > this.maxQueueSize) {
-			const dropped = this.queue.shift();
+			const dropped = this.queue[0];
+			if (!dropped) {
+				return;
+			}
+			this.appendLossRecords([dropped], "queue_shed");
+			this.queue.shift();
 			this.stats.shed += 1;
 			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
 				table: dropped?.table ?? "unknown",
 			});
+		}
+	}
+
+	private appendLossRecords(
+		rows: readonly BrokerArchiveRow[],
+		reason: ArchiveLossReason,
+	): void {
+		if (rows.length === 0) {
+			return;
+		}
+		if (this.deadLetterFd === undefined) {
+			throw new BrokerExecutionArchiveDurabilityError(
+				`Broker execution archive cannot record ${reason}: dead-letter file is not open`,
+			);
+		}
+		const timestamp = new Date().toISOString();
+		const records: ArchiveLossRecord[] = rows.map((payload) => ({
+			timestamp,
+			deployment_id: this.deploymentId,
+			reason,
+			payload,
+		}));
+		try {
+			const bytes = Buffer.from(
+				records.map((record) => JSON.stringify(record)).join("\n") + "\n",
+			);
+			const written = writeSync(this.deadLetterFd, bytes);
+			if (written !== bytes.length) {
+				throw new Error(`wrote ${written} of ${bytes.length} bytes`);
+			}
+			fsyncSync(this.deadLetterFd);
+		} catch (error) {
+			throw new BrokerExecutionArchiveDurabilityError(
+				`Broker execution archive failed to durably record ${reason}; affected row(s) were retained`,
+				{ cause: error },
+			);
 		}
 	}
 
@@ -335,7 +410,7 @@ export class BrokerExecutionArchiver {
 		return true;
 	}
 
-	// Self-health emitted only on a successful forwarder post (or OTel-only flush):
+	// Self-health emitted only on a successful forwarder post:
 	// a per-table rows-flushed counter to compare against enqueued, and a
 	// last-flush-success gauge (unix seconds) whose staleness is the "archive plane
 	// stuck" signal. Fire-and-forget so metrics never gate flushing.
@@ -389,7 +464,7 @@ export class BrokerExecutionArchiver {
 				body: entry.table,
 				severityNumber: SeverityNumber.INFO,
 				severityText: "INFO",
-				attributes: flattenArchiveAttributes(entry),
+				attributes: flattenArchiveAttributes(redactArchiveErrorForOtel(entry)),
 			});
 		} catch (error) {
 			log.warn("Broker execution archive OTLP emit failed", { error });
@@ -458,6 +533,20 @@ export class BrokerExecutionArchiver {
 	}
 }
 
+function redactArchiveErrorForOtel(entry: BrokerArchiveRow): BrokerArchiveRow {
+	if (
+		entry.table !== "broker_execution.order_events" ||
+		typeof entry.row.error_message !== "string" ||
+		entry.row.error_message.length === 0
+	) {
+		return entry;
+	}
+	return {
+		...entry,
+		row: { ...entry.row, error_message: REDACTED_ERROR_MESSAGE },
+	};
+}
+
 function flattenArchiveAttributes(
 	entry: BrokerArchiveRow,
 ): Record<string, string | number | boolean> {
@@ -485,12 +574,17 @@ export function createBrokerExecutionArchiverFromEnv(
 	otelLogs?: OtelLogs,
 	otelMetrics?: OtelMetrics,
 ): BrokerExecutionArchiver {
+	if (process.env.CEX_BROKER_ARCHIVE_ENABLED !== "true") {
+		return BrokerExecutionArchiver.disabled();
+	}
 	const forwarderUrl = resolveArchiveForwarderUrlFromEnv();
 	const archiveOtelLogs = isArchiveOtelLogsEnabled() ? otelLogs : undefined;
 	return BrokerExecutionArchiver.create({
 		otelLogs: archiveOtelLogs,
 		otelMetrics,
-		forwarderUrl,
+		forwarderUrl: forwarderUrl ?? "",
+		deadLetterPath:
+			process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH?.trim() ?? "",
 		deploymentId: process.env.CEX_BROKER_DEPLOYMENT_ID,
 		maxQueueSize: parsePositiveInt(
 			process.env.CEX_BROKER_ARCHIVE_QUEUE_MAX,
@@ -505,6 +599,29 @@ export function createBrokerExecutionArchiverFromEnv(
 			DEFAULT_FLUSH_INTERVAL_MS,
 		),
 	});
+}
+
+function validateForwarderUrl(value: string | undefined): URL {
+	if (!value) {
+		throw new Error(
+			"Broker execution archive is enabled but CEX_BROKER_ARCHIVE_FORWARDER_URL is missing",
+		);
+	}
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch (error) {
+		throw new Error(
+			"Broker execution archive requires a valid CEX_BROKER_ARCHIVE_FORWARDER_URL",
+			{ cause: error },
+		);
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new Error(
+			"Broker execution archive forwarder URL must use http or https",
+		);
+	}
+	return url;
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {

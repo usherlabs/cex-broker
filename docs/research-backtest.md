@@ -70,10 +70,14 @@ CLICKHOUSE_PORT=8123 bun run dev:archive-forwarder
 ## 2. Start cex-broker with archive enabled
 
 ```env
+CEX_BROKER_ARCHIVE_ENABLED=true
 CEX_BROKER_ARCHIVE_FORWARDER_URL=http://localhost:8090/archive
+CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH=./archive-loss.jsonl
 CEX_BROKER_MARKET_ARCHIVE_ENABLED=true
 CEX_BROKER_DEPLOYMENT_ID=local-dev
 ```
+
+For production durability, `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH` must be on persistent writable storage or a mounted volume. A container-local ephemeral path does not preserve loss records across container replacement.
 
 If broker runs in Docker on the same compose network:
 
@@ -235,3 +239,4 @@ See [research/hummingbot/README.md](../research/hummingbot/README.md).
 | Empty Python DataFrame | Query `candles_closed` (closed bars only), symbol/timeframe match ingest |
 | Chart not updating | Hard-refresh browser; confirm `/api/candles` returns changing `brokerVersion` on forming bar |
 | Broker cannot reach forwarder | `CEX_BROKER_ARCHIVE_FORWARDER_URL` host/port |
+| Broker rejects archive startup | Exact `CEX_BROKER_ARCHIVE_ENABLED=true`, valid forwarder URL, and writable `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH` |

@@ -53,7 +53,9 @@ CLICKHOUSE_PORT=8123 bun run start-archive-forwarder
 ### 2. Broker with archive enabled
 
 ```bash
+CEX_BROKER_ARCHIVE_ENABLED=true \
 CEX_BROKER_ARCHIVE_FORWARDER_URL=http://localhost:8090/archive \
+CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH=./archive-loss.jsonl \
 CEX_BROKER_DEPLOYMENT_ID=local-dev \
 CEX_BROKER_MARKET_ARCHIVE_ENABLED=true \
 bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll
@@ -116,11 +118,15 @@ Broker hot reload (separate from research): `bun run start-broker-server`.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CEX_BROKER_ARCHIVE_FORWARDER_URL` | derived from host/port | Forwarder POST target |
+| `CEX_BROKER_ARCHIVE_ENABLED` | disabled | Exact `true` enables archive delivery |
+| `CEX_BROKER_ARCHIVE_FORWARDER_URL` | — | Required HTTP(S) forwarder POST target |
+| `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH` | — | Required writable durable JSONL loss journal |
 | `CEX_BROKER_MARKET_ARCHIVE_ENABLED` | `true` | Enable market_data archiving |
 | `CEX_BROKER_DEPLOYMENT_ID` | — | Tag rows in ClickHouse |
 | `CEX_BROKER_ORDERBOOK_INTERVAL_MS` | `1000` | Orderbook archive sample rate |
 | `CEX_BROKER_ORDERBOOK_TOB_INTERVAL_MS` | — | Legacy alias for orderbook interval |
+
+Production deployments must place `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH` on persistent writable storage or a mounted volume. A container-local ephemeral file is not a durable loss journal.
 
 ### ClickHouse clients (viewer, Python, forwarder)
 

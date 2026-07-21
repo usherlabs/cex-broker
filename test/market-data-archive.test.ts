@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { NormalizedOrderBookSnapshot } from "../src/helpers/order-book";
 import {
-	OhlcvBarTracker,
 	extractLatestOhlcvBar,
 	extractOhlcvBars,
+	OhlcvBarTracker,
 	parseOhlcvBar,
 } from "../src/helpers/market-data-archive/ohlcv-bar-tracker";
 import { resolveOhlcvBootstrapLimit } from "../src/helpers/market-data-archive/ohlcv-bootstrap";
+import { splitOrderBookSide } from "../src/helpers/market-data-archive/orderbook-depth";
+import { OrderbookSampler } from "../src/helpers/market-data-archive/orderbook-sampler";
 import {
 	extractTrades,
 	parseTicker,
 } from "../src/helpers/market-data-archive/parse-stream";
-import { OrderbookSampler } from "../src/helpers/market-data-archive/orderbook-sampler";
 import {
 	buildCandleRow,
 	buildCexStreamEventRow,
@@ -19,7 +19,7 @@ import {
 	buildCexTradeRow,
 	buildOrderbookSnapshotRow,
 } from "../src/helpers/market-data-archive/rows";
-import { splitOrderBookSide } from "../src/helpers/market-data-archive/orderbook-depth";
+import type { NormalizedOrderBookSnapshot } from "../src/helpers/order-book";
 
 function createSnapshot(
 	overrides: Partial<NormalizedOrderBookSnapshot> = {},

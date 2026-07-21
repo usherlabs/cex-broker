@@ -5,6 +5,7 @@ import {
 	buildCommonArchiveTags,
 	buildFillEventArchiveRow,
 	normalizeCcxtTradeForArchive,
+	rethrowArchiveDurabilityError,
 } from "./broker-execution-archive";
 import { log } from "./logger";
 import type { OrderActivityTracker } from "./order-activity-tracker";
@@ -115,6 +116,7 @@ export class FillArchivePoller {
 		try {
 			await this.pollTrackedOnce();
 		} catch (error) {
+			rethrowArchiveDurabilityError(error);
 			log.error("Fill archive poller tick failed", error);
 		} finally {
 			this.#running = false;

@@ -5,6 +5,7 @@ import {
 	buildAccountBalanceSnapshotRow,
 	buildCommonArchiveTags,
 	normalizeCcxtBalanceForArchive,
+	rethrowArchiveDurabilityError,
 } from "./broker-execution-archive";
 import { log } from "./logger";
 import type { OtelMetrics } from "./otel";
@@ -150,6 +151,7 @@ export class AccountBalanceArchivePoller {
 			);
 			this.#recordFreshness(labels, successMs, successMs);
 		} catch (error) {
+			rethrowArchiveDurabilityError(error);
 			void this.params.metrics?.recordCounter(
 				"cex_account_balance_poll_failures_total",
 				1,
@@ -195,6 +197,7 @@ export class AccountBalanceArchivePoller {
 		try {
 			await this.pollAllOnce();
 		} catch (error) {
+			rethrowArchiveDurabilityError(error);
 			log.error("Account balance archive poller tick failed", error);
 		} finally {
 			if (!this.#stopped) {

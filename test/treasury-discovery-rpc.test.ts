@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import {
@@ -11,6 +14,14 @@ import { getServer } from "../src/server";
 import type { PolicyConfig } from "../src/types";
 import { startForwarderServer } from "./archive-forwarder-server";
 import { bindServer, executeAction, grpcObj } from "./order-telemetry-fixtures";
+
+const archiveTestDirectory = mkdtempSync(
+	join(tmpdir(), "cex-broker-treasury-archive-test-"),
+);
+
+afterAll(() => {
+	rmSync(archiveTestDirectory, { recursive: true, force: true });
+});
 
 const testPolicy: PolicyConfig = {
 	withdraw: { rule: [] },
@@ -201,6 +212,7 @@ describe("Treasury discovery and transfer observation RPC", () => {
 		];
 		const archiver = BrokerExecutionArchiver.create({
 			forwarderUrl: forwarder.url,
+			deadLetterPath: join(archiveTestDirectory, "loss.jsonl"),
 			deploymentId: "test-deploy",
 			batchSize: 100,
 			flushIntervalMs: 60_000,

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { AccountBalanceArchivePoller } from "../src/helpers/account-balance-archive-poller";
 import type { BrokerAccount, BrokerPoolEntry } from "../src/helpers/broker";
-import type {
-	BrokerArchiveRow,
-	BrokerExecutionArchiver,
+import {
+	type BrokerArchiveRow,
+	BrokerExecutionArchiveDurabilityError,
+	type BrokerExecutionArchiver,
 } from "../src/helpers/broker-execution-archive";
 import type { OtelMetrics } from "../src/helpers/otel";
 
@@ -210,6 +211,33 @@ describe("AccountBalanceArchivePoller", () => {
 
 		expect(calls).toEqual(["primary"]);
 		expect(await poller.pollAllOnce()).toBe(false);
+	});
+
+	test("rethrows archive durability failures instead of treating them as poll failures", async () => {
+		const durabilityError = new BrokerExecutionArchiveDurabilityError(
+			"loss journal write failed",
+		);
+		const brokers: Record<string, BrokerPoolEntry> = {
+			binance: {
+				primary: account(
+					{
+						fetchBalance: async () => ({ total: { USDC: 1 } }),
+					},
+					"primary",
+				),
+				secondaryBrokers: [],
+			},
+		};
+		const archiver = {
+			canPersistAccountBalanceSnapshots: () => true,
+			getDeploymentId: () => "deploy-a",
+			enqueue: () => {
+				throw durabilityError;
+			},
+		} as unknown as BrokerExecutionArchiver;
+		const poller = new AccountBalanceArchivePoller({ brokers, archiver });
+
+		await expect(poller.pollAllOnce()).rejects.toBe(durabilityError);
 	});
 
 	test("does not advertise or poll balance coverage without a durable forwarder", async () => {
