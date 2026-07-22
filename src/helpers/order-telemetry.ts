@@ -214,7 +214,7 @@ export function emitOrderExecutionTelemetryInBackground(
 }
 
 export function extractOrderTelemetryIds(
-	params: Record<string, string | number> | undefined,
+	params: Record<string, unknown> | undefined,
 ): Pick<
 	OrderTelemetryContext,
 	"clientOrderId" | "idempotencyId" | "makerActionId"
