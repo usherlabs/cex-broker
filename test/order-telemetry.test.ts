@@ -486,12 +486,15 @@ describe("order execution telemetry RPC harness", () => {
 
 			await Promise.resolve();
 			await archiver.flush();
-			const archivedOrder = forwarder.requests
-				.flatMap((request) => request.body.rows ?? [])
-				.find(
-					(entry: { table?: string }) =>
-						entry.table === "broker_execution.order_events",
-				) as { row: Record<string, unknown> } | undefined;
+			const archivedRows = forwarder.requests.flatMap(
+				(request) => request.body.rows ?? [],
+			) as Array<{ table?: string; row: Record<string, unknown> }>;
+			const archivedOrder = archivedRows.find(
+				(entry) => entry.table === "broker_execution.order_events",
+			);
+			const archivedMarketSnapshot = archivedRows.find(
+				(entry) => entry.table === "broker_execution.market_metadata_snapshots",
+			);
 			expect(archivedOrder?.row).toMatchObject({
 				action: "CreateOrder",
 				client_order_id: "FIET-rejected-order-1",
@@ -502,6 +505,13 @@ describe("order execution telemetry RPC harness", () => {
 				requested_quantity: 10,
 				requested_notional: 21,
 			});
+			expect(archivedMarketSnapshot?.row).toMatchObject({
+				client_order_id: "FIET-rejected-order-1",
+				symbol: "ARB/USDT",
+			});
+			expect(archivedOrder?.row.market_metadata_hash).toBe(
+				archivedMarketSnapshot?.row.market_metadata_hash,
+			);
 			expect(metrics.counters).toContainEqual(
 				expect.objectContaining({
 					name: "cex_market_action_executions_total",

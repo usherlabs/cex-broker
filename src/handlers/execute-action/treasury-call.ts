@@ -154,6 +154,7 @@ export async function handleTreasuryCall(
 				createOrderContext,
 				undefined,
 				error,
+				{ marketMetadataHash },
 			);
 		}
 		safeLogError("Call failed", error);
