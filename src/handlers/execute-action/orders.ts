@@ -58,6 +58,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		side?: string;
 		requestedQuantity?: number;
 	} = {};
+	let marketMetadataHash: string | undefined;
 	try {
 		if (!broker) {
 			return ctx.wrappedCallback(
@@ -104,7 +105,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		}
 		const telemetryIds = extractOrderTelemetryIds(createOrderParams);
 		const submissionTimestamp = new Date().toISOString();
-		const marketMetadataHash = await captureMarketMetadataSnapshot(
+		marketMetadataHash = await captureMarketMetadataSnapshot(
 			brokerArchiver,
 			broker,
 			{
@@ -175,6 +176,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			failedCreateContext,
 			undefined,
 			error,
+			{ marketMetadataHash },
 		);
 		ctx.wrappedCallback(
 			{

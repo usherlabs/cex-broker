@@ -741,6 +741,10 @@ describe("order execution telemetry RPC harness", () => {
 		const errorLog = spyOn(log, "error").mockImplementation(() => {});
 		const { exchange } = createOrderExchangeFixture({
 			createOrderError: new ExchangeOrderRejected(exchangeMessage),
+			fetchOrderBookResult: {
+				bids: [[1.99, 100]],
+				asks: [[2.0, 100]],
+			},
 		});
 		server = getServer(
 			testPolicy,
@@ -785,14 +789,23 @@ describe("order execution telemetry RPC harness", () => {
 
 			await Promise.resolve();
 			await archiver.flush();
-			const archivedOrder = forwarder.requests
-				.flatMap((request) => request.body.rows ?? [])
-				.find(
-					(entry: { table?: string }) =>
-						entry.table === "broker_execution.order_events",
-				) as { row: Record<string, unknown> } | undefined;
+			const archivedRows = forwarder.requests.flatMap(
+				(request) => request.body.rows ?? [],
+			) as Array<{ table?: string; row: Record<string, unknown> }>;
+			const archivedOrder = archivedRows.find(
+				(entry) => entry.table === "broker_execution.order_events",
+			);
+			const archivedMarketSnapshot = archivedRows.find(
+				(entry) => entry.table === "broker_execution.market_metadata_snapshots",
+			);
 			expect(archivedOrder?.row.status).toBe("failed");
 			expect(archivedOrder?.row.client_order_id).toBe("failed-client-order-1");
+			expect(archivedMarketSnapshot?.row.client_order_id).toBe(
+				"failed-client-order-1",
+			);
+			expect(archivedOrder?.row.market_metadata_hash).toBe(
+				archivedMarketSnapshot?.row.market_metadata_hash,
+			);
 			expect(archivedOrder?.row.error_message).toContain(
 				"ExchangeOrderRejected [code=-2010]: exchange rejected order",
 			);
