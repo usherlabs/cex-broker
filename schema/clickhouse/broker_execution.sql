@@ -112,6 +112,16 @@ ENGINE = MergeTree
 PARTITION BY toDate(broker_observed_timestamp)
 ORDER BY (account_selector, broker_observed_timestamp, exchange, symbol, event_kind, lifecycle_action);
 
+-- CREATE TABLE IF NOT EXISTS is a no-op on an already-populated table, so an
+-- added column reaches fresh deployments only. Inserts name every column, so a
+-- broker emitting client_withdrawal_id against a table that lacks it fails the
+-- insert and the batch is dropped with a counter — silent loss in the ledger
+-- that proves where money went. This runs on forwarder startup ahead of serving
+-- and fail-closes (services/archive-forwarder/index.ts), so the column cannot
+-- be missing while rows are accepted.
+ALTER TABLE broker_execution.transfer_events
+ADD COLUMN IF NOT EXISTS client_withdrawal_id String DEFAULT '' AFTER external_id;
+
 -- Per-fill execution facts from the venue trade-history endpoint (fetchMyTrades),
 -- captured by the broker-internal fill poller. GetOrderDetails/createOrder payloads
 -- carry no per-trade breakdown and no fee on most venues, so per-fill truth
