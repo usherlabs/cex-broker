@@ -71,8 +71,9 @@ ORDER BY (exchange, symbol, broker_observed_timestamp);
 -- (docs/CEX_EXECUTION_ARCHIVE_CONTRACT.md): MergeTree, DateTime64(3,'UTC')
 -- timestamps, string quantities, result_index UInt32, error_summary. The contract
 -- does not constrain retention; like every table in this file these are execution
--- audit facts (the venue cash-flow ledger) and must not expire, so no TTL. Two
--- ADDITIVE columns not in the consumer contract: fee_amount / fee_currency (the
+-- audit facts (the venue cash-flow ledger) and must not expire, so no TTL. Three
+-- ADDITIVE columns not in the consumer contract: client_withdrawal_id (the
+-- caller's request-side withdrawal identity) and fee_amount / fee_currency (the
 -- ccxt withdrawal object exposes the fee, the dominant small-commit cost).
 -- broker_observed_timestamp is emitted as an ISO-8601 UTC string and parsed on
 -- insert via the forwarder's date_time_input_format=best_effort (see
@@ -98,6 +99,7 @@ CREATE TABLE IF NOT EXISTS broker_execution.transfer_events
     address String DEFAULT '',
     network LowCardinality(String) DEFAULT '',
     external_id String DEFAULT '',
+    client_withdrawal_id String DEFAULT '',
     txid String DEFAULT '',
     result_index UInt32 DEFAULT 0,
     fee_amount String DEFAULT '',

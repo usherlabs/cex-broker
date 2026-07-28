@@ -11,7 +11,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LogRecord } from "@opentelemetry/api-logs";
+import type { Exchange } from "@usherlabs/ccxt";
 import { MAX_ARCHIVE_BODY_BYTES } from "../services/archive-forwarder/limits";
+import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
+import { handleWithdraw } from "../src/handlers/execute-action/withdraw";
 import {
 	redactSecretLiterals,
 	redactStreamPayload,
@@ -402,6 +405,7 @@ describe("broker execution archive rows", () => {
 				address: "0xdead",
 				network: "ARBITRUM",
 				externalId: "wd-1",
+				clientWithdrawalId: "lane-withdrawal-1",
 				txid: "0xabc",
 				feeAmount: "4.89",
 				feeCurrency: "USDC",
@@ -424,6 +428,7 @@ describe("broker execution archive rows", () => {
 			status: "ok",
 			amount: "100",
 			external_id: "wd-1",
+			client_withdrawal_id: "lane-withdrawal-1",
 			result_index: 0,
 			// Additive columns (ccxt exposes the withdrawal fee).
 			fee_amount: "4.89",
@@ -445,6 +450,7 @@ describe("broker execution archive rows", () => {
 			},
 		});
 		expect(row.row.external_id).toBe("");
+		expect(row.row.client_withdrawal_id).toBe("");
 		expect(row.row.status).toBe("");
 		expect(row.row.result_index).toBe(0);
 		expect(row.row.event_kind).toBe("deposit");
@@ -747,6 +753,110 @@ describe("withdrawal observation tracker", () => {
 			expect(tracker.getSize()).toBe(
 				DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES,
 			);
+		}
+	});
+});
+
+describe("withdraw submission archive", () => {
+	test("carries valid caller ids on successful and failed submissions without deriving invalid ids", async () => {
+		const forwarder = await startForwarderServer();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: forwarder.url,
+			deadLetterPath: createDeadLetterPath(),
+			deploymentId: "test-deploy",
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+		});
+		const broker = {
+			has: { fetchCurrencies: false },
+			currencies: {
+				USDC: {
+					networks: {
+						BSC: { id: "BSC", network: "BSC" },
+					},
+				},
+			},
+			withdraw: async (
+				_code: string,
+				_amount: number,
+				_address: string,
+				_tag: undefined,
+				params: Record<string, unknown>,
+			) => {
+				if (params.withdrawOrderId === "failed-lane") {
+					throw new Error("venue rejected withdrawal");
+				}
+				return { id: "venue-withdrawal-id" };
+			},
+		} as unknown as Exchange;
+
+		const context = (withdrawOrderId: string | number) =>
+			({
+				call: {
+					request: {
+						payload: {
+							recipientAddress: "0xrecipient",
+							amount: "10",
+							chain: "BNB",
+							params: JSON.stringify({ withdrawOrderId }),
+						},
+					},
+				},
+				wrappedCallback: () => {},
+				policy: {
+					withdraw: {
+						rule: [
+							{
+								exchange: "BINANCE",
+								network: "BNB",
+								whitelist: ["0xrecipient"],
+								coins: ["USDC"],
+							},
+						],
+					},
+					deposit: {},
+					order: { rule: { markets: [], limits: [] } },
+				},
+				brokers: {},
+				metadata: {},
+				normalizedCex: "binance",
+				cex: "binance",
+				symbol: "USDC",
+				selectedBrokerAccount: { exchange: broker, label: "primary" },
+				broker,
+				verity: { proof: "" },
+				applyVerityToBroker: () => {},
+				useVerity: false,
+				verityProverUrl: "",
+				brokerArchiver: archiver,
+			}) as unknown as ExecuteActionContext;
+
+		try {
+			await handleWithdraw(context("successful-lane"));
+			await handleWithdraw(context("failed-lane"));
+			await handleWithdraw(context(123));
+			await Promise.resolve();
+			await archiver.flush();
+
+			const rows = forwarder.requests.flatMap(
+				(request) => request.body.rows ?? [],
+			) as Array<{ row: Record<string, unknown> }>;
+			expect(rows).toHaveLength(3);
+			expect(rows[0]?.row).toMatchObject({
+				external_id: "venue-withdrawal-id",
+				client_withdrawal_id: "successful-lane",
+				status: "",
+			});
+			expect(rows[1]?.row).toMatchObject({
+				external_id: "",
+				client_withdrawal_id: "failed-lane",
+				status: "failed",
+				error_summary: "venue rejected withdrawal",
+			});
+			expect(rows[2]?.row.client_withdrawal_id).toBe("");
+		} finally {
+			await archiver.close();
+			await forwarder.close();
 		}
 	});
 });
