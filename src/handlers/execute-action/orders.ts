@@ -72,6 +72,12 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		requestedQuantity?: number;
 	} = {};
 	let marketMetadataHash: string | undefined;
+	// A passive error code is a statement about what the VENUE did with our
+	// submission. Failures before the call (policy resolution, metadata capture)
+	// never reached the venue, and failures after it leave a real order resting —
+	// reporting either as a passive rejection would tell the client its rung was
+	// never placed and invite a duplicate repost.
+	let submission: "not_attempted" | "in_flight" | "placed" = "not_attempted";
 	try {
 		if (!broker) {
 			return ctx.wrappedCallback(
@@ -130,6 +136,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 				...telemetryIds,
 			},
 		);
+		submission = "in_flight";
 		const order = await broker.createOrder(
 			resolution.symbol,
 			orderValue.orderType,
@@ -138,6 +145,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			orderValue.price,
 			createOrderParams,
 		);
+		submission = "placed";
 		const createOrderContext = {
 			action: "CreateOrder" as const,
 			cex,
@@ -198,7 +206,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			error,
 			{ marketMetadataHash },
 		);
-		if (isPassiveOrder) {
+		if (isPassiveOrder && submission === "in_flight") {
 			const passiveErrorCode = classifyPassiveOrderError(error);
 			return rejectWithGrpcError(ctx, error, {
 				message: `${passiveErrorCode}: ${sanitizeErrorDetail(error)}`,

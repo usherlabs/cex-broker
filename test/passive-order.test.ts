@@ -216,4 +216,37 @@ describe("passive CreateOrder", () => {
 		expect(fixture.getError()?.code).toBe(grpc.status.FAILED_PRECONDITION);
 		expect(fixture.getError()?.message).toStartWith("passive_order_rejected:");
 	});
+
+	test("does not classify a pre-submission failure as a passive venue rejection", async () => {
+		const fixture = createFixture();
+		(fixture.ctx.broker as unknown as { loadMarkets: () => Promise<void> })
+			.loadMarkets = async () => {
+			throw new Error("market resolution unavailable");
+		};
+		fixture.ctx.call.request.payload = createOrderPayload({
+			orderIntent: "passive_only",
+		});
+
+		await handleOrders(fixture.ctx);
+
+		expect(fixture.createOrderCalls).toHaveLength(0);
+		expect(fixture.getError()?.message).not.toStartWith("passive_order_");
+	});
+
+	test("does not classify a post-submission failure as a passive venue rejection", async () => {
+		const circularOrder: Record<string, unknown> = { id: "order-1" };
+		circularOrder.self = circularOrder;
+		const fixture = createFixture(circularOrder);
+		fixture.ctx.call.request.payload = createOrderPayload({
+			orderIntent: "passive_only",
+		});
+
+		await handleOrders(fixture.ctx);
+
+		// The order is resting on the venue; a passive code would tell the client
+		// it was never placed and invite a duplicate repost.
+		expect(fixture.createOrderCalls).toHaveLength(1);
+		expect(fixture.getError()?.code).toBe(grpc.status.INTERNAL);
+		expect(fixture.getError()?.message).not.toStartWith("passive_order_");
+	});
 });
