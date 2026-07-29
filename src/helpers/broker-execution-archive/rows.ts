@@ -359,9 +359,10 @@ export function buildSubscribeStreamArchiveRow(input: {
 // tags + contract columns, all quantities/prices as strings (venue precision
 // varies by asset), fill_index/result_index as numbers (UInt32 columns). Two
 // deliberate ADDITIVE divergences the consumer contract doesn't yet list:
-// transfer_events carries fee_amount/fee_currency (the ccxt withdrawal object
-// exposes the fee, which is the dominant small-commit cost), and fill_events.event_kind
-// is stamped with the true trade-history-poller source rather than "create_order_fill".
+// transfer_events carries client_withdrawal_id plus fee_amount/fee_currency (the
+// ccxt withdrawal object exposes the fee, which is the dominant small-commit
+// cost), and fill_events.event_kind is stamped with the true trade-history-poller
+// source rather than "create_order_fill".
 
 // Preserve venue precision: prefer the raw string the venue returned (usually in
 // `info`) over ccxt's parsed number, stringifying a number only as a fallback.
@@ -377,6 +378,7 @@ export type TransferArchiveFields = {
 	address?: string;
 	network?: string;
 	externalId?: string;
+	clientWithdrawalId?: string;
 	txid?: string;
 	resultIndex?: number;
 	feeAmount?: string;
@@ -387,8 +389,9 @@ export type TransferArchiveFields = {
 };
 
 // asset_symbol mirrors the shared `symbol` tag for transfers (the moved asset,
-// e.g. "USDC"), per the contract. event_kind/lifecycle_action/external_id are the
-// primary read keys; they are always emitted (external_id/status default to "").
+// e.g. "USDC"), per the contract. event_kind/lifecycle_action and the two
+// withdrawal identities are primary read keys; they are always emitted
+// (external_id/client_withdrawal_id/status default to "").
 export function buildTransferEventArchiveRow(input: {
 	tags: BrokerArchiveCommonTags;
 	transfer: TransferArchiveFields;
@@ -407,6 +410,7 @@ export function buildTransferEventArchiveRow(input: {
 			address: transfer.address,
 			network: transfer.network,
 			external_id: transfer.externalId ?? "",
+			client_withdrawal_id: transfer.clientWithdrawalId ?? "",
 			txid: transfer.txid,
 			result_index: transfer.resultIndex ?? 0,
 			// Additive (not in the consumer contract's transfer_events column set).

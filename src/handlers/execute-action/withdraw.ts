@@ -108,6 +108,12 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 		);
 	}
 
+	const withdrawOrderId = transferValue.params.withdrawOrderId;
+	const clientWithdrawalId =
+		typeof withdrawOrderId === "string" && withdrawOrderId.length > 0
+			? withdrawOrderId
+			: undefined;
+
 	try {
 		const transaction =
 			travelRule.mode === "localentity"
@@ -145,6 +151,7 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 				address: normalized.address ?? transferValue.recipientAddress,
 				network: normalized.network ?? withdrawNetwork.exchangeNetworkId,
 				externalId: normalized.externalId,
+				clientWithdrawalId,
 				txid: normalized.txid,
 				feeAmount: normalized.feeAmount,
 				feeCurrency: normalized.feeCurrency,
@@ -176,6 +183,7 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 				amount: String(transferValue.amount),
 				address: transferValue.recipientAddress,
 				network: withdrawNetwork.exchangeNetworkId,
+				clientWithdrawalId,
 				errorSummary: getErrorMessage(error),
 				payload: { recipientAddress: transferValue.recipientAddress },
 			},
