@@ -155,6 +155,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			orderType: orderValue.orderType,
 			requestedQuantity: resolvedOrderTelemetry.requestedQuantity,
 			requestedNotional: orderValue.amount * orderValue.price,
+			orderAuthor: orderValue.orderAuthor,
 			brokerObservedTimestamp: submissionTimestamp,
 			...telemetryIds,
 		};
@@ -191,6 +192,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			requestedQuantity:
 				resolvedOrderTelemetry.requestedQuantity ?? orderValue.amount,
 			requestedNotional: orderValue.amount * orderValue.price,
+			orderAuthor: orderValue.orderAuthor,
 			...extractOrderTelemetryIds(createOrderParams),
 		};
 		emitOrderExecutionTelemetryInBackground(

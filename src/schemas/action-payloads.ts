@@ -41,6 +41,7 @@ export const DepositPayloadSchema = z.object({
 export const CallPayloadSchema = z.object({
 	functionName: z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/),
 	args: z.preprocess(parseJsonString, z.array(z.unknown())).default([]),
+	orderAuthor: z.string().min(1).optional(),
 	params: z
 		.preprocess(parseJsonString, z.record(z.string(), z.unknown()))
 		.default({}),
@@ -84,6 +85,7 @@ export const CreateOrderPayloadSchema = z.object({
 	price: z.coerce.number().positive(),
 	marketType: marketTypeSchema,
 	clientOrderId: z.string().min(1).optional(),
+	orderAuthor: z.string().min(1).optional(),
 	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
 });
 

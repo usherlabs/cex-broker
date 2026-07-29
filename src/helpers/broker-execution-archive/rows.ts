@@ -287,6 +287,7 @@ export function buildOrderEventArchiveRow(input: {
 			action,
 			subscription_type: input.subscriptionType,
 			order_id: telemetry.orderId,
+			order_author: telemetry.orderAuthor ?? "",
 			client_order_id: telemetry.clientOrderId,
 			idempotency_id: telemetry.idempotencyId,
 			maker_action_id: telemetry.makerActionId,
@@ -357,11 +358,12 @@ export function buildSubscribeStreamArchiveRow(input: {
 
 // Column shapes below follow the fiet-maker CEX_EXECUTION_ARCHIVE_CONTRACT: shared
 // tags + contract columns, all quantities/prices as strings (venue precision
-// varies by asset), fill_index/result_index as numbers (UInt32 columns). Two
+// varies by asset), fill_index/result_index as numbers (UInt32 columns). Three
 // deliberate ADDITIVE divergences the consumer contract doesn't yet list:
+// order_events carries order_author as a caller-declared primary read key;
 // transfer_events carries client_withdrawal_id plus fee_amount/fee_currency (the
 // ccxt withdrawal object exposes the fee, which is the dominant small-commit
-// cost), and fill_events.event_kind is stamped with the true trade-history-poller
+// cost); and fill_events.event_kind is stamped with the true trade-history-poller
 // source rather than "create_order_fill".
 
 // Preserve venue precision: prefer the raw string the venue returned (usually in
