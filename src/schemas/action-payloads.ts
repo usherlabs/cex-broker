@@ -77,6 +77,7 @@ const unknownParamsSchema = z.preprocess(
 
 export const CreateOrderPayloadSchema = z.object({
 	orderType: z.enum(["market", "limit"]).default("limit"),
+	orderIntent: z.enum(["passive_only"]).optional(),
 	amount: z.coerce.number().positive(),
 	fromToken: z.string().min(1),
 	toToken: z.string().min(1),

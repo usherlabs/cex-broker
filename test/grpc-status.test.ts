@@ -21,6 +21,15 @@ describe("grpc status", () => {
 		expect(stableGrpcErrorCode("policy_deposit_denied: x")).toBe(
 			grpc.status.PERMISSION_DENIED,
 		);
+		expect(stableGrpcErrorCode("passive_order_unsupported: x")).toBe(
+			grpc.status.UNIMPLEMENTED,
+		);
+		expect(stableGrpcErrorCode("passive_order_rejected: x")).toBe(
+			grpc.status.FAILED_PRECONDITION,
+		);
+		expect(stableGrpcErrorCode("passive_order_would_cross: x")).toBe(
+			grpc.status.FAILED_PRECONDITION,
+		);
 	});
 
 	test("mapCcxtErrorToGrpcStatus maps authentication errors", () => {
