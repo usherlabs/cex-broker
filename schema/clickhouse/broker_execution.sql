@@ -15,11 +15,19 @@
 CREATE DATABASE IF NOT EXISTS broker_execution;
 
 -- Order lifecycle events: execute-action results and user-stream order updates.
+-- Plain MergeTree intentionally retains duplicates. They are expected from status
+-- polling (every GetOrderDetails observation is archived, while the strategy polls
+-- twice per cycle) and at-least-once WebSocket delivery. The canonical read-time
+-- dedup key is (exchange, account_selector, symbol, order_id, status,
+-- filled_amount), taking argMin(..., broker_observed_timestamp); there is no
+-- sequence or updated_at column from which to infer a later authoritative row.
 CREATE TABLE IF NOT EXISTS broker_execution.order_events
 (
     source LowCardinality(String),
     deployment_id LowCardinality(String),
     account_selector LowCardinality(String),
+    -- Caller-declared order origin; a primary read key, default-empty when absent.
+    order_author LowCardinality(String) DEFAULT '',
 
     exchange LowCardinality(String),
     symbol LowCardinality(String),
@@ -64,6 +72,9 @@ CREATE TABLE IF NOT EXISTS broker_execution.order_events
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(parseDateTimeBestEffortOrZero(broker_observed_timestamp))
 ORDER BY (exchange, symbol, broker_observed_timestamp);
+
+ALTER TABLE broker_execution.order_events
+ADD COLUMN IF NOT EXISTS order_author LowCardinality(String) DEFAULT '' AFTER account_selector;
 
 -- CEX value movements: withdrawals, deposits, and sub<->master internal transfers.
 --
@@ -131,9 +142,11 @@ ADD COLUMN IF NOT EXISTS client_withdrawal_id String DEFAULT '' AFTER external_i
 -- Column names/types/ORDER BY match the fiet-maker consumer contract: MergeTree,
 -- DateTime64 timestamps, string quantities, fill_index UInt32. The contract does
 -- not constrain retention; fills are execution audit facts and carry no TTL. Plain
--- MergeTree (contract): the poller re-scans a lookback window after a restart, so
--- the same trade can be re-inserted; dedup is at read time (GROUP BY / argMax over
--- exchange, account_selector, symbol, order_id, fill_id).
+-- MergeTree (contract): the fill poller re-scans a 24-hour lookback window, so the
+-- same trade can be re-inserted. The canonical read-time dedup key is (exchange,
+-- account_selector, symbol, order_id, fill_id). fill_index is NOT a stable
+-- identifier and must not be used as a dedup key. There is no sequence or
+-- updated_at column from which to infer a later authoritative row.
 CREATE TABLE IF NOT EXISTS broker_execution.fill_events
 (
     broker_observed_timestamp DateTime64(3, 'UTC'),

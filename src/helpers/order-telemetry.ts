@@ -19,6 +19,7 @@ export type OrderTelemetryContext = {
 	orderType?: string;
 	requestedQuantity?: number;
 	requestedNotional?: number;
+	orderAuthor?: string;
 	clientOrderId?: string;
 	idempotencyId?: string;
 	makerActionId?: string;
@@ -34,6 +35,7 @@ export type OrderExecutionTelemetry = {
 	side: string;
 	orderType: string;
 	orderId?: string;
+	orderAuthor?: string;
 	clientOrderId?: string;
 	idempotencyId?: string;
 	makerActionId?: string;
@@ -166,6 +168,7 @@ export function buildOrderExecutionTelemetry(
 		orderType:
 			firstString(record?.type, info?.type, context.orderType) ?? "unknown",
 		orderId: firstString(record?.id, info?.orderId, info?.orderID),
+		orderAuthor: context.orderAuthor,
 		clientOrderId: firstString(
 			context.clientOrderId,
 			record?.clientOrderId,

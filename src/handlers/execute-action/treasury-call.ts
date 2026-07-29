@@ -91,6 +91,7 @@ export async function handleTreasuryCall(
 				side: asNonEmptyString(side),
 				requestedQuantity,
 				requestedNotional,
+				orderAuthor: callValue.orderAuthor,
 				brokerObservedTimestamp: submissionTimestamp,
 				...telemetryIds,
 			};

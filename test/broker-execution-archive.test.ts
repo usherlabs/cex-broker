@@ -14,6 +14,8 @@ import type { LogRecord } from "@opentelemetry/api-logs";
 import type { Exchange } from "@usherlabs/ccxt";
 import { MAX_ARCHIVE_BODY_BYTES } from "../services/archive-forwarder/limits";
 import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
+import { handleOrders } from "../src/handlers/execute-action/orders";
+import { handleTreasuryCall } from "../src/handlers/execute-action/treasury-call";
 import { handleWithdraw } from "../src/handlers/execute-action/withdraw";
 import {
 	redactSecretLiterals,
@@ -44,9 +46,11 @@ import {
 	resolveArchiveForwarderUrlFromEnv,
 	rethrowArchiveDurabilityError,
 } from "../src/helpers/broker-execution-archive/writer";
+import { Action } from "../src/helpers/constants";
 import { log } from "../src/helpers/logger";
 import { buildOrderExecutionTelemetry } from "../src/helpers/order-telemetry";
 import type { OtelLogs } from "../src/helpers/otel";
+import type { PolicyConfig } from "../src/types";
 import { startForwarderServer } from "./archive-forwarder-server";
 
 const archiveTestDirectory = mkdtempSync(
@@ -286,6 +290,7 @@ describe("broker execution archive rows", () => {
 				cex: "binance",
 				accountLabel: "primary",
 				symbol: "ARB/USDT",
+				orderAuthor: "maker-alpha",
 				clientOrderId: "client-1",
 				makerActionId: "maker-1",
 			},
@@ -311,6 +316,7 @@ describe("broker execution archive rows", () => {
 			action: "CancelOrder",
 			event_kind: "execute_action",
 			order_id: "99",
+			order_author: "maker-alpha",
 			client_order_id: "client-1",
 			maker_action_id: "maker-1",
 		});
@@ -368,6 +374,7 @@ describe("broker execution archive rows", () => {
 		]) {
 			expect(orderRow.row).not.toHaveProperty(key);
 		}
+		expect(orderRow.row.order_author).toBe("");
 
 		const snapshotRow = buildMarketMetadataSnapshotRow({
 			tags: buildCommonArchiveTags({
@@ -657,6 +664,117 @@ describe("broker execution archive rows", () => {
 		}).row;
 		for (const column of CONTRACT_FILL_COLUMNS) {
 			expect(fillRow).toHaveProperty(column);
+		}
+	});
+});
+
+describe("order author archive plumbing", () => {
+	test("archives authors from typed and Call createOrder without forwarding them to the venue", async () => {
+		const forwarder = await startForwarderServer();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: forwarder.url,
+			deadLetterPath: createDeadLetterPath(),
+			deploymentId: "test-deploy",
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+		});
+		const createOrderCalls: unknown[][] = [];
+		const broker = {
+			loadMarkets: async () => {},
+			markets: {
+				"USDC/USDT": {
+					symbol: "USDC/USDT",
+					base: "USDC",
+					quote: "USDT",
+					spot: true,
+					type: "spot",
+				},
+			},
+			createOrder: async (...args: unknown[]) => {
+				createOrderCalls.push(args);
+				return {
+					id: `order-${createOrderCalls.length}`,
+					symbol: args[0],
+					type: args[1],
+					side: args[2],
+					amount: args[3],
+					status: "open",
+					filled: 0,
+				};
+			},
+		} as unknown as Exchange;
+		const policy = {
+			order: { rule: { markets: ["*"], limits: [] } },
+		} as unknown as PolicyConfig;
+		const context = (
+			action: (typeof Action)[keyof typeof Action],
+			payload: Record<string, unknown>,
+		) =>
+			({
+				action,
+				call: { request: { payload } },
+				wrappedCallback: () => {},
+				policy,
+				brokers: {},
+				normalizedCex: "binance",
+				cex: "binance",
+				symbol: "USDC/USDT",
+				selectedBrokerAccount: { exchange: broker, label: "primary" },
+				broker,
+				verity: { proof: "" },
+				brokerArchiver: archiver,
+			}) as unknown as ExecuteActionContext;
+		const typedPayload = (orderAuthor?: string) => ({
+			orderType: "limit",
+			amount: "10",
+			fromToken: "USDC",
+			toToken: "USDT",
+			price: "1",
+			marketType: "spot",
+			...(orderAuthor !== undefined && { orderAuthor }),
+			params: JSON.stringify({ timeInForce: "GTC" }),
+		});
+
+		try {
+			await handleOrders(
+				context(Action.CreateOrder, typedPayload("maker-alpha")),
+			);
+			await handleTreasuryCall(
+				context(Action.Call, {
+					functionName: "createOrder",
+					args: JSON.stringify(["USDC/USDT", "limit", "buy", 5, 1]),
+					orderAuthor: "funding-executor",
+					params: JSON.stringify({ postOnly: true }),
+				}),
+			);
+			await handleOrders(context(Action.CreateOrder, typedPayload()));
+
+			expect(createOrderCalls[0]?.[5]).toEqual({ timeInForce: "GTC" });
+			expect(createOrderCalls[1]?.[5]).toEqual({ postOnly: true });
+			expect(createOrderCalls[2]?.[5]).toEqual({ timeInForce: "GTC" });
+			for (const call of createOrderCalls) {
+				expect(call[5]).not.toHaveProperty("orderAuthor");
+			}
+
+			await Promise.resolve();
+			await archiver.flush();
+			const orderRows = forwarder.requests
+				.flatMap((request) => request.body.rows ?? [])
+				.filter(
+					(entry) => entry.table === "broker_execution.order_events",
+				) as Array<{ row: Record<string, unknown> }>;
+			const orderAuthors = Object.fromEntries(
+				orderRows.map(({ row }) => [row.order_id, row.order_author]),
+			);
+
+			expect(orderAuthors).toEqual({
+				"order-1": "maker-alpha",
+				"order-2": "funding-executor",
+				"order-3": "",
+			});
+		} finally {
+			await archiver.close();
+			await forwarder.close();
 		}
 	});
 });
