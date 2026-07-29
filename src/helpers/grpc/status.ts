@@ -18,6 +18,15 @@ export function stableGrpcErrorCode(message: string): grpc.status | undefined {
 	if (message.startsWith("deposit_amount_mismatch:")) {
 		return grpc.status.FAILED_PRECONDITION;
 	}
+	if (message.startsWith("passive_order_unsupported:")) {
+		return grpc.status.UNIMPLEMENTED;
+	}
+	if (
+		message.startsWith("passive_order_rejected:") ||
+		message.startsWith("passive_order_would_cross:")
+	) {
+		return grpc.status.FAILED_PRECONDITION;
+	}
 	if (
 		message.startsWith("policy_withdrawal_denied:") ||
 		message.startsWith("policy_deposit_denied:")
