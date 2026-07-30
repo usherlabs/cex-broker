@@ -16,6 +16,7 @@ import {
 	createBrokerExecutionArchiverFromEnv,
 	WithdrawalObservationTracker,
 } from "./helpers/broker-execution-archive";
+import { DepositArchivePoller } from "./helpers/deposit-archive-poller";
 import { FillArchivePoller } from "./helpers/fill-archive-poller";
 import { log } from "./helpers/logger";
 import { OrderActivityTracker } from "./helpers/order-activity-tracker";
@@ -64,6 +65,7 @@ export default class CEXBroker {
 	private readonly withdrawalObservationTracker =
 		new WithdrawalObservationTracker();
 	private fillArchivePoller?: FillArchivePoller;
+	private depositArchivePoller?: DepositArchivePoller;
 	private accountBalanceArchivePoller?: AccountBalanceArchivePoller;
 
 	/**
@@ -290,6 +292,10 @@ export default class CEXBroker {
 			this.fillArchivePoller.stop();
 			this.fillArchivePoller = undefined;
 		}
+		if (this.depositArchivePoller) {
+			await this.depositArchivePoller.stop();
+			this.depositArchivePoller = undefined;
+		}
 		if (this.accountBalanceArchivePoller) {
 			await this.accountBalanceArchivePoller.stop();
 			this.accountBalanceArchivePoller = undefined;
@@ -324,6 +330,10 @@ export default class CEXBroker {
 		if (this.fillArchivePoller) {
 			this.fillArchivePoller.stop();
 			this.fillArchivePoller = undefined;
+		}
+		if (this.depositArchivePoller) {
+			await this.depositArchivePoller.stop();
+			this.depositArchivePoller = undefined;
 		}
 		if (this.accountBalanceArchivePoller) {
 			await this.accountBalanceArchivePoller.stop();
@@ -381,6 +391,13 @@ export default class CEXBroker {
 				metrics: this.otelMetrics,
 			});
 			this.fillArchivePoller.start();
+
+			this.depositArchivePoller = new DepositArchivePoller({
+				brokers: this.brokers,
+				archiver: this.brokerArchiver,
+				metrics: this.otelMetrics,
+			});
+			this.depositArchivePoller.start();
 		}
 
 		if (this.brokerArchiver?.canPersistAccountBalanceSnapshots()) {
