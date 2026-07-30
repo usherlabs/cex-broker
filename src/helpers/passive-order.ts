@@ -46,9 +46,16 @@ function identifiesUnsupported(message: string): boolean {
 export function classifyPassiveOrderError(
 	error: unknown,
 ): PassiveOrderSubmissionErrorCode {
+	// A passive_* code tells the client the venue refused to REST the order for a
+	// post-only reason, so the rung may be re-placed at a new price. Balance and
+	// credential faults fail that promise: re-placing repeats them verbatim, and
+	// labelling them passive turns a shortfall into an unbounded repost loop.
+	// Both carry a typed ccxt class, so classify them before the post-only checks
+	// and report their own stable code — never the passive catch-all below.
 	if (error instanceof ccxt.InsufficientFunds) {
 		return "InsufficientFunds";
 	}
+	// PermissionDenied extends AuthenticationError, so this covers both.
 	if (error instanceof ccxt.AuthenticationError) {
 		return "AuthenticationError";
 	}
