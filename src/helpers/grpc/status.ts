@@ -3,6 +3,12 @@ import ccxt from "@usherlabs/ccxt";
 import { getErrorMessage } from "../shared/errors";
 
 export function stableGrpcErrorCode(message: string): grpc.status | undefined {
+	if (message.startsWith("AuthenticationError:")) {
+		return grpc.status.UNAUTHENTICATED;
+	}
+	if (message.startsWith("InsufficientFunds:")) {
+		return grpc.status.FAILED_PRECONDITION;
+	}
 	if (message.startsWith("venue_discovery_unavailable:")) {
 		return grpc.status.UNIMPLEMENTED;
 	}

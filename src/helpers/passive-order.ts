@@ -10,6 +10,11 @@ export const PASSIVE_ORDER_ERROR_CODES = {
 export type PassiveOrderErrorCode =
 	(typeof PASSIVE_ORDER_ERROR_CODES)[keyof typeof PASSIVE_ORDER_ERROR_CODES];
 
+export type PassiveOrderSubmissionErrorCode =
+	| PassiveOrderErrorCode
+	| "AuthenticationError"
+	| "InsufficientFunds";
+
 function identifiesWouldCross(message: string): boolean {
 	const normalized = message.toLowerCase();
 	// Post-only venues reject a crossing limit instead of resting it. Binance
@@ -40,7 +45,13 @@ function identifiesUnsupported(message: string): boolean {
 
 export function classifyPassiveOrderError(
 	error: unknown,
-): PassiveOrderErrorCode {
+): PassiveOrderSubmissionErrorCode {
+	if (error instanceof ccxt.InsufficientFunds) {
+		return "InsufficientFunds";
+	}
+	if (error instanceof ccxt.AuthenticationError) {
+		return "AuthenticationError";
+	}
 	const message = getErrorMessage(error);
 	if (
 		error instanceof ccxt.OrderImmediatelyFillable ||
