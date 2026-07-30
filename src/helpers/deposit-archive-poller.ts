@@ -163,8 +163,7 @@ export class DepositArchivePoller {
 	}
 
 	async #pollOne(target: DepositPollTarget): Promise<void> {
-		const exchange = target.account
-			.exchange as unknown as ExchangeWithDeposits;
+		const exchange = target.account.exchange as unknown as ExchangeWithDeposits;
 		const key = this.#targetKey(target);
 		if (
 			typeof exchange.fetchDeposits !== "function" ||
@@ -212,11 +211,7 @@ export class DepositArchivePoller {
 			if (!record) {
 				continue;
 			}
-			const assetSymbol = depositField(record, [
-				"currency",
-				"code",
-				"asset",
-			]);
+			const assetSymbol = depositField(record, ["currency", "code", "asset"]);
 			const amount = depositField(record, ["amount"]);
 			const address = depositField(record, [
 				"address",
@@ -224,12 +219,7 @@ export class DepositArchivePoller {
 				"to",
 				"destination",
 			]);
-			const txid = depositField(record, [
-				"txid",
-				"txId",
-				"tx_hash",
-				"txHash",
-			]);
+			const txid = depositField(record, ["txid", "txId", "tx_hash", "txHash"]);
 			const network = depositField(record, ["network", "chain"]);
 			const creditedAt = depositField(record, [
 				"creditedAt",
@@ -247,8 +237,7 @@ export class DepositArchivePoller {
 						deploymentId: this.params.archiver.getDeploymentId(),
 						accountSelector: target.account.label,
 						exchange: target.exchangeId,
-						symbol:
-							assetSymbol === undefined ? undefined : String(assetSymbol),
+						symbol: assetSymbol === undefined ? undefined : String(assetSymbol),
 					}),
 					transfer: {
 						eventKind: "deposit",
