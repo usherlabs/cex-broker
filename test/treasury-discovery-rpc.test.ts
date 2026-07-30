@@ -5,6 +5,7 @@ import { join } from "node:path";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import {
+	type BrokerArchiveRow,
 	BrokerExecutionArchiver,
 	WithdrawalObservationTracker,
 } from "../src/helpers/broker-execution-archive";
@@ -665,7 +666,13 @@ describe("Treasury discovery and transfer observation RPC", () => {
 				},
 			],
 		});
-		const rpc = await start(exchange);
+		const archivedRows: BrokerArchiveRow[] = [];
+		const archiver = {
+			isEnabled: () => true,
+			getDeploymentId: () => "test-deploy",
+			enqueue: (row: BrokerArchiveRow) => archivedRows.push(row),
+		} as unknown as BrokerExecutionArchiver;
+		const rpc = await start(exchange, testPolicy, archiver);
 
 		const credited = await executeAction(rpc, {
 			action: Action.Deposit,
@@ -693,6 +700,17 @@ describe("Treasury discovery and transfer observation RPC", () => {
 			address: "0xdeposit",
 			confirmations: 15,
 			creditedAt: "2026-06-04T00:00:00.000Z",
+		});
+		await Promise.resolve();
+		expect(archivedRows).toHaveLength(1);
+		expect(archivedRows[0]).toMatchObject({
+			table: "broker_execution.transfer_events",
+			row: {
+				event_kind: "deposit",
+				lifecycle_action: "observe_deposit",
+				status: "ok",
+				external_id: "0xtx",
+			},
 		});
 		expect(calls.fetchDeposits[0]).toEqual([
 			"USDC",
