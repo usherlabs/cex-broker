@@ -1,6 +1,9 @@
 import * as grpc from "@grpc/grpc-js";
 import ccxt from "@usherlabs/ccxt";
-import { archiveTransferEventInBackground } from "../../helpers/broker-execution-archive";
+import {
+	archiveTransferEventInBackground,
+	normalizeCcxtTransactionForArchive,
+} from "../../helpers/broker-execution-archive";
 import {
 	depositField,
 	depositMatchesTransaction,
@@ -121,9 +124,13 @@ export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
 					null,
 				);
 			}
-			const status = normalizeDepositStatus(
+			const responseStatus = normalizeDepositStatus(
 				depositField(deposit, ["status", "state"]),
 			);
+			// The RPC contract uses deposit lifecycle statuses such as "credited";
+			// transfer_events retains ccxt's raw lowercased vocabulary such as "ok"
+			// because accounting consumers query that archive contract directly.
+			const archiveStatus = normalizeCcxtTransactionForArchive(deposit).status;
 			const depositTxid = String(
 				depositField(deposit, ["txid", "txId", "tx_hash", "txHash"]) ??
 					value.transactionHash,
@@ -146,7 +153,7 @@ export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
 				transfer: {
 					eventKind: "deposit",
 					lifecycleAction: "observe_deposit",
-					status,
+					status: archiveStatus,
 					amount:
 						observedAmount !== undefined ? String(observedAmount) : undefined,
 					address: String(observedAddress ?? value.recipientAddress),
@@ -164,7 +171,7 @@ export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
 			return ctx.wrappedCallback(null, {
 				proof: ctx.verity.proof,
 				result: JSON.stringify({
-					status,
+					status: responseStatus,
 					exchange: normalizedCex,
 					accountSelector: selectedBrokerAccount?.label,
 					asset: symbol,

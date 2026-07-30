@@ -71,10 +71,9 @@ describe("DepositArchivePoller.pollAllOnce", () => {
 			amount: "25.500000",
 			address: "0xrecipient",
 			network: "ARBITRUM",
-			status: "complete",
 			timestamp: 1_775_000_000_000,
 			creditedAt: "2026-04-01T12:00:00.000Z",
-			info: { venueField: "preserved" },
+			info: { status: "OK", venueField: "preserved" },
 		};
 		const calls: unknown[][] = [];
 		const exchange = {
@@ -107,7 +106,7 @@ describe("DepositArchivePoller.pollAllOnce", () => {
 			schema_version: "1",
 			event_kind: "deposit",
 			lifecycle_action: "observe_deposit",
-			status: "complete",
+			status: "ok",
 			amount: "25.500000",
 			address: "0xrecipient",
 			network: "ARBITRUM",

@@ -3,6 +3,7 @@ import {
 	type BrokerExecutionArchiver,
 	buildCommonArchiveTags,
 	buildTransferEventArchiveRow,
+	normalizeCcxtTransactionForArchive,
 	rethrowArchiveDurabilityError,
 } from "./broker-execution-archive";
 import { depositField, normalizeDepositStatus } from "./deposit";
@@ -242,7 +243,7 @@ export class DepositArchivePoller {
 			]);
 			const txid = depositField(record, ["txid", "txId", "tx_hash", "txHash"]);
 			const network = depositField(record, ["network", "chain"]);
-			const status = depositField(record, ["status", "state"]);
+			const archiveStatus = normalizeCcxtTransactionForArchive(record).status;
 			const creditedAt = depositField(record, [
 				"creditedAt",
 				"credited_at",
@@ -264,10 +265,7 @@ export class DepositArchivePoller {
 					transfer: {
 						eventKind: "deposit",
 						lifecycleAction: "observe_deposit",
-						status:
-							status === undefined
-								? undefined
-								: String(status).trim().toLowerCase(),
+						status: archiveStatus,
 						amount: amount === undefined ? undefined : String(amount),
 						address: address === undefined ? undefined : String(address),
 						network: network === undefined ? undefined : String(network),
