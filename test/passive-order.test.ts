@@ -203,6 +203,43 @@ describe("passive CreateOrder", () => {
 		);
 	});
 
+	test("preserves insufficient funds as the stable error code", async () => {
+		const fixture = createFixture(
+			new ccxt.InsufficientFunds("binance account has insufficient balance"),
+		);
+		fixture.ctx.call.request.payload = createOrderPayload({
+			orderIntent: "passive_only",
+		});
+
+		await handleOrders(fixture.ctx);
+
+		expect(fixture.getError()?.code).toBe(grpc.status.FAILED_PRECONDITION);
+		expect(fixture.getError()?.message).toStartWith("InsufficientFunds:");
+		expect(fixture.getError()?.message).not.toStartWith("passive_");
+	});
+
+	test.each([
+		[
+			"authentication failure",
+			new ccxt.AuthenticationError("binance invalid api key"),
+		],
+		[
+			"permission failure",
+			new ccxt.PermissionDenied("binance key cannot create orders"),
+		],
+	])("preserves %s as the authentication stable error code", async (_, error) => {
+		const fixture = createFixture(error);
+		fixture.ctx.call.request.payload = createOrderPayload({
+			orderIntent: "passive_only",
+		});
+
+		await handleOrders(fixture.ctx);
+
+		expect(fixture.getError()?.code).toBe(grpc.status.UNAUTHENTICATED);
+		expect(fixture.getError()?.message).toStartWith("AuthenticationError:");
+		expect(fixture.getError()?.message).not.toStartWith("passive_");
+	});
+
 	test("maps any other passive venue rejection to rejected", async () => {
 		const fixture = createFixture(
 			new ccxt.InvalidOrder("binance passive order rejected: invalid price"),
@@ -219,8 +256,9 @@ describe("passive CreateOrder", () => {
 
 	test("does not classify a pre-submission failure as a passive venue rejection", async () => {
 		const fixture = createFixture();
-		(fixture.ctx.broker as unknown as { loadMarkets: () => Promise<void> })
-			.loadMarkets = async () => {
+		(
+			fixture.ctx.broker as unknown as { loadMarkets: () => Promise<void> }
+		).loadMarkets = async () => {
 			throw new Error("market resolution unavailable");
 		};
 		fixture.ctx.call.request.payload = createOrderPayload({

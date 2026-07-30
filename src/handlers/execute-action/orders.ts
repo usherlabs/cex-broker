@@ -209,9 +209,9 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			{ marketMetadataHash },
 		);
 		if (isPassiveOrder && submission === "in_flight") {
-			const passiveErrorCode = classifyPassiveOrderError(error);
+			const stableErrorCode = classifyPassiveOrderError(error);
 			return rejectWithGrpcError(ctx, error, {
-				message: `${passiveErrorCode}: ${sanitizeErrorDetail(error)}`,
+				message: `${stableErrorCode}: ${sanitizeErrorDetail(error)}`,
 				preferStableMessageOnly: true,
 			});
 		}

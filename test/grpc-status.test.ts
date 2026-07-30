@@ -9,6 +9,12 @@ import {
 
 describe("grpc status", () => {
 	test("stableGrpcErrorCode maps known prefixes", () => {
+		expect(stableGrpcErrorCode("AuthenticationError: x")).toBe(
+			grpc.status.UNAUTHENTICATED,
+		);
+		expect(stableGrpcErrorCode("InsufficientFunds: x")).toBe(
+			grpc.status.FAILED_PRECONDITION,
+		);
 		expect(stableGrpcErrorCode("venue_discovery_unavailable: x")).toBe(
 			grpc.status.UNIMPLEMENTED,
 		);
