@@ -36,17 +36,29 @@ function fakeArchiver(sink: BrokerArchiveRow[]): BrokerExecutionArchiver {
 }
 
 describe("nextDepositCursor", () => {
-	test("advances past the newest credited-at timestamp", () => {
+	test("stops at the oldest pending deposit while advancing past older terminal deposits", () => {
 		expect(
 			nextDepositCursor(
 				[
-					{ timestamp: 100 },
-					{ creditedAt: "2026-07-30T10:00:00.000Z" },
-					{ timestamp: 200 },
+					{ timestamp: 100, status: "ok" },
+					{ timestamp: 300, status: "complete" },
+					{ timestamp: 200, status: "processing" },
 				],
 				0,
+				50,
 			),
-		).toBe(Date.parse("2026-07-30T10:00:00.000Z") + 1);
+		).toBe(200);
+	});
+
+	test("holds the watermark for a full batch under either venue ordering", () => {
+		const oldestFirst = [
+			{ timestamp: 100, status: "ok" },
+			{ timestamp: 200, status: "ok" },
+		];
+		const newestFirst = [...oldestFirst].reverse();
+
+		expect(nextDepositCursor(oldestFirst, 50, 2)).toBe(50);
+		expect(nextDepositCursor(newestFirst, 50, 2)).toBe(50);
 	});
 });
 
@@ -95,7 +107,7 @@ describe("DepositArchivePoller.pollAllOnce", () => {
 			schema_version: "1",
 			event_kind: "deposit",
 			lifecycle_action: "observe_deposit",
-			status: "credited",
+			status: "complete",
 			amount: "25.500000",
 			address: "0xrecipient",
 			network: "ARBITRUM",
@@ -144,6 +156,48 @@ describe("DepositArchivePoller.pollAllOnce", () => {
 		expect(sink[0]?.row).toMatchObject({
 			symbol: "USDT",
 			external_id: "0xonce",
+		});
+	});
+
+	test("re-observes a pending deposit until its normalized status is terminal", async () => {
+		const depositTimestamp = Date.now() + 10_000;
+		const sinceValues: Array<number | undefined> = [];
+		let calls = 0;
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async (code?: string, since?: number, limit?: number) => {
+				expect(code).toBeUndefined();
+				expect(limit).toBe(50);
+				sinceValues.push(since);
+				calls += 1;
+				return [
+					{
+						txid: "0xtransition",
+						currency: "USDC",
+						amount: 15,
+						status: calls === 1 ? "pending" : "ok",
+						timestamp: depositTimestamp,
+					},
+				];
+			},
+		};
+		const sink: BrokerArchiveRow[] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver(sink),
+		});
+
+		await poller.pollAllOnce();
+		await poller.pollAllOnce();
+
+		expect(sinceValues).toHaveLength(2);
+		expect(sinceValues[1]).toBe(depositTimestamp);
+		expect(sink).toHaveLength(2);
+		expect(sink.map(({ row }) => row.status)).toEqual(["pending", "ok"]);
+		expect(sink[1]?.row).toMatchObject({
+			lifecycle_action: "observe_deposit",
+			external_id: "0xtransition",
+			status: "ok",
 		});
 	});
 
@@ -214,7 +268,7 @@ describe("DepositArchivePoller.pollAllOnce", () => {
 			expect(sink).toHaveLength(1);
 			expect(sink[0]?.row).toMatchObject({
 				external_id: "0xrecovered",
-				status: "credited",
+				status: "ok",
 			});
 		} finally {
 			warn.mockRestore();

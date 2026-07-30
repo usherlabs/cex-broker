@@ -49,21 +49,29 @@ type DepositPollTarget = {
 };
 
 /**
- * Advances a since-cursor past the newest deposit in a batch. ccxt deposits
- * normally carry a numeric timestamp, but venue-specific credited-at fields and
- * unified datetime strings are accepted as fallbacks.
+ * Advances the inclusive since-watermark only across a fully observed,
+ * terminal prefix of deposit history.
  */
 export function nextDepositCursor(
 	deposits: unknown[],
 	currentSince: number,
+	depositsLimit: number,
 ): number {
+	// A full batch may be either end of a truncated window. Without a portable
+	// ccxt pagination boundary, moving the watermark could permanently skip the
+	// unseen side of a newest-first response.
+	if (deposits.length >= depositsLimit) {
+		return currentSince;
+	}
+
 	let next = currentSince;
+	let oldestPending = Number.POSITIVE_INFINITY;
 	for (const deposit of deposits) {
 		const record = asRecord(deposit);
 		if (!record) {
-			continue;
+			return currentSince;
 		}
-		const creditedAt = depositField(record, [
+		const observedAt = depositField(record, [
 			"timestamp",
 			"creditedAt",
 			"credited_at",
@@ -72,16 +80,29 @@ export function nextDepositCursor(
 			"datetime",
 		]);
 		const timestamp =
-			typeof creditedAt === "number"
-				? creditedAt
-				: typeof creditedAt === "string"
-					? Date.parse(creditedAt)
+			typeof observedAt === "number"
+				? observedAt
+				: typeof observedAt === "string"
+					? Date.parse(observedAt)
 					: Number.NaN;
-		if (Number.isFinite(timestamp) && timestamp + 1 > next) {
-			next = timestamp + 1;
+		const status = normalizeDepositStatus(
+			depositField(record, ["status", "state"]),
+		);
+		if (!Number.isFinite(timestamp)) {
+			if (status === "pending") {
+				return currentSince;
+			}
+			continue;
+		}
+		if (status === "pending") {
+			oldestPending = Math.min(oldestPending, timestamp);
+		} else {
+			next = Math.max(next, timestamp + 1);
 		}
 	}
-	return next;
+	return Number.isFinite(oldestPending)
+		? Math.max(currentSince, oldestPending)
+		: next;
 }
 
 /**
@@ -221,6 +242,7 @@ export class DepositArchivePoller {
 			]);
 			const txid = depositField(record, ["txid", "txId", "tx_hash", "txHash"]);
 			const network = depositField(record, ["network", "chain"]);
+			const status = depositField(record, ["status", "state"]);
 			const creditedAt = depositField(record, [
 				"creditedAt",
 				"credited_at",
@@ -242,9 +264,10 @@ export class DepositArchivePoller {
 					transfer: {
 						eventKind: "deposit",
 						lifecycleAction: "observe_deposit",
-						status: normalizeDepositStatus(
-							depositField(record, ["status", "state"]),
-						),
+						status:
+							status === undefined
+								? undefined
+								: String(status).trim().toLowerCase(),
 						amount: amount === undefined ? undefined : String(amount),
 						address: address === undefined ? undefined : String(address),
 						network: network === undefined ? undefined : String(network),
@@ -266,7 +289,10 @@ export class DepositArchivePoller {
 				{ exchange: target.exchangeId },
 			);
 		}
-		this.#cursors.set(key, nextDepositCursor(deposits, since));
+		this.#cursors.set(
+			key,
+			nextDepositCursor(deposits, since, this.#config.depositsLimit),
+		);
 	}
 
 	#targetKey(target: DepositPollTarget): string {
