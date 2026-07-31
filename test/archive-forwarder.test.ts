@@ -117,6 +117,10 @@ describe("archive forwarder batch parsing", () => {
 		expect(parsed.rejectedTables).toEqual(
 			expect.arrayContaining(["broker_execution.mystery_table", "(malformed)"]),
 		);
+		expect(parsed.rejectedRowsByTable).toEqual({
+			"broker_execution.mystery_table": 1,
+			"(malformed)": 1,
+		});
 	});
 
 	test("parseArchiveBatchRequest accepts broker_execution and strategy_data, rejects unknown tables", () => {

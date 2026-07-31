@@ -18,6 +18,7 @@ RUN bun install --frozen-lockfile
 # Forwarder source and the SQL files its schema initializer applies at startup
 # (schema.ts resolves ../../schema/clickhouse relative to this directory).
 COPY services/archive-forwarder ./services/archive-forwarder
+COPY src/helpers/otel.ts src/helpers/logger.ts ./src/helpers/
 COPY schema/clickhouse ./schema/clickhouse
 
 ENV ARCHIVE_FORWARDER_PORT=8090
