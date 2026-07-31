@@ -1,5 +1,5 @@
 import type { ArchiveBatchRequest, ArchiveBatchResult } from "./types";
-import { isSupportedTable } from "./types";
+import { isSupportedTable, MALFORMED_TABLE_LABEL } from "./types";
 import { insertArchiveRows, type RowInserter } from "./insert";
 import type { ArchiveForwarderTelemetry } from "./telemetry";
 
@@ -73,7 +73,8 @@ function countRejectedRowsByTable(rows: unknown[]): Record<string, number> {
 			continue;
 		}
 		const table = (entry as { table?: unknown } | null)?.table;
-		const label = typeof table === "string" ? table : "(malformed)";
+		const label =
+			typeof table === "string" ? table : MALFORMED_TABLE_LABEL;
 		counts.set(label, (counts.get(label) ?? 0) + 1);
 	}
 	return Object.fromEntries(counts);
@@ -96,7 +97,12 @@ export async function handleArchiveBatch(
 	telemetry?: ArchiveForwarderTelemetry,
 ): Promise<ArchiveBatchResult> {
 	const result = await insertArchiveRows(inserter, request.rows, telemetry);
-	if (result.failed === 0) {
+	// Requires rows to have actually landed. `failed === 0` is also true for an
+	// empty batch, and an empty POST advancing this gauge would keep a staleness
+	// alert green while nothing reaches ClickHouse — the precise failure this
+	// heartbeat exists to catch, since its whole job is separating "quiet" from
+	// "dead".
+	if (result.failed === 0 && result.inserted > 0) {
 		telemetry?.recordSuccessfulFlush();
 	}
 	return result;

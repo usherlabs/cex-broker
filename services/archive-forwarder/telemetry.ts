@@ -2,6 +2,11 @@ import {
 	createOtelMetricsFromEnv,
 	type OtelMetrics,
 } from "../../src/helpers/otel";
+import {
+	isSupportedTable,
+	MALFORMED_TABLE_LABEL,
+	UNSUPPORTED_TABLE_LABEL,
+} from "./types";
 
 export const ARCHIVE_FORWARDER_METRICS = {
 	rowsInserted: "archive_forwarder_rows_inserted_total",
@@ -29,8 +34,29 @@ export class ArchiveForwarderTelemetry {
 		);
 	}
 
+	/**
+	 * Rejected rows are precisely the rows whose table is unknown, so their names
+	 * come straight from the request payload. Every distinct label value becomes a
+	 * permanent series in the metrics SDK, so emitting them verbatim lets any client
+	 * grow our memory without bound — and a metrics pipeline that can be exhausted
+	 * by traffic is worse than no metrics.
+	 *
+	 * Labels are therefore bounded to the supported-table set plus two fixed
+	 * buckets. The bound lives here, at the metric boundary, rather than at the one
+	 * current call site, so a future caller cannot reintroduce the problem. The raw
+	 * names are still reported and logged per request, where they are bounded by the
+	 * batch and are what an operator actually needs for diagnosis.
+	 */
 	public recordRejectedRows(rowsByTable: Readonly<Record<string, number>>): void {
+		const bounded = new Map<string, number>();
 		for (const [table, count] of Object.entries(rowsByTable)) {
+			const label =
+				table === MALFORMED_TABLE_LABEL || isSupportedTable(table)
+					? table
+					: UNSUPPORTED_TABLE_LABEL;
+			bounded.set(label, (bounded.get(label) ?? 0) + count);
+		}
+		for (const [table, count] of bounded) {
 			this.bestEffort(() =>
 				this.metrics.recordCounter(
 					ARCHIVE_FORWARDER_METRICS.rowsRejected,

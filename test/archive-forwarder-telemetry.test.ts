@@ -90,6 +90,20 @@ describe("archive forwarder telemetry", () => {
 		expect(gauges[0]?.value).toBeGreaterThan(0);
 	});
 
+	test("an empty batch does not advance the successful-flush heartbeat", async () => {
+		const { telemetry, gauges } = createCapturingTelemetry();
+		const response = await handleArchiveRequest(archiveRequest([]), {
+			inserter: async () => {},
+			telemetry,
+		});
+
+		expect(response.status).toBe(200);
+		// A batch that inserts nothing must not look like a successful flush: a
+		// staleness alert built on this gauge would stay green while no data reaches
+		// ClickHouse, which is exactly the condition it exists to detect.
+		expect(gauges).toHaveLength(0);
+	});
+
 	test("records every rejected row by table, including malformed rows", async () => {
 		const { telemetry, counters } = createCapturingTelemetry();
 		let insertCalled = false;
@@ -109,12 +123,14 @@ describe("archive forwarder telemetry", () => {
 
 		expect(response.status).toBe(400);
 		expect(insertCalled).toBe(false);
+		// Unknown table names are client-controlled, so they are bucketed rather than
+		// used verbatim as a label. The raw name stays in the response and the log.
 		expect(counters).toEqual(
 			expect.arrayContaining([
 				{
 					name: ARCHIVE_FORWARDER_METRICS.rowsRejected,
 					value: 2,
-					labels: { table: "strategy_data.unknown" },
+					labels: { table: "(unsupported)" },
 				},
 				{
 					name: ARCHIVE_FORWARDER_METRICS.rowsRejected,
@@ -123,6 +139,33 @@ describe("archive forwarder telemetry", () => {
 				},
 			]),
 		);
+	});
+
+	test("bounds rejected-row label cardinality no matter how many table names a client invents", async () => {
+		const { telemetry, counters } = createCapturingTelemetry();
+		const response = await handleArchiveRequest(
+			archiveRequest(
+				Array.from({ length: 50 }, (_, index) => ({
+					table: `strategy_data.attacker_${index}`,
+					row: {},
+				})),
+			),
+			{ inserter: async () => {}, telemetry },
+		);
+
+		expect(response.status).toBe(400);
+		const rejected = counters.filter(
+			(entry) => entry.name === ARCHIVE_FORWARDER_METRICS.rowsRejected,
+		);
+		// One series, not fifty: each distinct label value would otherwise persist in
+		// the metrics SDK, letting a client grow our memory without bound.
+		expect(rejected).toEqual([
+			{
+				name: ARCHIVE_FORWARDER_METRICS.rowsRejected,
+				value: 50,
+				labels: { table: "(unsupported)" },
+			},
+		]);
 	});
 
 	test("records insert failures by table and coarse error class", async () => {
