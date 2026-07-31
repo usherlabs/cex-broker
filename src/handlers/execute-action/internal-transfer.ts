@@ -9,7 +9,7 @@ import {
 } from "../../helpers";
 import {
 	archiveTransferEventInBackground,
-	normalizeCcxtTransactionForArchive,
+	extractBinanceInternalTransferId,
 } from "../../helpers/broker-execution-archive";
 import { mapCcxtErrorToGrpcStatus } from "../../helpers/grpc/status";
 import { log } from "../../helpers/logger";
@@ -113,7 +113,6 @@ export async function handleInternalTransfer(
 			transferPayload.amount,
 		);
 		// account_selector is the source; the destination is kept in payload_json.
-		const normalized = normalizeCcxtTransactionForArchive(result);
 		archiveTransferEventInBackground(brokerArchiver, {
 			exchange: normalizedCex,
 			accountSelector: fromSelector,
@@ -121,10 +120,10 @@ export async function handleInternalTransfer(
 			transfer: {
 				eventKind: "internal_transfer",
 				lifecycleAction: "submit_internal_transfer",
-				status: normalized.status ?? "ok",
-				amount: normalized.amount ?? String(transferPayload.amount),
+				status: "ok",
+				amount: String(transferPayload.amount),
 				network: "internal",
-				externalId: normalized.externalId,
+				externalId: extractBinanceInternalTransferId(result),
 				payload: { from: fromSelector, to: toSelector, result },
 			},
 		});

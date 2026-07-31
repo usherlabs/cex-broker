@@ -14,6 +14,7 @@ import type { LogRecord } from "@opentelemetry/api-logs";
 import type { Exchange } from "@usherlabs/ccxt";
 import { MAX_ARCHIVE_BODY_BYTES } from "../services/archive-forwarder/limits";
 import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
+import { handleInternalTransfer } from "../src/handlers/execute-action/internal-transfer";
 import { handleOrders } from "../src/handlers/execute-action/orders";
 import { handleTreasuryCall } from "../src/handlers/execute-action/treasury-call";
 import { handleWithdraw } from "../src/handlers/execute-action/withdraw";
@@ -972,6 +973,123 @@ describe("withdraw submission archive", () => {
 				error_summary: "venue rejected withdrawal",
 			});
 			expect(rows[2]?.row.client_withdrawal_id).toBe("");
+		} finally {
+			await archiver.close();
+			await forwarder.close();
+		}
+	});
+});
+
+describe("internal transfer submission archive", () => {
+	test("indexes Binance venue ids for every internal transfer direction", async () => {
+		const forwarder = await startForwarderServer();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: forwarder.url,
+			deadLetterPath: createDeadLetterPath(),
+			deploymentId: "test-deploy",
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+		});
+		const exchangeBase = {
+			loadMarkets: async () => {},
+			currency: (code: string) => ({ id: code }),
+			currencyToPrecision: (_code: string, amount: number) => String(amount),
+		};
+		const primaryExchange = {
+			...exchangeBase,
+			sapiPostSubAccountUniversalTransfer: async () => ({
+				tranId: "primary-to-sub-id",
+			}),
+		} as unknown as Exchange;
+		const secondaryExchange = {
+			...exchangeBase,
+			sapiPostSubAccountTransferSubToMaster: async () => ({
+				txnId: "sub-to-master-id",
+			}),
+			sapiPostSubAccountTransferSubToSub: async () => ({
+				txnId: "sub-to-sub-id",
+			}),
+		} as unknown as Exchange;
+		const brokers = {
+			binance: {
+				primary: { exchange: primaryExchange, label: "primary" as const },
+				secondaryBrokers: [
+					{
+						exchange: secondaryExchange,
+						label: "secondary:1" as const,
+						index: 1,
+					},
+					{
+						exchange: secondaryExchange,
+						label: "secondary:2" as const,
+						index: 2,
+						email: "secondary-2@example.com",
+					},
+				],
+			},
+		};
+		const context = (fromAccount: string, toAccount: string) =>
+			({
+				call: {
+					request: {
+						payload: { amount: "10", fromAccount, toAccount },
+					},
+				},
+				wrappedCallback: () => {},
+				brokers,
+				metadata: {},
+				normalizedCex: "binance",
+				cex: "binance",
+				symbol: "USDC",
+				broker: primaryExchange,
+				verity: { proof: "" },
+				useVerity: false,
+				verityProverUrl: "",
+				brokerArchiver: archiver,
+			}) as unknown as ExecuteActionContext;
+
+		try {
+			await handleInternalTransfer(context("secondary:1", "primary"));
+			await handleInternalTransfer(context("secondary:1", "secondary:2"));
+			await handleInternalTransfer(context("primary", "secondary:2"));
+			await Promise.resolve();
+			await archiver.flush();
+
+			const rows = forwarder.requests.flatMap(
+				(request) => request.body.rows ?? [],
+			) as Array<{ row: Record<string, unknown> }>;
+			expect(rows).toHaveLength(3);
+			expect(
+				rows.map(({ row }) => ({
+					from: row.account_selector,
+					to: (JSON.parse(String(row.payload_json)) as { to: string }).to,
+					externalId: row.external_id,
+					status: row.status,
+					amount: row.amount,
+				})),
+			).toEqual([
+				{
+					from: "secondary:1",
+					to: "primary",
+					externalId: "sub-to-master-id",
+					status: "ok",
+					amount: "10",
+				},
+				{
+					from: "secondary:1",
+					to: "secondary:2",
+					externalId: "sub-to-sub-id",
+					status: "ok",
+					amount: "10",
+				},
+				{
+					from: "primary",
+					to: "secondary:2",
+					externalId: "primary-to-sub-id",
+					status: "ok",
+					amount: "10",
+				},
+			]);
 		} finally {
 			await archiver.close();
 			await forwarder.close();

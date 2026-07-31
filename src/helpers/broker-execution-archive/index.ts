@@ -20,6 +20,7 @@ export {
 	buildOrderEventArchiveRow,
 	buildSubscribeStreamArchiveRow,
 	buildTransferEventArchiveRow,
+	extractBinanceInternalTransferId,
 	type FillArchiveFields,
 	type NormalizedCcxtBalance,
 	type NormalizedCcxtTransfer,
