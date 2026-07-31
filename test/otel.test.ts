@@ -404,6 +404,7 @@ describe("OtelMetrics", () => {
 			await metrics.recordHistogram("integration_histogram", 10, {
 				test: "true",
 			});
+			await metrics.setObservableGauge("integration_heartbeat", 123, {});
 
 			await new Promise((r) => setTimeout(r, 5500));
 

@@ -1,4 +1,8 @@
-import { metrics } from "@opentelemetry/api";
+import {
+	type Attributes,
+	metrics,
+	type ObservableGauge,
+} from "@opentelemetry/api";
 import { type LogRecord, logs } from "@opentelemetry/api-logs";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
@@ -40,6 +44,13 @@ export interface MetricData {
 	value: number;
 	labels: string;
 	service: string;
+}
+
+export interface OtelMetricsEnvOptions {
+	/** Service name used when OTEL_SERVICE_NAME is not configured. */
+	defaultServiceName?: string;
+	/** Whether broker-specific legacy collector host variables are accepted. */
+	allowLegacyBrokerConfig?: boolean;
 }
 
 const DEFAULT_SERVICE = "cex-broker";
@@ -140,6 +151,13 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 	private readonly histograms = new Map<
 		string,
 		ReturnType<ReturnType<MeterProviderType["getMeter"]>["createHistogram"]>
+	>();
+	private readonly observableGauges = new Map<
+		string,
+		{
+			instrument: ObservableGauge;
+			observations: Map<string, { value: number; attributes: Attributes }>;
+		}
 	>();
 
 	constructor(config?: OtelConfig) {
@@ -264,6 +282,47 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 			hist.record(value, toAttributes(labels, service));
 		} catch (error) {
 			log.error("Failed to record gauge:", error);
+		}
+	}
+
+	/**
+	 * Set a gauge value that is observed on every export. This is suitable for
+	 * staleness signals where a quiet live process must keep exporting its last value.
+	 */
+	public async setObservableGauge(
+		metricName: string,
+		value: number,
+		labels: Record<string, string | number>,
+		service: string = this.getServiceName(),
+	): Promise<void> {
+		const provider = this.getProvider();
+		if (!this.isOtelEnabled() || !provider) return;
+		try {
+			let state = this.observableGauges.get(metricName);
+			if (!state) {
+				const observations = new Map<
+					string,
+					{ value: number; attributes: Attributes }
+				>();
+				const instrument = provider
+					.getMeter("cex-broker-metrics", "1.0.0")
+					.createObservableGauge(metricName, { description: metricName });
+				instrument.addCallback((result) => {
+					for (const observation of observations.values()) {
+						result.observe(observation.value, observation.attributes);
+					}
+				});
+				state = { instrument, observations };
+				this.observableGauges.set(metricName, state);
+			}
+
+			const attributes = toAttributes(labels, service);
+			state.observations.set(stableAttributeKey(attributes), {
+				value,
+				attributes,
+			});
+		} catch (error) {
+			log.error("Failed to set observable gauge:", error);
 		}
 	}
 
@@ -420,30 +479,48 @@ function getOtelProtocolFromEnv(): "http" | "https" {
 	return (protocol as "http" | "https") || "http";
 }
 
-export function createOtelMetricsFromEnv(): OtelMetrics {
+export function createOtelMetricsFromEnv(
+	options: OtelMetricsEnvOptions = {},
+): OtelMetrics {
 	const otlpEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-	const host = getOtelHostFromEnv();
+	const serviceName =
+		process.env.OTEL_SERVICE_NAME ||
+		options.defaultServiceName ||
+		DEFAULT_SERVICE;
 
 	if (otlpEndpoint) {
 		return new OtelMetrics({
-			otlpEndpoint: otlpEndpoint.replace(/\/v1\/metrics\/?$/, ""),
-			serviceName: process.env.OTEL_SERVICE_NAME || DEFAULT_SERVICE,
+			otlpEndpoint,
+			serviceName,
 		});
 	}
 
-	if (!host) {
-		return new OtelMetrics();
+	if (options.allowLegacyBrokerConfig === false) {
+		return new OtelMetrics({ serviceName });
 	}
+
+	const host = getOtelHostFromEnv();
+	if (!host) return new OtelMetrics({ serviceName });
 
 	const port = getOtelPortFromEnv();
 	const config: OtelConfig = {
 		host,
 		port: port ?? DEFAULT_OTLP_PORT,
 		protocol: getOtelProtocolFromEnv(),
-		serviceName: process.env.OTEL_SERVICE_NAME || DEFAULT_SERVICE,
+		serviceName,
 	};
 
 	return new OtelMetrics(config);
+}
+
+function stableAttributeKey(
+	attributes: Record<string, string | number>,
+): string {
+	return JSON.stringify(
+		Object.entries(attributes).sort(([left], [right]) =>
+			left.localeCompare(right),
+		),
+	);
 }
 
 export function createOtelLogsFromEnv(): OtelLogs {

@@ -1,4 +1,5 @@
 import type { ClickHouseClient } from "@clickhouse/client";
+import type { ArchiveForwarderTelemetry } from "./telemetry";
 import type { ArchiveRow, ArchiveBatchResult, SupportedTable } from "./types";
 import { isSupportedTable } from "./types";
 
@@ -29,6 +30,7 @@ export function countSkippedRows(rows: ArchiveRow[]): number {
 export async function insertArchiveRows(
 	inserter: RowInserter,
 	rows: ArchiveRow[],
+	telemetry?: ArchiveForwarderTelemetry,
 ): Promise<ArchiveBatchResult> {
 	const grouped = groupRowsByTable(rows);
 	const byTable: Record<string, number> = {};
@@ -44,9 +46,11 @@ export async function insertArchiveRows(
 			await inserter(table, tableRows);
 			byTable[table] = tableRows.length;
 			inserted += tableRows.length;
+			telemetry?.recordRowsInserted(table, tableRows.length);
 		} catch (error) {
 			failedTables.push(table);
 			failed += tableRows.length;
+			telemetry?.recordInsertFailure(table, error);
 			console.error(`Archive insert failed for ${table}:`, error);
 		}
 	}
