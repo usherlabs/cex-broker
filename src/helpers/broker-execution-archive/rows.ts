@@ -372,6 +372,15 @@ function quantityString(...values: unknown[]): string | undefined {
 	return firstString(...values);
 }
 
+// Binance's implicit internal-transfer methods return raw SAPI responses, not
+// ccxt unified transactions, and use a different id key for universal transfers.
+export function extractBinanceInternalTransferId(
+	response: unknown,
+): string | undefined {
+	const record = asRecord(response);
+	return firstString(record?.txnId, record?.tranId);
+}
+
 export type TransferArchiveFields = {
 	eventKind: TransferEventKind;
 	lifecycleAction: TransferLifecycleAction;
