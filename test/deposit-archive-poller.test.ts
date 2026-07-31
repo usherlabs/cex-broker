@@ -200,6 +200,92 @@ describe("DepositArchivePoller.pollAllOnce", () => {
 		});
 	});
 
+	test("archives Binance locked and unlocked deposit states as distinct rows", async () => {
+		const depositTimestamp = Date.now() + 10_000;
+		const sinceValues: Array<number | undefined> = [];
+		let calls = 0;
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async (code?: string, since?: number, limit?: number) => {
+				expect(code).toBeUndefined();
+				expect(limit).toBe(50);
+				sinceValues.push(since);
+				calls += 1;
+				return since !== undefined && since <= depositTimestamp
+					? [
+							{
+								txid: "0xlocked",
+								currency: "ARB",
+								amount: 25,
+								status: "ok",
+								timestamp: depositTimestamp,
+								info: { status: calls === 1 ? "6" : "1" },
+							},
+						]
+					: [];
+			},
+		};
+		const sink: BrokerArchiveRow[] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver(sink),
+		});
+
+		await poller.pollAllOnce();
+		await poller.pollAllOnce();
+
+		expect(sinceValues).toHaveLength(2);
+		expect(sinceValues[1]).toBe(depositTimestamp);
+		expect(sink.map(({ row }) => row.status)).toEqual([
+			"credited_not_withdrawable",
+			"ok",
+		]);
+		expect(sink[0]?.row).toMatchObject({
+			external_id: "0xlocked",
+			status: "credited_not_withdrawable",
+		});
+
+		await poller.pollAllOnce();
+
+		expect(sinceValues[2]).toBe(depositTimestamp + 1);
+		expect(sink).toHaveLength(2);
+	});
+
+	test("does not re-archive an unchanged Binance locked deposit", async () => {
+		const depositTimestamp = Date.now() + 10_000;
+		const sinceValues: Array<number | undefined> = [];
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async (code?: string, since?: number, limit?: number) => {
+				expect(code).toBeUndefined();
+				expect(limit).toBe(50);
+				sinceValues.push(since);
+				return [
+					{
+						txid: "0xstill-locked",
+						currency: "ARB",
+						amount: 25,
+						status: "ok",
+						timestamp: depositTimestamp,
+						info: { status: 6 },
+					},
+				];
+			},
+		};
+		const sink: BrokerArchiveRow[] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver(sink),
+		});
+
+		await poller.pollAllOnce();
+		await poller.pollAllOnce();
+
+		expect(sinceValues[1]).toBe(depositTimestamp);
+		expect(sink).toHaveLength(1);
+		expect(sink[0]?.row.status).toBe("credited_not_withdrawable");
+	});
+
 	test("logs once and cleanly skips an account without fetchDeposits", async () => {
 		const info = spyOn(log, "info").mockImplementation(() => {});
 		try {
