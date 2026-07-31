@@ -30,7 +30,8 @@ export type DepositArchivePollerConfig = {
 	// How far back the first poll of an account reaches. A restart loses the
 	// in-memory cursor and re-scans this window; duplicate rows are acceptable
 	// because transfer_events is plain MergeTree and consumers deduplicate at read
-	// time over (exchange, account, symbol, external_id, status).
+	// time over (exchange, account, symbol, external_id, status). A Binance deposit
+	// unlocking intentionally produces distinct credited_not_withdrawable and ok rows.
 	lookbackMs: number;
 	depositsLimit: number;
 };
@@ -49,6 +50,43 @@ type DepositPollTarget = {
 	code: typeof ALL_CURRENCIES_CODE;
 };
 
+type LastArchivedDeposit = {
+	status: string | undefined;
+	timestamp: number | undefined;
+};
+
+function depositTimestamp(record: Record<string, unknown>): number | undefined {
+	const observedAt = depositField(record, [
+		"timestamp",
+		"creditedAt",
+		"credited_at",
+		"updated",
+		"updatedAt",
+		"datetime",
+	]);
+	const timestamp =
+		typeof observedAt === "number"
+			? observedAt
+			: typeof observedAt === "string"
+				? Date.parse(observedAt)
+				: Number.NaN;
+	return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function archivedDepositStatus(
+	exchangeId: string | undefined,
+	record: Record<string, unknown>,
+): string | undefined {
+	const rawStatus = asRecord(record.info)?.status;
+	if (
+		exchangeId?.toLowerCase() === "binance" &&
+		String(rawStatus ?? "").trim() === "6"
+	) {
+		return "credited_not_withdrawable";
+	}
+	return normalizeCcxtTransactionForArchive(record).status;
+}
+
 /**
  * Advances the inclusive since-watermark only across a fully observed,
  * terminal prefix of deposit history.
@@ -57,6 +95,7 @@ export function nextDepositCursor(
 	deposits: unknown[],
 	currentSince: number,
 	depositsLimit: number,
+	exchangeId?: string,
 ): number {
 	// A full batch may be either end of a truncated window. Without a portable
 	// ccxt pagination boundary, moving the watermark could permanently skip the
@@ -72,30 +111,20 @@ export function nextDepositCursor(
 		if (!record) {
 			return currentSince;
 		}
-		const observedAt = depositField(record, [
-			"timestamp",
-			"creditedAt",
-			"credited_at",
-			"updated",
-			"updatedAt",
-			"datetime",
-		]);
-		const timestamp =
-			typeof observedAt === "number"
-				? observedAt
-				: typeof observedAt === "string"
-					? Date.parse(observedAt)
-					: Number.NaN;
+		const timestamp = depositTimestamp(record);
+		const archiveStatus = archivedDepositStatus(exchangeId, record);
 		const status = normalizeDepositStatus(
 			depositField(record, ["status", "state"]),
 		);
-		if (!Number.isFinite(timestamp)) {
-			if (status === "pending") {
+		const isPending =
+			archiveStatus === "credited_not_withdrawable" || status === "pending";
+		if (timestamp === undefined) {
+			if (isPending) {
 				return currentSince;
 			}
 			continue;
 		}
-		if (status === "pending") {
+		if (isPending) {
 			oldestPending = Math.min(oldestPending, timestamp);
 		} else {
 			next = Math.max(next, timestamp + 1);
@@ -117,6 +146,10 @@ export class DepositArchivePoller {
 	#stopped = false;
 	#running: Promise<boolean> | null = null;
 	readonly #cursors = new Map<string, number>();
+	readonly #lastArchivedByTarget = new Map<
+		string,
+		Map<string, LastArchivedDeposit>
+	>();
 	readonly #unsupportedLogged = new Set<string>();
 	readonly #config: DepositArchivePollerConfig;
 
@@ -243,7 +276,7 @@ export class DepositArchivePoller {
 			]);
 			const txid = depositField(record, ["txid", "txId", "tx_hash", "txHash"]);
 			const network = depositField(record, ["network", "chain"]);
-			const archiveStatus = normalizeCcxtTransactionForArchive(record).status;
+			const archiveStatus = archivedDepositStatus(target.exchangeId, record);
 			const creditedAt = depositField(record, [
 				"creditedAt",
 				"credited_at",
@@ -253,6 +286,13 @@ export class DepositArchivePoller {
 				"datetime",
 			]);
 			const depositTxid = txid === undefined ? undefined : String(txid);
+			const lastArchived =
+				depositTxid === undefined
+					? undefined
+					: this.#lastArchivedByTarget.get(key)?.get(depositTxid);
+			if (lastArchived && lastArchived.status === archiveStatus) {
+				continue;
+			}
 
 			this.params.archiver.enqueue(
 				buildTransferEventArchiveRow({
@@ -277,6 +317,17 @@ export class DepositArchivePoller {
 					},
 				}),
 			);
+			if (depositTxid !== undefined) {
+				let targetDeposits = this.#lastArchivedByTarget.get(key);
+				if (!targetDeposits) {
+					targetDeposits = new Map();
+					this.#lastArchivedByTarget.set(key, targetDeposits);
+				}
+				targetDeposits.set(depositTxid, {
+					status: archiveStatus,
+					timestamp: depositTimestamp(record),
+				});
+			}
 			archived += 1;
 		}
 
@@ -287,10 +338,27 @@ export class DepositArchivePoller {
 				{ exchange: target.exchangeId },
 			);
 		}
-		this.#cursors.set(
-			key,
-			nextDepositCursor(deposits, since, this.#config.depositsLimit),
+		const nextCursor = nextDepositCursor(
+			deposits,
+			since,
+			this.#config.depositsLimit,
+			target.exchangeId,
 		);
+		this.#cursors.set(key, nextCursor);
+		const targetDeposits = this.#lastArchivedByTarget.get(key);
+		if (targetDeposits) {
+			for (const [externalId, lastArchived] of targetDeposits) {
+				if (
+					lastArchived.timestamp !== undefined &&
+					lastArchived.timestamp < nextCursor
+				) {
+					targetDeposits.delete(externalId);
+				}
+			}
+			if (targetDeposits.size === 0) {
+				this.#lastArchivedByTarget.delete(key);
+			}
+		}
 	}
 
 	#targetKey(target: DepositPollTarget): string {
