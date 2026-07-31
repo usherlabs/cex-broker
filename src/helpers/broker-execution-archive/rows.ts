@@ -430,6 +430,7 @@ export function buildTransferEventArchiveRow(input: {
 // payload_json regardless, so this only needs the columns we index/filter on.
 export type NormalizedCcxtTransfer = {
 	externalId?: string;
+	clientWithdrawalId?: string;
 	txid?: string;
 	address?: string;
 	network?: string;
@@ -449,6 +450,12 @@ export function normalizeCcxtTransactionForArchive(
 	const fee = asRecord(record?.fee);
 	return compactUndefined({
 		externalId: firstString(record?.id, info?.id, record?.txid, info?.txId),
+		// The caller's withdrawal id, echoed back by the venue on withdrawal
+		// history records. Without it an observation carries only the venue id and
+		// a submission only the client id, so the two halves of one movement have
+		// no shared key and the lifecycle cannot be joined (amounts differ by the
+		// withdrawal fee, so they are not a fallback).
+		clientWithdrawalId: firstString(info?.withdrawOrderId),
 		txid: firstString(record?.txid, info?.txId, info?.txid, info?.tx_hash),
 		address: firstString(record?.address, record?.addressTo, info?.address),
 		network: firstString(record?.network, info?.network),

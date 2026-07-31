@@ -190,7 +190,11 @@ describe("Treasury discovery and transfer observation RPC", () => {
 				network: "ARBITRUM",
 				fee: { cost: 0, currency: "USDC" },
 				datetime: "2026-07-01T00:00:00.000Z",
-				info: { amount: "12.50000000", completeTime: "" },
+				info: {
+					amount: "12.50000000",
+					completeTime: "",
+					withdrawOrderId: "lane-withdrawal-1",
+				},
 			},
 			{
 				id: "wd-2",
@@ -256,6 +260,9 @@ describe("Treasury discovery and transfer observation RPC", () => {
 					account_selector: "primary",
 					asset_symbol: "USDC",
 					external_id: "wd-1",
+					// The submission that opened this movement is keyed on the same
+					// client id, so the observation is joinable back to it.
+					client_withdrawal_id: "lane-withdrawal-1",
 					txid: "tx-1",
 					status: "pending",
 					amount: "12.50000000",
@@ -273,6 +280,9 @@ describe("Treasury discovery and transfer observation RPC", () => {
 			expect(initialRows[1]?.row).toMatchObject({
 				asset_symbol: "ETH",
 				external_id: "wd-2",
+				// A venue record with no echoed client id stays empty rather than
+				// borrowing one from a neighbouring observation.
+				client_withdrawal_id: "",
 				txid: "tx-2",
 				fee_amount: "0.005",
 				fee_currency: "ETH",

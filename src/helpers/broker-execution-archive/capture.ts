@@ -176,6 +176,7 @@ export function archiveWithdrawalObservationsInBackground(
 					address: normalized.address,
 					network: normalized.network,
 					externalId: normalized.externalId,
+					clientWithdrawalId: normalized.clientWithdrawalId,
 					txid: normalized.txid,
 					resultIndex,
 					feeAmount: normalized.feeAmount,
