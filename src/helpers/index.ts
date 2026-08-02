@@ -1,359 +1,59 @@
-import type { Metadata, ServerUnaryCall } from "@grpc/grpc-js";
-import type {
-	Exchange,
-	HttpClientOverride,
-	HttpOverridePredicate,
-} from "@usherlabs/ccxt";
-import ccxt from "@usherlabs/ccxt";
-import { VerityClient } from "@usherlabs/verity-client";
+import type { Exchange } from "@usherlabs/ccxt";
 import fs from "fs";
 import Joi from "joi";
 import type {
-	BrokerAccountRole,
-	BrokerCredentials,
 	DepositRuleEntry,
 	PolicyConfig,
 	WithdrawRuleEntry,
 } from "../types";
-import { CCXT_METHODS_WITH_VERITY } from "./constants";
+import { type BrokerAccount, requireDestinationEmail } from "./broker";
 import { log } from "./logger";
+import {
+	type BrokerMarketType,
+	findTradableSymbol,
+	parseMarketPattern,
+	parseMarketType,
+} from "./market-type";
+import {
+	australiaDepositQuestionnaireSchema,
+	australiaQuestionnaireSchema,
+} from "./travel-rule";
 
-export type BrokerAccount = {
-	exchange: Exchange;
-	label: "primary" | `secondary:${number}`;
-	index?: number;
-	role?: BrokerAccountRole;
-	email?: string;
-	subAccountId?: string;
-	uid?: string;
-};
-
-export type BrokerPoolEntry = {
-	primary: BrokerAccount;
-	secondaryBrokers: BrokerAccount[];
-};
-
-export class BrokerAccountPreconditionError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "BrokerAccountPreconditionError";
-	}
-}
-
-function requireDestinationEmail(
-	dest: BrokerAccount,
-	transferType: "sub-to-sub" | "primary-to-sub",
-) {
-	const email = dest.email?.trim();
-	if (!email) {
-		throw new BrokerAccountPreconditionError(
-			`Destination account '${dest.label}' requires an email configured for ${transferType} transfers`,
-		);
-	}
-	return email;
-}
-
-export function authenticateRequest<T, E>(
-	call: ServerUnaryCall<T, E>,
-	whitelistIps: string[],
-): boolean {
-	const clientIp = call.getPeer().split(":")[0];
-	if (whitelistIps.includes("*")) {
-		return true;
-	} else if (!clientIp || !whitelistIps.includes(clientIp)) {
-		log.warn(`Blocked access from unauthorized IP: ${clientIp || "unknown"}`);
-		return false;
-	}
-	return true;
-}
-
-export function createVerityHttpClientOverride(
-	verityProverUrl: string,
-	onProofCallback: (proof: string, notaryPubKey?: string) => void,
-) {
-	const client = new VerityClient({ proverUrl: verityProverUrl });
-	return (redact: string, proofTimeout: number): HttpClientOverride =>
-		async ({ url, config }) => {
-			// { method, url, config, data, meta }
-			let pending = client.get(url, config, { proofTimeout });
-			if (redact) {
-				pending = pending.redact(redact || "");
-			}
-			const response = await pending;
-			if (response.proof) {
-				onProofCallback(response.proof, response.notary_pub_key);
-			}
-			return response;
-		};
-}
-
-export function applyCommonExchangeConfig(exchange: Exchange) {
-	if (process.env.CEX_BROKER_SANDBOX_MODE === "true") {
-		exchange.setSandboxMode(true);
-	}
-	// Ensure consistent defaults
-	exchange.enableRateLimit = true;
-	exchange.timeout = 150 * 1000;
-	exchange.extendExchangeOptions({
-		recvWindow: 60000,
-		adjustForTimeDifference: true,
-	});
-}
-
-export function buildHttpClientOverrideFromMetadata(
-	metadata: Metadata,
-	verityProverUrl: string,
-	onProofCallback: (proof: string, notaryPubKey?: string) => void,
-): HttpClientOverride {
-	const redact = metadata.get("verity-t-redacted")?.[0]?.toString() || "";
-	const rawTimeout = metadata.get("verity-proof-timeout")?.[0]?.toString();
-	const proofTimeout = rawTimeout ? parseInt(rawTimeout, 10) : 5 * 60 * 1000; // default 5 minutes
-	const factory = createVerityHttpClientOverride(
-		verityProverUrl,
-		onProofCallback,
-	);
-	return factory(redact, proofTimeout);
-}
-
-export const verityHttpClientOverridePredicate: HttpOverridePredicate = ({
-	method,
-	methodCalled,
-}) => {
-	return (
-		["get", "post"].includes(method.toLowerCase()) &&
-		CCXT_METHODS_WITH_VERITY.includes(methodCalled)
-	);
-};
-
-export function createBroker(
-	cex: string,
-	credsOrMetadata: { apiKey: string; apiSecret: string } | Metadata,
-): Exchange | null {
-	let apiKey: string | undefined;
-	let apiSecret: string | undefined;
-
-	// Duck-typing check for gRPC Metadata (has get/remove functions)
-	if (
-		credsOrMetadata &&
-		typeof (credsOrMetadata as unknown as { get: unknown }).get ===
-			"function" &&
-		typeof (credsOrMetadata as unknown as { remove: unknown }).remove ===
-			"function"
-	) {
-		const metadata = credsOrMetadata as Metadata;
-		apiKey = metadata.get("api-key")?.[0]?.toString();
-		apiSecret = metadata.get("api-secret")?.[0]?.toString();
-		metadata.remove("api-key");
-		metadata.remove("api-secret");
-	} else {
-		const creds = credsOrMetadata as { apiKey: string; apiSecret: string };
-		apiKey = creds.apiKey;
-		apiSecret = creds.apiSecret;
-	}
-
-	const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[cex];
-	if (!ExchangeClass || !apiKey || !apiSecret) {
-		return null;
-	}
-
-	const exchange = new ExchangeClass({ apiKey, secret: apiSecret });
-	applyCommonExchangeConfig(exchange);
-	return exchange;
-}
-
-type EnvConfigMap = Record<
-	string,
-	Partial<BrokerCredentials> & {
-		_secondaryMap?: Record<number, Partial<BrokerCredentials>>;
-	}
->;
-
-type ValidatedCredentialsMap = Record<
-	string,
-	BrokerCredentials & { secondaryKeys: BrokerCredentials[] }
->;
-
-function createBrokerAccount(
-	brokerName: string,
-	label: BrokerAccount["label"],
-	creds: BrokerCredentials,
-	index?: number,
-): BrokerAccount | null {
-	const exchange = createBroker(brokerName, {
-		apiKey: creds.apiKey,
-		apiSecret: creds.apiSecret,
-	});
-	if (!exchange) {
-		return null;
-	}
-	return {
-		exchange,
-		label,
-		index,
-		role: creds.role,
-		email: creds.email,
-		subAccountId: creds.subAccountId,
-		uid: creds.uid,
-	};
-}
-
-export function createBrokerPool(
-	cfg: EnvConfigMap | ValidatedCredentialsMap,
-): Record<string, BrokerPoolEntry> {
-	const pool: Record<string, BrokerPoolEntry> = {};
-
-	for (const [brokerName, creds] of Object.entries(cfg)) {
-		const ExchangeClass = (ccxt.pro as Record<string, typeof Exchange>)[
-			brokerName
-		];
-		if (!ExchangeClass) {
-			log.warn(`❌ Invalid Broker: ${brokerName}`);
-			continue;
-		}
-
-		const credsRecord = creds as Record<string, unknown>;
-		const primaryApiKey =
-			typeof credsRecord.apiKey === "string"
-				? (credsRecord.apiKey as string)
-				: undefined;
-		const primaryApiSecret =
-			typeof credsRecord.apiSecret === "string"
-				? (credsRecord.apiSecret as string)
-				: undefined;
-		if (!primaryApiKey || !primaryApiSecret) {
-			log.warn(`❌ Missing API_KEY and/or API_SECRET for "${brokerName}"`);
-			continue;
-		}
-
-		const primary = createBrokerAccount(brokerName, "primary", {
-			apiKey: primaryApiKey,
-			apiSecret: primaryApiSecret,
-			role:
-				typeof credsRecord.role === "string"
-					? (credsRecord.role as BrokerAccountRole)
-					: undefined,
-			email:
-				typeof credsRecord.email === "string"
-					? (credsRecord.email as string)
-					: undefined,
-			subAccountId:
-				typeof credsRecord.subAccountId === "string"
-					? (credsRecord.subAccountId as string)
-					: undefined,
-			uid:
-				typeof credsRecord.uid === "string"
-					? (credsRecord.uid as string)
-					: undefined,
-		});
-		if (!primary) {
-			log.warn(`❌ Failed to create primary for "${brokerName}"`);
-			continue;
-		}
-
-		const secondaryBrokers: BrokerAccount[] = [];
-		const secondaryKeysFromValidated = Array.isArray(credsRecord.secondaryKeys)
-			? (credsRecord.secondaryKeys as BrokerCredentials[])
-			: undefined;
-		const secondaryEntriesFromValidated = secondaryKeysFromValidated?.map(
-			(sec, idx) => [idx + 1, sec] as const,
-		);
-		const secondaryEntriesFromMap =
-			credsRecord._secondaryMap && typeof credsRecord._secondaryMap === "object"
-				? Object.entries(
-						credsRecord._secondaryMap as Record<
-							number,
-							Partial<BrokerCredentials>
-						>,
-					)
-						.filter(
-							([, sec]) =>
-								typeof sec.apiKey === "string" &&
-								typeof sec.apiSecret === "string",
-						)
-						.map(
-							([rawIndex, sec]) =>
-								[
-									Number(rawIndex),
-									{
-										apiKey: sec.apiKey as string,
-										apiSecret: sec.apiSecret as string,
-										role: sec.role,
-										email: sec.email,
-										subAccountId: sec.subAccountId,
-										uid: sec.uid,
-									},
-								] as const,
-						)
-				: [];
-		const secondaryEntries =
-			secondaryEntriesFromValidated ?? secondaryEntriesFromMap;
-
-		secondaryEntries.forEach(([index, sec]) => {
-			const secEx = createBrokerAccount(
-				brokerName,
-				`secondary:${index}`,
-				sec,
-				index,
-			);
-			if (secEx) secondaryBrokers[index - 1] = secEx;
-			else
-				log.warn(`⚠️ Failed to create secondary #${index} for "${brokerName}"`);
-		});
-
-		pool[brokerName] = { primary, secondaryBrokers };
-		log.info(
-			`✅ Loaded "${brokerName}" with ${secondaryBrokers.length} secondaries`,
-		);
-	}
-
-	return pool;
-}
-
-export function selectBroker(
-	brokers: BrokerPoolEntry | undefined,
-	metadata: Metadata,
-): Exchange | null {
-	return selectBrokerAccount(brokers, metadata)?.exchange ?? null;
-}
-
-export function getCurrentBrokerSelector(metadata: Metadata): string {
-	const use_secondary_key = metadata.get("use-secondary-key");
-	if (!use_secondary_key || use_secondary_key.length === 0) {
-		return "primary";
-	}
-	const rawIndex = use_secondary_key[use_secondary_key.length - 1]?.toString();
-	const index = rawIndex ? Number.parseInt(rawIndex, 10) : Number.NaN;
-	return Number.isInteger(index) && index > 0
-		? `secondary:${index}`
-		: "primary";
-}
-
-export function resolveBrokerAccount(
-	brokers: BrokerPoolEntry | undefined,
-	selector: string,
-): BrokerAccount | null {
-	if (!brokers) {
-		return null;
-	}
-	if (selector === "primary") {
-		return brokers.primary;
-	}
-	const match = selector.match(/^secondary:(\d+)$/);
-	if (!match) {
-		return null;
-	}
-	const index = Number.parseInt(match[1] ?? "", 10);
-	return Number.isInteger(index) && index > 0
-		? (brokers.secondaryBrokers[index - 1] ?? null)
-		: null;
-}
-
-export function selectBrokerAccount(
-	brokers: BrokerPoolEntry | undefined,
-	metadata: Metadata,
-): BrokerAccount | null {
-	return resolveBrokerAccount(brokers, getCurrentBrokerSelector(metadata));
-}
+export { authenticateRequest } from "./auth";
+export {
+	applyCommonExchangeConfig,
+	type BrokerAccount,
+	BrokerAccountPreconditionError,
+	type BrokerPoolEntry,
+	createBroker,
+	createBrokerPool,
+	createPublicBroker,
+	getCurrentBrokerSelector,
+	resolveBrokerAccount,
+	selectBroker,
+	selectBrokerAccount,
+} from "./broker";
+export {
+	australiaDepositQuestionnaireSchema,
+	australiaQuestionnaireSchema,
+	getEnabledTravelRuleDepositConfig,
+	registerBinanceTravelRuleDepositEndpoints,
+	registerBinanceTravelRuleWithdrawEndpoint,
+	resolveDepositOriginatorQuestionnaire,
+	resolveTravelRuleDecision,
+	type TravelRuleDecision,
+	withdrawViaLocalEntity,
+} from "./travel-rule";
+export {
+	loadTravelRuleDepositReconcilerConfigFromEnv,
+	resolveOnChainSender,
+	TravelRuleDepositReconciler,
+} from "./travel-rule-deposit-reconciler";
+export {
+	buildHttpClientOverrideFromMetadata,
+	createVerityHttpClientOverride,
+	verityHttpClientOverridePredicate,
+} from "./verity";
 
 /**
  * Loads and validates policy configuration
@@ -391,6 +91,41 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 				.default([]),
 		});
 
+		// Travel-rule config: per-exchange opt-in flag plus static questionnaire
+		// answers keyed by destination address, validated against the AU schema at
+		// load time so a malformed questionnaire fails startup, not a live withdraw.
+		const travelRuleEntrySchema = Joi.object({
+			// Only Binance implements the travel-rule (localentity) withdraw endpoint,
+			// so reject other exchanges at load time rather than failing at withdraw
+			// time with a cryptic "endpoint not registered" error.
+			exchange: Joi.string().uppercase().valid("BINANCE").required(),
+			enabled: Joi.boolean().required(),
+			description: Joi.string().optional(),
+			addresses: Joi.object()
+				.pattern(
+					Joi.string(),
+					Joi.object({
+						questionnaire: australiaQuestionnaireSchema.required(),
+					}),
+				)
+				.required(),
+			// Deposit auto-clear config, keyed by on-chain sender (originator). Uses
+			// the deposit questionnaire schema, which is deliberately distinct from
+			// the withdraw one so a copy-paste of the wrong shape fails at load time.
+			deposits: Joi.object({
+				enabled: Joi.boolean().required(),
+				description: Joi.string().optional(),
+				originators: Joi.object()
+					.pattern(
+						Joi.string(),
+						Joi.object({
+							questionnaire: australiaDepositQuestionnaireSchema.required(),
+						}),
+					)
+					.required(),
+			}).optional(),
+		});
+
 		// Full PolicyConfig schema
 		const policyConfigSchema = Joi.object({
 			withdraw: Joi.object({
@@ -404,6 +139,10 @@ export function loadPolicy(policyPath: string): PolicyConfig {
 			order: Joi.object({
 				rule: orderRuleSchema.required(),
 			}).required(),
+
+			travelRule: Joi.object({
+				rule: Joi.array().items(travelRuleEntrySchema).required(),
+			}).optional(),
 		});
 
 		const { error, value } = policyConfigSchema.validate(
@@ -431,7 +170,7 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 			rule: policy.withdraw.rule.map((rule) => ({
 				...rule,
 				exchange: rule.exchange.trim().toUpperCase(),
-				network: rule.network.trim().toUpperCase(),
+				network: normalizeBrokerNetworkId(rule.network),
 				whitelist: rule.whitelist.map((address) =>
 					address.trim().toLowerCase(),
 				),
@@ -446,7 +185,7 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 				rule: policy.deposit.rule.map((rule) => ({
 					...rule,
 					exchange: rule.exchange.trim().toUpperCase(),
-					network: rule.network.trim().toUpperCase(),
+					network: normalizeBrokerNetworkId(rule.network),
 					...(rule.coins && {
 						coins: rule.coins.map((c) => c.trim().toUpperCase()),
 					}),
@@ -461,6 +200,22 @@ export function normalizePolicyConfig(policy: PolicyConfig): PolicyConfig {
 			},
 		},
 	};
+}
+
+const BROKER_NETWORK_ALIASES: Record<string, string> = {
+	ARB: "ARBITRUM",
+	ARBITRUM: "ARBITRUM",
+	ETH: "ETHEREUM",
+	ERC20: "ETHEREUM",
+	ETHEREUM: "ETHEREUM",
+	BNB: "BNB",
+	BSC: "BNB",
+	BEP20: "BNB",
+};
+
+export function normalizeBrokerNetworkId(network: string): string {
+	const normalized = network.trim().toUpperCase();
+	return BROKER_NETWORK_ALIASES[normalized] ?? normalized;
 }
 
 /**
@@ -520,7 +275,7 @@ export function validateWithdraw(
 ): { valid: boolean; error?: string } {
 	const normalizedPolicy = normalizePolicyConfig(policy);
 	const exchangeNorm = exchange.trim().toUpperCase();
-	const networkNorm = network.trim().toUpperCase();
+	const networkNorm = normalizeBrokerNetworkId(network);
 	const matchingRules = normalizedPolicy.withdraw.rule
 		.map((rule) => ({
 			rule,
@@ -708,6 +463,7 @@ function isMarketPatternMatch(
 	broker: string,
 	fromToken: string,
 	toToken: string,
+	marketType: BrokerMarketType = "spot",
 ): boolean {
 	const normalizedPattern = pattern.toUpperCase().trim();
 	const directPair = `${fromToken}/${toToken}`;
@@ -717,8 +473,8 @@ function isMarketPatternMatch(
 		return true;
 	}
 
-	const [exchangePattern, symbolPattern] = normalizedPattern.split(":");
-	if (!exchangePattern || !symbolPattern) {
+	const [exchangePattern, rawSymbolPattern] = normalizedPattern.split(":");
+	if (!exchangePattern || !rawSymbolPattern) {
 		return false;
 	}
 
@@ -727,11 +483,25 @@ function isMarketPatternMatch(
 		return false;
 	}
 
+	const parsedPattern = parseMarketPattern(rawSymbolPattern);
+	if (
+		parsedPattern.requiredMarketType !== undefined &&
+		parsedPattern.requiredMarketType !== marketType
+	) {
+		return false;
+	}
+
+	const symbolPattern = parsedPattern.symbolPattern.toUpperCase();
 	if (symbolPattern === "*") {
 		return true;
 	}
 
-	return symbolPattern === directPair || symbolPattern === reversePair;
+	return (
+		symbolPattern === directPair ||
+		symbolPattern === reversePair ||
+		symbolPattern === `${directPair}:${toToken}` ||
+		symbolPattern === `${reversePair}:${fromToken}`
+	);
 }
 
 function getMatchedMarketPatterns(
@@ -739,9 +509,10 @@ function getMatchedMarketPatterns(
 	broker: string,
 	fromToken: string,
 	toToken: string,
+	marketType: BrokerMarketType = "spot",
 ): string[] {
 	return markets.filter((pattern) =>
-		isMarketPatternMatch(pattern, broker, fromToken, toToken),
+		isMarketPatternMatch(pattern, broker, fromToken, toToken, marketType),
 	);
 }
 
@@ -788,35 +559,37 @@ export async function resolveOrderExecution(
 	toToken: string,
 	amount: number,
 	price: number,
+	marketTypeInput?: unknown,
 ): Promise<OrderExecutionResolution> {
 	const brokerUpper = cex.trim().toUpperCase();
 	const fromUpper = fromToken.trim().toUpperCase();
 	const toUpper = toToken.trim().toUpperCase();
+	const marketType = parseMarketType(marketTypeInput);
 	const matchedPatterns = getMatchedMarketPatterns(
 		policy.order.rule.markets,
 		brokerUpper,
 		fromUpper,
 		toUpper,
+		marketType,
 	);
 	if (matchedPatterns.length === 0) {
 		return {
 			valid: false,
-			error: `Market ${brokerUpper}:${fromUpper}/${toUpper} is not allowed. Allowed markets: ${policy.order.rule.markets.join(", ")}`,
+			error: `Market ${brokerUpper}:${fromUpper}/${toUpper} (${marketType}) is not allowed. Allowed markets: ${policy.order.rule.markets.join(", ")}`,
 			matchedPatterns,
 		};
 	}
 
-	const directSymbol = `${fromUpper}/${toUpper}`;
-	const reverseSymbol = `${toUpper}/${fromUpper}`;
-	const hasDirectSymbol = await doesExchangeSupportSymbol(broker, directSymbol);
-	const hasReverseSymbol = await doesExchangeSupportSymbol(
+	const tradable = await findTradableSymbol(
 		broker,
-		reverseSymbol,
+		fromUpper,
+		toUpper,
+		marketType,
 	);
-	if (!hasDirectSymbol && !hasReverseSymbol) {
+	if (!tradable) {
 		return {
 			valid: false,
-			error: `Exchange ${brokerUpper} does not support ${directSymbol} or ${reverseSymbol}`,
+			error: `Exchange ${brokerUpper} does not support ${fromUpper}/${toUpper} for marketType ${marketType}`,
 			matchedPatterns,
 		};
 	}
@@ -854,10 +627,10 @@ export async function resolveOrderExecution(
 		}
 	}
 
-	if (hasDirectSymbol) {
+	if (tradable.side === "sell") {
 		return {
 			valid: true,
-			symbol: directSymbol,
+			symbol: tradable.symbol,
 			side: "sell",
 			amountBase: amount,
 			limitsApplied: limits.length > 0,
@@ -877,7 +650,7 @@ export async function resolveOrderExecution(
 
 	return {
 		valid: true,
-		symbol: reverseSymbol,
+		symbol: tradable.symbol,
 		side: "buy",
 		amountBase: amount / price,
 		limitsApplied: limits.length > 0,
@@ -901,7 +674,7 @@ export function validateDeposit(
 	}
 
 	const exchangeNorm = exchange.trim().toUpperCase();
-	const networkNorm = network.trim().toUpperCase();
+	const networkNorm = normalizeBrokerNetworkId(network);
 	const tickerNorm = ticker.trim().toUpperCase();
 
 	const matchingRules = normalizedPolicy.deposit.rule

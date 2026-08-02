@@ -27,6 +27,12 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# research outputs
+research/python/examples/output/
+research/output/
+__pycache__
+*.egg-info
+
 # IntelliJ based IDEs
 .idea
 
@@ -36,5 +42,10 @@ build
 /proto/**
 src/proto/*.ts
 src/proto/**/*.ts
+!src/proto/node.descriptor.ts
 
 src/assets/proto/**
+
+# Worktrees, Agents
+.codex
+.emdash

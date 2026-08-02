@@ -41,6 +41,7 @@ export const DepositPayloadSchema = z.object({
 export const CallPayloadSchema = z.object({
 	functionName: z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/),
 	args: z.preprocess(parseJsonString, z.array(z.unknown())).default([]),
+	orderAuthor: z.string().min(1).optional(),
 	params: z
 		.preprocess(parseJsonString, z.record(z.string(), z.unknown()))
 		.default({}),
@@ -66,13 +67,38 @@ export const InternalTransferPayloadSchema = z.object({
 	toAccount: z.string().min(1).optional(),
 });
 
+const marketTypeSchema = z
+	.enum(["spot", "swap", "perp", "future", "futures"])
+	.optional();
+
+const unknownParamsSchema = z.preprocess(
+	parseJsonString,
+	z.record(z.string(), z.unknown()),
+);
+
 export const CreateOrderPayloadSchema = z.object({
 	orderType: z.enum(["market", "limit"]).default("limit"),
+	orderIntent: z.enum(["passive_only"]).optional(),
 	amount: z.coerce.number().positive(),
 	fromToken: z.string().min(1),
 	toToken: z.string().min(1),
 	price: z.coerce.number().positive(),
+	marketType: marketTypeSchema,
+	clientOrderId: z.string().min(1).optional(),
+	orderAuthor: z.string().min(1).optional(),
 	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
+});
+
+export const GetPerpConfigStatePayloadSchema = z.object({
+	symbol: z.string().min(1).optional(),
+	params: unknownParamsSchema.default({}),
+});
+
+export const SetPerpConfigStatePayloadSchema = z.object({
+	symbol: z.string().min(1),
+	leverage: z.coerce.number().positive(),
+	marginMode: z.enum(["cross", "isolated"]).optional(),
+	params: unknownParamsSchema.default({}),
 });
 
 export const GetOrderDetailsPayloadSchema = z.object({
@@ -100,6 +126,12 @@ export type InternalTransferPayload = z.infer<
 	typeof InternalTransferPayloadSchema
 >;
 export type CreateOrderPayload = z.infer<typeof CreateOrderPayloadSchema>;
+export type GetPerpConfigStatePayload = z.infer<
+	typeof GetPerpConfigStatePayloadSchema
+>;
+export type SetPerpConfigStatePayload = z.infer<
+	typeof SetPerpConfigStatePayloadSchema
+>;
 export type GetOrderDetailsPayload = z.infer<
 	typeof GetOrderDetailsPayloadSchema
 >;

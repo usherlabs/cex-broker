@@ -1,13 +1,21 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.0.6/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
 	"vcs": {
-		"enabled": false,
+		"enabled": true,
 		"clientKind": "git",
-		"useIgnoreFile": false
+		"useIgnoreFile": true
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["src/**", "policy/**", "test/**", "scripts/**", "examples/**"],
+		"includes": [
+			"src/**",
+			"services/ohlcv-collector/**",
+			"policy/**",
+			"test/**",
+			"scripts/**",
+			"examples/**",
+			"!test/fixtures"
+		],
 		"experimentalScannerIgnores": ["src/proto/**"]
 	},
 	"formatter": {

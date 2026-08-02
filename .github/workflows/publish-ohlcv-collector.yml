@@ -1,0 +1,57 @@
+# Publishes the OHLCV collector image (services/ohlcv-collector).
+# The collector is repo-runtime only — it is NOT part of the npm package
+# (files: ["dist"]), so it ships as its own container image.
+#
+# Triggers: semver tags (alongside the broker publish) and manual dispatch
+# (to publish from a branch without cutting an npm release).
+
+name: Publish OHLCV Collector
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+      - 'v[0-9]*.[0-9]*.[0-9]*-*'
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: ghcr.io/usherlabs/cex-broker-ohlcv-collector
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-ohlcv-collector:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=match,pattern=v(\d+\.\d+\.\d+.*),group=1
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/ohlcv-collector/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}

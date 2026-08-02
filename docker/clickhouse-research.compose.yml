@@ -1,0 +1,44 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: cex-broker-clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ../schema/clickhouse/market_data.sql:/docker-entrypoint-initdb.d/01_market_data.sql:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # Research/dev forwarder: bind-mounts the repo for live-reload against a
+  # host `bun install`. For a standalone prod image build
+  # services/archive-forwarder/Dockerfile instead (self-contained, no mount).
+  archive-forwarder:
+    image: oven/bun:1.2
+    container_name: cex-broker-archive-forwarder
+    working_dir: /app
+    command: ["bun", "run", "services/archive-forwarder/index.ts"]
+    ports:
+      - "8090:8090"
+    environment:
+      ARCHIVE_FORWARDER_PORT: "8090"
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DATABASE: market_data
+    volumes:
+      - ..:/app
+    depends_on:
+      - clickhouse
+
+volumes:
+  clickhouse_data:
+
+networks:
+  default:
+    name: fiet-sandbox
+    external: true

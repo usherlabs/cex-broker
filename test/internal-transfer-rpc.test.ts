@@ -3,16 +3,14 @@ import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { Exchange } from "@usherlabs/ccxt";
 import type { BrokerPoolEntry } from "../src/helpers/index";
+import { PROTO_LOADER_OPTIONS } from "../src/proto-loader-options";
 import { getServer } from "../src/server";
 import type { PolicyConfig } from "../src/types";
 
-const packageDef = protoLoader.loadSync("src/proto/node.proto", {
-	keepCase: true,
-	longs: String,
-	enums: String,
-	defaults: true,
-	oneofs: true,
-});
+const packageDef = protoLoader.loadSync(
+	"src/proto/node.proto",
+	PROTO_LOADER_OPTIONS,
+);
 const grpcObj = grpc.loadPackageDefinition(packageDef) as {
 	cex_broker: {
 		cex_service: new (

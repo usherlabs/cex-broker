@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.2.11",
+	"version": "0.2.36",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
 	"repository": {
 		"type": "git",
@@ -14,8 +14,9 @@
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"devDependencies": {
-		"@biomejs/biome": "2.0.6",
+		"@biomejs/biome": "^2.4.16",
 		"@types/bun": "latest",
+		"@types/ws": "^8.18.1",
 		"bun-plugin-dts": "latest",
 		"bun-types": "latest",
 		"cpx": "^1.5.0",
@@ -31,9 +32,17 @@
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
-		"build": "bun run proto-gen && bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto",
+		"build": "bun run proto-gen && bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto && node scripts/check-node-package.mjs",
 		"prepack": "bun run build",
 		"start-broker": "bun run ./src/cli.ts",
+		"start-archive-forwarder": "bun run services/archive-forwarder/index.ts",
+		"start-ohlcv-collector": "bun run services/ohlcv-collector/index.ts",
+		"start-archive-watch": "bun run examples/archive-watch-subscribe.ts",
+		"start-candle-viewer": "bun run research/candle-viewer/server.ts",
+		"dev:candle-viewer": "bunx nodemon --watch research/candle-viewer --ext ts,html --signal SIGTERM --exec \"bun run start-candle-viewer\"",
+		"dev:archive-forwarder": "bunx nodemon --watch services/archive-forwarder --watch schema/clickhouse --ext ts,sql --signal SIGTERM --exec \"bun run start-archive-forwarder\"",
+		"dev:archive-watch": "bunx nodemon --watch examples --watch src/helpers/market-data-archive --watch src/handlers/subscribe --ext ts --signal SIGTERM --exec \"bun run start-archive-watch\"",
+		"dev:research": "bun run dev:candle-viewer",
 		"start-broker-server": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll'",
 		"start-broker-server-with-verity": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll --verityProverUrl http://verity-prover:8080'",
 		"build:ts": "bunx tsc",
@@ -43,6 +52,7 @@
 		"lint:fix": "bunx biome lint --write",
 		"check": "bunx biome check",
 		"check:fix": "bunx biome check --write",
+		"check:server-lines": "bash scripts/check-server-line-budget.sh",
 		"copy:dts": "cpx \"build/**/*.d.ts\" ./dist/",
 		"copy:proto": "cpx \"src/proto/*.proto\" ./dist/proto",
 		"prepare": "bunx husky"
@@ -51,6 +61,7 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
+		"@clickhouse/client": "^1.22.0",
 		"@grpc/grpc-js": "^1.13.4",
 		"@grpc/proto-loader": "^0.7.15",
 		"@loglayer/plugin-opentelemetry": "^3.0.2",
@@ -71,6 +82,7 @@
 		"protobufjs": "^7.4.0",
 		"serialize-error": "^13.0.1",
 		"tslog": "^4.9.3",
+		"ws": "8.18.3",
 		"zod": "^4.3.6"
 	},
 	"publishConfig": {
@@ -80,6 +92,7 @@
 		"Oki Ayobami (https://github.com/xlassix)"
 	],
 	"patchedDependencies": {
-		"@protobufjs/inquire@1.1.0": "patches/@protobufjs%2Finquire@1.1.0.patch"
+		"@protobufjs/inquire@1.1.0": "patches/@protobufjs%2Finquire@1.1.0.patch",
+		"@usherlabs/ccxt@0.0.14": "patches/@usherlabs%2Fccxt@0.0.14.patch"
 	}
 }

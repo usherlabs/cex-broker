@@ -6,9 +6,20 @@ import {
 	type BrokerPoolEntry,
 	createBrokerPool,
 	loadPolicy,
+	loadTravelRuleDepositReconcilerConfigFromEnv,
 	normalizePolicyConfig,
+	TravelRuleDepositReconciler,
 } from "./helpers";
+import { AccountBalanceArchivePoller } from "./helpers/account-balance-archive-poller";
+import {
+	type BrokerExecutionArchiver,
+	createBrokerExecutionArchiverFromEnv,
+	WithdrawalObservationTracker,
+} from "./helpers/broker-execution-archive";
+import { DepositArchivePoller } from "./helpers/deposit-archive-poller";
+import { FillArchivePoller } from "./helpers/fill-archive-poller";
 import { log } from "./helpers/logger";
+import { OrderActivityTracker } from "./helpers/order-activity-tracker";
 import {
 	createOtelLogsFromEnv,
 	createOtelMetricsFromEnv,
@@ -44,6 +55,18 @@ export default class CEXBroker {
 	private useVerity: boolean = false;
 	private otelMetrics?: OtelMetrics;
 	private otelLogs?: OtelLogs;
+	private brokerArchiver?: BrokerExecutionArchiver;
+	private depositReconciler?: TravelRuleDepositReconciler;
+	// Order activity feeds the fill poller its per-market poll set; shared with the
+	// execute-action handler so orders record the (account, symbol) they touch.
+	private readonly orderActivityTracker = new OrderActivityTracker();
+	// Persist across server rebuilds on policy reload so repeated venue polling is
+	// suppressed for the lifetime of this broker process.
+	private readonly withdrawalObservationTracker =
+		new WithdrawalObservationTracker();
+	private fillArchivePoller?: FillArchivePoller;
+	private depositArchivePoller?: DepositArchivePoller;
+	private accountBalanceArchivePoller?: AccountBalanceArchivePoller;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -219,6 +242,10 @@ export default class CEXBroker {
 			this.otelMetrics = createOtelMetricsFromEnv();
 			this.otelLogs = createOtelLogsFromEnv();
 		}
+		this.brokerArchiver = createBrokerExecutionArchiverFromEnv(
+			this.otelLogs,
+			this.otelMetrics,
+		);
 
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
@@ -257,8 +284,27 @@ export default class CEXBroker {
 			unwatchFile(this.#policyFilePath);
 			log.info(`Stopped watching policy file: ${this.#policyFilePath}`);
 		}
+		if (this.depositReconciler) {
+			this.depositReconciler.stop();
+			this.depositReconciler = undefined;
+		}
+		if (this.fillArchivePoller) {
+			this.fillArchivePoller.stop();
+			this.fillArchivePoller = undefined;
+		}
+		if (this.depositArchivePoller) {
+			await this.depositArchivePoller.stop();
+			this.depositArchivePoller = undefined;
+		}
+		if (this.accountBalanceArchivePoller) {
+			await this.accountBalanceArchivePoller.stop();
+			this.accountBalanceArchivePoller = undefined;
+		}
 		if (this.server) {
 			await this.server.forceShutdown();
+		}
+		if (this.brokerArchiver) {
+			await this.brokerArchiver.close();
 		}
 		if (this.otelMetrics) {
 			await this.otelMetrics.close();
@@ -275,6 +321,24 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
+		// run() is re-invoked on policy hot-reload; tear down the prior reconciler and
+		// poller so they are rebuilt rather than duplicated.
+		if (this.depositReconciler) {
+			this.depositReconciler.stop();
+			this.depositReconciler = undefined;
+		}
+		if (this.fillArchivePoller) {
+			this.fillArchivePoller.stop();
+			this.fillArchivePoller = undefined;
+		}
+		if (this.depositArchivePoller) {
+			await this.depositArchivePoller.stop();
+			this.depositArchivePoller = undefined;
+		}
+		if (this.accountBalanceArchivePoller) {
+			await this.accountBalanceArchivePoller.stop();
+			this.accountBalanceArchivePoller = undefined;
+		}
 		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
 
 		// Initialize OTel metrics if enabled
@@ -289,6 +353,9 @@ export default class CEXBroker {
 			this.useVerity,
 			this.#verityProverUrl,
 			this.otelMetrics,
+			this.brokerArchiver,
+			this.orderActivityTracker,
+			this.withdrawalObservationTracker,
 		);
 
 		this.server.bindAsync(
@@ -302,6 +369,47 @@ export default class CEXBroker {
 				log.info(`Your server as started on port ${port}`);
 			},
 		);
+
+		// Start the travel-rule deposit auto-clear reconciler. It self-disables when
+		// no exchange has `travelRule.rule[].deposits.enabled` in policy, so this is a
+		// no-op (exact current behavior) unless the feature is turned on.
+		this.depositReconciler = new TravelRuleDepositReconciler({
+			policy: this.policy,
+			brokers: this.brokers,
+			config: loadTravelRuleDepositReconcilerConfigFromEnv(process.env),
+			metrics: this.otelMetrics,
+		});
+		this.depositReconciler.start();
+
+		// Fill capture starts only after the archive configuration has passed its
+		// forwarder and durable loss-journal validation.
+		if (this.brokerArchiver?.isEnabled()) {
+			this.fillArchivePoller = new FillArchivePoller({
+				brokers: this.brokers,
+				archiver: this.brokerArchiver,
+				tracker: this.orderActivityTracker,
+				metrics: this.otelMetrics,
+			});
+			this.fillArchivePoller.start();
+
+			this.depositArchivePoller = new DepositArchivePoller({
+				brokers: this.brokers,
+				archiver: this.brokerArchiver,
+				metrics: this.otelMetrics,
+			});
+			this.depositArchivePoller.start();
+		}
+
+		if (this.brokerArchiver?.canPersistAccountBalanceSnapshots()) {
+			// Balance coverage is advertised only with the HTTP forwarder: OTel logs
+			// are an observability mirror, not durable replay evidence.
+			this.accountBalanceArchivePoller = new AccountBalanceArchivePoller({
+				brokers: this.brokers,
+				archiver: this.brokerArchiver,
+				metrics: this.otelMetrics,
+			});
+			this.accountBalanceArchivePoller.start();
+		}
 		return this;
 	}
 }
