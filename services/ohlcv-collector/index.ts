@@ -1,6 +1,6 @@
 import { log } from "../../src/helpers/logger";
 import { createOtelMetricsFromEnv } from "../../src/helpers/otel";
-import { OhlcvCollector } from "./collector";
+import { MarketDataCollector } from "./collector";
 import {
 	loadMarketDataCollectorConfig,
 	MARKET_DATA_COLLECTOR_CONFIG_ENV,
@@ -35,7 +35,7 @@ async function run(): Promise<void> {
 			subscriptions: subscriptions.length,
 			feeds: [...new Set(subscriptions.map(({ feed }) => feed))],
 		});
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl,
 			subscriptions,
 			metrics,
