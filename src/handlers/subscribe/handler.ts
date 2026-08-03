@@ -21,6 +21,13 @@ import {
 	SubscriptionType,
 	type SubscriptionType as SubscriptionTypeValue,
 } from "../../helpers/constants";
+import {
+	type CredentialPolicy,
+	CredentialPolicyConfigurationError,
+	hasRequestCredentialMetadata,
+	loadCredentialPolicyFromEnv,
+	resolveCredentialSelection,
+} from "../../helpers/credential-policy";
 import { log } from "../../helpers/logger";
 import {
 	archiveCexStreamEventInBackground,
@@ -52,6 +59,7 @@ export type SubscribeDeps = {
 	otelMetrics?: OtelMetrics;
 	brokerArchiver?: BrokerExecutionArchiver;
 	brokerLifecycle?: SubscribeBrokerLifecycle;
+	credentialPolicy?: CredentialPolicy;
 };
 
 type SubscribeCall = grpc.ServerWritableStream<
@@ -311,6 +319,8 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 	const { brokers, whitelistIps, otelMetrics, brokerArchiver } = deps;
 	const brokerLifecycle =
 		deps.brokerLifecycle ?? new SubscribeBrokerLifecycle();
+	const credentialPolicy =
+		deps.credentialPolicy ?? loadCredentialPolicyFromEnv({});
 
 	return async (call: SubscribeCall) => {
 		const subscribeStartTime = Date.now();
@@ -375,6 +385,27 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		}
 
 		const metadata = call.metadata;
+		if (
+			credentialPolicy.sourcePolicy === "provisioned_only" &&
+			hasRequestCredentialMetadata(metadata)
+		) {
+			void otelMetrics?.recordCounter(
+				"cex_request_credentials_rejected_total",
+				1,
+				{ rpc: "Subscribe" },
+			);
+			call.emit(
+				"error",
+				{
+					code: grpc.status.PERMISSION_DENIED,
+					message:
+						"Request-supplied exchange credentials are forbidden by deployment policy",
+				},
+				null,
+			);
+			call.destroy();
+			return;
+		}
 		let subscriptionType: SubscriptionTypeValue = SubscriptionType.ORDERBOOK;
 
 		try {
@@ -411,11 +442,32 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 
 			const normalizedCex = cex.trim().toLowerCase();
 			const brokerPool = brokers[normalizedCex as keyof typeof brokers];
-			const selectedBrokerAccount = selectBrokerAccount(brokerPool, metadata);
-			const selectedBroker =
-				selectedBrokerAccount?.exchange ??
-				createBroker(normalizedCex, metadata);
-			const broker = selectedBroker ?? createPublicBroker(normalizedCex);
+			let selectedBrokerAccount = selectBrokerAccount(brokerPool, metadata);
+			const publicOperation =
+				subscriptionType === SubscriptionType.ORDERBOOK ||
+				subscriptionType === SubscriptionType.TRADES ||
+				subscriptionType === SubscriptionType.TICKER ||
+				subscriptionType === SubscriptionType.OHLCV;
+			const credentialSelection = resolveCredentialSelection({
+				policy: credentialPolicy,
+				selectedProvisionedBroker: selectedBrokerAccount?.exchange,
+				publicOperation,
+			});
+			let selectedBroker: Exchange | null | undefined;
+			let broker: Exchange | null;
+			if (credentialSelection.mode === "public") {
+				selectedBrokerAccount = null;
+				selectedBroker = undefined;
+				broker = createPublicBroker(normalizedCex);
+			} else if (credentialSelection.mode === "provisioned") {
+				selectedBroker = credentialSelection.broker;
+				broker = credentialSelection.broker;
+			} else {
+				selectedBroker =
+					selectedBrokerAccount?.exchange ??
+					createBroker(normalizedCex, metadata);
+				broker = selectedBroker ?? createPublicBroker(normalizedCex);
+			}
 
 			if (!broker) {
 				await writeSubscribeError(call, isStreamClosed, {
@@ -790,6 +842,21 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					});
 			}
 		} catch (error) {
+			if (error instanceof CredentialPolicyConfigurationError) {
+				call.emit(
+					"error",
+					{
+						code:
+							error.kind === "missing_provisioned_broker"
+								? grpc.status.UNAUTHENTICATED
+								: grpc.status.PERMISSION_DENIED,
+						message: error.message,
+					},
+					null,
+				);
+				call.destroy();
+				return;
+			}
 			log.error("Error in Subscribe stream:", error);
 			const message = getErrorMessage(error);
 			await writeSubscribeError(call, isStreamClosed, {

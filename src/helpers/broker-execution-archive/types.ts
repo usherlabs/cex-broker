@@ -1,4 +1,8 @@
+export const BROKER_READ_SOURCE = "broker_read" as const;
 export const BROKER_WRITE_SOURCE = "broker_write" as const;
+export type BrokerArchiveSource =
+	| typeof BROKER_READ_SOURCE
+	| typeof BROKER_WRITE_SOURCE;
 
 // Bumped only on a breaking broker archive column-shape change. Stamped onto
 // transfer, fill, and account-balance rows so a reader can identify their layout.
@@ -14,7 +18,10 @@ export type BrokerArchiveTable =
 	| "market_data.candles"
 	| "market_data.cex_stream_events"
 	| "market_data.cex_ticker_events"
-	| "market_data.cex_trades";
+	| "market_data.cex_trades"
+	| "market_data.cex_ohlcv"
+	| "market_data.cex_order_book_levels"
+	| "market_data.cex_order_book_depth_summary";
 
 export type BrokerArchiveRow = {
 	table: BrokerArchiveTable;
@@ -22,7 +29,7 @@ export type BrokerArchiveRow = {
 };
 
 export type BrokerArchiveCommonTags = {
-	source: typeof BROKER_WRITE_SOURCE;
+	source: BrokerArchiveSource;
 	deployment_id: string;
 	account_selector: string;
 	exchange: string;

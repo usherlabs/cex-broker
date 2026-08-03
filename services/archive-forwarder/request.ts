@@ -2,6 +2,7 @@ import { isArchiveRequestAuthorized } from "./auth";
 import type { RowInserter } from "./insert";
 import {
 	MAX_ARCHIVE_ROWS,
+	findTableRowLimitViolation,
 	isArchiveBodyTooLarge,
 	readBoundedArchiveBody,
 } from "./limits";
@@ -56,6 +57,10 @@ export async function handleArchiveRequest(
 
 	if (parsed.rejectedRowCount > 0) {
 		dependencies.telemetry.recordRejectedRows(parsed.rejectedRowsByTable);
+		dependencies.telemetry.recordChecksumConflicts(
+			parsed.batch.source,
+			parsed.checksumConflictsByTable,
+		);
 		// Name the offending tables: an unknown table (e.g. a forgotten
 		// SUPPORTED_TABLES entry for a new archive table) would otherwise reject
 		// the whole batch with only a count, hiding which table is at fault.
@@ -80,6 +85,13 @@ export async function handleArchiveRequest(
 				maxRows: MAX_ARCHIVE_ROWS,
 				received: parsed.batch.rows.length,
 			},
+			{ status: 413 },
+		);
+	}
+	const tableLimit = findTableRowLimitViolation(parsed.batch.rows);
+	if (tableLimit) {
+		return Response.json(
+			{ error: "Too many archive rows for table", ...tableLimit },
 			{ status: 413 },
 		);
 	}

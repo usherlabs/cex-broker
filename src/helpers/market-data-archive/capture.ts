@@ -5,18 +5,36 @@ import {
 } from "../broker-execution-archive/writer";
 import { log } from "../logger";
 import type { OtelMetrics } from "../otel";
+import {
+	buildCanonicalOrderBookRows,
+	OrderBookValidationError,
+} from "./canonical-orderbook";
+import {
+	captureEnvironmentFromEnv,
+	createMarketCaptureContext,
+} from "./capture-context";
+import { createRawCapture } from "./capture-contract";
 import { OhlcvBarTracker } from "./ohlcv-bar-tracker";
+import { getOrderbookArchiveDepthLimit } from "./orderbook-depth";
 import { isMarketArchiveEnabled, OrderbookSampler } from "./orderbook-sampler";
 import { extractTrades, parseTicker } from "./parse-stream";
 import {
 	buildCandleRow,
+	buildCanonicalCexStreamEventRow,
+	buildCanonicalOhlcvRow,
+	buildCanonicalTickerEventRow,
+	buildCanonicalTradeRow,
 	buildCexStreamEventRow,
 	buildCexTickerEventRow,
 	buildCexTradeRow,
 	buildOrderbookSnapshotRow,
 } from "./rows";
 import type {
+	CaptureFeed,
+	CaptureSourceMode,
 	CexStreamArchiveInput,
+	MarketArchiveContext,
+	MarketCaptureContext,
 	OhlcvArchiveInput,
 	OrderbookArchiveInput,
 	TickerArchiveInput,
@@ -40,21 +58,65 @@ async function recordWatchMetric(
 function watchLabels(
 	stream: WatchStream,
 	input: { exchange: string; symbol: string },
+	archiver: BrokerExecutionArchiver | undefined,
+	feed: string,
 ): Record<string, string> {
 	return {
 		stream,
+		feed,
+		source: archiver?.getSource() ?? "disabled",
 		exchange: input.exchange,
 		symbol: input.symbol,
 	};
+}
+
+type MarketArchiveWriteMode = "legacy" | "dual" | "canonical";
+
+export function getMarketArchiveWriteMode(
+	value = process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE,
+): MarketArchiveWriteMode {
+	const mode = value?.trim() || "dual";
+	if (mode !== "legacy" && mode !== "dual" && mode !== "canonical") {
+		throw new Error(
+			"CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE must be legacy, dual, or canonical",
+		);
+	}
+	return mode;
+}
+
+function resolveCaptureContext(
+	archiver: BrokerExecutionArchiver,
+	input: MarketArchiveContext,
+	feed: CaptureFeed,
+	sourceMode: CaptureSourceMode,
+): MarketCaptureContext {
+	return createMarketCaptureContext({
+		source: archiver.getSource(),
+		deploymentId: archiver.getDeploymentId(),
+		captureBundleId: process.env.CEX_BROKER_CAPTURE_BUNDLE_ID,
+		exchange: input.exchange,
+		symbol: input.symbol,
+		assetType: input.assetType,
+		feed,
+		provider: `ccxt:${input.exchange.trim().toLowerCase()}`,
+		sourceMode,
+		timeframe: input.timeframe,
+		accountSelector: input.accountSelector,
+		environment: captureEnvironmentFromEnv(),
+	});
 }
 
 export function archiveOrderbookInBackground(
 	archiver: BrokerExecutionArchiver | undefined,
 	otelMetrics: OtelMetrics | undefined,
 	input: OrderbookArchiveInput,
-	options?: { sampledOut?: boolean },
+	options?: {
+		sampledOut?: boolean;
+		sourceMode?: "broker_live_sampling_v1" | "broker_current_snapshot_v1";
+		depthLimit?: number;
+	},
 ): void {
-	const labels = watchLabels("orderbook", input);
+	const labels = watchLabels("orderbook", input, archiver, "ORDERBOOK");
 	void recordWatchMetric(
 		otelMetrics,
 		"cex_watch_frames_received_total",
@@ -76,17 +138,56 @@ export function archiveOrderbookInBackground(
 
 	queueMicrotask(() => {
 		try {
-			const row = buildOrderbookSnapshotRow(input);
-			if (row) {
-				archiver.enqueue(row);
-				void recordWatchMetric(
-					otelMetrics,
-					"cex_watch_frames_archived_total",
-					labels,
+			const mode = getMarketArchiveWriteMode();
+			if (mode === "legacy") {
+				const row = buildOrderbookSnapshotRow({
+					...input,
+					source: archiver.getSource(),
+				});
+				if (row) archiver.enqueue(row);
+			} else {
+				const context = resolveCaptureContext(
+					archiver,
+					input,
+					"ORDERBOOK",
+					options?.sourceMode ?? "broker_live_sampling_v1",
 				);
+				const rawCapture = createRawCapture(context, {
+					payload: input.snapshot,
+					eventTimeMs: input.snapshot.timestamp,
+					receivedTimeMs: input.snapshot.receivedTimestamp,
+					scope: "ccxt_normalized_object",
+				});
+				const canonical = buildCanonicalOrderBookRows({
+					context,
+					snapshot: input.snapshot,
+					rawCapture,
+					depthLimit: options?.depthLimit ?? getOrderbookArchiveDepthLimit(),
+				});
+				archiver.enqueue(buildCanonicalCexStreamEventRow(context, rawCapture));
+				for (const row of canonical.levels) archiver.enqueue(row);
+				archiver.enqueue(canonical.summary);
+				if (mode === "dual") {
+					const legacy = buildOrderbookSnapshotRow({
+						...input,
+						source: archiver.getSource(),
+					});
+					if (legacy) archiver.enqueue(legacy);
+				}
 			}
+			void recordWatchMetric(
+				otelMetrics,
+				"cex_watch_frames_archived_total",
+				labels,
+			);
 		} catch (error) {
 			rethrowArchiveDurabilityError(error);
+			if (error instanceof OrderBookValidationError) {
+				void recordWatchMetric(otelMetrics, "cex_watch_frames_invalid_total", {
+					...labels,
+					reason: error.reason,
+				});
+			}
 			log.warn("Failed to archive orderbook snapshot", { error });
 		}
 	});
@@ -105,7 +206,7 @@ export function archiveOhlcvInBackground(
 	tracker: OhlcvBarTracker,
 	input: OhlcvArchiveInput,
 ): void {
-	const labels = watchLabels("ohlcv", input);
+	const labels = watchLabels("ohlcv", input, archiver, "OHLCV");
 	void recordWatchMetric(
 		otelMetrics,
 		"cex_watch_frames_received_total",
@@ -122,15 +223,52 @@ export function archiveOhlcvInBackground(
 				input.payload,
 				input.receivedTimestamp,
 			);
+			const mode = getMarketArchiveWriteMode();
+			const context =
+				mode === "legacy"
+					? undefined
+					: resolveCaptureContext(
+							archiver,
+							input,
+							"OHLCV",
+							input.sourceMode ?? "broker_live_stream_v1",
+						);
+			const rawCapture =
+				context && candidates.length > 0
+					? createRawCapture(context, {
+							payload: input.payload,
+							eventTimeMs:
+								candidates[0]?.bar.openTimeMs ?? input.receivedTimestamp,
+							receivedTimeMs: input.receivedTimestamp,
+							scope: "ccxt_normalized_object",
+						})
+					: undefined;
+			if (context && rawCapture) {
+				archiver.enqueue(buildCanonicalCexStreamEventRow(context, rawCapture));
+			}
 			for (const candidate of candidates) {
-				const row = buildCandleRow({
-					context: input,
-					bar: candidate.bar,
-					isClosed: candidate.isClosed,
-					brokerVersion: candidate.brokerVersion,
-					receivedTimestamp: input.receivedTimestamp,
-				});
-				archiver.enqueue(row);
+				if (context && rawCapture) {
+					archiver.enqueue(
+						buildCanonicalOhlcvRow({
+							context,
+							rawCapture,
+							bar: candidate.bar,
+							isClosed: candidate.isClosed,
+							brokerVersion: candidate.brokerVersion,
+						}),
+					);
+				}
+				if (mode !== "canonical") {
+					archiver.enqueue(
+						buildCandleRow({
+							context: { ...input, source: archiver.getSource() },
+							bar: candidate.bar,
+							isClosed: candidate.isClosed,
+							brokerVersion: candidate.brokerVersion,
+							receivedTimestamp: input.receivedTimestamp,
+						}),
+					);
+				}
 			}
 			if (candidates.length > 0) {
 				void recordWatchMetric(
@@ -162,9 +300,10 @@ function archiveMarketRowsInBackground(
 	otelMetrics: OtelMetrics | undefined,
 	stream: WatchStream,
 	input: { exchange: string; symbol: string },
+	feed: string,
 	enqueueRows: () => BrokerArchiveRow[],
 ): void {
-	const labels = watchLabels(stream, input);
+	const labels = watchLabels(stream, input, archiver, feed);
 	void recordWatchMetric(
 		otelMetrics,
 		"cex_watch_frames_received_total",
@@ -200,10 +339,38 @@ export function archiveTradesInBackground(
 	otelMetrics: OtelMetrics | undefined,
 	input: TradesArchiveInput,
 ): void {
-	archiveMarketRowsInBackground(archiver, otelMetrics, "trades", input, () =>
-		extractTrades(input.payload, input.receivedTimestamp).map((trade) =>
-			buildCexTradeRow(input, trade),
-		),
+	archiveMarketRowsInBackground(
+		archiver,
+		otelMetrics,
+		"trades",
+		input,
+		"TRADES",
+		() => {
+			if (!archiver) return [];
+			const trades = extractTrades(input.payload, input.receivedTimestamp);
+			if (trades.length === 0) return [];
+			if (getMarketArchiveWriteMode() === "legacy") {
+				return trades.map((trade) =>
+					buildCexTradeRow({ ...input, source: archiver.getSource() }, trade),
+				);
+			}
+			const context = resolveCaptureContext(
+				archiver,
+				input,
+				"TRADES",
+				"broker_live_stream_v1",
+			);
+			const raw = createRawCapture(context, {
+				payload: input.payload,
+				eventTimeMs: trades[0]?.eventTimeMs ?? input.receivedTimestamp,
+				receivedTimeMs: input.receivedTimestamp,
+				scope: "ccxt_normalized_object",
+			});
+			return [
+				buildCanonicalCexStreamEventRow(context, raw),
+				...trades.map((trade) => buildCanonicalTradeRow(context, raw, trade)),
+			];
+		},
 	);
 }
 
@@ -212,10 +379,41 @@ export function archiveTickerInBackground(
 	otelMetrics: OtelMetrics | undefined,
 	input: TickerArchiveInput,
 ): void {
-	archiveMarketRowsInBackground(archiver, otelMetrics, "ticker", input, () => {
-		const ticker = parseTicker(input.payload, input.receivedTimestamp);
-		return ticker ? [buildCexTickerEventRow(input, ticker)] : [];
-	});
+	archiveMarketRowsInBackground(
+		archiver,
+		otelMetrics,
+		"ticker",
+		input,
+		"TICKER",
+		() => {
+			const ticker = parseTicker(input.payload, input.receivedTimestamp);
+			if (!ticker || !archiver) return [];
+			if (getMarketArchiveWriteMode() === "legacy") {
+				return [
+					buildCexTickerEventRow(
+						{ ...input, source: archiver.getSource() },
+						ticker,
+					),
+				];
+			}
+			const context = resolveCaptureContext(
+				archiver,
+				input,
+				"TICKER",
+				"broker_live_stream_v1",
+			);
+			const raw = createRawCapture(context, {
+				payload: input.payload,
+				eventTimeMs: ticker.eventTimeMs,
+				receivedTimeMs: input.receivedTimestamp,
+				scope: "ccxt_normalized_object",
+			});
+			return [
+				buildCanonicalCexStreamEventRow(context, raw),
+				buildCanonicalTickerEventRow(context, raw, ticker),
+			];
+		},
+	);
 }
 
 export function archiveCexStreamEventInBackground(
@@ -223,7 +421,17 @@ export function archiveCexStreamEventInBackground(
 	otelMetrics: OtelMetrics | undefined,
 	input: CexStreamArchiveInput,
 ): void {
-	archiveMarketRowsInBackground(archiver, otelMetrics, "stream", input, () => [
-		buildCexStreamEventRow(input),
-	]);
+	archiveMarketRowsInBackground(
+		archiver,
+		otelMetrics,
+		"stream",
+		input,
+		input.streamType,
+		() => [
+			buildCexStreamEventRow({
+				...input,
+				source: archiver?.getSource(),
+			}),
+		],
+	);
 }

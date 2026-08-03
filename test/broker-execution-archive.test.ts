@@ -45,6 +45,7 @@ import {
 	isArchiveOtelLogsEnabled,
 	isBrokerExecutionArchiveTable,
 	resolveArchiveForwarderUrlFromEnv,
+	resolveArchiveSourceFromEnv,
 	rethrowArchiveDurabilityError,
 } from "../src/helpers/broker-execution-archive/writer";
 import { Action } from "../src/helpers/constants";
@@ -1197,6 +1198,7 @@ describe("broker execution archiver queue", () => {
 
 		try {
 			const archiver = BrokerExecutionArchiver.create({
+				source: "broker_read",
 				forwarderUrl: server.url,
 				deadLetterPath: createDeadLetterPath(),
 				deploymentId: "test-deploy",
@@ -1217,9 +1219,16 @@ describe("broker execution archiver queue", () => {
 			expect(request?.headers["content-type"]).toBe("application/json");
 			expect(request?.headers.authorization).toBe("Bearer secret-token");
 			expect(request?.body).toMatchObject({
-				source: "broker_write",
+				source: "broker_read",
 				deployment_id: "test-deploy",
+				rows: [
+					{
+						table: "broker_execution.order_events",
+						row: { source: "broker_read", order_id: "1" },
+					},
+				],
 			});
+			expect(archiver.getSource()).toBe("broker_read");
 
 			await archiver.close();
 		} finally {
@@ -1238,6 +1247,7 @@ describe("broker execution archiver queue", () => {
 			const otelLogs = new MockOtelLogs();
 			const deadLetterPath = createDeadLetterPath();
 			const archiver = BrokerExecutionArchiver.create({
+				source: "broker_read",
 				forwarderUrl: server.url,
 				deadLetterPath,
 				otelLogs,
@@ -1264,11 +1274,12 @@ describe("broker execution archiver queue", () => {
 			expect(archiver.getQueueDepth()).toBe(2);
 			const [loss] = readDeadLetters(deadLetterPath);
 			expect(loss).toMatchObject({
+				source: "broker_read",
 				deployment_id: "test-deploy",
 				reason: "queue_shed",
 				payload: {
 					table: "broker_execution.order_events",
-					row: { source: "broker_write", order_id: "1" },
+					row: { source: "broker_read", order_id: "1" },
 				},
 			});
 			expect(new Date(String(loss?.timestamp)).toISOString()).toBe(
@@ -1550,6 +1561,13 @@ describe("broker execution archiver queue", () => {
 });
 
 describe("broker execution archiver env", () => {
+	test("uses closed archive source configuration with broker_write compatibility default", () => {
+		expect(resolveArchiveSourceFromEnv(undefined)).toBe("broker_write");
+		expect(resolveArchiveSourceFromEnv("broker_read")).toBe("broker_read");
+		expect(() => resolveArchiveSourceFromEnv("request_inferred")).toThrow(
+			"broker_read or broker_write",
+		);
+	});
 	test("only the exact true enable flag enables archive construction", async () => {
 		const originalEnabled = process.env.CEX_BROKER_ARCHIVE_ENABLED;
 		const originalForwarderUrl = process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
@@ -1687,6 +1705,7 @@ describe("broker execution archiver env", () => {
 			);
 			expect(enabledCall?.[1]).toEqual({
 				enabled: true,
+				source: "broker_write",
 				otel_mirror_enabled: true,
 			});
 			const startupOutput = JSON.stringify(enabledCall);

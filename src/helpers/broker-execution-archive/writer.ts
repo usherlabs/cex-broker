@@ -5,7 +5,12 @@ import { SeverityNumber } from "@opentelemetry/api-logs";
 import { log } from "../logger";
 import type { OtelLogs, OtelMetrics } from "../otel";
 import { REDACTED_ERROR_MESSAGE } from "../shared/errors";
-import type { BrokerArchiveRow, BrokerArchiveTable } from "./types";
+import {
+	BROKER_WRITE_SOURCE,
+	type BrokerArchiveRow,
+	type BrokerArchiveSource,
+	type BrokerArchiveTable,
+} from "./types";
 
 const BROKER_EXECUTION_ARCHIVE_TABLES = new Set<BrokerArchiveTable>([
 	"broker_execution.order_events",
@@ -21,6 +26,7 @@ export function isBrokerExecutionArchiveTable(
 }
 
 export type BrokerExecutionArchiverOptions = {
+	source?: BrokerArchiveSource;
 	deploymentId?: string;
 	otelLogs?: OtelLogs;
 	otelMetrics?: OtelMetrics;
@@ -62,10 +68,35 @@ type ArchiveLossReason = "queue_shed" | "shutdown_forwarder_failure";
 
 type ArchiveLossRecord = {
 	timestamp: string;
+	source: BrokerArchiveSource;
 	deployment_id: string;
 	reason: ArchiveLossReason;
 	payload: BrokerArchiveRow;
 };
+
+const MARKET_FEEDS = new Set(["ORDERBOOK", "TICKER", "TRADES", "OHLCV"]);
+
+function archiveFeed(row: BrokerArchiveRow): string {
+	const declared = row.row.feed ?? row.row.stream_type;
+	if (typeof declared === "string" && MARKET_FEEDS.has(declared)) {
+		return declared;
+	}
+	if (
+		row.table === "market_data.orderbook_snapshots" ||
+		row.table.startsWith("market_data.cex_order_book_")
+	) {
+		return "ORDERBOOK";
+	}
+	if (
+		row.table === "market_data.candles" ||
+		row.table === "market_data.cex_ohlcv"
+	) {
+		return "OHLCV";
+	}
+	if (row.table === "market_data.cex_ticker_events") return "TICKER";
+	if (row.table === "market_data.cex_trades") return "TRADES";
+	return "NON_MARKET";
+}
 
 export function isArchiveOtelLogsEnabled(): boolean {
 	return process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED === "true";
@@ -75,7 +106,20 @@ export function resolveArchiveForwarderUrlFromEnv(): string | undefined {
 	return process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL?.trim() || undefined;
 }
 
+export function resolveArchiveSourceFromEnv(
+	value = process.env.CEX_BROKER_ARCHIVE_SOURCE,
+): BrokerArchiveSource {
+	const source = value?.trim() || BROKER_WRITE_SOURCE;
+	if (source !== "broker_read" && source !== "broker_write") {
+		throw new Error(
+			"CEX_BROKER_ARCHIVE_SOURCE must be broker_read or broker_write",
+		);
+	}
+	return source;
+}
+
 export class BrokerExecutionArchiver {
+	private readonly source: BrokerArchiveSource;
 	private readonly deploymentId: string;
 	private readonly otelLogs?: OtelLogs;
 	private readonly otelMetrics?: OtelMetrics;
@@ -96,12 +140,14 @@ export class BrokerExecutionArchiver {
 	private flushTimer: ReturnType<typeof setInterval> | null = null;
 	private flushInFlight: Promise<void> | null = null;
 	private lastShedWarnAtMs = 0;
+	private closing = false;
 	private closed = false;
 	private readonly enabled: boolean;
 	private readonly forwarderAuthToken?: string;
 
 	private constructor(options: {
 		enabled: boolean;
+		source?: BrokerArchiveSource;
 		deploymentId?: string;
 		otelLogs?: OtelLogs;
 		otelMetrics?: OtelMetrics;
@@ -112,6 +158,7 @@ export class BrokerExecutionArchiver {
 		flushIntervalMs?: number;
 		forwarderTimeoutMs?: number;
 	}) {
+		this.source = options.source ?? BROKER_WRITE_SOURCE;
 		this.deploymentId =
 			options.deploymentId?.trim() ||
 			process.env.CEX_BROKER_DEPLOYMENT_ID?.trim() ||
@@ -157,6 +204,7 @@ export class BrokerExecutionArchiver {
 			this.flushTimer.unref?.();
 			log.info("Broker execution archive enabled", {
 				enabled: true,
+				source: this.source,
 				otel_mirror_enabled: Boolean(this.otelLogs?.isOtelEnabled()),
 			});
 		} catch (error) {
@@ -179,8 +227,12 @@ export class BrokerExecutionArchiver {
 		return this.deploymentId;
 	}
 
+	getSource(): BrokerArchiveSource {
+		return this.source;
+	}
+
 	isEnabled(): boolean {
-		return this.enabled && !this.closed;
+		return this.enabled && !this.closing && !this.closed;
 	}
 
 	canPersistMarketMetadataSnapshot(): boolean {
@@ -195,6 +247,13 @@ export class BrokerExecutionArchiver {
 		if (!this.enabled || this.closed) {
 			return;
 		}
+		// Archive role is deployment identity. Stamp it at the durability boundary
+		// so no request metadata or legacy row-builder default can contradict the
+		// immutable envelope source.
+		const archiveRow: BrokerArchiveRow = {
+			table: row.table,
+			row: { ...row.row, source: this.source },
+		};
 		if (this.queue.length >= this.maxQueueSize) {
 			const shedRow = this.queue[0];
 			if (shedRow) {
@@ -204,6 +263,13 @@ export class BrokerExecutionArchiver {
 			this.stats.shed += 1;
 			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
 				table: shedRow?.table ?? "unknown",
+				source: this.source,
+				feed: shedRow ? archiveFeed(shedRow) : "NON_MARKET",
+			});
+			void this.recordArchiveMetric("cex_archive_queue_saturated_rows_total", {
+				table: shedRow?.table ?? "unknown",
+				source: this.source,
+				feed: shedRow ? archiveFeed(shedRow) : "NON_MARKET",
 			});
 			// The durable journal is authoritative; this rate-limited warning makes
 			// sustained queue pressure visible without becoming another loss sink.
@@ -217,10 +283,12 @@ export class BrokerExecutionArchiver {
 				this.lastShedWarnAtMs = now;
 			}
 		}
-		this.queue.push(row);
+		this.queue.push(archiveRow);
 		this.stats.enqueued += 1;
 		void this.recordArchiveMetric("cex_archive_rows_enqueued_total", {
-			table: row.table,
+			table: archiveRow.table,
+			source: this.source,
+			feed: archiveFeed(archiveRow),
 		});
 		if (this.queue.length >= this.batchSize) {
 			void this.flush();
@@ -244,12 +312,21 @@ export class BrokerExecutionArchiver {
 			.then(() => undefined)
 			.finally(() => {
 				this.flushInFlight = null;
+				if (
+					!this.closed &&
+					!this.closing &&
+					this.enabled &&
+					this.queue.length >= this.batchSize
+				) {
+					queueMicrotask(() => void this.flush());
+				}
 			});
 		this.flushInFlight = inFlight;
 		return inFlight;
 	}
 
 	async close(): Promise<void> {
+		this.closing = true;
 		if (this.flushTimer) {
 			clearInterval(this.flushTimer);
 			this.flushTimer = null;
@@ -325,6 +402,13 @@ export class BrokerExecutionArchiver {
 			this.stats.shed += 1;
 			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
 				table: dropped?.table ?? "unknown",
+				source: this.source,
+				feed: archiveFeed(dropped),
+			});
+			void this.recordArchiveMetric("cex_archive_queue_saturated_rows_total", {
+				table: dropped.table,
+				source: this.source,
+				feed: archiveFeed(dropped),
 			});
 		}
 	}
@@ -344,6 +428,7 @@ export class BrokerExecutionArchiver {
 		const timestamp = new Date().toISOString();
 		const records: ArchiveLossRecord[] = rows.map((payload) => ({
 			timestamp,
+			source: this.source,
 			deployment_id: this.deploymentId,
 			reason,
 			payload,
@@ -357,6 +442,28 @@ export class BrokerExecutionArchiver {
 				throw new Error(`wrote ${written} of ${bytes.length} bytes`);
 			}
 			fsyncSync(this.deadLetterFd);
+			const byFeedAndTable = new Map<
+				string,
+				{ row: BrokerArchiveRow; count: number }
+			>();
+			for (const row of rows) {
+				const key = `${row.table}\u0000${archiveFeed(row)}`;
+				const grouped = byFeedAndTable.get(key) ?? { row, count: 0 };
+				grouped.count += 1;
+				byFeedAndTable.set(key, grouped);
+			}
+			for (const { row, count } of byFeedAndTable.values()) {
+				void this.recordArchiveMetric(
+					"cex_archive_rows_journaled_total",
+					{
+						table: row.table,
+						source: this.source,
+						feed: archiveFeed(row),
+						reason,
+					},
+					count,
+				);
+			}
 		} catch (error) {
 			throw new BrokerExecutionArchiveDurabilityError(
 				`Broker execution archive failed to durably record ${reason}; affected row(s) were retained`,
@@ -415,14 +522,24 @@ export class BrokerExecutionArchiver {
 	// last-flush-success gauge (unix seconds) whose staleness is the "archive plane
 	// stuck" signal. Fire-and-forget so metrics never gate flushing.
 	private recordFlushHealth(batch: BrokerArchiveRow[]): void {
-		const countByTable = new Map<string, number>();
+		const countByTable = new Map<
+			string,
+			{ row: BrokerArchiveRow; count: number }
+		>();
 		for (const entry of batch) {
-			countByTable.set(entry.table, (countByTable.get(entry.table) ?? 0) + 1);
+			const key = `${entry.table}\u0000${archiveFeed(entry)}`;
+			const grouped = countByTable.get(key) ?? { row: entry, count: 0 };
+			grouped.count += 1;
+			countByTable.set(key, grouped);
 		}
-		for (const [table, count] of countByTable) {
+		for (const { row, count } of countByTable.values()) {
 			void this.recordArchiveMetric(
 				"cex_archive_rows_flushed_total",
-				{ table },
+				{
+					table: row.table,
+					source: this.source,
+					feed: archiveFeed(row),
+				},
 				count,
 			);
 		}
@@ -483,7 +600,7 @@ export class BrokerExecutionArchiver {
 			return Promise.resolve();
 		}
 		const body = JSON.stringify({
-			source: "broker_write",
+			source: this.source,
 			deployment_id: this.deploymentId,
 			rows: batch,
 		});
@@ -580,6 +697,7 @@ export function createBrokerExecutionArchiverFromEnv(
 	const forwarderUrl = resolveArchiveForwarderUrlFromEnv();
 	const archiveOtelLogs = isArchiveOtelLogsEnabled() ? otelLogs : undefined;
 	return BrokerExecutionArchiver.create({
+		source: resolveArchiveSourceFromEnv(),
 		otelLogs: archiveOtelLogs,
 		otelMetrics,
 		forwarderUrl: forwarderUrl ?? "",
