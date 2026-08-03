@@ -14,10 +14,14 @@ export type ParsedArchiveBatch =
 			// A rejected row with no string `table` contributes "(malformed)".
 			rejectedTables: string[];
 			rejectedRowsByTable: Record<string, number>;
+			checksumConflictsByTable: Record<string, number>;
 	  }
 	| { ok: false };
 
-function isValidArchiveRow(entry: unknown): entry is ArchiveBatchRequest["rows"][number] {
+function isValidArchiveRow(
+	entry: unknown,
+	envelopeSource?: string,
+): entry is ArchiveBatchRequest["rows"][number] {
 	if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
 		return false;
 	}
@@ -32,7 +36,77 @@ function isValidArchiveRow(entry: unknown): entry is ArchiveBatchRequest["rows"]
 	) {
 		return false;
 	}
-	return isSupportedTable(row.table);
+	if (!isSupportedTable(row.table)) {
+		return false;
+	}
+	const rowSource = (row.row as Record<string, unknown>).source;
+	return !(
+		envelopeSource !== undefined &&
+		typeof rowSource === "string" &&
+		rowSource !== envelopeSource
+	);
+}
+
+const ORDER_BOOK_LOGICAL_KEYS = {
+	"market_data.cex_order_book_levels": [
+		"capture_bundle_id",
+		"exchange",
+		"trading_pair",
+		"raw_capture_id",
+		"snapshot_id",
+		"schema_version",
+		"side",
+		"level_index",
+	],
+	"market_data.cex_order_book_depth_summary": [
+		"capture_bundle_id",
+		"exchange",
+		"trading_pair",
+		"raw_capture_id",
+		"snapshot_id",
+		"schema_version",
+	],
+} as const;
+
+function conflictingOrderBookRows(
+	rows: ArchiveBatchRequest["rows"],
+): Set<ArchiveBatchRequest["rows"][number]> {
+	const groups = new Map<
+		string,
+		{ checksums: Set<string>; rows: ArchiveBatchRequest["rows"] }
+	>();
+	for (const entry of rows) {
+		const keys =
+			ORDER_BOOK_LOGICAL_KEYS[
+				entry.table as keyof typeof ORDER_BOOK_LOGICAL_KEYS
+			];
+		if (!keys) continue;
+		const checksum = entry.row.normalized_row_checksum;
+		const values = keys.map((key) => entry.row[key]);
+		if (
+			typeof checksum !== "string" ||
+			values.some(
+				(value) => typeof value !== "string" && typeof value !== "number",
+			)
+		) {
+			continue;
+		}
+		const logicalKey = `${entry.table}\u0000${JSON.stringify(values)}`;
+		const group = groups.get(logicalKey) ?? {
+			checksums: new Set<string>(),
+			rows: [],
+		};
+		group.checksums.add(checksum);
+		group.rows.push(entry);
+		groups.set(logicalKey, group);
+	}
+	const conflicts = new Set<ArchiveBatchRequest["rows"][number]>();
+	for (const group of groups.values()) {
+		if (group.checksums.size > 1) {
+			for (const entry of group.rows) conflicts.add(entry);
+		}
+	}
+	return conflicts;
 }
 
 export function parseArchiveBatchRequest(body: unknown): ParsedArchiveBatch {
@@ -50,8 +124,16 @@ export function parseArchiveBatchRequest(body: unknown): ParsedArchiveBatch {
 		return { ok: false };
 	}
 	const inputRowCount = record.rows.length;
-	const rows = record.rows.filter(isValidArchiveRow);
-	const rejectedRowsByTable = countRejectedRowsByTable(record.rows);
+	const structurallyValidRows = record.rows.filter((entry) =>
+		isValidArchiveRow(entry, record.source as string),
+	);
+	const conflicts = conflictingOrderBookRows(structurallyValidRows);
+	const rows = structurallyValidRows.filter((entry) => !conflicts.has(entry));
+	const rejectedRowsByTable = countRejectedRowsByTable(
+		record.rows,
+		record.source as string,
+		conflicts,
+	);
 	return {
 		ok: true,
 		batch: {
@@ -63,13 +145,31 @@ export function parseArchiveBatchRequest(body: unknown): ParsedArchiveBatch {
 		rejectedRowCount: inputRowCount - rows.length,
 		rejectedTables: Object.keys(rejectedRowsByTable),
 		rejectedRowsByTable,
+		checksumConflictsByTable: countRowsByTable(conflicts),
 	};
 }
 
-function countRejectedRowsByTable(rows: unknown[]): Record<string, number> {
+function countRowsByTable(
+	rows: ReadonlySet<ArchiveBatchRequest["rows"][number]>,
+): Record<string, number> {
+	const counts = new Map<string, number>();
+	for (const { table } of rows) {
+		counts.set(table, (counts.get(table) ?? 0) + 1);
+	}
+	return Object.fromEntries(counts);
+}
+
+function countRejectedRowsByTable(
+	rows: unknown[],
+	envelopeSource: string,
+	conflicts: ReadonlySet<ArchiveBatchRequest["rows"][number]>,
+): Record<string, number> {
 	const counts = new Map<string, number>();
 	for (const entry of rows) {
-		if (isValidArchiveRow(entry)) {
+		if (
+			isValidArchiveRow(entry, envelopeSource) &&
+			!conflicts.has(entry)
+		) {
 			continue;
 		}
 		const table = (entry as { table?: unknown } | null)?.table;

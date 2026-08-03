@@ -3,7 +3,7 @@ import { SubscriptionType } from "../../src/helpers/constants";
 import { log } from "../../src/helpers/logger";
 import type { OtelMetrics } from "../../src/helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "../../src/proto-package-definition";
-import type { OhlcvSubscription } from "./config";
+import type { MarketDataSubscription, OhlcvSubscription } from "./config";
 
 type SubscribeResponse = {
 	data: string;
@@ -22,9 +22,20 @@ type CollectorMetrics = Pick<OtelMetrics, "recordCounter">;
 
 export type OhlcvCollectorOptions = {
 	brokerUrl: string;
-	subscriptions: OhlcvSubscription[];
+	subscriptions: Array<OhlcvSubscription | MarketDataSubscription>;
 	metrics?: CollectorMetrics;
 	retry?: Partial<RetryPolicy>;
+};
+
+type CollectorSubscription =
+	| (OhlcvSubscription & { feed: "OHLCV"; bootstrapLimit?: number })
+	| MarketDataSubscription;
+
+export type CollectorFeedHealth = {
+	state: "connecting" | "healthy" | "backoff" | "stopped";
+	lastFrameAtMs?: number;
+	reconnectCount: number;
+	gapCount: number;
 };
 
 type RetryPolicy = {
@@ -58,11 +69,14 @@ const grpcObject = grpc.loadPackageDefinition(
 	};
 };
 
-function pairLabels(subscription: OhlcvSubscription) {
+function pairLabels(subscription: CollectorSubscription) {
 	return {
 		exchange: subscription.exchange,
 		symbol: subscription.symbol,
-		timeframe: subscription.timeframe,
+		feed: subscription.feed,
+		...(subscription.feed === "OHLCV"
+			? { timeframe: subscription.timeframe }
+			: {}),
 	};
 }
 
@@ -101,19 +115,48 @@ function waitForDelay(delayMs: number, signal: AbortSignal): Promise<boolean> {
 
 export class OhlcvCollector {
 	readonly #client: SubscribeClient;
-	readonly #subscriptions: OhlcvSubscription[];
+	readonly #subscriptions: CollectorSubscription[];
 	readonly #metrics?: CollectorMetrics;
 	readonly #retry: RetryPolicy;
+	readonly #health = new Map<string, CollectorFeedHealth>();
 	#started = false;
 
 	constructor(options: OhlcvCollectorOptions) {
-		this.#subscriptions = options.subscriptions;
+		this.#subscriptions = options.subscriptions.map((subscription) =>
+			"feed" in subscription
+				? subscription
+				: { ...subscription, feed: "OHLCV" as const },
+		);
 		this.#metrics = options.metrics;
 		this.#retry = { ...DEFAULT_RETRY_POLICY, ...options.retry };
 		this.#client = new grpcObject.cex_broker.cex_service(
 			options.brokerUrl,
 			grpc.credentials.createInsecure(),
 		);
+	}
+
+	getHealthSnapshot(): Readonly<Record<string, CollectorFeedHealth>> {
+		return Object.fromEntries(
+			[...this.#health.entries()].map(([key, value]) => [key, { ...value }]),
+		);
+	}
+
+	#healthKey(subscription: CollectorSubscription): string {
+		return `${subscription.exchange}:${subscription.symbol}:${subscription.feed}`;
+	}
+
+	#updateHealth(
+		subscription: CollectorSubscription,
+		update: Partial<CollectorFeedHealth>,
+	): void {
+		const key = this.#healthKey(subscription);
+		this.#health.set(key, {
+			state: "connecting",
+			reconnectCount: 0,
+			gapCount: 0,
+			...(this.#health.get(key) ?? {}),
+			...update,
+		});
 	}
 
 	async run(signal: AbortSignal): Promise<void> {
@@ -128,12 +171,15 @@ export class OhlcvCollector {
 				),
 			);
 		} finally {
+			for (const subscription of this.#subscriptions) {
+				this.#updateHealth(subscription, { state: "stopped" });
+			}
 			this.#client.close();
 		}
 	}
 
 	async #keepSupervisorAlive(
-		subscription: OhlcvSubscription,
+		subscription: CollectorSubscription,
 		signal: AbortSignal,
 	): Promise<void> {
 		while (!signal.aborted) {
@@ -153,7 +199,7 @@ export class OhlcvCollector {
 	}
 
 	async #supervise(
-		subscription: OhlcvSubscription,
+		subscription: CollectorSubscription,
 		signal: AbortSignal,
 	): Promise<void> {
 		let consecutiveFailures = 0;
@@ -161,15 +207,39 @@ export class OhlcvCollector {
 		const labels = pairLabels(subscription);
 
 		while (!signal.aborted) {
+			this.#updateHealth(subscription, { state: "connecting" });
 			if (subscriptionCount > 0) {
+				const health = this.#health.get(this.#healthKey(subscription));
+				this.#updateHealth(subscription, {
+					reconnectCount: (health?.reconnectCount ?? 0) + 1,
+				});
 				void this.#metrics?.recordCounter(
-					"cex_ohlcv_collector_reconnects_total",
+					"cex_market_data_collector_reconnects_total",
 					1,
 					labels,
 				);
+				if (subscription.feed === "OHLCV") {
+					void this.#metrics?.recordCounter(
+						"cex_ohlcv_collector_reconnects_total",
+						1,
+						labels,
+					);
+				} else {
+					const gapCount = (health?.gapCount ?? 0) + 1;
+					this.#updateHealth(subscription, { gapCount });
+					void this.#metrics?.recordCounter(
+						"cex_market_data_collector_unrecoverable_gaps_total",
+						1,
+						labels,
+					);
+					log.warn("Market-data collector recorded unrecoverable feed gap", {
+						...labels,
+						gap_count: gapCount,
+					});
+				}
 			}
 			subscriptionCount += 1;
-			log.info("OHLCV collector subscription opened", {
+			log.info("Market-data collector subscription opened", {
 				...labels,
 				subscription_attempt: subscriptionCount,
 			});
@@ -185,11 +255,12 @@ export class OhlcvCollector {
 			}
 			consecutiveFailures += 1;
 			const delayMs = this.#retryDelay(consecutiveFailures);
+			this.#updateHealth(subscription, { state: "backoff" });
 			const errorFields =
 				result.reason === "error"
 					? { grpc_code: result.error.code, error: result.error.message }
 					: {};
-			log.warn("OHLCV collector stream closed; reconnect scheduled", {
+			log.warn("Market-data collector stream closed; reconnect scheduled", {
 				...labels,
 				reason: result.reason,
 				delay_ms: delayMs,
@@ -202,7 +273,7 @@ export class OhlcvCollector {
 	}
 
 	#openStream(
-		subscription: OhlcvSubscription,
+		subscription: CollectorSubscription,
 		signal: AbortSignal,
 	): Promise<StreamResult> {
 		return new Promise((resolve) => {
@@ -222,11 +293,24 @@ export class OhlcvCollector {
 			};
 
 			try {
+				const options =
+					subscription.feed === "ORDERBOOK"
+						? { depthLimit: String(subscription.depthLimit) }
+						: subscription.feed === "OHLCV"
+							? {
+									timeframe: subscription.timeframe,
+									...(subscription.bootstrapLimit === undefined
+										? {}
+										: {
+												bootstrapLimit: String(subscription.bootstrapLimit),
+											}),
+								}
+							: {};
 				stream = this.#client.Subscribe({
 					cex: subscription.exchange,
 					symbol: subscription.symbol,
-					type: SubscriptionType.OHLCV,
-					options: { timeframe: subscription.timeframe },
+					type: SubscriptionType[subscription.feed],
+					options,
 				});
 			} catch (error) {
 				settle({ reason: "error", error: error as grpc.ServiceError });
@@ -234,18 +318,34 @@ export class OhlcvCollector {
 			}
 
 			stream.on("data", (response) => {
-				const bars = countOhlcvBars(response.data);
-				if (bars === 0) {
+				const frames =
+					subscription.feed === "OHLCV"
+						? countOhlcvBars(response.data)
+						: response.data.length > 0
+							? 1
+							: 0;
+				if (frames === 0) {
 					return;
 				}
+				this.#updateHealth(subscription, {
+					state: "healthy",
+					lastFrameAtMs: Date.now(),
+				});
 				void this.#metrics?.recordCounter(
-					"cex_ohlcv_collector_bars_received_total",
-					bars,
+					"cex_market_data_collector_frames_received_total",
+					frames,
 					pairLabels(subscription),
 				);
-				log.debug("OHLCV collector bars received", {
+				if (subscription.feed === "OHLCV") {
+					void this.#metrics?.recordCounter(
+						"cex_ohlcv_collector_bars_received_total",
+						frames,
+						pairLabels(subscription),
+					);
+				}
+				log.debug("Market-data collector frames received", {
 					...pairLabels(subscription),
-					bars,
+					frames,
 				});
 			});
 			stream.on("error", (error: grpc.ServiceError) => {
@@ -270,3 +370,5 @@ export class OhlcvCollector {
 		return Math.max(0, Math.round(baseDelay * jitter));
 	}
 }
+
+export const MarketDataCollector = OhlcvCollector;

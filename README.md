@@ -24,6 +24,10 @@ A high-performance gRPC-based cryptocurrency exchange broker service that provid
 - API keys for supported exchanges (e.g., Binance, Bybit, etc.)
 - Optional: Verity prover URL for zero-knowledge proof integration
 
+## Service architecture
+
+See [SERVICES_ARCHITECTURE.md](SERVICES_ARCHITECTURE.md) for the authoritative boundaries between the full broker, operator market-data collector, archive-forwarder, research viewer, offline tools, and externally owned systems.
+
 ## 🛠️ Installation
 
 1. **Clone the repository:**
@@ -97,7 +101,14 @@ CLICKHOUSE_PORT=8123 bun run start-candle-viewer   # http://localhost:8091
 
 Dev watchers: `dev:candle-viewer`, `dev:archive-forwarder`, `dev:archive-watch` (see [research/README.md](research/README.md)).
 
+Maker `hb_runtime` delivery uses the forwarder's durable strategy-only SQLite
+acceptance boundary. See [docs/archive-forwarder-durable-acceptance.md](docs/archive-forwarder-durable-acceptance.md)
+for the wire versions, fixed quota/retention, retry ownership, health semantics,
+and required production volume.
+
 Key env vars: `CEX_BROKER_ARCHIVE_ENABLED=true`, `CEX_BROKER_ARCHIVE_FORWARDER_URL`, `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH`, and `CEX_BROKER_DEPLOYMENT_ID`. The archive is disabled for every enable value except the exact string `true`. Production durability requires the dead-letter file to reside on persistent writable storage or a mounted volume; a container-local ephemeral path is not durable.
+
+Canonical replay capture for FIET-901/FIET-903 adds deployment-owned archive roles, capture bundles, four-feed collector configuration, deterministic checksums, conflict-blocking replay views, and mandatory legacy-to-canonical table migration before canonical-only deployment. Credential resolution remains environment-loaded broker first, request metadata second, and supported public fallback last. See [docs/canonical-market-data-replay.md](docs/canonical-market-data-replay.md) for the complete deployment and cutover contract.
 
 #### Wallet-authenticated exchanges
 

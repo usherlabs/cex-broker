@@ -1,12 +1,31 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type ClickHouseClient, createClient } from "@clickhouse/client";
+import {
+	exportCanonicalOrderBookParquet,
+	validateCanonicalMarketReplayWindow,
+} from "../scripts/export-canonical-orderbook-parquet";
 import { createClickHouseInserter } from "../services/archive-forwarder/insert";
 import { handleArchiveBatch } from "../services/archive-forwarder/router";
 import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
+import { buildCanonicalOrderBookRows } from "../src/helpers/market-data-archive/canonical-orderbook";
+import { createRawCapture } from "../src/helpers/market-data-archive/capture-contract";
+import { buildLegacyOhlcvMigrationRow } from "../src/helpers/market-data-archive/legacy-migration";
+import {
+	buildCanonicalCexStreamEventRow,
+	buildCanonicalOhlcvRow,
+	buildCanonicalTickerEventRow,
+	buildCanonicalTradeRow,
+} from "../src/helpers/market-data-archive/rows";
+import type { MarketCaptureContext } from "../src/helpers/market-data-archive/types";
 
 const CLICKHOUSE_URL =
 	process.env.CLICKHOUSE_TEST_URL?.trim() ||
 	`http://${process.env.CLICKHOUSE_HOST?.trim() || "localhost"}:${process.env.CLICKHOUSE_PORT?.trim() || "18123"}`;
+const CLICKHOUSE_USERNAME = process.env.CLICKHOUSE_USER?.trim() || "default";
+const CLICKHOUSE_PASSWORD = process.env.CLICKHOUSE_PASSWORD ?? "";
 
 const TEST_DEPLOYMENT = `clickhouse-integration-test-${Date.now()}`;
 const TEST_EVENT_MS = 1_900_000_000_000;
@@ -24,7 +43,8 @@ function requireClient(): ClickHouseClient {
 async function probeClickHouse(): Promise<boolean> {
 	const probe = createClient({
 		url: CLICKHOUSE_URL,
-		database: "market_data",
+		username: CLICKHOUSE_USERNAME,
+		password: CLICKHOUSE_PASSWORD,
 	});
 	try {
 		const result = await probe.query({
@@ -64,6 +84,20 @@ async function cleanupTestRows(): Promise<void> {
 		`,
 		query_params: { deployment_id: TEST_DEPLOYMENT },
 	});
+	for (const table of [
+		"cex_stream_events",
+		"cex_ticker_events",
+		"cex_trades",
+		"cex_order_book_levels",
+		"cex_order_book_depth_summary",
+		"cex_ohlcv",
+	]) {
+		await activeClient.command({
+			query: `ALTER TABLE ${table} DELETE WHERE deployment_id = {deployment_id:String}`,
+			query_params: { deployment_id: TEST_DEPLOYMENT },
+		});
+		await activeClient.command({ query: `OPTIMIZE TABLE ${table} FINAL` });
+	}
 	await activeClient.command({
 		query: `
 			ALTER TABLE candles
@@ -79,8 +113,10 @@ async function cleanupTestRows(): Promise<void> {
 	});
 	for (const table of [
 		"policy_evaluation_events",
+		"strategy_policy_snapshots",
 		"market_identity",
 		"symbol_mapping",
+		"inventory_settlement_events",
 	]) {
 		await activeClient.command({
 			query: `
@@ -99,11 +135,27 @@ describe("ClickHouse market_data schema integration", () => {
 	beforeAll(async () => {
 		clickhouseAvailable = await probeClickHouse();
 		if (!clickhouseAvailable) {
+			if (process.env.CLICKHOUSE_REQUIRED === "1") {
+				throw new Error(
+					`Required ClickHouse integration service is unavailable at ${CLICKHOUSE_URL}`,
+				);
+			}
 			return;
 		}
+		const bootstrap = createClient({
+			url: CLICKHOUSE_URL,
+			username: CLICKHOUSE_USERNAME,
+			password: CLICKHOUSE_PASSWORD,
+		});
+		await bootstrap.command({
+			query: "CREATE DATABASE IF NOT EXISTS market_data",
+		});
+		await bootstrap.close();
 		client = createClient({
 			url: CLICKHOUSE_URL,
 			database: "market_data",
+			username: CLICKHOUSE_USERNAME,
+			password: CLICKHOUSE_PASSWORD,
 		});
 		await ensureArchiveSchema(client);
 		try {
@@ -134,6 +186,428 @@ describe("ClickHouse market_data schema integration", () => {
 		expect(await tableEngine("orderbook_tob")).toBe("View");
 		expect(await tableEngine("orderbook_depth")).toBe("View");
 		expect(await tableEngine("candles_closed")).toBe("View");
+		expect(await tableEngine("cex_order_book_levels")).toBe("MergeTree");
+		expect(await tableEngine("cex_order_book_depth_summary")).toBe("MergeTree");
+		expect(await tableEngine("cex_order_book_levels_canonical")).toBe("View");
+		expect(await tableEngine("cex_order_book_levels_conflicts")).toBe("View");
+		expect(await tableEngine("cex_ohlcv")).toBe("ReplacingMergeTree");
+		expect(await tableEngine("cex_ohlcv_closed")).toBe("View");
+	});
+
+	test("canonical views deduplicate agreement, expose conflicts, and accept incomplete legacy provenance", async () => {
+		if (!clickhouseAvailable || !client) return;
+		const context: MarketCaptureContext = {
+			source: "broker_read",
+			deploymentId: TEST_DEPLOYMENT,
+			captureBundleId: "integration-bundle",
+			exchange: "binance",
+			symbol: "TEST/CANONICAL",
+			assetType: "spot",
+			feed: "ORDERBOOK",
+			provider: "ccxt:binance",
+			sourceMode: "broker_live_sampling_v1",
+			schemaVersion: "1.0.0",
+			checksumAlgorithm: "sha256-canonical-json-v1",
+			provenanceComplete: true,
+		};
+		const snapshot = {
+			bids: [[100, 1]],
+			asks: [[101, 2]],
+			timestamp: TEST_EVENT_MS + 300_000,
+			receivedTimestamp: TEST_EVENT_MS + 300_010,
+			exchange: "binance",
+			symbol: "TEST/CANONICAL",
+			depthLimit: 1,
+			sequence: 7,
+		};
+		const raw = createRawCapture(context, {
+			payload: snapshot,
+			eventTimeMs: snapshot.timestamp,
+			receivedTimeMs: snapshot.receivedTimestamp,
+			scope: "ccxt_normalized_object",
+		});
+		const canonical = buildCanonicalOrderBookRows({
+			context,
+			snapshot,
+			rawCapture: raw,
+			depthLimit: 1,
+		});
+		const duplicateRows = [
+			...canonical.levels,
+			canonical.summary,
+			...canonical.levels,
+			canonical.summary,
+		];
+		const inserted = await handleArchiveBatch(
+			createClickHouseInserter(client),
+			{
+				source: "broker_read",
+				deployment_id: TEST_DEPLOYMENT,
+				rows: duplicateRows,
+			},
+		);
+		expect(inserted.failed).toBe(0);
+
+		const counts = await client.query({
+			query: `
+				SELECT
+					(SELECT count() FROM cex_order_book_levels WHERE snapshot_id = {snapshot:String}) AS physical,
+					(SELECT count() FROM cex_order_book_levels_canonical WHERE snapshot_id = {snapshot:String}) AS canonical
+			`,
+			query_params: { snapshot: canonical.snapshotId },
+			format: "JSONEachRow",
+		});
+		expect(await counts.json()).toEqual([{ physical: "4", canonical: "2" }]);
+
+		const firstLevel = canonical.levels[0] as (typeof canonical.levels)[number];
+		for (const checksum of ["conflict-a", "conflict-b"]) {
+			await handleArchiveBatch(createClickHouseInserter(client), {
+				source: "broker_read",
+				deployment_id: TEST_DEPLOYMENT,
+				rows: [
+					{
+						...firstLevel,
+						row: {
+							...firstLevel.row,
+							normalized_row_checksum: checksum,
+						},
+					},
+				],
+			});
+		}
+		const conflicts = await client.query({
+			query: `
+				SELECT
+					(SELECT count() FROM cex_order_book_levels_conflicts
+					 WHERE snapshot_id = {snapshot:String} AND side = {side:String}
+					   AND level_index = {level_index:UInt16}) AS conflicts,
+					(SELECT count() FROM cex_order_book_levels_canonical
+					 WHERE snapshot_id = {snapshot:String} AND side = {side:String}
+					   AND level_index = {level_index:UInt16}) AS replay_rows
+			`,
+			query_params: {
+				snapshot: canonical.snapshotId,
+				side: firstLevel.row.side,
+				level_index: firstLevel.row.level_index,
+			},
+			format: "JSONEachRow",
+		});
+		expect(await conflicts.json()).toEqual([
+			{ conflicts: "1", replay_rows: "0" },
+		]);
+
+		const legacy = buildLegacyOhlcvMigrationRow({
+			deployment_id: TEST_DEPLOYMENT,
+			exchange: "binance",
+			asset_type: "spot",
+			symbol: "TEST/CANONICAL",
+			timeframe: "1m",
+			open_time_ms: TEST_EVENT_MS + 360_000,
+			open: 1,
+			high: 2,
+			low: 0.5,
+			close: 1.5,
+			volume: 10,
+			is_closed: 1,
+			broker_version: 1,
+		});
+		await handleArchiveBatch(createClickHouseInserter(client), {
+			source: "broker_write",
+			deployment_id: TEST_DEPLOYMENT,
+			rows: [legacy],
+		});
+		const provenance = await client.query({
+			query: `
+				SELECT isNull(capture_bundle_id) AS bundle_null,
+				       isNull(raw_capture_id) AS raw_null,
+				       isNull(raw_checksum) AS checksum_null,
+				       provenance_complete, source_mode
+				FROM cex_ohlcv FINAL
+				WHERE deployment_id = {deployment:String}
+			`,
+			query_params: { deployment: TEST_DEPLOYMENT },
+			format: "JSONEachRow",
+		});
+		expect(await provenance.json()).toEqual([
+			{
+				bundle_null: 1,
+				raw_null: 1,
+				checksum_null: 1,
+				provenance_complete: 0,
+				source_mode: "legacy_migration_v1",
+			},
+		]);
+	});
+
+	test("all four feeds retain raw linkage and reproducible canonical checksums", async () => {
+		if (!clickhouseAvailable || !client) return;
+		const receivedTimeMs = TEST_EVENT_MS + 500_010;
+		const captureBundleId = "integration-four-feed-bundle";
+		const baseContext = {
+			source: "broker_read" as const,
+			deploymentId: TEST_DEPLOYMENT,
+			captureBundleId,
+			exchange: "binance",
+			symbol: "TEST/FOUR-FEED",
+			assetType: "spot" as const,
+			provider: "ccxt:binance",
+			schemaVersion: "1.0.0",
+			checksumAlgorithm: "sha256-canonical-json-v1",
+			provenanceComplete: true,
+		};
+		const tickerContext: MarketCaptureContext = {
+			...baseContext,
+			feed: "TICKER",
+			sourceMode: "broker_live_stream_v1",
+		};
+		const ticker = {
+			eventTimeMs: TEST_EVENT_MS + 500_000,
+			last: 100.5,
+			bid: 100,
+			ask: 101,
+		};
+		const tickerRaw = createRawCapture(tickerContext, {
+			payload: ticker,
+			eventTimeMs: ticker.eventTimeMs,
+			receivedTimeMs,
+			scope: "ccxt_normalized_object",
+		});
+		const tickerRows = [
+			buildCanonicalCexStreamEventRow(tickerContext, tickerRaw),
+			buildCanonicalTickerEventRow(tickerContext, tickerRaw, ticker),
+		];
+
+		const tradesContext: MarketCaptureContext = {
+			...baseContext,
+			feed: "TRADES",
+			sourceMode: "broker_live_stream_v1",
+		};
+		const trade = {
+			eventTimeMs: TEST_EVENT_MS + 500_001,
+			tradeId: "integration-trade-1",
+			side: "buy",
+			price: 100.5,
+			amount: 2,
+			cost: 201,
+		};
+		const tradeRaw = createRawCapture(tradesContext, {
+			payload: trade,
+			eventTimeMs: trade.eventTimeMs,
+			receivedTimeMs,
+			scope: "ccxt_normalized_object",
+		});
+		const tradeRows = [
+			buildCanonicalCexStreamEventRow(tradesContext, tradeRaw),
+			buildCanonicalTradeRow(tradesContext, tradeRaw, trade),
+		];
+
+		const ohlcvContext: MarketCaptureContext = {
+			...baseContext,
+			feed: "OHLCV",
+			timeframe: "1m",
+			sourceMode: "broker_live_stream_v1",
+		};
+		const bar = {
+			openTimeMs: TEST_EVENT_MS + 480_000,
+			open: 100,
+			high: 102,
+			low: 99,
+			close: 101,
+			volume: 10,
+		};
+		const ohlcvRaw = createRawCapture(ohlcvContext, {
+			payload: bar,
+			eventTimeMs: bar.openTimeMs,
+			receivedTimeMs,
+			scope: "ccxt_normalized_object",
+		});
+		const ohlcvRows = [
+			buildCanonicalCexStreamEventRow(ohlcvContext, ohlcvRaw),
+			buildCanonicalOhlcvRow({
+				context: ohlcvContext,
+				rawCapture: ohlcvRaw,
+				bar,
+				isClosed: true,
+				brokerVersion: receivedTimeMs,
+			}),
+		];
+
+		const orderBookContext: MarketCaptureContext = {
+			...baseContext,
+			feed: "ORDERBOOK",
+			sourceMode: "broker_live_sampling_v1",
+		};
+		const snapshot = {
+			bids: [[100, 1]],
+			asks: [[101, 2]],
+			timestamp: TEST_EVENT_MS + 500_002,
+			receivedTimestamp: receivedTimeMs,
+			exchange: "binance",
+			symbol: "TEST/FOUR-FEED",
+			depthLimit: 1,
+			sequence: 9,
+		};
+		const orderBookRaw = createRawCapture(orderBookContext, {
+			payload: snapshot,
+			eventTimeMs: snapshot.timestamp,
+			receivedTimeMs,
+			scope: "ccxt_normalized_object",
+		});
+		const orderBook = buildCanonicalOrderBookRows({
+			context: orderBookContext,
+			snapshot,
+			rawCapture: orderBookRaw,
+			depthLimit: 1,
+		});
+		const allRows = [
+			...tickerRows,
+			...tradeRows,
+			...ohlcvRows,
+			buildCanonicalCexStreamEventRow(orderBookContext, orderBookRaw),
+			...orderBook.levels,
+			orderBook.summary,
+		];
+
+		const inserted = await handleArchiveBatch(
+			createClickHouseInserter(client),
+			{
+				source: "broker_read",
+				deployment_id: TEST_DEPLOYMENT,
+				rows: allRows,
+			},
+		);
+		expect(inserted.inserted).toBe(allRows.length);
+		expect(inserted.failed).toBe(0);
+
+		const links = await client.query({
+			query: `
+				SELECT feed, raw_capture_id, raw_checksum, normalized_row_checksum
+				FROM cex_stream_events
+				WHERE deployment_id = {deployment:String}
+				  AND capture_bundle_id = {bundle:String}
+				ORDER BY feed
+			`,
+			query_params: {
+				deployment: TEST_DEPLOYMENT,
+				bundle: captureBundleId,
+			},
+			format: "JSONEachRow",
+		});
+		const rawRows = (await links.json()) as Array<{
+			feed: string;
+			raw_capture_id: string;
+			raw_checksum: string;
+			normalized_row_checksum: string;
+		}>;
+		expect(rawRows).toHaveLength(4);
+		const expectedRaw = new Map(
+			[tickerRaw, tradeRaw, ohlcvRaw, orderBookRaw].map((raw) => [
+				raw.rawCaptureId,
+				raw.rawChecksum,
+			]),
+		);
+		for (const row of rawRows) {
+			expect(row.raw_checksum).toBe(expectedRaw.get(row.raw_capture_id));
+			expect(row.normalized_row_checksum).toMatch(/^[a-f0-9]{64}$/);
+		}
+
+		for (const [table, expected] of [
+			["cex_ticker_events", tickerRows[1]],
+			["cex_trades", tradeRows[1]],
+			["cex_ohlcv", ohlcvRows[1]],
+			["cex_order_book_depth_summary", orderBook.summary],
+		] as const) {
+			const result = await client.query({
+				query: `
+					SELECT raw_capture_id, normalized_row_checksum
+					FROM ${table}${table === "cex_ohlcv" ? " FINAL" : ""}
+					WHERE deployment_id = {deployment:String}
+					  AND capture_bundle_id = {bundle:String}
+				`,
+				query_params: {
+					deployment: TEST_DEPLOYMENT,
+					bundle: captureBundleId,
+				},
+				format: "JSONEachRow",
+			});
+			const rows = (await result.json()) as Array<{
+				raw_capture_id: string;
+				normalized_row_checksum: string;
+			}>;
+			expect(rows).toContainEqual({
+				raw_capture_id: expected?.row.raw_capture_id,
+				normalized_row_checksum: expected?.row.normalized_row_checksum,
+			});
+		}
+
+		const replay = await validateCanonicalMarketReplayWindow({
+			clickhouseUrl: CLICKHOUSE_URL,
+			username: CLICKHOUSE_USERNAME,
+			password: CLICKHOUSE_PASSWORD,
+			captureBundleIds: [captureBundleId],
+			exchange: "binance",
+			tradingPair: "TEST-FOUR-FEED",
+			startTimeMs: TEST_EVENT_MS + 480_000,
+			endTimeMs: TEST_EVENT_MS + 500_100,
+		});
+		expect(replay.rawRowsByFeed).toEqual({
+			OHLCV: 1,
+			ORDERBOOK: 1,
+			TICKER: 1,
+			TRADES: 1,
+		});
+		expect(replay.normalizedRows).toEqual({
+			levels: 2,
+			summaries: 1,
+			tickers: 1,
+			trades: 1,
+			ohlcv: 1,
+		});
+	});
+
+	test("replay validation blocks a configured window with a checksum conflict", async () => {
+		if (!clickhouseAvailable || !client) return;
+		await expect(
+			validateCanonicalMarketReplayWindow({
+				clickhouseUrl: CLICKHOUSE_URL,
+				username: CLICKHOUSE_USERNAME,
+				password: CLICKHOUSE_PASSWORD,
+				captureBundleIds: ["integration-bundle"],
+				exchange: "binance",
+				tradingPair: "TEST-CANONICAL",
+				startTimeMs: TEST_EVENT_MS + 300_000,
+				endTimeMs: TEST_EVENT_MS + 300_100,
+			}),
+		).rejects.toThrow("checksum conflicts");
+	});
+
+	test("exports checksum-consistent order-book capture core as parquet", async () => {
+		if (!clickhouseAvailable || !client) return;
+		const outputDirectory = await mkdtemp(
+			join(tmpdir(), "cex-broker-parquet-test-"),
+		);
+		try {
+			const result = await exportCanonicalOrderBookParquet({
+				clickhouseUrl: CLICKHOUSE_URL,
+				username: CLICKHOUSE_USERNAME,
+				password: CLICKHOUSE_PASSWORD,
+				outputDirectory,
+				captureBundleIds: ["integration-four-feed-bundle"],
+				exchange: "binance",
+				tradingPair: "TEST-FOUR-FEED",
+				startTimeMs: TEST_EVENT_MS + 500_000,
+				endTimeMs: TEST_EVENT_MS + 500_100,
+			});
+			expect(result.levelRows).toBe(2);
+			expect(result.summaryRows).toBe(1);
+			for (const path of [result.levelsPath, result.summaryPath]) {
+				const bytes = await readFile(path);
+				expect(bytes.subarray(0, 4).toString()).toBe("PAR1");
+				expect(bytes.subarray(-4).toString()).toBe("PAR1");
+			}
+		} finally {
+			await rm(outputDirectory, { recursive: true, force: true });
+		}
 	});
 
 	test("orderbook views reflect inserts into orderbook_snapshots", async () => {
@@ -510,6 +984,147 @@ describe("ClickHouse market_data schema integration", () => {
 				format: "JSONEachRow",
 			});
 			expect(await snapshot.json()).toEqual([{ source_hash: sourceHash }]);
+		}
+	});
+
+	test("strategy v1 tables upgrade additively to the shared v2 identity", async () => {
+		if (!clickhouseAvailable || !client) return;
+		const tables = [
+			"policy_evaluation_events",
+			"strategy_policy_snapshots",
+			"market_identity",
+			"symbol_mapping",
+			"inventory_settlement_events",
+		] as const;
+		for (const table of tables) {
+			for (const column of [
+				"producer_id",
+				"producer_run_id",
+				"stream_name",
+				"stream_seq",
+				"archive_event_id",
+			]) {
+				await client.command({
+					query: `ALTER TABLE strategy_data.${table} DROP COLUMN IF EXISTS ${column}`,
+				});
+			}
+		}
+
+		await ensureArchiveSchema(client);
+		const result = await client.query({
+			query: `SELECT table, count() AS columns
+				FROM system.columns
+				WHERE database = 'strategy_data'
+				  AND table IN ({tables:Array(String)})
+				  AND name IN ({columns:Array(String)})
+				GROUP BY table
+				ORDER BY table`,
+			query_params: {
+				tables: [...tables],
+				columns: [
+					"producer_id",
+					"producer_run_id",
+					"stream_name",
+					"stream_seq",
+					"seq",
+					"archive_event_id",
+				],
+			},
+			format: "JSONEachRow",
+		});
+		expect(await result.json()).toEqual(
+			[...tables].sort().map((table) => ({ table, columns: "6" })),
+		);
+	});
+
+	test("strategy schema v2 accepts all five tables and deduplicates stable tokens", async () => {
+		if (!clickhouseAvailable || !client) return;
+		const eventMs = TEST_EVENT_MS + 240_000;
+		const tables = [
+			"policy_evaluation_events",
+			"strategy_policy_snapshots",
+			"market_identity",
+			"symbol_mapping",
+			"inventory_settlement_events",
+		] as const;
+		const tableFields: Record<
+			(typeof tables)[number],
+			Record<string, unknown>
+		> = {
+			policy_evaluation_events: {
+				policy_epoch: "epoch-v2",
+				fidelity: "hb_runtime_policy_clock",
+				lag_ms: 0,
+				fallback_reason: "",
+				source_cursor: "block:1:log:0",
+				decision_kind: "quote",
+			},
+			strategy_policy_snapshots: {
+				snapshot_reason: "startup",
+				policy_epoch: "epoch-v2",
+				config_file_path: "controller.yml",
+				source_hash: "policy-v2",
+			},
+			market_identity: {
+				snapshot_reason: "startup",
+				source_hash: "identity-v2",
+				core_pool_id: "pool-v2",
+				canonical_core_pool_id: "pool-v2",
+			},
+			symbol_mapping: {
+				snapshot_reason: "startup",
+				source_hash: "symbol-v2",
+			},
+			inventory_settlement_events: {
+				event_kind: "inventory_snapshot",
+				token: "BTC",
+				account: "primary",
+				reservation_id: "",
+				workflow_state: "observed",
+			},
+		};
+		const inserter = createClickHouseInserter(client);
+
+		for (const [index, table] of tables.entries()) {
+			const row = {
+				event_time_ms: eventMs + index,
+				emitted_at_ms: eventMs + index,
+				source: "hb_runtime",
+				deployment_id: TEST_DEPLOYMENT,
+				schema_version: "2",
+				controller_id: "controller-v2",
+				controller_type: "layer12",
+				connector_name: "binance",
+				exchange: "binance",
+				trading_pair: "BTC-USDT",
+				market_id: "market-v2",
+				run_id: "run-v2",
+				producer_id: "hb_runtime:test:controller-v2",
+				producer_run_id: "run-v2",
+				stream_name: `strategy_data.${table}`,
+				stream_seq: 1,
+				seq: index + 1,
+				archive_event_id: `run-v2:${table}:1`,
+				payload_json: "{}",
+				...tableFields[table],
+			};
+			const token = `integration-v2-${TEST_DEPLOYMENT}-${table}`;
+			await inserter(`strategy_data.${table}`, [row], {
+				deduplicationToken: token,
+			});
+			await inserter(`strategy_data.${table}`, [row], {
+				deduplicationToken: token,
+			});
+		}
+
+		for (const table of tables) {
+			const result = await client.query({
+				query: `SELECT count() AS count FROM strategy_data.${table}
+					WHERE deployment_id = {deployment_id:String} AND run_id = 'run-v2'`,
+				query_params: { deployment_id: TEST_DEPLOYMENT },
+				format: "JSONEachRow",
+			});
+			expect(await result.json()).toEqual([{ count: "1" }]);
 		}
 	});
 });

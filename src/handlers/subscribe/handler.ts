@@ -311,7 +311,6 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 	const { brokers, whitelistIps, otelMetrics, brokerArchiver } = deps;
 	const brokerLifecycle =
 		deps.brokerLifecycle ?? new SubscribeBrokerLifecycle();
-
 	return async (call: SubscribeCall) => {
 		const subscribeStartTime = Date.now();
 		let streamClosed = false;

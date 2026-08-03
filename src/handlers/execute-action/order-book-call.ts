@@ -1,6 +1,6 @@
 import * as grpc from "@grpc/grpc-js";
-import { createBroker, createPublicBroker } from "../../helpers";
 import { mapCcxtErrorToGrpcStatus } from "../../helpers/grpc/status";
+import { archiveOrderbookInBackground } from "../../helpers/market-data-archive/capture";
 import {
 	buildHistoricalOrderBookUnsupported,
 	buildOrderBookCapability,
@@ -36,10 +36,7 @@ export async function handleOrderBookCall(
 		return false;
 	}
 
-	const orderBookBroker =
-		ctx.selectedBrokerAccount?.exchange ??
-		createBroker(ctx.normalizedCex, ctx.metadata) ??
-		createPublicBroker(ctx.normalizedCex);
+	const orderBookBroker = ctx.broker;
 	if (!orderBookBroker) {
 		ctx.wrappedCallback(
 			{
@@ -103,17 +100,32 @@ export async function handleOrderBookCall(
 			orderBookPayload.symbol,
 			orderBookPayload.depthLimit,
 		);
+		const snapshot = normalizeOrderBookSnapshot(rawOrderBook, {
+			exchange: orderBookPayload.exchange,
+			symbol: orderBookPayload.symbol,
+			depthLimit: orderBookPayload.depthLimit,
+			receivedTimestamp,
+		});
 		ctx.wrappedCallback(null, {
 			proof: ctx.verity.proof,
-			result: JSON.stringify(
-				normalizeOrderBookSnapshot(rawOrderBook, {
-					exchange: orderBookPayload.exchange,
-					symbol: orderBookPayload.symbol,
-					depthLimit: orderBookPayload.depthLimit,
-					receivedTimestamp,
-				}),
-			),
+			result: JSON.stringify(snapshot),
 		});
+		archiveOrderbookInBackground(
+			ctx.brokerArchiver,
+			ctx.otelMetrics,
+			{
+				exchange: orderBookPayload.exchange,
+				symbol: orderBookPayload.symbol,
+				assetType: "spot",
+				accountSelector: ctx.selectedBrokerAccount?.label,
+				deploymentId: ctx.brokerArchiver?.getDeploymentId() ?? "unarchived",
+				snapshot,
+			},
+			{
+				sourceMode: "broker_current_snapshot_v1",
+				depthLimit: orderBookPayload.depthLimit,
+			},
+		);
 	} catch (error: unknown) {
 		safeLogError("Order-book Call failed", error);
 		ctx.wrappedCallback(
