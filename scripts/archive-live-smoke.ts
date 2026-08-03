@@ -4,13 +4,8 @@ import * as grpc from "@grpc/grpc-js";
 import { OhlcvCollector } from "../services/ohlcv-collector/collector";
 import type { MarketDataSubscription } from "../services/ohlcv-collector/config";
 import { SubscribeBrokerLifecycle } from "../src/handlers/subscribe";
-import { type BrokerPoolEntry, createBroker } from "../src/helpers/broker";
+import type { BrokerPoolEntry } from "../src/helpers/broker";
 import { BrokerExecutionArchiver } from "../src/helpers/broker-execution-archive";
-import { redactSecretLiterals } from "../src/helpers/broker-execution-archive/redact";
-import {
-	type CredentialPolicy,
-	loadCredentialPermissionAttestationFromEnv,
-} from "../src/helpers/credential-policy";
 import { getServer } from "../src/server";
 import type { PolicyConfig } from "../src/types";
 import type { PublicFeed } from "../test/e2e/archive/support/archive-e2e-contracts";
@@ -26,10 +21,6 @@ const PUBLIC_ONLY_POLICY: PolicyConfig = {
 	withdraw: { rule: [] },
 	deposit: {},
 	order: { rule: { markets: [], limits: [] } },
-};
-const CREDENTIAL_POLICY: CredentialPolicy = {
-	sourcePolicy: "provisioned_only",
-	provisionedProfile: "read_only_key",
 };
 const PER_FEED_TIMEOUT_MS = 60_000;
 const OVERALL_TIMEOUT_MS = 180_000;
@@ -64,12 +55,6 @@ class FirstFrameObserver {
 			});
 		});
 	}
-}
-
-function requiredEnvironment(name: string): string {
-	const value = process.env[name]?.trim();
-	if (!value) throw new Error(`${name} is required for archive live smoke`);
-	return value;
 }
 
 function withDeadline<T>(
@@ -170,12 +155,6 @@ async function runSmoke(): Promise<void> {
 		rpcMethods: ARCHIVE_SMOKE_RPC_METHODS,
 		feeds: ARCHIVE_SMOKE_FEEDS,
 	});
-	if (process.env.CEX_BROKER_SMOKE_READ_ONLY_ATTESTED !== "true") {
-		throw new Error(
-			"CEX_BROKER_SMOKE_READ_ONLY_ATTESTED=true is required; do not probe permissions",
-		);
-	}
-	loadCredentialPermissionAttestationFromEnv(process.env, CREDENTIAL_POLICY);
 	const exchangeName = (
 		process.env.CEX_BROKER_SMOKE_EXCHANGE?.trim() || "binance"
 	).toLowerCase();
@@ -188,20 +167,12 @@ async function runSmoke(): Promise<void> {
 			"Archive smoke exchange or symbol contains unsafe characters",
 		);
 	}
-	const apiKey = requiredEnvironment("CEX_BROKER_SMOKE_API_KEY");
-	const apiSecret = requiredEnvironment("CEX_BROKER_SMOKE_API_SECRET");
-	const exchange = createBroker(exchangeName, { apiKey, apiSecret });
-	if (!exchange) throw new Error("Unable to create provisioned smoke broker");
-
 	const captureBundleId = `archive-live-smoke-${randomUUID()}`;
 	const deploymentId = `archive-live-smoke-${randomUUID()}`;
 	const forwarderToken = randomUUID();
 	process.env.CEX_BROKER_ARCHIVE_ENABLED = "true";
 	process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
-	process.env.CEX_BROKER_CREDENTIAL_SOURCE_POLICY = "provisioned_only";
-	process.env.CEX_BROKER_PROVISIONED_CREDENTIAL_PROFILE = "read_only_key";
 	process.env.CEX_BROKER_ARCHIVE_SOURCE = "broker_read";
-	process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE = "canonical";
 	process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT = "production";
 	process.env.CEX_BROKER_CAPTURE_BUNDLE_ID = captureBundleId;
 	process.env.CEX_BROKER_DEPLOYMENT_ID = deploymentId;
@@ -236,12 +207,7 @@ async function runSmoke(): Promise<void> {
 			forwarderTimeoutMs: 20_000,
 		});
 		lifecycle = new SubscribeBrokerLifecycle();
-		const brokers: Record<string, BrokerPoolEntry> = {
-			[exchangeName]: {
-				primary: { exchange, label: "primary" },
-				secondaryBrokers: [],
-			},
-		};
+		const brokers: Record<string, BrokerPoolEntry> = {};
 		server = getServer(
 			PUBLIC_ONLY_POLICY,
 			brokers,
@@ -253,7 +219,6 @@ async function runSmoke(): Promise<void> {
 			undefined,
 			undefined,
 			lifecycle,
-			CREDENTIAL_POLICY,
 		);
 		const port = await bindServer(server);
 		const observer = new FirstFrameObserver();
@@ -329,11 +294,6 @@ try {
 	await withDeadline(runSmoke(), "archive live smoke", OVERALL_TIMEOUT_MS);
 } catch (error) {
 	const message = error instanceof Error ? error.message : String(error);
-	console.error(
-		redactSecretLiterals(message, [
-			process.env.CEX_BROKER_SMOKE_API_KEY ?? "",
-			process.env.CEX_BROKER_SMOKE_API_SECRET ?? "",
-		]),
-	);
+	console.error(message);
 	process.exitCode = 1;
 }

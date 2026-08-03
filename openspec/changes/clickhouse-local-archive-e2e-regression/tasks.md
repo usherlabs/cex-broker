@@ -1,6 +1,6 @@
 ## 1. Prerequisite And Baseline Audit
 
-- [ ] 1.1 Integrate corrected canonical prerequisite commit `2730a00a0fcd6cbafbcb03cb432fa7f4224d269a`, confirm its final `canonical-cex-market-data-replay-archive` artifacts and canonical-only runtime are present, and verify this change does not edit those prerequisite-owned files.
+- [x] 1.1 Integrate corrected canonical prerequisite commit `2730a00a0fcd6cbafbcb03cb432fa7f4224d269a`, confirm its final `canonical-cex-market-data-replay-archive` artifacts and canonical-only runtime are present, and verify this change does not edit those prerequisite-owned files.
 - [x] 1.2 Install the locked Bun dependencies and prove the existing `@clickhouse/client` integration file loads before attributing failures to the new E2E suite.
 - [x] 1.3 Verify `64fdf0607a234be05bac98f3edd3125e2c05d083` changes only OpenSpec artifacts relative to `d20daf895616cdce1cff65a8191c0bb937583c6a` and record that runtime equivalence in the baseline tooling.
 - [x] 1.4 Extract the exact pre-canonical `SUPPORTED_TABLES` inventory and fail baseline generation unless it contains the specified five market, four execution, one account, and five strategy tables.
@@ -27,9 +27,9 @@
 - [x] 3.4 Add compileable test support contracts for the planned harness, HTTP endpoint, controlled exchange, fixed clock, and lifecycle barriers without completing their storage behavior.
 - [x] 3.5 Write failing tests for mandatory binary/version checks, production schema execution, isolated persistent paths, serialized operations, and cleanup.
 - [x] 3.6 Write failing tests for all-15-table HTTP insertion/query-back, exact legacy projections, source mismatch rejection, and unsupported baseline-table failures.
-- [ ] 3.7 Replace the obsolete dual/canonical matrix tests with failing tests for one `CEX_BROKER_ARCHIVE_SOURCE=broker_read` canonical-only four-feed lifecycle, independent all-15-table baseline compatibility, and absence of removed write-mode and credential-classification configuration.
+- [x] 3.7 Replace the obsolete dual/canonical matrix tests with failing tests for one `CEX_BROKER_ARCHIVE_SOURCE=broker_read` canonical-only four-feed lifecycle, independent all-15-table baseline compatibility, and absence of removed write-mode and credential-classification configuration.
 - [x] 3.8 Write failing tests for order-book level and depth-summary identical duplicates, whole-request same-batch rejection, cross-batch conflict views, a blocked sink, recoverable retry, exact terminal journal records, and total emitted-row accounting.
-- [ ] 3.9 Run the verified E2E command after writing the configuration-correction assertions but before removing the obsolete behavior, capture behavioral RED evidence for the forbidden surfaces, and reject missing imports, fixtures, binaries, schema setup, skips, or no-test discovery as acceptable RED proof.
+- [x] 3.9 Run the verified E2E command after writing the configuration-correction assertions but before removing the obsolete behavior, capture behavioral RED evidence for the forbidden surfaces, and reject missing imports, fixtures, binaries, schema setup, skips, or no-test discovery as acceptable RED proof.
 
 ## 4. ClickHouse Local Harness And HTTP Endpoint
 
@@ -55,14 +55,14 @@
 ## 6. Real Four-Feed Lifecycle And Canonical Integrity
 
 - [x] 6.1 Implement a controlled fake `Exchange` with deferred ORDERBOOK, TICKER, TRADES, and OHLCV emissions, fixed payloads, symbol resolution, and bounded shutdown.
-- [ ] 6.2 Compose the fake exchange with production `getServer` environment-equivalent broker-pool injection and the production collector implementation imported by `services/ohlcv-collector/index.ts`, without passing a credential-policy/profile object; prove the suite uses its real gRPC Subscribe client rather than a research watcher or fake gRPC service.
+- [x] 6.2 Compose the fake exchange with production `getServer` environment-equivalent broker-pool injection and the production collector implementation imported by `services/ohlcv-collector/index.ts`, without passing a credential-policy/profile object; prove the suite uses its real gRPC Subscribe client rather than a research watcher or fake gRPC service.
 - [x] 6.3 Compose the real `BrokerExecutionArchiver` queue, batching, flush, retry, loss journal, and `node:http` transport with the production HTTP handler and ClickHouse Local harness.
-- [ ] 6.4 Before releasing frames, set only the retained archive controls, including `CEX_BROKER_ARCHIVE_SOURCE=broker_read` and production capture identity/environment; configure matched archive-forwarder authentication or disable it at both ends, and prove no removed write-mode or credential-classification variable is read or set.
-- [ ] 6.5 Remove the dual-write lifecycle and all mode-dependent row-count/legacy-output branches; prove the upgraded ORDERBOOK and OHLCV paths emit canonical rows and no legacy `orderbook_snapshots` or `candles` rows.
-- [ ] 6.6 Query the closed canonical inventory and prove at least one `market_data.cex_stream_events` raw row per feed links to its normalized output; fail every unexpected destination or unclassified row.
-- [ ] 6.7 Add a repository guard proving executable production, E2E, smoke, workflow, and operational paths do not restore the five removed environment variables or equivalent write-mode/profile/policy/attestation logic.
-- [ ] 6.8 Recompute raw and normalized checksums from queried stored projections for all four canonical-only feeds and compare them with stored checksum values and algorithm versions.
-- [ ] 6.9 Prove `market_data.cex_order_book_levels_canonical`, `market_data.cex_order_book_depth_summary_canonical`, and `market_data.cex_ohlcv_closed` return the expected conflict-free rows; prove both named conflict views are empty and the upgraded lifecycle writes no legacy order-book or candle rows.
+- [x] 6.4 Before releasing frames, set only the retained archive controls, including `CEX_BROKER_ARCHIVE_SOURCE=broker_read` and production capture identity/environment; configure matched archive-forwarder authentication or disable it at both ends, and prove no removed write-mode or credential-classification variable is read or set.
+- [x] 6.5 Remove the dual-write lifecycle and all mode-dependent row-count/legacy-output branches; prove the upgraded ORDERBOOK and OHLCV paths emit canonical rows and no legacy `orderbook_snapshots` or `candles` rows.
+- [x] 6.6 Query the closed canonical inventory and prove at least one `market_data.cex_stream_events` raw row per feed links to its normalized output; fail every unexpected destination or unclassified row.
+- [x] 6.7 Add a repository guard proving executable production, E2E, smoke, workflow, and operational paths do not restore the five removed environment variables or equivalent write-mode/profile/policy/attestation logic.
+- [x] 6.8 Recompute raw and normalized checksums from queried stored projections for all four canonical-only feeds and compare them with stored checksum values and algorithm versions.
+- [x] 6.9 Prove `market_data.cex_order_book_levels_canonical`, `market_data.cex_order_book_depth_summary_canonical`, and `market_data.cex_ohlcv_closed` return the expected conflict-free rows; prove both named conflict views are empty and the upgraded lifecycle writes no legacy order-book or candle rows.
 - [x] 6.10 For both order-book base tables and their exact logical keys, prove identical cross-batch deliveries remain physical and deduplicate canonically, a same-request checksum conflict rejects the entire HTTP request with zero inserts from every included table, and cross-batch conflicts remain visible and excluded from the corresponding canonical view.
 - [x] 6.11 Remove arbitrary lifecycle sleeps in favor of explicit frame-received, request-started, flush-complete, query-visible, stream-aborted, and cleanup-complete barriers.
 
@@ -83,25 +83,25 @@
 - [x] 8.3 Add a required CI step that caches or bootstraps the pinned binary, runs `test:e2e:archive`, and fails on binary, schema, fixture, test-discovery, or assertion errors.
 - [x] 8.4 Retain the existing ClickHouse-server integration suite and document that it owns `@clickhouse/client` network transport coverage not supplied by ClickHouse Local.
 - [x] 8.5 Add CI steps or existing-command coverage for normal tests, lint/check, type/build validation, and strict validation of this OpenSpec as separate failures.
-- [ ] 8.6 Update E2E documentation for canonical-only runtime capture, independent fixture-driven historical compatibility, retained archive controls, forbidden configuration surfaces, credentialless public smoke, binary behavior, failure diagnostics, and cleanup.
+- [x] 8.6 Update E2E documentation for canonical-only runtime capture, independent fixture-driven historical compatibility, retained archive controls, forbidden configuration surfaces, credentialless public smoke, binary behavior, failure diagnostics, and cleanup.
 
 ## 9. Live CEX Smoke Workflow
 
-- [ ] 9.1 Convert `test:smoke:archive` to the existing credentialless public exchange-construction path with a unique capture bundle and `CEX_BROKER_ARCHIVE_SOURCE=broker_read`, without exchange keys, credential policy/profile, attestation, or runtime write-mode configuration.
+- [x] 9.1 Convert `test:smoke:archive` to the existing credentialless public exchange-construction path with a unique capture bundle and `CEX_BROKER_ARCHIVE_SOURCE=broker_read`, without exchange keys, credential policy/profile, attestation, or runtime write-mode configuration.
 - [x] 9.2 Restrict the smoke implementation to public ORDERBOOK, TICKER, TRADES, and OHLCV Subscribe operations and add a guard proving it cannot invoke `ExecuteAction` or private/account/asset-moving paths.
 - [x] 9.3 Add per-feed first-row timeouts, an overall deadline, bounded reconnect behavior, and explicit broker/stream/writer/forwarder/harness cleanup.
 - [x] 9.4 Query at least one raw and linked normalized canonical row for every live feed and fail on a missing feed, provenance link, checksum, or cleanup deadline.
-- [ ] 9.5 Update the scheduled/manual-only workflow to require no CEX credential secrets or attestation variables while retaining no pull-request trigger and no merge-required status.
+- [x] 9.5 Update the scheduled/manual-only workflow to require no CEX credential secrets or attestation variables while retaining no pull-request trigger and no merge-required status.
 - [x] 9.6 Redact credentials and credential-bearing payloads from logs/artifacts and retain only bounded feed-specific failure diagnostics.
-- [ ] 9.7 Document credentialless public construction and verify the smoke never probes permissions or invokes an order, cancellation, transfer, deposit, withdrawal, or asset movement.
+- [x] 9.7 Document credentialless public construction and verify the smoke never probes permissions or invokes an order, cancellation, transfer, deposit, withdrawal, or asset movement.
 
 ## 10. Final Verification
 
 - [x] 10.1 Re-run baseline regeneration twice and verify the committed fixture and provenance manifest remain unchanged.
-- [ ] 10.2 Run `test:e2e:archive` from a clean shallow/offline-compatible checkout using only the committed fixture and verified binary cache/override after the canonical-only correction.
-- [ ] 10.3 Run the normal repository test command and the retained ClickHouse-server integration suite with a provisioned server when available after integrating the corrected prerequisite.
-- [ ] 10.4 Run repository lint/check, server line-budget, type, and build commands required by CI and resolve every failure after removing obsolete configuration logic.
-- [ ] 10.5 Run a manual credentialless public live smoke and verify all four linked feed assertions without invoking private or write operations.
-- [ ] 10.6 Run `openspec validate clickhouse-local-archive-e2e-regression --strict` and resolve every validation error after this amendment and its implementation.
-- [ ] 10.7 Review the final diff to prove corrected prerequisite commit `2730a00` is integrated, its canonical OpenSpec artifacts are unchanged by this change, fixture expectations were not weakened, no E2E skip path exists, no forbidden configuration remains executable, and no production protobuf/RPC/public API changed.
-- [ ] 10.8 Supersede the prior GREEN evidence and record fresh results for the dedicated E2E command, normal tests, build/type checks, strict OpenSpec validation, configuration-surface audit, and non-gating credentialless smoke.
+- [x] 10.2 Run `test:e2e:archive` from a clean shallow/offline-compatible checkout using only the committed fixture and verified binary cache/override after the canonical-only correction.
+- [x] 10.3 Run the normal repository test command and the retained ClickHouse-server integration suite with a provisioned server when available after integrating the corrected prerequisite.
+- [x] 10.4 Run repository lint/check, server line-budget, type, and build commands required by CI and resolve every failure after removing obsolete configuration logic.
+- [x] 10.5 Run a manual credentialless public live smoke and verify all four linked feed assertions without invoking private or write operations.
+- [x] 10.6 Run `openspec validate clickhouse-local-archive-e2e-regression --strict` and resolve every validation error after this amendment and its implementation.
+- [x] 10.7 Review the final diff to prove corrected prerequisite commit `2730a00` is integrated, its canonical OpenSpec artifacts are unchanged by this change, fixture expectations were not weakened, no E2E skip path exists, no forbidden configuration remains executable, and no production protobuf/RPC/public API changed.
+- [x] 10.8 Supersede the prior GREEN evidence and record fresh results for the dedicated E2E command, normal tests, build/type checks, strict OpenSpec validation, configuration-surface audit, and non-gating credentialless smoke.

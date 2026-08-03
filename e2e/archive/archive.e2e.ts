@@ -6,6 +6,7 @@ import {
 	assertBaselineTableRows,
 	loadArchiveBaselineFixture,
 } from "../../test/e2e/archive/support/archive-baseline";
+import { auditArchiveConfigurationSurface } from "../../test/e2e/archive/support/archive-configuration-surface";
 import { startArchiveForwarderEndpoint } from "../../test/e2e/archive/support/archive-forwarder-endpoint";
 import {
 	PUBLIC_FEEDS,
@@ -46,6 +47,10 @@ function selectFixtureRows(table: {
 }
 
 describe("ClickHouse Local archive E2E runtime", () => {
+	test("removed archive and credential configuration remains absent", async () => {
+		expect(await auditArchiveConfigurationSurface()).toEqual([]);
+	});
+
 	test("executes production schema in unique persistent serialized paths and cleans up", async () => {
 		const first = await initializedHarness();
 		const second = await initializedHarness();
@@ -136,25 +141,12 @@ describe("ClickHouse Local archive E2E runtime", () => {
 });
 
 describe("real four-feed archive lifecycle", () => {
-	test("broker_write dual mode retains exact legacy rows and linked closed canonical output", async () => {
-		const result = await runArchiveLifecycle({
-			source: "broker_write",
-			writeMode: "dual",
-		});
+	test("broker_read canonical-only writer verifies provenance, checksums, and views", async () => {
+		const result = await runArchiveLifecycle();
 		expect(result.collectorModule).toBe("services/ohlcv-collector/collector.ts");
 		expect(result.feedsObserved).toEqual(PUBLIC_FEEDS);
-		expect(result.legacyRowsMatchBaseline).toBe(true);
 		expect(result.feedLinks.map(({ feed }) => feed)).toEqual(PUBLIC_FEEDS);
 		expect(result.unexpectedDestinations).toEqual([]);
-	});
-
-	test("broker_read canonical mode verifies stored provenance, checksums, and views", async () => {
-		const result = await runArchiveLifecycle({
-			source: "broker_read",
-			writeMode: "canonical",
-		});
-		expect(result.feedsObserved).toEqual(PUBLIC_FEEDS);
-		expect(result.feedLinks.map(({ feed }) => feed)).toEqual(PUBLIC_FEEDS);
 		expect(result.checksumsVerified).toBe(true);
 		expect(result.conflictViewsEmpty).toBe(true);
 		expect(result.legacyOrderBookRows).toBe(0);

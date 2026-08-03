@@ -67,7 +67,6 @@ export type ArchiveLifecycleResult = {
 	collectorModule: string;
 	feedsObserved: PublicFeed[];
 	streamsActiveBeforeAbort: PublicFeed[];
-	legacyRowsMatchBaseline: boolean;
 	feedLinks: FeedLink[];
 	unexpectedDestinations: string[];
 	checksumsVerified: boolean;

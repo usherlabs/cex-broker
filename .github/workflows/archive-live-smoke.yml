@@ -32,15 +32,8 @@ jobs:
           path: .cache/clickhouse-local
           key: clickhouse-local-25.8.24.21-linux-amd64-a687eff77c58afbe
 
-      - name: Run public read-only archive smoke
+      - name: Run credentialless public archive smoke
         run: bun run test:smoke:archive
         env:
-          CEX_BROKER_SMOKE_READ_ONLY_ATTESTED: "true"
-          CEX_BROKER_CREDENTIAL_SOURCE_POLICY: provisioned_only
-          CEX_BROKER_PROVISIONED_CREDENTIAL_PROFILE: read_only_key
           CEX_BROKER_SMOKE_EXCHANGE: ${{ vars.ARCHIVE_SMOKE_EXCHANGE }}
           CEX_BROKER_SMOKE_SYMBOL: ${{ vars.ARCHIVE_SMOKE_SYMBOL }}
-          CEX_BROKER_SMOKE_API_KEY: ${{ secrets.ARCHIVE_SMOKE_API_KEY }}
-          CEX_BROKER_SMOKE_API_SECRET: ${{ secrets.ARCHIVE_SMOKE_API_SECRET }}
-          CEX_BROKER_CREDENTIAL_ATTESTATION_KIND: operator_provisioning_record
-          CEX_BROKER_CREDENTIAL_ATTESTATION_REFERENCE: ${{ vars.ARCHIVE_SMOKE_READ_ONLY_ATTESTATION }}

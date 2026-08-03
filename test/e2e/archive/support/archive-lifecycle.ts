@@ -16,10 +16,6 @@ import {
 import { getServer } from "../../../../src/server";
 import type { PolicyConfig } from "../../../../src/types";
 import {
-	assertBaselineTableRows,
-	loadArchiveBaselineFixture,
-} from "./archive-baseline";
-import {
 	type ArchiveFailureResult,
 	type ArchiveForwarderEndpoint,
 	type ArchiveLifecycleResult,
@@ -34,10 +30,6 @@ import {
 	createBlockedInserter,
 	createScriptedInserter,
 } from "./controlled-inserter";
-
-export type ArchiveLifecycleMode =
-	| { source: "broker_write"; writeMode: "dual" }
-	| { source: "broker_read"; writeMode: "canonical" };
 
 type BaselineInput = {
 	orderbook: { snapshot: Record<string, unknown> };
@@ -66,6 +58,7 @@ type FailureKind = "blocked" | "recoverable" | "terminal";
 const DEPLOYMENT_ID = "archive-e2e-baseline";
 const CAPTURE_BUNDLE_ID = "archive-e2e-four-feed-v1";
 const AUTH_TOKEN = "archive-e2e-local-token";
+const EXPECTED_ENQUEUED = 15;
 const BASELINE_INPUT_PATH = new URL(
 	"../fixtures/archive-baseline-input-v1.json",
 	import.meta.url,
@@ -102,7 +95,6 @@ const ARCHIVE_ENV_KEYS = [
 	"CEX_BROKER_ARCHIVE_FORWARDER_TOKEN",
 	"ARCHIVE_FORWARDER_TOKEN",
 	"CEX_BROKER_ARCHIVE_SOURCE",
-	"CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE",
 	"CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT",
 	"CEX_BROKER_ORDERBOOK_INTERVAL_MS",
 ] as const;
@@ -326,7 +318,6 @@ class EnvironmentScope {
 }
 
 type ComposedContext = {
-	mode: ArchiveLifecycleMode;
 	harness: ClickHouseLocalHarness;
 	endpoint: ArchiveForwarderEndpoint;
 	archiver: BrokerExecutionArchiver;
@@ -358,7 +349,6 @@ async function bindServer(server: Server): Promise<number> {
 }
 
 async function createComposedContext(
-	mode: ArchiveLifecycleMode,
 	failureKind?: FailureKind,
 ): Promise<ComposedContext> {
 	const harness = await ClickHouseLocalHarness.create();
@@ -400,14 +390,13 @@ async function createComposedContext(
 			CEX_BROKER_CAPTURE_BUNDLE_ID: CAPTURE_BUNDLE_ID,
 			CEX_BROKER_ARCHIVE_FORWARDER_TOKEN: AUTH_TOKEN,
 			ARCHIVE_FORWARDER_TOKEN: AUTH_TOKEN,
-			CEX_BROKER_ARCHIVE_SOURCE: mode.source,
-			CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE: mode.writeMode,
+			CEX_BROKER_ARCHIVE_SOURCE: "broker_read",
 			CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT: "production",
 			CEX_BROKER_ORDERBOOK_INTERVAL_MS: "1",
 		});
 		const archiveObserver = new ArchiveObserver();
 		archiver = BrokerExecutionArchiver.create({
-			source: mode.source,
+			source: "broker_read",
 			deploymentId: DEPLOYMENT_ID,
 			forwarderUrl: endpoint.url,
 			deadLetterPath,
@@ -438,10 +427,6 @@ async function createComposedContext(
 			undefined,
 			undefined,
 			brokerLifecycle,
-			{
-				sourcePolicy: "provisioned_only",
-				provisionedProfile: "read_only_key",
-			},
 		);
 		const port = await bindServer(server);
 		const collectorObserver = new CollectorObserver();
@@ -455,7 +440,6 @@ async function createComposedContext(
 		const collectorRun = collector.run(collectorAbort.signal);
 		const input = (await Bun.file(BASELINE_INPUT_PATH).json()) as BaselineInput;
 		const context: ComposedContext = {
-			mode,
 			harness,
 			endpoint,
 			archiver,
@@ -495,10 +479,6 @@ async function createComposedContext(
 		Date.now = originalDateNow;
 		throw error;
 	}
-}
-
-function expectedEnqueued(mode: ArchiveLifecycleMode): number {
-	return mode.writeMode === "dual" ? 19 : 15;
 }
 
 async function storedLifecycleRowCount(
@@ -671,8 +651,7 @@ async function releaseFrame(
 async function releaseLifecycleFrames(context: ComposedContext): Promise<void> {
 	const { input } = context;
 	let enqueued = 0;
-	const dual = context.mode.writeMode === "dual";
-	enqueued += dual ? 7 : 6;
+	enqueued += 6;
 	await releaseFrame(
 		context,
 		"ORDERBOOK",
@@ -700,7 +679,7 @@ async function releaseLifecycleFrames(context: ComposedContext): Promise<void> {
 		enqueued,
 	);
 	const firstBar = input.candle.bar;
-	enqueued += dual ? 3 : 2;
+	enqueued += 2;
 	await releaseFrame(
 		context,
 		"OHLCV",
@@ -723,7 +702,7 @@ async function releaseLifecycleFrames(context: ComposedContext): Promise<void> {
 		context.exchange.waitForCall("OHLCV", 2),
 		"second OHLCV watch call",
 	);
-	enqueued += dual ? 5 : 3;
+	enqueued += 3;
 	await releaseFrame(
 		context,
 		"OHLCV",
@@ -742,7 +721,7 @@ async function releaseLifecycleFrames(context: ComposedContext): Promise<void> {
 		2,
 		enqueued,
 	);
-	if (enqueued !== expectedEnqueued(context.mode)) {
+	if (enqueued !== EXPECTED_ENQUEUED) {
 		throw new Error(`Unexpected lifecycle row plan: ${enqueued}`);
 	}
 }
@@ -756,33 +735,6 @@ async function queryCount(
 		`SELECT count() AS count FROM ${from} WHERE ${where}`,
 	);
 	return Number(rows[0]?.count ?? 0);
-}
-
-async function assertDualLegacyRows(
-	harness: ClickHouseLocalHarness,
-): Promise<void> {
-	const fixture = await loadArchiveBaselineFixture();
-	for (const tableName of [
-		"market_data.orderbook_snapshots",
-		"market_data.cex_ticker_events",
-		"market_data.cex_trades",
-		"market_data.candles",
-	] as const) {
-		const table = fixture.tables.find((entry) => entry.table === tableName);
-		if (!table) throw new Error(`Missing baseline fixture table ${tableName}`);
-		const projection = table.projection
-			.map((field) => `\`${field}\``)
-			.join(", ");
-		const order = table.sortOrder.map((field) => `\`${field}\``).join(", ");
-		const final = tableName === "market_data.candles" ? " FINAL" : "";
-		const closed =
-			tableName === "market_data.candles" ? " AND is_closed = 1" : "";
-		const rows = await harness.query(
-			`SELECT ${projection} FROM ${tableName}${final} WHERE deployment_id = '${DEPLOYMENT_ID}'${closed} ORDER BY ${order}`,
-			table.fieldTypes,
-		);
-		assertBaselineTableRows(table, rows);
-	}
 }
 
 async function storedFeedLinks(
@@ -927,20 +879,15 @@ async function closeContext(
 	context.restoreClock();
 }
 
-export async function runArchiveLifecycle(
-	mode: ArchiveLifecycleMode,
-): Promise<ArchiveLifecycleResult> {
-	const context = await createComposedContext(mode);
+export async function runArchiveLifecycle(): Promise<ArchiveLifecycleResult> {
+	const context = await createComposedContext();
 	try {
 		await releaseLifecycleFrames(context);
 		await context.archiver.flush();
 		await withDeadline(
-			context.archiveObserver.waitForFlushed(expectedEnqueued(mode)),
+			context.archiveObserver.waitForFlushed(EXPECTED_ENQUEUED),
 			"archive flush completion",
 		);
-		if (mode.writeMode === "dual") {
-			await assertDualLegacyRows(context.harness);
-		}
 		const feedLinks = await storedFeedLinks(context.harness);
 		const conflictRows =
 			(await queryCount(
@@ -972,7 +919,6 @@ export async function runArchiveLifecycle(
 			collectorModule: "services/ohlcv-collector/collector.ts",
 			feedsObserved: [...PUBLIC_FEEDS],
 			streamsActiveBeforeAbort: activeFeeds(context.collector),
-			legacyRowsMatchBaseline: mode.writeMode === "dual",
 			feedLinks,
 			unexpectedDestinations: unexpectedDestinations(context.endpoint),
 			checksumsVerified: await verifyStoredChecksums(
@@ -998,10 +944,7 @@ export async function runArchiveLifecycle(
 }
 
 export async function runBlockedSinkLifecycle(): Promise<ArchiveFailureResult> {
-	const context = await createComposedContext(
-		{ source: "broker_read", writeMode: "canonical" },
-		"blocked",
-	);
+	const context = await createComposedContext("blocked");
 	try {
 		const controller = context.inserterController;
 		if (!controller) throw new Error("Blocked inserter controller is missing");
@@ -1021,7 +964,7 @@ export async function runBlockedSinkLifecycle(): Promise<ArchiveFailureResult> {
 		controller.release();
 		await context.archiver.flush();
 		await withDeadline(
-			context.archiveObserver.waitForFlushed(expectedEnqueued(context.mode)),
+			context.archiveObserver.waitForFlushed(EXPECTED_ENQUEUED),
 			"blocked sink backlog flush",
 		);
 		const emittedRows = context.archiver.getStats().enqueued;
@@ -1053,10 +996,7 @@ export async function runBlockedSinkLifecycle(): Promise<ArchiveFailureResult> {
 }
 
 export async function runRecoverableFailureLifecycle(): Promise<ArchiveFailureResult> {
-	const context = await createComposedContext(
-		{ source: "broker_read", writeMode: "canonical" },
-		"recoverable",
-	);
+	const context = await createComposedContext("recoverable");
 	try {
 		await releaseLifecycleFrames(context);
 		await context.archiver.flush();
@@ -1065,7 +1005,7 @@ export async function runRecoverableFailureLifecycle(): Promise<ArchiveFailureRe
 		}
 		await context.archiver.flush();
 		await withDeadline(
-			context.archiveObserver.waitForFlushed(expectedEnqueued(context.mode)),
+			context.archiveObserver.waitForFlushed(EXPECTED_ENQUEUED),
 			"recoverable retry flush",
 		);
 		const emittedRows = context.archiver.getStats().enqueued;
@@ -1094,10 +1034,7 @@ export async function runRecoverableFailureLifecycle(): Promise<ArchiveFailureRe
 }
 
 export async function runTerminalFailureLifecycle(): Promise<ArchiveFailureResult> {
-	const context = await createComposedContext(
-		{ source: "broker_read", writeMode: "canonical" },
-		"terminal",
-	);
+	const context = await createComposedContext("terminal");
 	let archiverClosed = false;
 	try {
 		await releaseLifecycleFrames(context);
