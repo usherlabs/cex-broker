@@ -1,65 +1,117 @@
 import { expect, test } from "bun:test";
 import path from "node:path";
+import * as grpc from "@grpc/grpc-js";
+import { CEX_BROKER_PACKAGE_DEFINITION } from "../src/proto-package-definition";
 
-async function waitForFile(filePath: string): Promise<void> {
+type SubscribeRequest = {
+	cex: string;
+	symbol: string;
+	type: string;
+	options: Record<string, string>;
+};
+
+type SubscribeCall = grpc.ServerWritableStream<SubscribeRequest, unknown>;
+
+const grpcObject = grpc.loadPackageDefinition(
+	CEX_BROKER_PACKAGE_DEFINITION,
+) as unknown as {
+	cex_broker: {
+		cex_service: {
+			service: grpc.ServiceDefinition<grpc.UntypedServiceImplementation>;
+		};
+	};
+};
+
+function bindServer(server: grpc.Server): Promise<number> {
+	return new Promise((resolve, reject) => {
+		server.bindAsync(
+			"127.0.0.1:0",
+			grpc.ServerCredentials.createInsecure(),
+			(error, port) => {
+				if (error) {
+					reject(error);
+					return;
+				}
+				resolve(port);
+			},
+		);
+	});
+}
+
+async function startSubscribeServer(
+	onSubscribe: (call: SubscribeCall) => void,
+): Promise<{ server: grpc.Server; port: number }> {
+	const server = new grpc.Server();
+	server.addService(grpcObject.cex_broker.cex_service.service, {
+		Subscribe: onSubscribe,
+	});
+	return { server, port: await bindServer(server) };
+}
+
+async function waitFor(condition: () => boolean): Promise<void> {
 	for (let attempt = 0; attempt < 200; attempt += 1) {
-		if (await Bun.file(filePath).exists()) {
+		if (condition()) {
 			return;
 		}
 		await Bun.sleep(10);
 	}
-	throw new Error(`Timed out waiting for ${filePath}`);
+	throw new Error("Timed out waiting for market-data collector condition");
 }
 
-async function waitForFetchCount(
-	filePath: string,
-	minimum: number,
-): Promise<number> {
-	for (let attempt = 0; attempt < 200; attempt += 1) {
-		if (await Bun.file(filePath).exists()) {
-			const count = Number(await Bun.file(filePath).text());
-			if (count >= minimum) {
-				return count;
-			}
-		}
-		await Bun.sleep(10);
-	}
-	throw new Error(`Timed out waiting for ${minimum} fetches in ${filePath}`);
-}
-
-async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
+async function runShutdownCase(): Promise<{
 	exitCode: number;
-	closeMarker: string;
-	countBeforeShutdown: number;
-	countAtShutdown: number;
+	requests: SubscribeRequest[];
+	cancelledCount: number;
 	output: string;
 }> {
 	const fixtureId = crypto.randomUUID();
-	const configPath = `/tmp/ohlcv-shutdown-${fixtureId}.json`;
-	const activePath = `/tmp/ohlcv-shutdown-${fixtureId}.active`;
-	const countPath = `/tmp/ohlcv-shutdown-${fixtureId}.count`;
-	const closedPath = `/tmp/ohlcv-shutdown-${fixtureId}.closed`;
+	const configPath = `/tmp/market-data-collector-${fixtureId}.json`;
+	const requests: SubscribeRequest[] = [];
+	const cancelled = new Set<string>();
+	const { server, port } = await startSubscribeServer((call) => {
+		requests.push(call.request);
+		const requestKey = `${call.request.type}:${call.request.symbol}`;
+		call.once("cancelled", () => cancelled.add(requestKey));
+		call.write({
+			data:
+				call.request.type === "OHLCV"
+					? JSON.stringify([1_700_000_000_000, 1, 2, 0.5, 1.5, 10])
+					: JSON.stringify({ ok: true }),
+			timestamp: Date.now(),
+			symbol: call.request.symbol,
+			type: call.request.type,
+		});
+	});
 	await Bun.write(
 		configPath,
-		JSON.stringify([{ exchange: "binance", symbol: "BTC/USDT" }]),
+		JSON.stringify({
+			subscriptions: [
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "ORDERBOOK",
+					depthLimit: 25,
+				},
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TICKER" },
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TRADES" },
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+					bootstrapLimit: 100,
+				},
+			],
+		}),
 	);
 
 	const child = Bun.spawn({
-		cmd: [
-			process.execPath,
-			"--preload",
-			path.resolve("test/fixtures/ohlcv-collector-fake-exchange.ts"),
-			path.resolve("services/ohlcv-collector/index.ts"),
-		],
+		cmd: [process.execPath, path.resolve("services/ohlcv-collector/index.ts")],
 		cwd: process.cwd(),
 		env: {
 			...process.env,
-			CEX_BROKER_OHLCV_COLLECTOR_CONFIG: configPath,
-			CEX_BROKER_OHLCV_ARCHIVE_BOOTSTRAP_LIMIT: "0",
-			OHLCV_TEST_EXCHANGE_ACTIVE_PATH: activePath,
-			OHLCV_TEST_EXCHANGE_COUNT_PATH: countPath,
-			OHLCV_TEST_EXCHANGE_CLOSED_PATH: closedPath,
-			OHLCV_TEST_EXCHANGE_CLOSE_HANG: String(exchangeCloseHangs),
+			CEX_BROKER_URL: `127.0.0.1:${port}`,
+			CEX_BROKER_MARKET_DATA_COLLECTOR_CONFIG: configPath,
 		},
 		stdout: "pipe",
 		stderr: "pipe",
@@ -68,15 +120,22 @@ async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 	const stderr = new Response(child.stderr).text();
 
 	try {
-		await waitForFile(activePath);
-		const countBeforeShutdown = await waitForFetchCount(countPath, 5);
-		expect(await Bun.file(closedPath).exists()).toBe(false);
-		await Bun.sleep(100);
-		const countAtShutdown = await waitForFetchCount(
-			countPath,
-			countBeforeShutdown + 1,
+		await waitFor(() => requests.length === 4);
+		expect(requests).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "ORDERBOOK",
+					options: { depthLimit: "25" },
+				}),
+				expect.objectContaining({ type: "TICKER", options: {} }),
+				expect.objectContaining({ type: "TRADES", options: {} }),
+				expect.objectContaining({
+					type: "OHLCV",
+					options: { timeframe: "1m", bootstrapLimit: "100" },
+				}),
+			]),
 		);
-		expect(await Bun.file(closedPath).exists()).toBe(false);
+
 		child.kill("SIGTERM");
 		const result = await Promise.race([
 			child.exited.then((exitCode) => ({ exitCode })),
@@ -89,11 +148,12 @@ async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 				`Collector did not exit within 5s\nstdout:\n${await stdout}\nstderr:\n${await stderr}`,
 			);
 		}
+
+		await waitFor(() => cancelled.size === 4);
 		return {
 			exitCode: result.exitCode,
-			closeMarker: await Bun.file(closedPath).text(),
-			countBeforeShutdown,
-			countAtShutdown,
+			requests,
+			cancelledCount: cancelled.size,
 			output: `${await stdout}\n${await stderr}`,
 		};
 	} finally {
@@ -101,27 +161,18 @@ async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 			child.kill("SIGKILL");
 			await child.exited;
 		}
-		await Promise.all(
-			[configPath, activePath, countPath, closedPath].map(async (filePath) => {
-				if (await Bun.file(filePath).exists()) {
-					await Bun.file(filePath).delete();
-				}
-			}),
-		);
+		server.forceShutdown();
+		if (await Bun.file(configPath).exists()) {
+			await Bun.file(configPath).delete();
+		}
 	}
 }
 
-test("entrypoint exits promptly on SIGTERM after an exchange stream opens", async () => {
-	const result = await runShutdownCase(false);
-	expect(result.exitCode).toBe(0);
-	expect(result.closeMarker).toBe("closed");
-	expect(result.countAtShutdown).toBeGreaterThan(result.countBeforeShutdown);
-});
+test("entrypoint connects to an external broker for all four feeds and stops cleanly on SIGTERM", async () => {
+	const result = await runShutdownCase();
 
-test("entrypoint bounds shutdown when an exchange close does not resolve", async () => {
-	const result = await runShutdownCase(true);
 	expect(result.exitCode).toBe(0);
-	expect(result.closeMarker).toBe("close_attempted");
-	expect(result.output).toContain("OHLCV collector shutdown path timed out");
-	expect(result.output).toContain("subscribe_brokers");
+	expect(result.requests).toHaveLength(4);
+	expect(result.cancelledCount).toBe(4);
+	expect(result.output).toContain("Market-data collector service stopped");
 });

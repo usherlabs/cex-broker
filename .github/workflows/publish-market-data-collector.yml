@@ -1,11 +1,11 @@
-# Publishes the OHLCV collector image (services/ohlcv-collector).
+# Publishes the multi-feed market-data collector image (services/ohlcv-collector).
 # The collector is repo-runtime only — it is NOT part of the npm package
 # (files: ["dist"]), so it ships as its own container image.
 #
 # Triggers: semver tags (alongside the broker publish) and manual dispatch
 # (to publish from a branch without cutting an npm release).
 
-name: Publish OHLCV Collector
+name: Publish Market Data Collector
 
 on:
   push:
@@ -15,14 +15,14 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: ghcr.io/usherlabs/cex-broker-ohlcv-collector
+  IMAGE_NAME: ghcr.io/usherlabs/cex-broker-market-data-collector
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  publish-ohlcv-collector:
+  publish-market-data-collector:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
