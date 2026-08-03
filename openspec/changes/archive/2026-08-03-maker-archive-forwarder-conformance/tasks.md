@@ -44,7 +44,7 @@
 
 ## 7. Coordinated Release And Maker Closure
 
-- [ ] 7.1 Select the smallest unused patch above `0.2.36`, update CEX package/image metadata, and publish matching version/digest evidence after required Actions pass.
-- [ ] 7.2 Update Maker's CEX Broker dependency and lockfile, run Maker strict checks, record CEX commit/PR/Actions/version/digest evidence, and complete Maker task 8.6.
-- [ ] 7.3 Update FIET-937 with the retained production observation cutover gate, link FIET-901/FIET-903 to the scope transition, and comment FIET-909 with conformance evidence while leaving FIET-924 closed.
-- [ ] 7.4 Sync and archive this change only after both repositories satisfy the cross-service definition of done.
+- [x] 7.1 Select the smallest unused patch above `0.2.36`, update CEX package/image metadata, and publish matching version/digest evidence after required Actions pass.
+- [x] 7.2 Update Maker's CEX Broker dependency and lockfile, run Maker strict checks, record CEX commit/PR/Actions/version/digest evidence, and complete Maker task 8.6.
+- [x] 7.3 Update FIET-937 with the retained production observation cutover gate, link FIET-901/FIET-903 to the scope transition, and comment FIET-909 with conformance evidence while leaving FIET-924 closed.
+- [x] 7.4 Sync and archive this change only after both repositories satisfy the cross-service definition of done.
