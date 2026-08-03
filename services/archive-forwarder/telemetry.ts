@@ -7,14 +7,51 @@ import {
 	MALFORMED_TABLE_LABEL,
 	UNSUPPORTED_TABLE_LABEL,
 } from "./types";
+import type { StrategySpoolStats } from "./strategy-spool";
 
 export const ARCHIVE_FORWARDER_METRICS = {
 	rowsInserted: "archive_forwarder_rows_inserted_total",
 	rowsRejected: "archive_forwarder_rows_rejected_total",
 	insertFailures: "archive_forwarder_insert_failures_total",
+	checksumConflicts: "archive_forwarder_checksum_conflict_rows_total",
 	lastSuccessfulFlush:
 		"archive_forwarder_last_successful_flush_timestamp_seconds",
+	strategyBatchesAdmitted:
+		"archive_forwarder_strategy_batches_admitted_total",
+	strategyRowsAdmitted: "archive_forwarder_strategy_rows_admitted_total",
+	strategyAdmissionsRejected:
+		"archive_forwarder_strategy_admissions_rejected_total",
+	strategySpoolPendingBatches:
+		"archive_forwarder_strategy_spool_pending_batches",
+	strategySpoolPendingWork: "archive_forwarder_strategy_spool_pending_work",
+	strategySpoolTerminalWork: "archive_forwarder_strategy_spool_terminal_work",
+	strategySpoolExpiredWork: "archive_forwarder_strategy_spool_expired_work",
+	strategySpoolBytes: "archive_forwarder_strategy_spool_accounted_bytes",
+	strategySpoolOldestAge:
+		"archive_forwarder_strategy_spool_oldest_age_milliseconds",
+	strategyRetries: "archive_forwarder_strategy_retries_total",
+	strategyTableCompletions:
+		"archive_forwarder_strategy_table_completions_total",
+	strategyTerminalFailures:
+		"archive_forwarder_strategy_terminal_failures_total",
+	strategyExpiredWork: "archive_forwarder_strategy_expired_work_total",
+	lastSuccessfulStrategyDrain:
+		"archive_forwarder_last_successful_strategy_drain_timestamp_seconds",
 } as const;
+
+const STRATEGY_REJECTION_REASONS = new Set([
+	"invalid_contract",
+	"quota",
+	"spool_unavailable",
+]);
+
+const INSERT_ERROR_CLASSES = new Set([
+	"timeout",
+	"connection",
+	"authentication",
+	"schema",
+	"unknown",
+]);
 
 export type ArchiveMetricsRecorder = Pick<
 	OtelMetrics,
@@ -77,12 +114,130 @@ export class ArchiveForwarderTelemetry {
 		);
 	}
 
+	public recordChecksumConflicts(
+		source: string,
+		rowsByTable: Readonly<Record<string, number>>,
+	): void {
+		const boundedSource =
+			source === "broker_read" || source === "broker_write" ? source : "other";
+		for (const [table, count] of Object.entries(rowsByTable)) {
+			this.bestEffort(() =>
+				this.metrics.recordCounter(
+					ARCHIVE_FORWARDER_METRICS.checksumConflicts,
+					count,
+					{ source: boundedSource, feed: "ORDERBOOK", table },
+				),
+			);
+		}
+	}
+
 	public recordSuccessfulFlush(completedAt: Date = new Date()): void {
 		this.bestEffort(() =>
 			this.metrics.setObservableGauge(
 				ARCHIVE_FORWARDER_METRICS.lastSuccessfulFlush,
 				Math.floor(completedAt.getTime() / 1_000),
 				{},
+			),
+		);
+	}
+
+	public recordStrategyAdmission(rowCount: number): void {
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyBatchesAdmitted,
+				1,
+				{},
+			),
+		);
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyRowsAdmitted,
+				rowCount,
+				{},
+			),
+		);
+	}
+
+	public recordStrategyAdmissionRejected(reason: string): void {
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyAdmissionsRejected,
+				1,
+				{ reason: STRATEGY_REJECTION_REASONS.has(reason) ? reason : "other" },
+			),
+		);
+	}
+
+	public recordStrategySpoolStats(stats: StrategySpoolStats): void {
+		for (const [name, value] of [
+			[ARCHIVE_FORWARDER_METRICS.strategySpoolPendingBatches, stats.queuedBatches],
+			[ARCHIVE_FORWARDER_METRICS.strategySpoolPendingWork, stats.queuedWork],
+			[ARCHIVE_FORWARDER_METRICS.strategySpoolTerminalWork, stats.terminalWork],
+			[ARCHIVE_FORWARDER_METRICS.strategySpoolExpiredWork, stats.expiredWork],
+			[ARCHIVE_FORWARDER_METRICS.strategySpoolBytes, stats.accountedBytes],
+			[ARCHIVE_FORWARDER_METRICS.strategySpoolOldestAge, stats.oldestAgeMs],
+		] as const) {
+			this.bestEffort(() => this.metrics.setObservableGauge(name, value, {}));
+		}
+	}
+
+	public recordStrategyRetry(table: string, errorClass: string): void {
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyRetries,
+				1,
+				{
+					table: isSupportedTable(table) ? table : UNSUPPORTED_TABLE_LABEL,
+					error_class: INSERT_ERROR_CLASSES.has(errorClass)
+						? errorClass
+						: "unknown",
+				},
+			),
+		);
+	}
+
+	public recordStrategyTableCompletion(
+		table: string,
+		completedAt: Date = new Date(),
+	): void {
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyTableCompletions,
+				1,
+				{ table: isSupportedTable(table) ? table : UNSUPPORTED_TABLE_LABEL },
+			),
+		);
+		this.bestEffort(() =>
+			this.metrics.setObservableGauge(
+				ARCHIVE_FORWARDER_METRICS.lastSuccessfulStrategyDrain,
+				Math.floor(completedAt.getTime() / 1_000),
+				{},
+			),
+		);
+	}
+
+	public recordStrategyExpired(count: number): void {
+		if (count <= 0) return;
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyExpiredWork,
+				count,
+				{},
+			),
+		);
+	}
+
+	public recordStrategyTerminalFailure(table: string, errorClass: string): void {
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyTerminalFailures,
+				1,
+				{
+					table: isSupportedTable(table) ? table : UNSUPPORTED_TABLE_LABEL,
+					error_class: INSERT_ERROR_CLASSES.has(errorClass)
+						? errorClass
+						: "unknown",
+				},
 			),
 		);
 	}

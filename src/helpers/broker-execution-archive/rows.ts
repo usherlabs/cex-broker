@@ -9,6 +9,7 @@ import {
 	BROKER_WRITE_SOURCE,
 	type BrokerArchiveCommonTags,
 	type BrokerArchiveRow,
+	type BrokerArchiveSource,
 	FILL_EVENT_KIND,
 	type OrderArchiveAction,
 	type SubscribeArchiveType,
@@ -252,6 +253,7 @@ function compactUndefined(
 }
 
 export function buildCommonArchiveTags(input: {
+	source?: BrokerArchiveSource;
 	deploymentId: string;
 	accountSelector?: string;
 	exchange: string;
@@ -259,7 +261,7 @@ export function buildCommonArchiveTags(input: {
 	brokerObservedTimestamp?: string;
 }): BrokerArchiveCommonTags {
 	return {
-		source: BROKER_WRITE_SOURCE,
+		source: input.source ?? BROKER_WRITE_SOURCE,
 		deployment_id: input.deploymentId,
 		account_selector: input.accountSelector ?? "unknown",
 		exchange: input.exchange.trim().toLowerCase() || "unknown",

@@ -44,6 +44,7 @@ export async function bootstrapOhlcvHistory(
 		const receivedTimestamp = Date.now();
 		archiveOhlcvInBackground(archiver, otelMetrics, tracker, {
 			...input,
+			sourceMode: "broker_bootstrap_fetch_v1",
 			payload,
 			receivedTimestamp,
 		});

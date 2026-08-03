@@ -95,6 +95,63 @@ class CapturingMetrics {
 }
 
 describe("OHLCV collector supervision", () => {
+	test("opens independent supervisors for all four market feeds", async () => {
+		const requests: SubscribeRequest[] = [];
+		const { server, port } = await startSubscribeServer((call) => {
+			requests.push(call.request);
+			call.write({
+				data: JSON.stringify({ ok: true }),
+				timestamp: Date.now(),
+				symbol: call.request.symbol,
+				type: call.request.type,
+			});
+		});
+		const abort = new AbortController();
+		const collector = new OhlcvCollector({
+			brokerUrl: `127.0.0.1:${port}`,
+			subscriptions: [
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "ORDERBOOK",
+					depthLimit: 25,
+				},
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TICKER" },
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TRADES" },
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+					bootstrapLimit: 100,
+				},
+			],
+		});
+		const runPromise = collector.run(abort.signal);
+
+		try {
+			await waitFor(() => requests.length === 4);
+			expect(requests).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "ORDERBOOK",
+						options: { depthLimit: "25" },
+					}),
+					expect.objectContaining({ type: "TICKER", options: {} }),
+					expect.objectContaining({ type: "TRADES", options: {} }),
+					expect.objectContaining({
+						type: "OHLCV",
+						options: { timeframe: "1m", bootstrapLimit: "100" },
+					}),
+				]),
+			);
+		} finally {
+			abort.abort();
+			await runPromise;
+			server.forceShutdown();
+		}
+	});
+
 	test.each([
 		{ terminal: "error" as const },
 		{ terminal: "end" as const },
@@ -154,6 +211,7 @@ describe("OHLCV collector supervision", () => {
 				value: 1,
 				labels: {
 					exchange: "binance",
+					feed: "OHLCV",
 					symbol: "BTC/USDT",
 					timeframe: "1m",
 				},
@@ -163,6 +221,7 @@ describe("OHLCV collector supervision", () => {
 				value: 1,
 				labels: {
 					exchange: "binance",
+					feed: "OHLCV",
 					symbol: "BTC/USDT",
 					timeframe: "1m",
 				},

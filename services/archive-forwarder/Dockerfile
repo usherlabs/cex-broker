@@ -1,6 +1,7 @@
 # Archive forwarder: receives cex-broker archive batches over HTTP (POST /archive)
 # and writes them to ClickHouse (market_data, broker_execution, strategy_data).
-# It self-initializes the schema on boot and fail-closes if that fails.
+# It self-initializes the durable spool before listening and retries ClickHouse
+# schema initialization without giving up durable Maker admission.
 #
 # Build from the repository ROOT so the schema/ directory is in the build context:
 #   docker build -f services/archive-forwarder/Dockerfile -t cex-broker-archive-forwarder .
@@ -22,6 +23,8 @@ COPY src/helpers/otel.ts src/helpers/logger.ts ./src/helpers/
 COPY schema/clickhouse ./schema/clickhouse
 
 ENV ARCHIVE_FORWARDER_PORT=8090
+ENV ARCHIVE_FORWARDER_SPOOL_PATH=/var/lib/archive-forwarder/spool.sqlite
+VOLUME ["/var/lib/archive-forwarder"]
 EXPOSE 8090
 
 CMD ["bun", "run", "services/archive-forwarder/index.ts"]

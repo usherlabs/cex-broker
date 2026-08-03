@@ -1,4 +1,30 @@
 import type { ClickHouseClient } from "@clickhouse/client";
+import type { StrategySpoolStats } from "./strategy-spool";
+
+export type ForwarderHealthInput = {
+	clickhouseOk: boolean;
+	spoolOk: boolean;
+	spool: StrategySpoolStats | null;
+};
+
+export function evaluateForwarderHealth(input: ForwarderHealthInput) {
+	const status = !input.spoolOk
+		? "unavailable"
+		: input.clickhouseOk
+			? "ok"
+			: "degraded";
+	return {
+		statusCode: input.spoolOk ? 200 : 503,
+		body: {
+			status,
+			clickhouse: input.clickhouseOk,
+			durableAdmission: input.spoolOk,
+			spool: input.spoolOk
+				? { healthy: true, ...input.spool }
+				: { healthy: false },
+		},
+	};
+}
 
 export async function pingClickHouse(
 	client: ClickHouseClient,

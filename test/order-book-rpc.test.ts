@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { Exchange } from "@usherlabs/ccxt";
+import { BrokerExecutionArchiver } from "../src/helpers/broker-execution-archive/writer";
 import { Action } from "../src/helpers/constants";
 import type { BrokerPoolEntry } from "../src/helpers/index";
 import { PROTO_LOADER_OPTIONS } from "../src/proto-loader-options";
 import { getServer } from "../src/server";
 import type { PolicyConfig } from "../src/types";
+import { startForwarderServer } from "./archive-forwarder-server";
 
 const packageDef = protoLoader.loadSync(
 	"src/proto/node.proto",
@@ -145,18 +149,48 @@ function createClient(port: number) {
 	);
 }
 
+async function waitFor(
+	predicate: () => boolean,
+	timeoutMs = 1_000,
+): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!predicate()) {
+		if (Date.now() >= deadline)
+			throw new Error("timed out waiting for condition");
+		await Bun.sleep(5);
+	}
+}
+
 function executeAction(
 	client: InstanceType<typeof grpcObj.cex_broker.cex_service>,
 	request: Record<string, unknown>,
+	metadata?: grpc.Metadata,
 ) {
 	return new Promise<{ result: string; proof: string }>((resolve, reject) => {
-		client.ExecuteAction(request, (error, response) => {
+		const callback = (
+			error: grpc.ServiceError | null,
+			response?: { result: string; proof: string },
+		) => {
 			if (error) {
 				reject(error);
 				return;
 			}
 			resolve(response as { result: string; proof: string });
-		});
+		};
+		if (metadata) {
+			(
+				client.ExecuteAction as unknown as (
+					request: Record<string, unknown>,
+					metadata: grpc.Metadata,
+					callback: grpc.requestCallback<{
+						result: string;
+						proof: string;
+					}>,
+				) => void
+			)(request, metadata, callback);
+		} else {
+			client.ExecuteAction(request, callback);
+		}
 	});
 }
 
@@ -208,6 +242,41 @@ describe("order-book RPC compatibility", () => {
 		if (server) {
 			await server.forceShutdown();
 		}
+	});
+
+	test("environment credentials take precedence over request credentials", async () => {
+		const { exchange, calls } = createOrderBookExchange();
+		server = getServer(
+			testPolicy,
+			createPool("binance", exchange),
+			["*"],
+			false,
+			"",
+		);
+		client = createClient(await bindServer(server));
+		const metadata = new grpc.Metadata();
+		metadata.set("api-key", "request-key-must-not-win");
+		metadata.set("api-secret", "request-secret-must-not-win");
+
+		const response = await executeAction(
+			client,
+			{
+				action: Action.Call,
+				cex: "binance",
+				symbol: "BTC/USDT",
+				payload: {
+					method: "fetch_order_book_snapshot",
+					depthLimit: "1",
+				},
+			},
+			metadata,
+		);
+
+		expect(JSON.parse(response.result)).toMatchObject({
+			exchange: "binance",
+			symbol: "BTC/USDT",
+		});
+		expect(calls.fetchOrderBook).toHaveLength(1);
 	});
 
 	test("dispatches Maker capability method without invoking a fake CCXT method", async () => {
@@ -281,6 +350,70 @@ describe("order-book RPC compatibility", () => {
 		expect(typeof payload.receivedTimestamp).toBe("number");
 		expect(JSON.stringify(payload)).not.toContain("should-not-leak");
 		expect(calls.fetchOrderBook[0]).toEqual(["BTC/USDT", 1]);
+	});
+
+	test("archives a typed current snapshot with current-snapshot provenance", async () => {
+		const originalEnabled = process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
+		const forwarder = await startForwarderServer();
+		const archiver = BrokerExecutionArchiver.create({
+			source: "broker_read",
+			deploymentId: "read-collector-test",
+			deadLetterPath: join(tmpdir(), `cex-rpc-${crypto.randomUUID()}.jsonl`),
+			forwarderUrl: forwarder.url,
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+		});
+		try {
+			const { exchange } = createOrderBookExchange();
+			server = getServer(
+				testPolicy,
+				createPool("binance", exchange),
+				["*"],
+				false,
+				"",
+				undefined,
+				archiver,
+			);
+			client = createClient(await bindServer(server));
+
+			await executeAction(client, {
+				action: Action.Call,
+				cex: "binance",
+				symbol: "BTC/USDT",
+				payload: {
+					method: "fetch_order_book_snapshot",
+					depthLimit: "1",
+				},
+			});
+			await waitFor(() => archiver.getStats().enqueued === 4);
+			const queued = Reflect.get(archiver, "queue") as Array<{
+				table: string;
+				row: Record<string, unknown>;
+			}>;
+			expect(queued.map(({ table }) => table)).toEqual([
+				"market_data.cex_stream_events",
+				"market_data.cex_order_book_levels",
+				"market_data.cex_order_book_levels",
+				"market_data.cex_order_book_depth_summary",
+			]);
+			expect(queued.every(({ row }) => row.source === "broker_read")).toBe(
+				true,
+			);
+			expect(
+				queued.every(
+					({ row }) => row.source_mode === "broker_current_snapshot_v1",
+				),
+			).toBe(true);
+		} finally {
+			await archiver.close();
+			await forwarder.close();
+			if (originalEnabled === undefined) {
+				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+			} else {
+				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalEnabled;
+			}
+		}
 	});
 
 	test("returns typed historical unsupported including exact reconstruction", async () => {

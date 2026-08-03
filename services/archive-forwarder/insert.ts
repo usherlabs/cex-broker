@@ -6,6 +6,7 @@ import { isSupportedTable } from "./types";
 export type RowInserter = (
 	table: SupportedTable,
 	rows: Record<string, unknown>[],
+	options?: { deduplicationToken?: string },
 ) => Promise<void>;
 
 export function groupRowsByTable(
@@ -67,11 +68,18 @@ export async function insertArchiveRows(
 export function createClickHouseInserter(
 	client: ClickHouseClient,
 ): RowInserter {
-	return async (table, rows) => {
+	return async (table, rows, options) => {
 		await client.insert({
 			table,
 			values: rows,
 			format: "JSONEachRow",
+			...(options?.deduplicationToken
+				? {
+						clickhouse_settings: {
+							insert_deduplication_token: options.deduplicationToken,
+						},
+					}
+				: {}),
 		});
 	};
 }

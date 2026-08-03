@@ -246,7 +246,6 @@ export default class CEXBroker {
 			this.otelLogs,
 			this.otelMetrics,
 		);
-
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
 			...((config ?? { whitelistIps: [] }).whitelistIps ?? []),
@@ -356,6 +355,7 @@ export default class CEXBroker {
 			this.brokerArchiver,
 			this.orderActivityTracker,
 			this.withdrawalObservationTracker,
+			undefined,
 		);
 
 		this.server.bindAsync(

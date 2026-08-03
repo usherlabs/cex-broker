@@ -9,6 +9,7 @@ export type ClickHouseConfig = {
 export type ForwarderConfig = {
 	port: number;
 	authToken?: string;
+	spoolPath: string;
 	clickhouse: ClickHouseConfig;
 };
 
@@ -25,6 +26,9 @@ export function loadForwarderConfig(): ForwarderConfig {
 	return {
 		port: parsePort(process.env.ARCHIVE_FORWARDER_PORT, 8090),
 		authToken: authToken || undefined,
+		spoolPath:
+			process.env.ARCHIVE_FORWARDER_SPOOL_PATH?.trim() ||
+			DEFAULT_STRATEGY_SPOOL_PATH,
 		clickhouse: {
 			host: process.env.CLICKHOUSE_HOST?.trim() || "localhost",
 			port: parsePort(process.env.CLICKHOUSE_PORT, 8123),
@@ -34,3 +38,4 @@ export function loadForwarderConfig(): ForwarderConfig {
 		},
 	};
 }
+import { DEFAULT_STRATEGY_SPOOL_PATH } from "./strategy-spool";

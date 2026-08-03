@@ -12,6 +12,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.8
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: integration-test
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
@@ -32,6 +46,11 @@ jobs:
 
       - name: Run tests
         run: bun test
+        env:
+          CLICKHOUSE_REQUIRED: "1"
+          CLICKHOUSE_TEST_URL: http://localhost:8123
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: integration-test
 
       # Gate PRs on the same strict build the publish workflow runs on tag push
       # (dts-bundle-generator + strict tsc). Without this, develop can merge code
