@@ -294,12 +294,20 @@ async function waitForSocket(): Promise<FakeWebSocket> {
 	throw new Error("Fake Binance WebSocket was not opened");
 }
 
-async function waitFor(condition: () => boolean): Promise<void> {
-	for (let attempt = 0; attempt < 20; attempt += 1) {
+async function waitFor(
+	condition: () => boolean,
+	{
+		timeoutMs = 2_000,
+		intervalMs = 10,
+	}: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
 		if (condition()) return;
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		await new Promise((resolve) => setTimeout(resolve, intervalMs));
 	}
-	throw new Error("Timed out waiting for test condition");
+	if (condition()) return;
+	throw new Error(`Timed out waiting for test condition after ${timeoutMs}ms`);
 }
 
 function subscribeOnce(
@@ -549,10 +557,18 @@ describe("Binance Subscribe user-data streams", () => {
 		expect(primary.calls.watchBalance).toBe(0);
 		expect(primary.calls.watchOrders).toBe(0);
 
-		await waitFor(() => archive.rows.length === 2);
-		expect(
-			archive.rows.map((row) => JSON.parse(String(row.row.payload_json))),
-		).toEqual([rawEvent, rawEvent]);
+		await waitFor(() => archive.rows.length >= 2);
+		expect(archive.rows).toHaveLength(2);
+		for (const table of [
+			"broker_execution.order_events",
+			"market_data.cex_stream_events",
+		]) {
+			expect(
+				archive.rows
+					.filter((row) => row.table === table)
+					.map((row) => JSON.parse(String(row.row.payload_json))),
+			).toEqual([rawEvent]);
+		}
 	});
 
 	test("refreshes the authoritative primary balance for balanceUpdate", async () => {
@@ -768,7 +784,8 @@ describe("Binance Subscribe user-data streams", () => {
 		});
 		expect(primary.calls.parseWsOrder).toEqual([executionReport]);
 
-		await waitFor(() => archive.rows.length === 4);
+		await waitFor(() => archive.rows.length >= 4);
+		expect(archive.rows).toHaveLength(4);
 		for (const table of [
 			"broker_execution.order_events",
 			"market_data.cex_stream_events",
