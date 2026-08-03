@@ -244,7 +244,7 @@ describe("order-book RPC compatibility", () => {
 		}
 	});
 
-	test("provisioned-only rejects request credentials before provider access", async () => {
+	test("environment credentials take precedence over request credentials", async () => {
 		const { exchange, calls } = createOrderBookExchange();
 		server = getServer(
 			testPolicy,
@@ -252,36 +252,31 @@ describe("order-book RPC compatibility", () => {
 			["*"],
 			false,
 			"",
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			{
-				sourcePolicy: "provisioned_only",
-				provisionedProfile: "read_only_key",
-			},
 		);
 		client = createClient(await bindServer(server));
 		const metadata = new grpc.Metadata();
-		metadata.set("api-secret", "must-not-be-used");
+		metadata.set("api-key", "request-key-must-not-win");
+		metadata.set("api-secret", "request-secret-must-not-win");
 
-		await expect(
-			executeAction(
-				client,
-				{
-					action: Action.Call,
-					cex: "binance",
-					symbol: "BTC/USDT",
-					payload: {
-						method: "fetch_order_book_snapshot",
-						depthLimit: "1",
-					},
+		const response = await executeAction(
+			client,
+			{
+				action: Action.Call,
+				cex: "binance",
+				symbol: "BTC/USDT",
+				payload: {
+					method: "fetch_order_book_snapshot",
+					depthLimit: "1",
 				},
-				metadata,
-			),
-		).rejects.toMatchObject({ code: grpc.status.PERMISSION_DENIED });
-		expect(calls.fetchOrderBook).toHaveLength(0);
+			},
+			metadata,
+		);
+
+		expect(JSON.parse(response.result)).toMatchObject({
+			exchange: "binance",
+			symbol: "BTC/USDT",
+		});
+		expect(calls.fetchOrderBook).toHaveLength(1);
 	});
 
 	test("dispatches Maker capability method without invoking a fake CCXT method", async () => {
@@ -359,9 +354,7 @@ describe("order-book RPC compatibility", () => {
 
 	test("archives a typed current snapshot with current-snapshot provenance", async () => {
 		const originalEnabled = process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
-		const originalWriteMode = process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE;
 		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
-		process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE = "canonical";
 		const forwarder = await startForwarderServer();
 		const archiver = BrokerExecutionArchiver.create({
 			source: "broker_read",
@@ -419,11 +412,6 @@ describe("order-book RPC compatibility", () => {
 				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
 			} else {
 				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalEnabled;
-			}
-			if (originalWriteMode === undefined) {
-				delete process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE;
-			} else {
-				process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE = originalWriteMode;
 			}
 		}
 	});

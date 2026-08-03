@@ -113,7 +113,7 @@ function markIncomplete(row: BrokerArchiveRow): BrokerArchiveRow {
 	};
 }
 
-export function buildLegacyOrderBookBackfillRows(
+export function buildLegacyOrderBookMigrationRows(
 	legacy: LegacyOrderBookSnapshot,
 ): BrokerArchiveRow[] {
 	if (
@@ -147,7 +147,7 @@ export function buildLegacyOrderBookBackfillRows(
 	return [...canonical.levels, canonical.summary].map(markIncomplete);
 }
 
-export function buildLegacyOhlcvBackfillRow(
+export function buildLegacyOhlcvMigrationRow(
 	legacy: LegacyCandle,
 ): BrokerArchiveRow {
 	const bar: ParsedOhlcvBar = {

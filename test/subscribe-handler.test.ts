@@ -208,48 +208,35 @@ function createThrowingExchange(
 }
 
 describe("subscribe handler", () => {
-	test("provisioned-only rejects request credentials before broker use", async () => {
-		let watchCalls = 0;
+	test("environment credentials take precedence over request credentials", async () => {
+		const controlledWatch = createControlledWatch();
 		const exchange = {
-			watchTicker: async () => {
-				watchCalls += 1;
-				return { last: 100 };
-			},
+			watchTicker: controlledWatch.watch,
 		} as unknown as Exchange;
 		const { call, state } = createSubscribeCall({
 			cex: "binance",
 			symbol: "BTC/USDT",
 			type: SubscriptionType.TICKER,
 		});
-		call.metadata.set("api-key", "never-log-this-key");
-		const metrics: Array<{ name: string; labels: Record<string, unknown> }> =
-			[];
+		call.metadata.set("api-key", "request-key-must-not-win");
+		call.metadata.set("api-secret", "request-secret-must-not-win");
 		const handler = createSubscribeHandler({
 			brokers: createPool(exchange),
 			whitelistIps: ["*"],
-			credentialPolicy: {
-				sourcePolicy: "provisioned_only",
-				provisionedProfile: "read_only_key",
-			},
-			otelMetrics: {
-				recordCounter: (name, _value, labels) => {
-					metrics.push({ name, labels });
-				},
-			} as never,
 		});
 
-		await handler(call);
+		const handlerPromise = handler(call);
+		await waitFor(() => controlledWatch.calls.length === 1);
+		controlledWatch.resolvers[0]?.({ last: 100 });
+		await waitFor(() => state.writes.length === 1);
+		cancelSubscribeCall(call);
+		controlledWatch.resolvers[1]?.({});
+		await handlerPromise;
 
-		expect(watchCalls).toBe(0);
-		expect(state.destroyed).toBe(true);
-		expect(state.errors).toContainEqual(
-			expect.objectContaining({ code: grpc.status.PERMISSION_DENIED }),
-		);
-		expect(metrics).toContainEqual({
-			name: "cex_request_credentials_rejected_total",
-			labels: { rpc: "Subscribe" },
+		expect(JSON.parse(state.writes[0]?.data ?? "{}")).toMatchObject({
+			last: 100,
 		});
-		expect(JSON.stringify(metrics)).not.toContain("never-log-this-key");
+		expect(controlledWatch.calls).toHaveLength(2);
 	});
 
 	test("keeps a subscription active when close fires without cancellation", async () => {
@@ -416,7 +403,7 @@ describe("subscribe handler", () => {
 		expect(state.endCount).toBe(1);
 	});
 
-	test("archives orderbook snapshot rows to the forwarder", async () => {
+	test("archives canonical orderbook rows without legacy dual-write", async () => {
 		const server = await startForwarderServer();
 		const posts = server.requests;
 		const originalInterval = process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS;
@@ -455,10 +442,10 @@ describe("subscribe handler", () => {
 				asks: [[101, 2]],
 				timestamp: 1_700_000_000_000,
 			});
-			await waitFor(() => archiver.getStats().enqueued >= 5);
+			await waitFor(() => archiver.getStats().enqueued >= 4);
 			// batchSize 1 auto-flushes on enqueue; wait for that post to reach the
 			// forwarder over the real transport rather than racing the round trip.
-			await waitFor(() => archiver.getStats().flushed >= 5);
+			await waitFor(() => archiver.getStats().flushed >= 4);
 			await waitFor(() => controlledWatch.calls.length >= 2);
 			cancelSubscribeCall(call);
 			controlledWatch.resolvers[1]?.({
@@ -482,7 +469,7 @@ describe("subscribe handler", () => {
 			);
 			expect(
 				rows.some((entry) => entry.table === "market_data.orderbook_snapshots"),
-			).toBe(true);
+			).toBe(false);
 			expect(
 				rows.some(
 					(entry) => entry.table === "market_data.cex_order_book_levels",
@@ -493,16 +480,16 @@ describe("subscribe handler", () => {
 					(entry) => entry.table === "market_data.cex_order_book_depth_summary",
 				),
 			).toBe(true);
-			const snapshotRow = rows.find(
-				(entry) => entry.table === "market_data.orderbook_snapshots",
+			const summaryRow = rows.find(
+				(entry) => entry.table === "market_data.cex_order_book_depth_summary",
 			);
-			expect(snapshotRow?.row).toMatchObject({
+			expect(summaryRow?.row).toMatchObject({
 				exchange: "binance",
-				symbol: "BTC/USDT",
+				trading_pair: "BTC-USDT",
 				best_bid: 100,
 				best_ask: 101,
-				bids_price: [100],
-				asks_price: [101],
+				bid_level_count: 1,
+				ask_level_count: 1,
 			});
 
 			await archiver.close();
@@ -521,7 +508,7 @@ describe("subscribe handler", () => {
 		}
 	});
 
-	test("archives OHLCV candle rows to the forwarder", async () => {
+	test("archives canonical OHLCV rows without legacy dual-write", async () => {
 		const server = await startForwarderServer();
 		const posts = server.requests;
 		const originalArchiveEnabled =
@@ -555,10 +542,10 @@ describe("subscribe handler", () => {
 			const handlerPromise = handler(call);
 			await waitFor(() => controlledWatch.calls.length === 1);
 			controlledWatch.resolvers[0]?.([[1_700_000_000_000, 1, 2, 0.5, 1.5, 10]]);
-			await waitFor(() => archiver.getStats().enqueued >= 3);
+			await waitFor(() => archiver.getStats().enqueued >= 2);
 			// batchSize 1 auto-flushes on enqueue; wait for that post to reach the
 			// forwarder over the real transport rather than racing the round trip.
-			await waitFor(() => archiver.getStats().flushed >= 3);
+			await waitFor(() => archiver.getStats().flushed >= 2);
 			await waitFor(() => controlledWatch.calls.length >= 2);
 			cancelSubscribeCall(call);
 			controlledWatch.resolvers[1]?.([[1_700_000_000_000, 1, 2, 0.5, 1.5, 10]]);
@@ -573,13 +560,13 @@ describe("subscribe handler", () => {
 					}>,
 			);
 			expect(rows.some((entry) => entry.table === "market_data.candles")).toBe(
-				true,
+				false,
 			);
 			expect(
 				rows.some((entry) => entry.table === "market_data.cex_ohlcv"),
 			).toBe(true);
 			const candle = rows.find(
-				(entry) => entry.table === "market_data.candles",
+				(entry) => entry.table === "market_data.cex_ohlcv",
 			);
 			expect(candle?.row).toMatchObject({
 				timeframe: "1m",
@@ -698,9 +685,7 @@ describe("subscribe handler", () => {
 	test("keeps stream delivery successful while forwarder failure is durably journaled", async () => {
 		const server = await startForwarderServer(() => ({ status: 503 }));
 		const originalEnabled = process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
-		const originalMode = process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE;
 		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
-		process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE = "canonical";
 		const deadLetterPath = createDeadLetterPath();
 		try {
 			const controlledWatch = createControlledWatch();
@@ -761,11 +746,6 @@ describe("subscribe handler", () => {
 				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
 			} else {
 				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalEnabled;
-			}
-			if (originalMode === undefined) {
-				delete process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE;
-			} else {
-				process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE = originalMode;
 			}
 		}
 	});

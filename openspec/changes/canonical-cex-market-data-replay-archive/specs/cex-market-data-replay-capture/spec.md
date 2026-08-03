@@ -4,7 +4,7 @@
 The system SHALL register the same `ExecuteAction` and `Subscribe` RPC contract in TEE and non-TEE broker deployments, and SHALL NOT use an RPC/action allowlist as the mechanism that distinguishes read-only from write-capable deployments.
 
 #### Scenario: Non-TEE broker starts with the full service
-- **WHEN** a non-TEE broker is started with a read-only credential profile
+- **WHEN** a non-TEE broker is started with exchange credentials whose permissions are read-only
 - **THEN** it MUST register the same broker RPCs and action handlers as a TEE broker
 - **AND** public market-data calls MUST remain available through the normal broker contract
 
@@ -13,29 +13,30 @@ The system SHALL register the same `ExecuteAction` and `Subscribe` RPC contract 
 - **THEN** the selected value MUST affect archival provenance only
 - **AND** it MUST NOT add or remove broker RPC methods
 
-### Requirement: Credential policy establishes non-TEE read-only posture
-The system SHALL make the allowed credential source and provisioned profile explicit deployment policy so a non-TEE read-only deployment cannot be upgraded to write-capable credentials by request metadata or silently change between credentialed and public access.
+### Requirement: Credential resolution follows fixed source precedence
+The system SHALL preserve the broker's established credential resolution order without adding archive-specific credential profiles, credential-source policy, or permission-attestation configuration. A matching environment-loaded broker SHALL take precedence over request-supplied credentials, request metadata SHALL be considered only when no matching environment broker exists, and credentialless public construction SHALL remain the final fallback only for operations that already support public access.
 
-#### Scenario: Provisioned-only credentials are selected
-- **WHEN** a non-TEE deployment is configured with provisioned-only credential policy
-- **THEN** broker construction MUST use its explicitly configured `public` or `read_only_key` profile
-- **AND** request-supplied `api-key` or `api-secret` metadata MUST be rejected with gRPC `PERMISSION_DENIED` before exchange construction
-- **AND** the rejection MUST be observable without logging credential values
+The selected exchange key's actual permissions SHALL establish effective privilege. The broker SHALL NOT infer a read-only or write-capable profile from archive source, deployment type, or credential location.
 
-#### Scenario: Public credential profile is selected
-- **WHEN** a provisioned-only deployment explicitly selects the `public` profile for a public market-data operation
-- **THEN** it MUST construct the exchange without credentials
-- **AND** it MUST NOT use request metadata as a fallback credential source
+#### Scenario: Environment and request credentials are both present
+- **WHEN** a matching environment-loaded broker exists and a request also supplies `api-key` or `api-secret` metadata
+- **THEN** the environment-loaded broker MUST be selected
+- **AND** request credentials MUST NOT replace it
 
-#### Scenario: Read-only key profile is incomplete
-- **WHEN** a provisioned-only deployment selects `read_only_key` but its provisioned key or secret is missing or invalid
-- **THEN** broker construction MUST fail with a typed configuration or authentication error
-- **AND** it MUST NOT silently fall back to credentialless public access
+#### Scenario: Only request credentials are present
+- **WHEN** no matching environment-loaded broker exists and a request supplies a complete supported credential pair
+- **THEN** the broker MUST construct the exchange from the request credentials using the existing in-flight path
+- **AND** archival configuration MUST NOT reject that source
 
-#### Scenario: Read-only permission is operationally attested
-- **WHEN** an exchange does not expose a reliable API for inspecting key permissions
-- **THEN** deployment validation MUST rely on credential provisioning records or operator attestation
-- **AND** validation MUST NOT place, cancel, transfer, deposit, or withdraw real assets to test the key
+#### Scenario: No credentials are present for a public operation
+- **WHEN** neither environment nor request credentials are available and the requested operation supports public exchange access
+- **THEN** the broker MAY construct a credentialless public exchange
+- **AND** it MUST retain the same RPC and action surface
+
+#### Scenario: A non-TEE deployment is intended to be read-only
+- **WHEN** credentials are supplied through either supported source
+- **THEN** deployment and secret provisioning MUST restrict the exchange key to the intended permissions
+- **AND** the archive plane MUST NOT add a credential profile, source-policy, or attestation environment variable to classify that key
 
 ### Requirement: Archive source identity is deployment controlled
 The archive plane SHALL support the closed source identities `broker_read` and `broker_write`, selected from immutable deployment configuration and propagated consistently to every row and batch envelope.
@@ -165,27 +166,27 @@ The archive plane SHALL write ticker, trade, OHLCV, and raw stream records to `m
 - **WHEN** a broker-visible feed payload is accepted for production archive
 - **THEN** `market_data.cex_stream_events` MUST record its redacted payload or reproducible capture metadata, raw-capture identity, raw checksum, and schema version
 
-### Requirement: Legacy candle storage migrates without fabricated provenance
-The system SHALL migrate from `market_data.candles` to `market_data.cex_ohlcv` using staged dual-write, validated backfill, consumer cutover, compatibility views, and reversible deployment controls.
+### Requirement: Legacy candle storage requires table migration before upgrade
+The system SHALL migrate retained rows from `market_data.candles` to `market_data.cex_ohlcv` through a bounded ClickHouse table-to-table migration before deploying the upgraded canonical-only broker. The upgraded broker SHALL always write the latest canonical schema and SHALL NOT expose a runtime legacy/dual/canonical write mode.
 
-#### Scenario: New OHLCV capture is dual-written during migration
-- **WHEN** the candle migration dual-write phase is enabled
-- **THEN** each normalized OHLCV bar MUST populate both `market_data.candles` and `market_data.cex_ohlcv`
-- **AND** parity metrics MUST expose value, closure-state, or version mismatches before cutover
+#### Scenario: Existing deployment is prepared for upgrade
+- **WHEN** an existing broker writes `market_data.candles` and the canonical-only version is scheduled for deployment
+- **THEN** operators MUST apply canonical DDL, quiesce legacy writers, migrate every retained bounded partition, and validate parity before deploying the upgraded broker
+- **AND** any missing row or value mismatch MUST block the upgrade
 
 #### Scenario: Legacy candle lacks raw capture provenance
-- **WHEN** a `market_data.candles` row is backfilled and its original capture bundle, raw identity, or raw checksum is unavailable
+- **WHEN** a `market_data.candles` row is migrated and its original capture bundle, raw identity, or raw checksum is unavailable
 - **THEN** the canonical row MUST record legacy source mode and incomplete provenance
 - **AND** unavailable raw provenance fields MUST remain null rather than be fabricated
 
-#### Scenario: Candle consumer cutover is complete
-- **WHEN** canonical OHLCV parity and replay validation pass for the agreed observation window
-- **THEN** new writes MUST switch to `market_data.cex_ohlcv`
+#### Scenario: Canonical-only broker is deployed
+- **WHEN** canonical OHLCV migration and replay validation pass for every retained migration window
+- **THEN** the upgraded broker MUST write new OHLCV captures only to `market_data.cex_ohlcv`
 - **AND** legacy candle query names and closed-candle semantics MUST remain available through documented compatibility views for the migration retention period
 
 #### Scenario: Candle cutover is rolled back
-- **WHEN** a blocking integrity or replay defect is found after canonical OHLCV cutover
-- **THEN** producers MAY return to the legacy candle write path without dropping canonical data
+- **WHEN** a blocking integrity or replay defect is found after canonical OHLCV deployment
+- **THEN** operators MUST stop the upgraded broker and MAY restore the retained legacy names before rolling back to the previous legacy-writing application version
 - **AND** the defect and affected capture bundles MUST remain diagnosable
 
 ### Requirement: Capture output is replay-consumable
@@ -199,3 +200,8 @@ The system SHALL prove that canonical ClickHouse rows can be selected by exchang
 #### Scenario: Cross-language contract fixture is validated
 - **WHEN** CI runs the broker-to-Maker replay contract fixtures
 - **THEN** the ClickHouse row projection and Maker reader MUST agree on field semantics, timestamps, source modes, and checksum values
+
+#### Scenario: FIET-907 materializes Parquet fixtures
+- **WHEN** the retained reference exporter produces Maker-compatible fixtures
+- **THEN** it MUST query canonical ClickHouse views directly without calling the broker or a connected exchange
+- **AND** fixture materialization, coverage, and replay-bundle assembly MUST remain FIET-907 consumer-side ownership

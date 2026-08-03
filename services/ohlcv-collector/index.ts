@@ -117,10 +117,6 @@ async function run(): Promise<string[]> {
 		undefined,
 		undefined,
 		subscribeBrokerLifecycle,
-		{
-			sourcePolicy: "provisioned_only",
-			provisionedProfile: "public",
-		},
 	);
 	const shutdown = new AbortController();
 	const onSignal = (signal: NodeJS.Signals) => {

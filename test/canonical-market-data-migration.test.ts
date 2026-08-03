@@ -9,8 +9,8 @@ const replayPath = new URL(
 	"../schema/clickhouse/canonical_market_data_replay.sql",
 	import.meta.url,
 );
-const backfillPath = new URL(
-	"../scripts/backfill-canonical-market-data.ts",
+const tableMigrationPath = new URL(
+	"../scripts/migrate-legacy-market-data-to-canonical.ts",
 	import.meta.url,
 );
 
@@ -61,14 +61,15 @@ describe("canonical market-data migration contracts", () => {
 		).toThrow("Invalid replay validation config");
 	});
 
-	test("cutover and rollback preserve both legacy and canonical data", async () => {
+	test("cutover requires a table migration before canonical-only deployment", async () => {
 		const migration = await Bun.file(migrationPath).text();
 		expect(executableSql(migration)).not.toMatch(/\bDROP\b/i);
-		expect(migration).toContain("CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE=dual");
+		expect(migration).not.toContain("CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE");
+		expect(migration).not.toContain("dual-write");
+		expect(migration).toContain("quiesce legacy writers");
 		expect(migration).toContain(
-			"orderbook_snapshots + canonical levels/summary",
+			"scripts/migrate-legacy-market-data-to-canonical.ts",
 		);
-		expect(migration).toContain("candles + cex_ohlcv");
 		expect(migration).toContain("market_data.orderbook_snapshots_legacy");
 		expect(migration).toContain("market_data.candles_legacy");
 		expect(migration).toContain("market_data.candles_closed_legacy");
@@ -76,15 +77,17 @@ describe("canonical market-data migration contracts", () => {
 		expect(migration).toContain("rename—not drop");
 	});
 
-	test("backfill is bounded, dry-run by default, and writes both legacy families", async () => {
-		const backfill = await Bun.file(backfillPath).text();
-		expect(backfill).toContain("CEX_BROKER_BACKFILL_START_TIME_MS");
-		expect(backfill).toContain("CEX_BROKER_BACKFILL_END_TIME_MS");
-		expect(backfill).toContain("CEX_BROKER_CANONICAL_BACKFILL_CONFIRM");
-		expect(backfill).toContain('readLegacyRows("orderbook_snapshots"');
-		expect(backfill).toContain('readLegacyRows("candles"');
-		expect(backfill).toContain("buildLegacyOrderBookBackfillRows");
-		expect(backfill).toContain("buildLegacyOhlcvBackfillRow");
+	test("table migration is bounded, dry-run by default, and reads ClickHouse only", async () => {
+		const migration = await Bun.file(tableMigrationPath).text();
+		expect(migration).toContain("CEX_BROKER_MIGRATION_START_TIME_MS");
+		expect(migration).toContain("CEX_BROKER_MIGRATION_END_TIME_MS");
+		expect(migration).toContain("CEX_BROKER_CANONICAL_MIGRATION_CONFIRM");
+		expect(migration).toContain('readLegacyRows("orderbook_snapshots"');
+		expect(migration).toContain('readLegacyRows("candles"');
+		expect(migration).toContain("buildLegacyOrderBookMigrationRows");
+		expect(migration).toContain("buildLegacyOhlcvMigrationRow");
+		expect(migration).not.toContain("createBroker(");
+		expect(migration).not.toContain("Bun.file(");
 	});
 
 	test("replay is windowed and conflict-preflighted before canonical reads", async () => {

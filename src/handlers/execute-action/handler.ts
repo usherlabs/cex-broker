@@ -12,13 +12,6 @@ import {
 	WithdrawalObservationTracker,
 } from "../../helpers/broker-execution-archive";
 import { Action, getActionName, resolveAction } from "../../helpers/constants";
-import {
-	type CredentialPolicy,
-	CredentialPolicyConfigurationError,
-	hasRequestCredentialMetadata,
-	loadCredentialPolicyFromEnv,
-	resolveCredentialSelection,
-} from "../../helpers/credential-policy";
 import { selectBrokerAccountForCex } from "../../helpers/grpc/broker";
 import { log } from "../../helpers/logger";
 import type { OrderActivityTracker } from "../../helpers/order-activity-tracker";
@@ -45,7 +38,6 @@ export type ExecuteActionDeps = {
 	brokerArchiver?: BrokerExecutionArchiver;
 	orderActivityTracker?: OrderActivityTracker;
 	withdrawalObservationTracker?: WithdrawalObservationTracker;
-	credentialPolicy?: CredentialPolicy;
 };
 
 function isPublicMarketDataAction(
@@ -69,9 +61,6 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 	} = deps;
 	const withdrawalObservationTracker =
 		deps.withdrawalObservationTracker ?? new WithdrawalObservationTracker();
-	const credentialPolicy =
-		deps.credentialPolicy ?? loadCredentialPolicyFromEnv({});
-
 	return async (
 		call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>,
 		callback: grpc.sendUnaryData<ActionResponse>,
@@ -138,25 +127,6 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				);
 			}
 
-			if (
-				credentialPolicy.sourcePolicy === "provisioned_only" &&
-				hasRequestCredentialMetadata(call.metadata)
-			) {
-				void otelMetrics?.recordCounter(
-					"cex_request_credentials_rejected_total",
-					1,
-					{ rpc: "ExecuteAction" },
-				);
-				return wrappedCallback(
-					{
-						code: grpc.status.PERMISSION_DENIED,
-						message:
-							"Request-supplied exchange credentials are forbidden by deployment policy",
-					},
-					null,
-				);
-			}
-
 			const normalizedCex = cex.trim().toLowerCase();
 			const metadata: Metadata = call.metadata;
 			const selectedBrokerAccount = selectBrokerAccountForCex(
@@ -164,43 +134,12 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				brokers,
 				metadata,
 			);
-			let broker: Exchange | null;
-			try {
-				const credentialSelection = resolveCredentialSelection({
-					policy: credentialPolicy,
-					selectedProvisionedBroker: selectedBrokerAccount?.exchange,
-					publicOperation: isPublicMarketDataAction(
-						action,
-						call.request.payload,
-					),
-				});
-				if (credentialSelection.mode === "public") {
-					broker = createPublicBroker(normalizedCex);
-				} else if (credentialSelection.mode === "provisioned") {
-					broker = credentialSelection.broker;
-				} else {
-					broker =
-						selectedBrokerAccount?.exchange ??
-						createBroker(normalizedCex, call.metadata) ??
-						(isPublicMarketDataAction(action, call.request.payload)
-							? createPublicBroker(normalizedCex)
-							: null);
-				}
-			} catch (error) {
-				if (error instanceof CredentialPolicyConfigurationError) {
-					return wrappedCallback(
-						{
-							code:
-								error.kind === "missing_provisioned_broker"
-									? grpc.status.UNAUTHENTICATED
-									: grpc.status.PERMISSION_DENIED,
-							message: error.message,
-						},
-						null,
-					);
-				}
-				throw error;
-			}
+			const broker =
+				selectedBrokerAccount?.exchange ??
+				createBroker(normalizedCex, call.metadata) ??
+				(isPublicMarketDataAction(action, call.request.payload)
+					? createPublicBroker(normalizedCex)
+					: null);
 			if (!broker) {
 				return wrappedCallback(
 					{

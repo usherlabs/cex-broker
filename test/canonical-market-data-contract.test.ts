@@ -23,9 +23,9 @@ import {
 	sha256Canonical,
 } from "../src/helpers/market-data-archive/capture-contract";
 import {
-	buildLegacyOhlcvBackfillRow,
-	buildLegacyOrderBookBackfillRows,
-} from "../src/helpers/market-data-archive/legacy-backfill";
+	buildLegacyOhlcvMigrationRow,
+	buildLegacyOrderBookMigrationRows,
+} from "../src/helpers/market-data-archive/legacy-migration";
 import {
 	buildCanonicalCexStreamEventRow,
 	buildCanonicalOhlcvRow,
@@ -507,7 +507,7 @@ describe("canonical order-book normalization", () => {
 	});
 });
 
-describe("legacy canonical backfill", () => {
+describe("legacy canonical migration", () => {
 	test("leaves unavailable provenance null and is deterministic on rerun", () => {
 		const legacy = {
 			source: "broker_write" as const,
@@ -524,8 +524,8 @@ describe("legacy canonical backfill", () => {
 			asks_size: [3, 4],
 			sequence: 42,
 		};
-		const first = buildLegacyOrderBookBackfillRows(legacy);
-		const second = buildLegacyOrderBookBackfillRows(legacy);
+		const first = buildLegacyOrderBookMigrationRows(legacy);
+		const second = buildLegacyOrderBookMigrationRows(legacy);
 		expect(second).toEqual(first);
 		expect(first).toHaveLength(5);
 		for (const { row } of first) {
@@ -540,8 +540,8 @@ describe("legacy canonical backfill", () => {
 		}
 	});
 
-	test("backfills candles into cex_ohlcv without invented raw evidence", () => {
-		const backfill = buildLegacyOhlcvBackfillRow({
+	test("migrates candles into cex_ohlcv without invented raw evidence", () => {
+		const migrated = buildLegacyOhlcvMigrationRow({
 			deployment_id: "legacy-deploy",
 			exchange: "binance",
 			asset_type: "spot",
@@ -556,8 +556,8 @@ describe("legacy canonical backfill", () => {
 			is_closed: 1,
 			broker_version: 7,
 		});
-		expect(backfill.table).toBe("market_data.cex_ohlcv");
-		expect(backfill.row).toMatchObject({
+		expect(migrated.table).toBe("market_data.cex_ohlcv");
+		expect(migrated.row).toMatchObject({
 			capture_bundle_id: null,
 			raw_capture_id: null,
 			raw_checksum: null,

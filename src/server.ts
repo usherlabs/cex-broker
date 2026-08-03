@@ -7,7 +7,6 @@ import type {
 	BrokerExecutionArchiver,
 	WithdrawalObservationTracker,
 } from "./helpers/broker-execution-archive";
-import type { CredentialPolicy } from "./helpers/credential-policy";
 import type { OrderActivityTracker } from "./helpers/order-activity-tracker";
 import type { OtelMetrics } from "./helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "./proto-package-definition";
@@ -35,7 +34,6 @@ export function getServer(
 	orderActivityTracker?: OrderActivityTracker,
 	withdrawalObservationTracker?: WithdrawalObservationTracker,
 	subscribeBrokerLifecycle?: SubscribeBrokerLifecycle,
-	credentialPolicy?: CredentialPolicy,
 ) {
 	const server = new grpc.Server();
 
@@ -50,7 +48,6 @@ export function getServer(
 			brokerArchiver,
 			orderActivityTracker,
 			withdrawalObservationTracker,
-			credentialPolicy,
 		}),
 		Subscribe: createSubscribeHandler({
 			brokers,
@@ -58,7 +55,6 @@ export function getServer(
 			otelMetrics,
 			brokerArchiver,
 			brokerLifecycle: subscribeBrokerLifecycle,
-			credentialPolicy,
 		}),
 	});
 	return server;

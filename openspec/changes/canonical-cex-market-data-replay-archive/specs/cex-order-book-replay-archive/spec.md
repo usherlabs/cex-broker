@@ -132,25 +132,25 @@ The level logical key SHALL consist of capture bundle, exchange, trading pair, r
 - **AND** canonical views MUST exclude the conflicted key
 - **AND** replay validation MUST fail the affected capture bundle
 
-### Requirement: Legacy order-book storage migrates without fabricated provenance
-The system SHALL migrate from `market_data.orderbook_snapshots` to the canonical level and summary tables using staged dual-write, validated backfill, consumer cutover, and compatibility views.
+### Requirement: Legacy order-book storage requires table migration before upgrade
+The system SHALL migrate retained rows from `market_data.orderbook_snapshots` to the canonical level and summary tables through a bounded ClickHouse table-to-table migration before deploying the upgraded canonical-only broker. The upgraded broker SHALL always write the latest canonical schema and SHALL NOT expose a runtime legacy/dual/canonical write mode.
 
-#### Scenario: New capture is dual-written during migration
-- **WHEN** the order-book migration dual-write phase is enabled
-- **THEN** a new valid snapshot MUST populate both the legacy representation and canonical tables
-- **AND** parity metrics MUST expose row or value mismatches before cutover
+#### Scenario: Existing deployment is prepared for upgrade
+- **WHEN** an existing broker writes `market_data.orderbook_snapshots` and the canonical-only version is scheduled for deployment
+- **THEN** operators MUST apply canonical DDL, quiesce legacy writers, migrate every retained bounded partition, and validate parity before deploying the upgraded broker
+- **AND** any missing row or value mismatch MUST block the upgrade
 
 #### Scenario: Legacy snapshot lacks raw capture identity
-- **WHEN** a legacy row is backfilled and its original raw capture or checksum is unavailable
+- **WHEN** a legacy row is migrated and its original raw capture or checksum is unavailable
 - **THEN** the canonical row MUST record legacy source mode and incomplete provenance
 - **AND** it MUST leave unavailable raw integrity fields null rather than invent them
 
-#### Scenario: Consumer cutover is complete
-- **WHEN** canonical-table parity and replay validation pass for the agreed observation window
-- **THEN** new writes MUST switch to the canonical tables
+#### Scenario: Canonical-only broker is deployed
+- **WHEN** canonical-table migration and replay validation pass for every retained migration window
+- **THEN** the upgraded broker MUST write new order-book captures only to the canonical raw, level, and summary tables
 - **AND** legacy query names MUST remain available through documented compatibility views for the migration retention period
 
 #### Scenario: Canonical cutover is rolled back
-- **WHEN** a blocking integrity or replay defect is found after enabling canonical writes
-- **THEN** producers MAY return to the legacy write path without dropping canonical data
+- **WHEN** a blocking integrity or replay defect is found after canonical deployment
+- **THEN** operators MUST stop the upgraded broker and MAY restore the retained legacy names before rolling back to the previous legacy-writing application version
 - **AND** the defect and affected capture bundles MUST remain diagnosable

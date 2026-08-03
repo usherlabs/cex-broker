@@ -16,10 +16,6 @@ import {
 	createBrokerExecutionArchiverFromEnv,
 	WithdrawalObservationTracker,
 } from "./helpers/broker-execution-archive";
-import {
-	type CredentialPolicy,
-	loadCredentialPolicyFromEnv,
-} from "./helpers/credential-policy";
 import { DepositArchivePoller } from "./helpers/deposit-archive-poller";
 import { FillArchivePoller } from "./helpers/fill-archive-poller";
 import { log } from "./helpers/logger";
@@ -71,7 +67,6 @@ export default class CEXBroker {
 	private fillArchivePoller?: FillArchivePoller;
 	private depositArchivePoller?: DepositArchivePoller;
 	private accountBalanceArchivePoller?: AccountBalanceArchivePoller;
-	private readonly credentialPolicy: CredentialPolicy;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -251,8 +246,6 @@ export default class CEXBroker {
 			this.otelLogs,
 			this.otelMetrics,
 		);
-		this.credentialPolicy = loadCredentialPolicyFromEnv();
-
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
 			...((config ?? { whitelistIps: [] }).whitelistIps ?? []),
@@ -363,7 +356,6 @@ export default class CEXBroker {
 			this.orderActivityTracker,
 			this.withdrawalObservationTracker,
 			undefined,
-			this.credentialPolicy,
 		);
 
 		this.server.bindAsync(

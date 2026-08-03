@@ -1,17 +1,18 @@
--- Operator-run migration template. This file is intentionally not part of
--- automatic schema startup: every phase has an observation/approval boundary.
--- No phase drops a legacy or canonical table.
+-- Operator-run table migration template. This file is intentionally not part
+-- of automatic schema startup. Existing deployments write the legacy schema;
+-- the upgraded broker writes only the latest canonical schema. No phase drops
+-- a legacy or canonical table.
 
--- PHASE 1: apply schema/clickhouse/market_data.sql, then deploy:
---   CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE=dual
--- This dual-writes orderbook_snapshots + canonical levels/summary and
--- candles + cex_ohlcv. Keep the legacy consumer unchanged.
+-- PHASE 1: apply schema/clickhouse/market_data.sql while the existing broker
+-- version remains deployed, then quiesce legacy writers for the migration
+-- window. Do not deploy the canonical-only broker until all following checks
+-- pass.
 
--- PHASE 2: backfill one bounded source-time partition at a time with
--- scripts/backfill-canonical-market-data.ts. Re-running a window is safe:
+-- PHASE 2: migrate every retained bounded source-time partition with
+-- scripts/migrate-legacy-market-data-to-canonical.ts. Re-running a window is safe:
 -- append-only order-book duplicates collapse in canonical views when their
 -- checksums agree, and cex_ohlcv uses ReplacingMergeTree(broker_version).
--- Backfill rows use source_mode=legacy_migration_v1,
+-- Migrated rows use source_mode=legacy_migration_v1,
 -- provenance_complete=0, and NULL bundle/raw identity/raw checksum.
 
 -- PHASE 3: parity checks. Zero mismatches are required for the agreed soak.
@@ -65,11 +66,12 @@ GROUP BY legacy.exchange, trading_pair, legacy.timeframe, legacy.open_time_ms
 HAVING value_mismatches != 0;
 
 -- PHASE 4: validate schema/clickhouse/canonical_market_data_replay.sql for every
--- configured pair/bundle/window, then switch consumers to canonical names.
+-- retained pair and migration window. Any missing row or mismatch blocks the
+-- upgraded deployment.
 
--- PHASE 5: after the retention-period approval, stop the producer dual-write:
---   CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE=canonical
--- The following optional compatibility cutover preserves the old query names.
+-- PHASE 5: switch consumers to canonical names, then deploy the upgraded broker.
+-- The upgraded broker writes only the latest canonical schema. The following
+-- optional compatibility cutover preserves the old query names.
 -- Execute as a reviewed maintenance operation, not during service startup.
 --
 -- RENAME TABLE
@@ -116,9 +118,9 @@ HAVING value_mismatches != 0;
 -- CREATE VIEW market_data.candles_closed AS
 -- SELECT * FROM market_data.candles WHERE is_closed = 1;
 
--- ROLLBACK: first restore CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE=legacy (or dual).
--- If compatibility names were switched, rename—not drop—the canonical views,
--- then restore the retained legacy objects:
+-- ROLLBACK: stop the upgraded broker. If compatibility names were switched,
+-- rename—not drop—the canonical views, then restore the retained legacy objects
+-- before rolling the application back to the previous legacy-writing version:
 --
 -- RENAME TABLE
 --   market_data.orderbook_snapshots TO market_data.orderbook_snapshots_canonical_compat,
