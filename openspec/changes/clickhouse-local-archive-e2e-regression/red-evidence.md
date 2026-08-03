@@ -1,4 +1,6 @@
-## Apply-phase RED evidence
+## Historical apply-phase RED evidence — superseded
+
+This evidence predates the canonical-only configuration amendment. It remains as implementation history but does not satisfy amended tasks 3.7 or 3.9 because it expected obsolete dual-write and credential-policy behavior. Fresh behavioral RED evidence is required before removing those surfaces during the next apply phase.
 
 - Captured: 2026-08-03 UTC
 - Command: `bun run test:e2e:archive`

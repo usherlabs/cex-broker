@@ -55,7 +55,7 @@ The archive E2E suite SHALL cover all 15 tables accepted by the baseline forward
 - **AND** a missing, renamed, or unsupported baseline table MUST fail the suite
 
 #### Scenario: Fixture-driven baseline batches are archived
-- **WHEN** deterministic fixture batches for tables not produced by the public-feed lifecycle are posted to the real local `/archive` endpoint
+- **WHEN** deterministic fixture batches for all 15 baseline tables are posted to the real local `/archive` endpoint
 - **THEN** the production body reader, parser, source validation, allowlist, per-table limits, router, batching, and inserter MUST accept the valid rows
 - **AND** ordered ClickHouse queries MUST return the exact expected projected multiset for every target table
 
@@ -78,7 +78,7 @@ The archive E2E suite SHALL drive deterministic ORDERBOOK, TICKER, TRADES, and O
 
 #### Scenario: Deterministic archive configuration is provisioned
 - **WHEN** the lifecycle harness prepares to start before releasing any fake-exchange frame
-- **THEN** it MUST set `CEX_BROKER_ARCHIVE_ENABLED=true` and `CEX_BROKER_MARKET_ARCHIVE_ENABLED=true`, provision a unique writable `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH`, a local `/archive` `CEX_BROKER_ARCHIVE_FORWARDER_URL`, fixed `CEX_BROKER_DEPLOYMENT_ID` and `CEX_BROKER_CAPTURE_BUNDLE_ID` values, and the scenario's explicit archive source and market write mode
+- **THEN** it MUST set `CEX_BROKER_ARCHIVE_ENABLED=true`, `CEX_BROKER_MARKET_ARCHIVE_ENABLED=true`, `CEX_BROKER_ARCHIVE_SOURCE=broker_read`, and `CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT=production`, provision a unique writable `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH`, a local `/archive` `CEX_BROKER_ARCHIVE_FORWARDER_URL`, and fixed `CEX_BROKER_DEPLOYMENT_ID` and `CEX_BROKER_CAPTURE_BUNDLE_ID` values
 - **AND** it MUST either disable archive authentication at both ends or give `CEX_BROKER_ARCHIVE_FORWARDER_TOKEN` and `ARCHIVE_FORWARDER_TOKEN` the same fixed value
 - **AND** missing or inconsistent setup MUST fail before any frame is released or lifecycle assertion is reported as passing
 
@@ -97,6 +97,11 @@ The archive E2E suite SHALL drive deterministic ORDERBOOK, TICKER, TRADES, and O
 - **THEN** ClickHouse Local queries MUST find the expected feed-specific rows under the fixed deployment and capture identity
 - **AND** the test MUST wait on explicit frame, flush, and query barriers rather than arbitrary sleeps
 
+#### Scenario: Removed archive and credential configuration remains absent
+- **WHEN** the suite audits production code, test support, scripts, workflows, and operational configuration
+- **THEN** no executable path may read, set, or branch on `CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE`, `CEX_BROKER_CREDENTIAL_SOURCE_POLICY`, `CEX_BROKER_PROVISIONED_CREDENTIAL_PROFILE`, `CEX_BROKER_CREDENTIAL_ATTESTATION_KIND`, or `CEX_BROKER_CREDENTIAL_ATTESTATION_REFERENCE`
+- **AND** server and handler wiring MUST NOT accept an equivalent credential-policy, profile, permission-attestation, or market write-mode object
+
 ### Requirement: Canonical lifecycle output is restricted to the prerequisite inventory
 The archive E2E suite SHALL bind raw and normalized output to the prerequisite's closed inventory. Raw captures MUST use `market_data.cex_stream_events`; normalized ticker and trade rows MUST use `market_data.cex_ticker_events` and `market_data.cex_trades`; and post-baseline normalized rows MUST use only `market_data.cex_ohlcv`, `market_data.cex_order_book_levels`, and `market_data.cex_order_book_depth_summary`. View assertions MUST use the named views `market_data.cex_ohlcv_closed`, `market_data.cex_order_book_levels_canonical`, `market_data.cex_order_book_levels_conflicts`, `market_data.cex_order_book_depth_summary_canonical`, and `market_data.cex_order_book_depth_summary_conflicts`.
 
@@ -105,54 +110,44 @@ The archive E2E suite SHALL bind raw and normalized output to the prerequisite's
 - **THEN** the post-baseline supported base tables MUST be exactly `market_data.cex_ohlcv`, `market_data.cex_order_book_levels`, and `market_data.cex_order_book_depth_summary`
 - **AND** every named canonical and conflict view MUST execute against its corresponding base table
 
-#### Scenario: Additive output is evaluated
-- **WHEN** dual or canonical lifecycle output is queried
+#### Scenario: Canonical output is evaluated
+- **WHEN** canonical-only lifecycle output is queried
 - **THEN** additive rows MUST be classified by the named raw or normalized destination and the lifecycle identity
 - **AND** an unexpected table, view substitution, or unclassified extra row MUST fail the suite rather than be accepted as arbitrary additive output
 
-### Requirement: Dual-write mode preserves exact legacy market output
-In the legacy regression lifecycle, the suite SHALL set `CEX_BROKER_ARCHIVE_SOURCE=broker_write` and `CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE=dual`. ORDERBOOK, TICKER, TRADES, and OHLCV MUST retain the exact pre-canonical legacy rows and values, while the suite SHALL accept only the closed canonical inventory as separately asserted additive output. The suite MUST NOT infer archive source or write mode from credentials, TEE state, provider, or feed type, and pure `legacy` write mode is outside this lifecycle matrix.
+### Requirement: The upgraded lifecycle remains canonical-only
+The composed runtime lifecycle SHALL exercise the upgraded writer exactly as deployed: every accepted public market-data frame SHALL emit only the latest canonical archive inventory. The suite MUST NOT require or provide runtime legacy/dual/canonical selection. Historical storage compatibility SHALL be verified independently through the immutable fixture and production HTTP forwarder path.
 
-#### Scenario: ORDERBOOK is dual-written
-- **WHEN** the deterministic ORDERBOOK frame is archived with source `broker_write` and write mode `dual`
-- **THEN** `market_data.orderbook_snapshots` MUST match the baseline projection exactly, including event and received times, depth arrays, sequence, and computed top-of-book values
-- **AND** the linked raw row in `market_data.cex_stream_events`, level rows in `market_data.cex_order_book_levels`, and summary row in `market_data.cex_order_book_depth_summary` MUST be asserted separately without changing or duplicating that legacy row
+#### Scenario: Current producer archives ORDERBOOK and OHLCV
+- **WHEN** the deterministic ORDERBOOK and OHLCV frames traverse the upgraded runtime
+- **THEN** ORDERBOOK MUST write raw stream, canonical level, and canonical depth-summary rows and OHLCV MUST write raw stream and `market_data.cex_ohlcv` rows
+- **AND** the lifecycle MUST write no `market_data.orderbook_snapshots` or `market_data.candles` row for its identity
 
-#### Scenario: TICKER and TRADES retain their legacy projections
-- **WHEN** deterministic TICKER and TRADES frames are archived in the legacy regression lifecycle
-- **THEN** `market_data.cex_ticker_events` and `market_data.cex_trades` MUST contain the exact baseline projected rows and cardinalities
-- **AND** additive provenance columns MUST NOT alter any baseline value
+#### Scenario: Historical market rows are checked
+- **WHEN** pre-canonical ORDERBOOK, TICKER, TRADES, OHLCV, and raw-stream fixture rows are tested
+- **THEN** they MUST traverse the production HTTP parser, source validation, router, schema, inserter, and query-back path
+- **AND** their exact compatibility MUST NOT depend on current producer output or a runtime write-mode switch
 
-#### Scenario: OHLCV is dual-written
-- **WHEN** deterministic forming and closed OHLCV data is archived in the legacy regression lifecycle
-- **THEN** `market_data.candles` and its baseline closed-candle query semantics MUST match the fixture's exact projections and replacement behavior
-- **AND** additive `market_data.cex_ohlcv` output and `market_data.cex_ohlcv_closed` query behavior MUST be verified separately
+#### Scenario: A runtime write-mode branch is introduced
+- **WHEN** executable production, E2E, or smoke code adds a legacy/dual/canonical selector or conditionally emits legacy rows from the upgraded producer
+- **THEN** the regression suite MUST fail
+- **AND** setting an unrecognized removed variable MUST NOT be treated as a supported way to alter canonical output
 
-#### Scenario: Dual mode retains one raw capture per feed identity
-- **WHEN** the deterministic dual lifecycle archives accepted ORDERBOOK, TICKER, TRADES, and OHLCV frames
-- **THEN** `market_data.cex_stream_events` MUST contain at least one raw row for each of the four feed identities under the fixed capture bundle
-- **AND** each raw row MUST link by `capture_bundle_id` and `raw_capture_id` to that feed's normalized output in the closed canonical inventory
-
-#### Scenario: Legacy compatibility is broken
-- **WHEN** any of the four feeds omits a baseline row, changes a projected value, changes a fixed timestamp or identifier, or creates an extra legacy row
-- **THEN** `test:e2e:archive` MUST fail
-- **AND** valid additive canonical output MUST NOT mask the failure
-
-### Requirement: Canonical mode proves stored linkage, provenance, and checksums
-In the canonical integrity lifecycle, the suite SHALL set `CEX_BROKER_ARCHIVE_SOURCE=broker_read` and `CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE=canonical`. Every public feed MUST store a raw capture in `market_data.cex_stream_events` linked to its normalized output in the closed canonical inventory, and the suite MUST verify integrity from queried storage values rather than trusting only producer-side objects. The source and mode MUST NOT be inferred from credentials, TEE state, provider, or feed type.
+### Requirement: Canonical-only capture proves stored linkage, provenance, and checksums
+The canonical integrity lifecycle SHALL set `CEX_BROKER_ARCHIVE_SOURCE=broker_read`. Every public feed MUST store a raw capture in `market_data.cex_stream_events` linked to its normalized output in the closed canonical inventory, and the suite MUST verify integrity from queried storage values rather than trusting only producer-side objects. Source MUST remain deployment-controlled provenance and MUST NOT be inferred from credentials, TEE state, provider, or feed type.
 
 #### Scenario: Canonical ORDERBOOK is stored
-- **WHEN** a deterministic ORDERBOOK frame is archived in canonical mode
+- **WHEN** a deterministic ORDERBOOK frame is archived by the upgraded writer
 - **THEN** one `market_data.cex_stream_events` raw capture, `market_data.cex_order_book_levels` rows, and one `market_data.cex_order_book_depth_summary` row MUST share the fixed capture bundle, raw capture, snapshot, provider, exchange, pair, schema, and source identities
 - **AND** the lifecycle MUST write no legacy `orderbook_snapshots` row for that identity
 
 #### Scenario: Canonical TICKER, TRADES, and OHLCV are stored
-- **WHEN** deterministic TICKER, TRADES, and OHLCV frames are archived in canonical mode
+- **WHEN** deterministic TICKER, TRADES, and OHLCV frames are archived by the upgraded writer
 - **THEN** rows in `market_data.cex_ticker_events`, `market_data.cex_trades`, and `market_data.cex_ohlcv` MUST link to their corresponding `market_data.cex_stream_events` raw rows and carry `broker_read`, capture bundle, provider, source mode, schema version, and source/received time provenance
 - **AND** the lifecycle MUST write no legacy `candles` row for that identity
 
-#### Scenario: Canonical mode retains one raw capture per feed identity
-- **WHEN** the deterministic canonical lifecycle archives accepted ORDERBOOK, TICKER, TRADES, and OHLCV frames
+#### Scenario: Canonical lifecycle retains one raw capture per feed identity
+- **WHEN** the deterministic lifecycle archives accepted ORDERBOOK, TICKER, TRADES, and OHLCV frames
 - **THEN** `market_data.cex_stream_events` MUST contain at least one raw row for each of the four feed identities under the fixed capture bundle
 - **AND** every normalized row MUST reference the corresponding raw row's `capture_bundle_id` and `raw_capture_id`
 
@@ -225,11 +220,11 @@ The repository SHALL expose `test:e2e:archive` as a dedicated serialized command
 - **THEN** it MUST exclude the dedicated archive E2E files so the expensive suite is not run twice
 - **AND** all existing unit and integration tests, including the ClickHouse-server suite when its server is provisioned, MUST remain present
 
-### Requirement: Live CEX smoke coverage is bounded, read-only, and non-gating
-The repository SHALL provide `test:smoke:archive` in a scheduled/manual workflow that is not a pull-request trigger or merge requirement. The workflow MUST use provisioned credentials attested as read-only and MUST invoke only public ORDERBOOK, TICKER, TRADES, and OHLCV subscription operations.
+### Requirement: Live CEX smoke coverage is bounded, public-only, credentialless, and non-gating
+The repository SHALL provide `test:smoke:archive` in a scheduled/manual workflow that is not a pull-request trigger or merge requirement. The workflow MUST use the existing credentialless public exchange-construction path and MUST invoke only public ORDERBOOK, TICKER, TRADES, and OHLCV subscription operations. It MUST NOT introduce a credential profile, credential-source policy, permission attestation, or dedicated smoke exchange-key configuration.
 
 #### Scenario: Scheduled or manual smoke succeeds
-- **WHEN** the smoke workflow receives valid read-only configuration and each public feed is available within its timeout
+- **WHEN** each configured public feed is available without exchange credentials within its timeout
 - **THEN** every feed MUST archive at least one valid raw row linked to at least one valid normalized canonical row under a unique smoke capture bundle
 - **AND** the workflow MUST clean up its broker, streams, forwarder, ClickHouse Local path, and temporary files within a bounded deadline
 
@@ -238,8 +233,13 @@ The repository SHALL provide `test:smoke:archive` in a scheduled/manual workflow
 - **THEN** it MUST use only public market-data Subscribe types
 - **AND** it MUST NOT invoke `ExecuteAction`, account streams, order placement, cancellation, deposits, withdrawals, transfers, or asset movement
 
+#### Scenario: Smoke configuration is inspected
+- **WHEN** the scheduled/manual workflow and smoke entry point are reviewed
+- **THEN** they MUST provide no exchange API key, exchange API secret, credential policy, credential profile, or permission attestation
+- **AND** archive-forwarder authentication MAY use its existing matched token because that token authenticates the local archive sink rather than a CEX account
+
 #### Scenario: Smoke prerequisite or feed is unavailable
-- **WHEN** credentials, the pinned binary, schema initialization, any required feed, raw linkage, normalized linkage, or cleanup deadline is unavailable
+- **WHEN** the pinned binary, schema initialization, any required public feed, raw linkage, normalized linkage, or cleanup deadline is unavailable
 - **THEN** the smoke workflow MUST report a failing run rather than silently skip the missing assertion
 - **AND** that failure MUST remain non-merge-gating
 

@@ -4,7 +4,7 @@ The archive path has strong tests at individual boundaries but no required test 
 
 The prerequisite `canonical-cex-market-data-replay-archive` change adds canonical raw, order-book, ticker, trade, and OHLCV behavior. Its OpenSpec is anchored at commit `64fdf0607a234be05bac98f3edd3125e2c05d083`; that commit changes only OpenSpec artifacts relative to its parent, `d20daf895616cdce1cff65a8191c0bb937583c6a`, so its runtime tree is the pre-canonical baseline. This regression change is authored separately and does not edit the canonical change artifacts, but its implementation tasks begin only after the canonical runtime implementation is integrated.
 
-Apply-time prerequisite audit: the published canonical runtime implementation at `d018a386b55058bccb71b0feb4ea21358b8bd8d9` is integrated as an ancestor of this worktree. Its canonical OpenSpec artifacts are byte-identical to that prerequisite commit and pass strict validation; this regression change does not edit them.
+Apply-time prerequisite correction: the canonical runtime implementation at `d018a386b55058bccb71b0feb4ea21358b8bd8d9` was superseded by corrected commit `2730a00a0fcd6cbafbcb03cb432fa7f4224d269a`. The corrected commit removes credential profile/source-policy/attestation behavior, removes the runtime archive write-mode switch and legacy row builders from the upgraded writer, and renames backfill configuration and tooling to migration terminology. Applying this regression change requires that corrected commit as an ancestor. Its final canonical OpenSpec artifacts remain prerequisite-owned and are not amended here.
 
 The existing architecture already exposes the required seams. `getServer` accepts an injected broker pool, allowing a deterministic fake `Exchange` to drive the real Subscribe handler. The production collector service constructs the multi-feed gRPC Subscribe client implemented in `services/ohlcv-collector/collector.ts`; that service path, rather than a research watcher or fake gRPC server, is the collector under test. The archive writer uses the production `node:http` transport. The forwarder request handler accepts the existing production `RowInserter` interface. A test-only ClickHouse Local adapter can therefore replace only the network transport below that interface while leaving the production collector, writer, HTTP contract, parser, router, batching, and DDL in the tested path.
 
@@ -17,7 +17,8 @@ Repository dependency direction remains `server -> handlers -> helpers`. The E2E
 - Make a complete deterministic archive lifecycle a required, non-skipping CI gate.
 - Preserve every pre-canonical table and legacy value represented by an immutable 15-table golden fixture.
 - Prove all four public feeds traverse the real collector, gRPC server, Subscribe handler, archive writer, HTTP forwarder handler, router, schema, storage engine, and query-back path.
-- Prove canonical linkage, provenance, checksums, duplicate semantics, and checksum-conflict visibility in `broker_read` canonical mode.
+- Prove canonical linkage, provenance, checksums, duplicate semantics, and checksum-conflict visibility for the canonical-only writer under source `broker_read`.
+- Prevent the regression harness, live smoke, and production runtime from reintroducing removed write-mode or credential-classification configuration.
 - Prove blocked and failed archival remains asynchronous to gRPC delivery and that retry or terminal journaling accounts exactly for undelivered rows.
 - Keep a bounded live-CEX smoke workflow for environmental and provider drift without making live network behavior a merge requirement.
 
@@ -26,6 +27,7 @@ Repository dependency direction remains `server -> handlers -> helpers`. The E2E
 - Validate the production `@clickhouse/client` HTTP transport with ClickHouse Local; the existing ClickHouse-server integration suite remains responsible for that boundary.
 - Change protobufs, registered RPCs, public APIs, archive wire formats, or production deployment topology solely to support the test.
 - Modify the canonical archive OpenSpec, weaken its requirements, or revise its baseline implicitly.
+- Restore runtime legacy/dual/canonical write selection, credential profiles, credential-source policy, permission attestations, or broker-side read-only classification.
 - Use live CEX data for deterministic regression assertions, place orders, submit transfers, inspect private account state, or move assets.
 - Treat ClickHouse Local as a production substitute for ClickHouse server behavior such as networking, authentication, replication, or operational configuration.
 
@@ -90,9 +92,9 @@ ClickHouseLocalHarness RowInserter -> actual schema/tables/views
 explicit ordered JSON queries and fixture comparison
 ```
 
-The fake exchange supplies controlled ORDERBOOK, TICKER, TRADES, and OHLCV promises. The server receives it through the existing broker-pool injection with a provisioned profile suitable for a fake read-only broker. The harness imports the production collector implementation used by `services/ohlcv-collector/index.ts`, supplies four production subscription configurations, and observes its real gRPC client and feed metrics. It does not substitute a one-off research watcher or fake gRPC service.
+The fake exchange supplies controlled ORDERBOOK, TICKER, TRADES, and OHLCV promises. The server receives it through the existing environment-equivalent broker-pool injection; no credential profile or source-policy object is passed into server wiring. The harness imports the production collector implementation used by `services/ohlcv-collector/index.ts`, supplies four production subscription configurations, and observes its real gRPC client and feed metrics. It does not substitute a one-off research watcher or fake gRPC service.
 
-Before releasing any frame, the lifecycle provisions a fixed clock and payload timestamps plus the production archive controls: `CEX_BROKER_ARCHIVE_ENABLED=true`, `CEX_BROKER_MARKET_ARCHIVE_ENABLED=true`, a unique writable `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH`, a local `/archive` `CEX_BROKER_ARCHIVE_FORWARDER_URL`, fixed `CEX_BROKER_DEPLOYMENT_ID` and `CEX_BROKER_CAPTURE_BUNDLE_ID` values, and the matrix-specific source and write mode. Authentication is either disabled at both ends or uses the same fixed value for writer-side `CEX_BROKER_ARCHIVE_FORWARDER_TOKEN` and handler-side `ARCHIVE_FORWARDER_TOKEN`. Setup must complete before frame release so a missing URL, journal path, token, identity, or mode is reported as a harness prerequisite failure rather than lifecycle RED evidence.
+Before releasing any frame, the lifecycle provisions a fixed clock and payload timestamps plus the retained production archive controls: `CEX_BROKER_ARCHIVE_ENABLED=true`, `CEX_BROKER_MARKET_ARCHIVE_ENABLED=true`, `CEX_BROKER_ARCHIVE_SOURCE=broker_read`, `CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT=production`, a unique writable `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH`, a local `/archive` `CEX_BROKER_ARCHIVE_FORWARDER_URL`, and fixed `CEX_BROKER_DEPLOYMENT_ID` and `CEX_BROKER_CAPTURE_BUNDLE_ID` values. Authentication is either disabled at both ends or uses the same fixed value for writer-side `CEX_BROKER_ARCHIVE_FORWARDER_TOKEN` and handler-side `ARCHIVE_FORWARDER_TOKEN`. Setup must complete before frame release so a missing URL, journal path, token, source, environment, or identity is reported as a harness prerequisite failure rather than lifecycle RED evidence.
 
 The test HTTP listener performs the same method/path dispatch for `/archive` and delegates to `handleArchiveRequest` with real telemetry and the harness inserter. It intentionally does not start `services/archive-forwarder/index.ts`, because that entry point constructs the production network client which ClickHouse Local cannot serve.
 
@@ -120,7 +122,7 @@ Alternative considered: derive expected rows from current builders during every 
 
 ### 6. Lifecycle and fixture-driven coverage have different responsibilities
 
-The all-four-feed lifecycle proves the runtime composition and protects the baseline market-data outputs. The remaining baseline tables are exercised through deterministic HTTP batches sent to the real forwarder endpoint, proving request-body parsing, source validation, table allowlisting, per-table routing and limits, ClickHouse insertion, and ordered query-back.
+The all-four-feed lifecycle proves current canonical-only runtime composition. All 15 baseline tables, including the five historical market-data destinations, are independently exercised through deterministic HTTP batches sent to the real forwarder endpoint, proving request-body parsing, source validation, table allowlisting, per-table routing and limits, ClickHouse insertion, and ordered query-back. Historical compatibility therefore does not depend on or imply runtime dual-write behavior.
 
 For each baseline table, the suite verifies the table remains accepted, every baseline projected column accepts the fixture value, and queried rows match the exact ordered expected multiset. Additive columns are ignored only by using the committed explicit projection. Extra rows are not accepted in a legacy comparison merely because canonical output is additive; permitted additive output is named and queried separately in canonical or raw-ledger tables.
 
@@ -131,24 +133,21 @@ The canonical inventory is closed and classified as follows:
 - the three post-baseline supported base tables are `market_data.cex_ohlcv`, `market_data.cex_order_book_levels`, and `market_data.cex_order_book_depth_summary`; and
 - query-only assertion targets are `market_data.cex_ohlcv_closed`, `market_data.cex_order_book_levels_canonical`, `market_data.cex_order_book_levels_conflicts`, `market_data.cex_order_book_depth_summary_canonical`, and `market_data.cex_order_book_depth_summary_conflicts`.
 
-Because raw, ticker, and trade canonical records reuse baseline tables, dual-mode allowlisting distinguishes canonical row identities from baseline legacy row identities rather than treating the whole table as additive. Views are queried but never treated as write destinations. Output outside this inventory is not accepted merely because it is additive.
+Because raw, ticker, and trade canonical records reuse baseline tables, lifecycle identities distinguish current canonical rows from fixture-driven historical rows rather than treating the whole table as additive. Views are queried but never treated as write destinations. Output outside this inventory is not accepted merely because it is additive.
 
 This division does not claim that strategy or private-account rows originate from public subscription feeds. It tests their actual archive-forwarder contract while reserving the real subscription lifecycle for the four feeds that produce it.
 
-### 7. Archive source and write mode are explicit independent test axes
+### 7. Runtime capture is canonical-only and source remains provenance
 
-The regression matrix uses explicit pairs:
+The real lifecycle uses `CEX_BROKER_ARCHIVE_SOURCE=broker_read`, which is the source required by the production FIET-901 collector. Archive source remains deployment-controlled provenance and is not inferred from credentials, feed, provider, or TEE state. The upgraded runtime always emits the latest canonical inventory and exposes no legacy/dual/canonical selection.
 
-| Purpose | Archive source | Market write mode | Required result |
-|---|---|---|---|
-| Legacy regression | `broker_write` | `dual` | Exact baseline ORDERBOOK, TICKER, TRADES, and OHLCV projections plus separately accepted canonical additions |
-| Canonical integrity | `broker_read` | `canonical` | Provenance-complete raw and normalized canonical outputs without legacy order-book/candle writes |
+Historical `broker_write` rows remain valid fixture inputs because `broker_write` is still a supported provenance identity. Their acceptance and exact values are tested through the all-table HTTP path, not by asking the upgraded producer to recreate them.
 
-The suite sets the source only through `CEX_BROKER_ARCHIVE_SOURCE` and the migration phase only through `CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE`. It does not infer source from feed, credentials, TEE state, or write mode. Pure `legacy` write mode is outside this lifecycle matrix; the immutable fixture and all-table HTTP coverage continue to protect pre-canonical storage compatibility. This preserves the canonical design's separation between deployment provenance and migration phase.
+The suite includes a configuration-surface guard covering executable code, tests, scripts, workflows, and operational documentation. It rejects restoration of `CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE`, `CEX_BROKER_CREDENTIAL_SOURCE_POLICY`, `CEX_BROKER_PROVISIONED_CREDENTIAL_PROFILE`, `CEX_BROKER_CREDENTIAL_ATTESTATION_KIND`, or `CEX_BROKER_CREDENTIAL_ATTESTATION_REFERENCE`, along with equivalent `writeMode`, credential-policy, profile, or attestation branches. Explicit negative assertions in regression artifacts may name a forbidden control, but no runtime or workflow may read, set, or act on it.
 
 ### 8. Canonical assertions recompute integrity from stored data
 
-In both dual and canonical lifecycle modes, each of ORDERBOOK, TICKER, TRADES, and OHLCV must produce at least one `market_data.cex_stream_events` raw row for its feed identity. Each raw row is joined by `capture_bundle_id` and `raw_capture_id` to its normalized output in the closed inventory. Canonical mode additionally verifies exchange/pair/feed identity, provider, source mode, source and received times, schema and checksum versions, and source `broker_read`. Stored raw and normalized checksums are recomputed from the committed contract projection rather than compared only with producer-side values.
+In the canonical-only lifecycle, each of ORDERBOOK, TICKER, TRADES, and OHLCV must produce at least one `market_data.cex_stream_events` raw row for its feed identity. Each raw row is joined by `capture_bundle_id` and `raw_capture_id` to its normalized output in the closed inventory. The suite verifies exchange/pair/feed identity, provider, source mode, source and received times, schema and checksum versions, and source `broker_read`. Stored raw and normalized checksums are recomputed from the committed contract projection rather than compared only with producer-side values.
 
 Duplicate and conflict cases are limited to `market_data.cex_order_book_levels` and `market_data.cex_order_book_depth_summary`. The level logical key is `(capture_bundle_id, exchange, trading_pair, raw_capture_id, snapshot_id, schema_version, side, level_index)`; the summary key omits `side` and `level_index`. Their cases are separate:
 
@@ -176,9 +175,9 @@ The existing conditional ClickHouse-server integration file remains intact. Its 
 
 ### 11. Live CEX smoke is bounded and non-gating
 
-A separate scheduled/manual workflow invokes `test:smoke:archive`; it is not triggered by pull requests and is not a required merge check. It uses provisioned secret-backed credentials that operators attest are read-only, selects only public ORDERBOOK, TICKER, TRADES, and OHLCV subscriptions, and never calls `ExecuteAction` or private account feeds.
+A separate scheduled/manual workflow invokes `test:smoke:archive`; it is not triggered by pull requests and is not a required merge check. It uses the broker's existing credentialless public construction path with no exchange key, secret, credential profile, source policy, or permission attestation. It selects only public ORDERBOOK, TICKER, TRADES, and OHLCV subscriptions and never calls `ExecuteAction` or private account feeds.
 
-Each feed has a bounded connection/first-row timeout and bounded overall cleanup. The workflow uses a unique capture bundle and ClickHouse Local database, archives at least one linked raw/normalized row per feed, and reports failure without weakening deterministic CI. Logs and uploaded diagnostics exclude credentials and raw secret values. A missing credential, binary, feed, link, or cleanup deadline fails the smoke run rather than silently skipping it.
+Each feed has a bounded connection/first-row timeout and bounded overall cleanup. The workflow uses a unique capture bundle and ClickHouse Local database, archives at least one linked raw/normalized row per feed, and reports failure without weakening deterministic CI. Logs and uploaded diagnostics exclude unredacted provider payloads and secret values. A missing binary, unavailable public feed, missing link, or cleanup deadline fails the smoke run rather than silently skipping it.
 
 ### 12. Apply-phase RED evidence is behavioral, not environmental
 
@@ -196,18 +195,19 @@ Expectations are not regenerated or weakened while turning the suite GREEN. A de
 - [Asynchronous loops make rows or identifiers nondeterministic] -> Use controlled promises, one fixed clock, fixed payload times and identifiers, explicit flush/abort barriers, and deterministic query ordering.
 - [Additive canonical data hides duplicate legacy output] -> Compare exact filtered multisets for every legacy projection and whitelist additive tables/rows explicitly.
 - [A live provider is flaky or changes payload shape] -> Keep smoke non-gating, bound timeouts/retries, report feed-specific diagnostics, and never use live results as golden expectations.
-- [Read-only credentials are accidentally broader] -> Restrict code paths to public Subscribe types, use provisioned-only metadata policy, rely on operator scope attestation and exchange-side controls, and never probe permissions with a transaction.
+- [Smoke configuration recreates credential policy] -> Run with an empty broker pool and no request credentials, guard the exact public Subscribe feed/RPC set, and reject dedicated profile, policy, attestation, or smoke-key configuration.
+- [A removed runtime mode is restored by a test convenience] -> Make absence of write-mode and credential-classification configuration a permanent regression assertion across production and test entry points.
 - [The canonical implementation changes before integration] -> Re-read its final artifacts and runtime before applying tasks; any contract divergence is resolved explicitly rather than modifying this baseline silently.
 
 ## Migration Plan
 
-1. Integrate and validate the canonical archive implementation without editing its OpenSpec artifacts from this change.
+1. Integrate and validate corrected canonical archive commit `2730a00a0fcd6cbafbcb03cb432fa7f4224d269a` without editing its final OpenSpec artifacts from this change.
 2. Capture and review the immutable baseline fixture and provenance manifest from the clean baseline commit.
 3. Establish the verified ClickHouse Local bootstrap, then record meaningful failing lifecycle/regression tests.
 4. Add the harness and turn schema, all-table, lifecycle, canonical, duplicate/conflict, and failure-isolation tests GREEN.
 5. Add the dedicated CI step while retaining normal and ClickHouse-server tests; rollback is removal of the new required step only if the test infrastructure itself is proven invalid, not acceptance of a product regression.
-6. Enable the scheduled/manual smoke workflow after secrets are provisioned and scope-attested. Disabling the smoke schedule does not disable deterministic CI.
+6. Enable the scheduled/manual credentialless public smoke workflow. Disabling the smoke schedule does not disable deterministic CI.
 
 ## Open Questions
 
-None. Binary version, baseline commit, table scope, deterministic fake-CEX CI, read-only live smoke, compatibility policy, and gating behavior are fixed by this change.
+None. Binary version, baseline commit, table scope, canonical-only fake-CEX CI, credentialless public live smoke, compatibility policy, and gating behavior are fixed by this change.

@@ -1,4 +1,6 @@
-# Apply-phase GREEN evidence
+# Historical apply-phase GREEN evidence — superseded
+
+These results predate the canonical-only configuration amendment and do not establish conformance with corrected prerequisite commit `2730a00a0fcd6cbafbcb03cb432fa7f4224d269a`. They remain as implementation history; amended task 10.8 requires fresh GREEN evidence after obsolete write-mode, credential-policy, profile, and attestation behavior is removed.
 
 Recorded 2026-08-03 UTC after the canonical runtime prerequisite was integrated.
 
@@ -10,6 +12,6 @@ Recorded 2026-08-03 UTC after the canonical runtime prerequisite was integrated.
 - Static/build validation: `bun run check`, `bun run check:server-lines`, `bun run build:ts`, and `bun run build` passed. Biome reports existing warnings but no errors. `src/server.ts` remains 65 lines and no protobuf source or generated descriptor diff remains.
 - OpenSpec: `openspec validate clickhouse-local-archive-e2e-regression --strict` passed. The canonical prerequisite OpenSpec has no diff.
 - Server-backed integration boundary: `bun test test/clickhouse-schema.integration.test.ts` completed 10/10 tests, but no provisioned ClickHouse server environment was present and the initial transport probe received `ECONNREFUSED`; the retained suite remains the CI/operator-owned `@clickhouse/client` transport boundary.
-- Live smoke: the fail-closed operation guard passed 2/2 tests and the scheduled/manual workflow is installed. A live run was not executed because no attested read-only smoke credentials were available in this session.
+- Live smoke: the pre-amendment operation guard passed 2/2 tests and the scheduled/manual workflow was installed. No live run was executed; this result is superseded by the credentialless public-smoke requirements.
 
 Expected warning/error logs in the required E2E are produced only by the deliberate source-rejection, checksum-conflict, recoverable-inserter-failure, and terminal-inserter-failure scenarios; all corresponding assertions passed.
