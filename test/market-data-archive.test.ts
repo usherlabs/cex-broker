@@ -12,72 +12,9 @@ import {
 	extractTrades,
 	parseTicker,
 } from "../src/helpers/market-data-archive/parse-stream";
-import {
-	buildCandleRow,
-	buildCexStreamEventRow,
-	buildCexTickerEventRow,
-	buildCexTradeRow,
-	buildOrderbookSnapshotRow,
-} from "../src/helpers/market-data-archive/rows";
-import type { NormalizedOrderBookSnapshot } from "../src/helpers/order-book";
-
-function createSnapshot(
-	overrides: Partial<NormalizedOrderBookSnapshot> = {},
-): NormalizedOrderBookSnapshot {
-	return {
-		bids: [[100, 1.5]],
-		asks: [[101, 2]],
-		timestamp: 1_700_000_000_000,
-		receivedTimestamp: 1_700_000_000_123,
-		exchange: "binance",
-		symbol: "BTC/USDT",
-		depthLimit: 5,
-		...overrides,
-	};
-}
+import { buildCexStreamEventRow } from "../src/helpers/market-data-archive/rows";
 
 describe("market data archive rows", () => {
-	test("buildOrderbookSnapshotRow stores TOB scalars and depth arrays", () => {
-		const row = buildOrderbookSnapshotRow({
-			deploymentId: "deploy-a",
-			exchange: "binance",
-			symbol: "BTC/USDT",
-			assetType: "spot",
-			snapshot: createSnapshot({
-				bids: [
-					[100, 1.5],
-					[99.5, 2],
-					[99, 3],
-				],
-				asks: [
-					[101, 2],
-					[101.5, 1.5],
-					[102, 4],
-				],
-				depthLimit: 3,
-			}),
-		});
-
-		expect(row?.table).toBe("market_data.orderbook_snapshots");
-		expect(row?.row).toMatchObject({
-			exchange: "binance",
-			symbol: "BTC/USDT",
-			asset_type: "spot",
-			best_bid: 100,
-			best_ask: 101,
-			bid_size: 1.5,
-			ask_size: 2,
-			bid_levels: 3,
-			ask_levels: 3,
-			bids_price: [100, 99.5, 99],
-			bids_size: [1.5, 2, 3],
-			asks_price: [101, 101.5, 102],
-			asks_size: [2, 1.5, 4],
-		});
-		expect(row?.row.mid).toBeCloseTo(100.5);
-		expect(row?.row.spread_bps).toBeGreaterThan(0);
-	});
-
 	test("splitOrderBookSide ignores malformed levels", () => {
 		expect(
 			splitOrderBookSide(
@@ -85,88 +22,6 @@ describe("market data archive rows", () => {
 				5,
 			).prices,
 		).toEqual([100, 99]);
-	});
-
-	test("buildCandleRow maps OHLCV fields and closed flag", () => {
-		const row = buildCandleRow({
-			context: {
-				deploymentId: "deploy-a",
-				exchange: "binance",
-				symbol: "BTC/USDT",
-				assetType: "swap",
-				timeframe: "5m",
-			},
-			bar: {
-				openTimeMs: 1_700_000_000_000,
-				open: 1,
-				high: 2,
-				low: 0.5,
-				close: 1.5,
-				volume: 100,
-			},
-			isClosed: true,
-			brokerVersion: 1_700_000_000_500,
-			receivedTimestamp: 1_700_000_000_500,
-		});
-
-		expect(row.table).toBe("market_data.candles");
-		expect(row.row).toMatchObject({
-			timeframe: "5m",
-			asset_type: "swap",
-			open_time_ms: 1_700_000_000_000,
-			is_closed: 1,
-			broker_version: 1_700_000_000_500,
-		});
-	});
-
-	test("buildCexTradeRow maps trade fields", () => {
-		const row = buildCexTradeRow(
-			{
-				deploymentId: "deploy-a",
-				exchange: "binance",
-				symbol: "BTC/USDT",
-				assetType: "spot",
-				payload: {},
-				receivedTimestamp: 1_700_000_000_500,
-			},
-			{
-				tradeId: "t-1",
-				eventTimeMs: 1_700_000_000_000,
-				side: "buy",
-				price: 100,
-				amount: 0.5,
-			},
-		);
-
-		expect(row.table).toBe("market_data.cex_trades");
-		expect(row.row).toMatchObject({
-			trade_id: "t-1",
-			side: "buy",
-			price: 100,
-			amount: 0.5,
-		});
-	});
-
-	test("buildCexTickerEventRow maps ticker fields", () => {
-		const row = buildCexTickerEventRow(
-			{
-				deploymentId: "deploy-a",
-				exchange: "binance",
-				symbol: "BTC/USDT",
-				assetType: "spot",
-				payload: { last: 100 },
-				receivedTimestamp: 1_700_000_000_500,
-			},
-			{
-				eventTimeMs: 1_700_000_000_000,
-				last: 100,
-				bid: 99.5,
-				ask: 100.5,
-			},
-		);
-
-		expect(row.table).toBe("market_data.cex_ticker_events");
-		expect(row.row.last).toBe(100);
 	});
 
 	test("buildCexStreamEventRow stores redacted stream payload", () => {

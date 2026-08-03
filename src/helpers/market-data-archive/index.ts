@@ -13,7 +13,6 @@ export {
 	createOhlcvBarTracker,
 	createOrderbookSampler,
 	createOrderbookTobSampler,
-	getMarketArchiveWriteMode,
 } from "./capture";
 export {
 	captureEnvironmentFromEnv,
@@ -36,11 +35,11 @@ export {
 	sha256Canonical,
 } from "./capture-contract";
 export {
-	buildLegacyOhlcvBackfillRow,
-	buildLegacyOrderBookBackfillRows,
+	buildLegacyOhlcvMigrationRow,
+	buildLegacyOrderBookMigrationRows,
 	type LegacyCandle,
 	type LegacyOrderBookSnapshot,
-} from "./legacy-backfill";
+} from "./legacy-migration";
 export {
 	extractLatestOhlcvBar,
 	extractOhlcvBars,
@@ -62,17 +61,11 @@ export {
 } from "./orderbook-sampler";
 export { extractTrades, parseTicker, parseTrade } from "./parse-stream";
 export {
-	buildCandleRow,
 	buildCanonicalCexStreamEventRow,
 	buildCanonicalOhlcvRow,
 	buildCanonicalTickerEventRow,
 	buildCanonicalTradeRow,
 	buildCexStreamEventRow,
-	buildCexTickerEventRow,
-	buildCexTradeRow,
-	buildOrderbookDepthRow,
-	buildOrderbookSnapshotRow,
-	buildOrderbookTobRow,
 } from "./rows";
 export type {
 	CaptureFeed,

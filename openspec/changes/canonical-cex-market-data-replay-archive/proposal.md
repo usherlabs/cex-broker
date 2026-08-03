@@ -5,20 +5,21 @@ The broker already exposes the required CEX market-data streams and truthful ord
 ## What Changes
 
 - Add deployment-controlled archive provenance for `broker_read` and `broker_write` without changing which RPCs the broker service registers.
-- Keep the same full broker service in TEE and non-TEE deployments; non-TEE read-only behavior is established by an explicit provisioned public/read-only credential profile that rejects request-supplied exchange credentials, rather than an application-level RPC surface gate.
+- Keep the same full broker service in TEE and non-TEE deployments and preserve the established credential resolution order: a matching environment-loaded broker takes precedence, request metadata is used only when no environment broker exists, and public construction is the final fallback for supported public operations. Effective privilege comes from the selected exchange key's permissions, not broker-side profiles or gates.
 - Define capture-bundle, provider, source-mode, construction-mode, gap-policy, raw-capture, schema-version, and deterministic checksum fields shared across CEX market-data outputs.
 - Generalize production collection from OHLCV-only supervision to configured `ORDERBOOK`, `TICKER`, `TRADES`, and `OHLCV` feeds for every strategy exchange/pair.
 - Keep direct CCXT/Hummingbot fallback producers outside this broker implementation while requiring any externally supplied fallback rows admitted to the shared contract to preserve venue/pair provenance.
 - Add canonical ClickHouse outputs for order-book levels, order-book depth summaries, and OHLCV, and upgrade stream, ticker, and trade outputs with replay provenance.
 - Normalize sampled top-N order books deterministically and retain truthful evidence semantics; exact L2 and broker historical snapshots remain unsupported unless their advertised capability is implemented and continuity is proven.
-- Migrate legacy `market_data.orderbook_snapshots` and `market_data.candles` through a bounded dual-write/backfill/cutover process without fabricating unavailable legacy provenance.
+- Require a bounded ClickHouse table-to-table migration of legacy `market_data.orderbook_snapshots` and `market_data.candles` before deploying the upgraded canonical-only writer, without fabricating unavailable legacy provenance.
 - Add cross-language contract fixtures and end-to-end validation from broker capture through ClickHouse to Maker-compatible replay rows.
+- Retain the direct ClickHouse-to-Parquet reference exporter as a FIET-907 consumer-side tool; it is not part of the broker runtime or live capture path.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `cex-market-data-replay-capture`: Production collection and archival of broker-read CEX streams with bundle identity, provider provenance, checksums, credential-based deployment posture, and non-blocking durability.
+- `cex-market-data-replay-capture`: Production collection and archival of broker-read CEX streams with bundle identity, provider provenance, checksums, established credential precedence, and non-blocking durability.
 - `cex-order-book-replay-archive`: Canonical order-book level and depth-summary tables, deterministic normalization, evidence-quality rules, integrity metadata, and legacy table migration.
 
 ### Modified Capabilities
@@ -31,5 +32,5 @@ The broker already exposes the required CEX market-data streams and truthful ord
 - `Subscribe` market-data capture helpers and the existing OHLCV collector service, generalized to all required public market feeds.
 - ClickHouse market-data schemas, supported-table allowlists, compatibility views, migrations, and research/replay queries.
 - Order-book normalization and archive row builders; the completed order-book RPC/capability behavior remains backward compatible.
-- Deployment configuration and documentation for TEE and non-TEE credential profiles, including prevention of unapproved request-supplied credential substitution.
-- Maker-facing schema fixtures and integration tests for canonical parquet-compatible replay rows.
+- Documentation and regression coverage for environment-first credential precedence without new credential profile, source-policy, or attestation configuration.
+- Maker-facing schema fixtures, a retained FIET-907 reference exporter, and integration tests for canonical parquet-compatible replay rows.

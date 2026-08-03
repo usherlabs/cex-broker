@@ -19,15 +19,11 @@ import { getOrderbookArchiveDepthLimit } from "./orderbook-depth";
 import { isMarketArchiveEnabled, OrderbookSampler } from "./orderbook-sampler";
 import { extractTrades, parseTicker } from "./parse-stream";
 import {
-	buildCandleRow,
 	buildCanonicalCexStreamEventRow,
 	buildCanonicalOhlcvRow,
 	buildCanonicalTickerEventRow,
 	buildCanonicalTradeRow,
 	buildCexStreamEventRow,
-	buildCexTickerEventRow,
-	buildCexTradeRow,
-	buildOrderbookSnapshotRow,
 } from "./rows";
 import type {
 	CaptureFeed,
@@ -68,20 +64,6 @@ function watchLabels(
 		exchange: input.exchange,
 		symbol: input.symbol,
 	};
-}
-
-type MarketArchiveWriteMode = "legacy" | "dual" | "canonical";
-
-export function getMarketArchiveWriteMode(
-	value = process.env.CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE,
-): MarketArchiveWriteMode {
-	const mode = value?.trim() || "dual";
-	if (mode !== "legacy" && mode !== "dual" && mode !== "canonical") {
-		throw new Error(
-			"CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE must be legacy, dual, or canonical",
-		);
-	}
-	return mode;
 }
 
 function resolveCaptureContext(
@@ -138,43 +120,27 @@ export function archiveOrderbookInBackground(
 
 	queueMicrotask(() => {
 		try {
-			const mode = getMarketArchiveWriteMode();
-			if (mode === "legacy") {
-				const row = buildOrderbookSnapshotRow({
-					...input,
-					source: archiver.getSource(),
-				});
-				if (row) archiver.enqueue(row);
-			} else {
-				const context = resolveCaptureContext(
-					archiver,
-					input,
-					"ORDERBOOK",
-					options?.sourceMode ?? "broker_live_sampling_v1",
-				);
-				const rawCapture = createRawCapture(context, {
-					payload: input.snapshot,
-					eventTimeMs: input.snapshot.timestamp,
-					receivedTimeMs: input.snapshot.receivedTimestamp,
-					scope: "ccxt_normalized_object",
-				});
-				const canonical = buildCanonicalOrderBookRows({
-					context,
-					snapshot: input.snapshot,
-					rawCapture,
-					depthLimit: options?.depthLimit ?? getOrderbookArchiveDepthLimit(),
-				});
-				archiver.enqueue(buildCanonicalCexStreamEventRow(context, rawCapture));
-				for (const row of canonical.levels) archiver.enqueue(row);
-				archiver.enqueue(canonical.summary);
-				if (mode === "dual") {
-					const legacy = buildOrderbookSnapshotRow({
-						...input,
-						source: archiver.getSource(),
-					});
-					if (legacy) archiver.enqueue(legacy);
-				}
-			}
+			const context = resolveCaptureContext(
+				archiver,
+				input,
+				"ORDERBOOK",
+				options?.sourceMode ?? "broker_live_sampling_v1",
+			);
+			const rawCapture = createRawCapture(context, {
+				payload: input.snapshot,
+				eventTimeMs: input.snapshot.timestamp,
+				receivedTimeMs: input.snapshot.receivedTimestamp,
+				scope: "ccxt_normalized_object",
+			});
+			const canonical = buildCanonicalOrderBookRows({
+				context,
+				snapshot: input.snapshot,
+				rawCapture,
+				depthLimit: options?.depthLimit ?? getOrderbookArchiveDepthLimit(),
+			});
+			archiver.enqueue(buildCanonicalCexStreamEventRow(context, rawCapture));
+			for (const row of canonical.levels) archiver.enqueue(row);
+			archiver.enqueue(canonical.summary);
 			void recordWatchMetric(
 				otelMetrics,
 				"cex_watch_frames_archived_total",
@@ -223,18 +189,14 @@ export function archiveOhlcvInBackground(
 				input.payload,
 				input.receivedTimestamp,
 			);
-			const mode = getMarketArchiveWriteMode();
-			const context =
-				mode === "legacy"
-					? undefined
-					: resolveCaptureContext(
-							archiver,
-							input,
-							"OHLCV",
-							input.sourceMode ?? "broker_live_stream_v1",
-						);
+			const context = resolveCaptureContext(
+				archiver,
+				input,
+				"OHLCV",
+				input.sourceMode ?? "broker_live_stream_v1",
+			);
 			const rawCapture =
-				context && candidates.length > 0
+				candidates.length > 0
 					? createRawCapture(context, {
 							payload: input.payload,
 							eventTimeMs:
@@ -243,11 +205,11 @@ export function archiveOhlcvInBackground(
 							scope: "ccxt_normalized_object",
 						})
 					: undefined;
-			if (context && rawCapture) {
+			if (rawCapture) {
 				archiver.enqueue(buildCanonicalCexStreamEventRow(context, rawCapture));
 			}
 			for (const candidate of candidates) {
-				if (context && rawCapture) {
+				if (rawCapture) {
 					archiver.enqueue(
 						buildCanonicalOhlcvRow({
 							context,
@@ -255,17 +217,6 @@ export function archiveOhlcvInBackground(
 							bar: candidate.bar,
 							isClosed: candidate.isClosed,
 							brokerVersion: candidate.brokerVersion,
-						}),
-					);
-				}
-				if (mode !== "canonical") {
-					archiver.enqueue(
-						buildCandleRow({
-							context: { ...input, source: archiver.getSource() },
-							bar: candidate.bar,
-							isClosed: candidate.isClosed,
-							brokerVersion: candidate.brokerVersion,
-							receivedTimestamp: input.receivedTimestamp,
 						}),
 					);
 				}
@@ -349,11 +300,6 @@ export function archiveTradesInBackground(
 			if (!archiver) return [];
 			const trades = extractTrades(input.payload, input.receivedTimestamp);
 			if (trades.length === 0) return [];
-			if (getMarketArchiveWriteMode() === "legacy") {
-				return trades.map((trade) =>
-					buildCexTradeRow({ ...input, source: archiver.getSource() }, trade),
-				);
-			}
 			const context = resolveCaptureContext(
 				archiver,
 				input,
@@ -388,14 +334,6 @@ export function archiveTickerInBackground(
 		() => {
 			const ticker = parseTicker(input.payload, input.receivedTimestamp);
 			if (!ticker || !archiver) return [];
-			if (getMarketArchiveWriteMode() === "legacy") {
-				return [
-					buildCexTickerEventRow(
-						{ ...input, source: archiver.getSource() },
-						ticker,
-					),
-				];
-			}
 			const context = resolveCaptureContext(
 				archiver,
 				input,

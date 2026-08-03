@@ -5,14 +5,14 @@ import type {
 	BrokerArchiveSource,
 } from "../src/helpers/broker-execution-archive/types";
 import {
-	buildLegacyOhlcvBackfillRow,
-	buildLegacyOrderBookBackfillRows,
+	buildLegacyOhlcvMigrationRow,
+	buildLegacyOrderBookMigrationRows,
 	type LegacyCandle,
 	type LegacyOrderBookSnapshot,
-} from "../src/helpers/market-data-archive/legacy-backfill";
+} from "../src/helpers/market-data-archive/legacy-migration";
 
-const startTimeMs = Number(process.env.CEX_BROKER_BACKFILL_START_TIME_MS);
-const endTimeMs = Number(process.env.CEX_BROKER_BACKFILL_END_TIME_MS);
+const startTimeMs = Number(process.env.CEX_BROKER_MIGRATION_START_TIME_MS);
+const endTimeMs = Number(process.env.CEX_BROKER_MIGRATION_END_TIME_MS);
 if (
 	!Number.isSafeInteger(startTimeMs) ||
 	!Number.isSafeInteger(endTimeMs) ||
@@ -20,7 +20,7 @@ if (
 	endTimeMs <= startTimeMs
 ) {
 	throw new Error(
-		"CEX_BROKER_BACKFILL_START_TIME_MS and CEX_BROKER_BACKFILL_END_TIME_MS must define a bounded increasing window",
+		"CEX_BROKER_MIGRATION_START_TIME_MS and CEX_BROKER_MIGRATION_END_TIME_MS must define a bounded increasing window",
 	);
 }
 
@@ -30,7 +30,7 @@ const clickhouse = createClient({
 		`http://${process.env.CLICKHOUSE_HOST?.trim() || "localhost"}:${process.env.CLICKHOUSE_PORT?.trim() || "8123"}`,
 	database: "market_data",
 });
-const confirmed = process.env.CEX_BROKER_CANONICAL_BACKFILL_CONFIRM === "true";
+const confirmed = process.env.CEX_BROKER_CANONICAL_MIGRATION_CONFIRM === "true";
 
 function numberField(row: Record<string, unknown>, field: string): number {
 	const value = Number(row[field]);
@@ -139,10 +139,10 @@ try {
 	]);
 	const canonicalRows = [
 		...legacyBooks.flatMap((row) =>
-			buildLegacyOrderBookBackfillRows(orderBookInput(row)),
+			buildLegacyOrderBookMigrationRows(orderBookInput(row)),
 		),
 		...legacyCandles.map((row) =>
-			buildLegacyOhlcvBackfillRow(candleInput(row)),
+			buildLegacyOhlcvMigrationRow(candleInput(row)),
 		),
 	];
 	console.info(

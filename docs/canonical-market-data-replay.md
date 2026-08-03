@@ -2,9 +2,9 @@
 
 This is the deployment and operations contract for the CEX-broker portions of FIET-901 and FIET-903. FIET-903's broker RPC/capability/current-snapshot/live-stream sub-scope was completed by `cex-broker-order-book-depth-sourcing`; this change adds capture, storage, migration, and replay integrity. It does not add or gate RPCs.
 
-## Deployment identity and credentials
+## Deployment identity and credential precedence
 
-TEE and non-TEE deployments run the same broker binary and register the full `ExecuteAction` and `Subscribe` service. The archive role and credential policy never reduce that service surface.
+TEE and non-TEE deployments run the same broker binary and register the full `ExecuteAction` and `Subscribe` service. Archive role does not reduce that service surface.
 
 Set the deployment-owned archive identity:
 
@@ -20,25 +20,13 @@ CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH=/var/lib/cex-broker/archive-loss.jsonl
 
 `CEX_BROKER_ARCHIVE_SOURCE` is closed to `broker_read|broker_write` and defaults to `broker_write` for existing deployments. The writer stamps this immutable value into envelopes, rows, and loss records. It is never inferred from API-key presence. Production FIET-901 collector startup requires `broker_read` and a non-empty deployment-owned capture bundle. Development capture explicitly uses `CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT=development` and generates a `development:<deployment>` bundle when none is supplied.
 
-Credential source is separately configured:
+Credential resolution uses the broker's established fixed precedence and requires no archive-specific credential configuration:
 
-```env
-CEX_BROKER_CREDENTIAL_SOURCE_POLICY=provisioned_only
-CEX_BROKER_PROVISIONED_CREDENTIAL_PROFILE=read_only_key
-```
+1. Use a matching broker account loaded from `.env`/deployment configuration.
+2. If no matching environment broker exists, use a complete request `api-key` and `api-secret` pair.
+3. If neither source exists, construct a credentialless exchange only for operations that already support public access.
 
-The policy values are `provisioned_only|request_metadata_allowed`; the compatibility default is `request_metadata_allowed`. Profiles are `public|read_only_key`. Under `provisioned_only`, request `api-key` or `api-secret` metadata is rejected with gRPC `PERMISSION_DENIED` before broker construction and only a bounded rejection metric is emitted. A missing `read_only_key` broker fails closed and never becomes a public broker. The `public` profile is limited to typed public market-data operations.
-
-For a non-TEE reader, provision exchange credentials with read-only permissions and disabled trading/withdrawal permissions. That exchange-side permission is the write-operation control; the broker does not expose `readEnabled`/`writeEnabled` gates. Validate the posture non-destructively by checking the provisioned profile, confirming metadata rejection, calling capability/current-snapshot/subscription reads, and reviewing the exchange's API-key permission page or read-only permission endpoint. Do not place an order or move an asset as a validation step.
-
-For `read_only_key`, record how the exchange permission was verified:
-
-```env
-CEX_BROKER_CREDENTIAL_ATTESTATION_KIND=operator_provisioning_record
-CEX_BROKER_CREDENTIAL_ATTESTATION_REFERENCE=vault-policy/read-broker-2026-08-03
-```
-
-The attestation kind is `exchange_permission_api|operator_provisioning_record`; its reference must identify the permission response or provisioning record without containing a secret. Run `bun scripts/check-read-only-deployment.ts` as the non-destructive configuration preflight. A `public` profile produces the built-in `public_no_credentials` attestation. The check explicitly permits only capability, snapshot, and subscription reads and never calls an exchange write operation.
+When environment and request credentials are both present, the environment-loaded broker wins. The broker does not classify keys as public, read-only, or write-capable and does not introduce credential-source or permission-attestation settings. For a non-TEE reader, ensure every credential that deployment or its trusted callers may supply has exchange-side trading and withdrawal permissions disabled. Those exchange permissions—not archive source or credential location—establish effective privilege.
 
 ## Four-feed collector
 
@@ -87,7 +75,7 @@ Canonical storage is:
 
 Use `schema/clickhouse/canonical_market_data_replay.sql` for bounded bundle/exchange/pair/source-time replay. Its conflict preflights must return no rows before consuming the canonical views.
 
-Export a conflict-free order-book window directly to Maker-compatible Parquet files:
+The retained FIET-907 reference exporter materializes a conflict-free order-book window directly from ClickHouse to Maker-compatible Parquet files:
 
 ```bash
 CEX_BROKER_REPLAY_EXPORT_DIRECTORY=/tmp/maker-capture \
@@ -104,30 +92,30 @@ uv run --project research/python --extra dev \
   /tmp/maker-capture/order_book_depth_summary.parquet
 ```
 
-The exporter refuses to overwrite existing files or export a selected window with an order-book checksum conflict. The Python verifier checks capture-core field presence and recomputes every normalized-row checksum from the Parquet values.
+The exporter refuses to overwrite existing files or export a selected window with an order-book checksum conflict. The Python verifier checks capture-core field presence and recomputes every normalized-row checksum from the Parquet values. Neither tool calls the broker or an exchange. Fixture materialization, coverage reports, and replay-bundle assembly are owned by [FIET-907](https://linear.app/usherlabs/issue/FIET-907/clickhouse-backtest-fixture-materializers-and-coveragereplay-bundles), not by the live capture runtime.
 
 For complete strategy-pair validation, point `CEX_BROKER_REPLAY_VALIDATION_CONFIG` at a JSON document whose `windows` array contains `captureBundleIds`, `exchange`, `tradingPair`, `startTimeMs`, and `endTimeMs`, then run `bun scripts/validate-canonical-market-replay.ts`. Every configured window must contain raw and normalized ORDERBOOK, TICKER, TRADES, and OHLCV evidence; any missing feed or checksum conflict fails validation.
 
 ## Migration, cutover, rollback, and soak
 
-`CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE=legacy|dual|canonical` controls new writes and defaults to `dual` during this migration. The same phase covers both `orderbook_snapshots → levels/summary` and `candles → cex_ohlcv`.
+The upgraded broker always writes the latest canonical schema. There is no runtime legacy/dual/canonical write setting. Upgrading an existing legacy deployment therefore requires the ClickHouse table migration before the new broker version is deployed.
 
-Follow `schema/clickhouse/migrations/canonical_market_data_replay_cutover.sql` phase by phase. Backfill only bounded windows:
+Follow `schema/clickhouse/migrations/canonical_market_data_replay_cutover.sql` phase by phase: apply canonical DDL, quiesce legacy writers, migrate every retained bounded window, validate parity, switch consumers, and only then deploy the canonical-only broker.
 
 ```bash
-CEX_BROKER_BACKFILL_START_TIME_MS=1700000000000 \
-CEX_BROKER_BACKFILL_END_TIME_MS=1700086400000 \
-bun run scripts/backfill-canonical-market-data.ts
+CEX_BROKER_MIGRATION_START_TIME_MS=1700000000000 \
+CEX_BROKER_MIGRATION_END_TIME_MS=1700086400000 \
+bun run scripts/migrate-legacy-market-data-to-canonical.ts
 
 # Repeat after reviewing dry-run counts:
-CEX_BROKER_CANONICAL_BACKFILL_CONFIRM=true \
-CEX_BROKER_BACKFILL_START_TIME_MS=1700000000000 \
-CEX_BROKER_BACKFILL_END_TIME_MS=1700086400000 \
-bun run scripts/backfill-canonical-market-data.ts
+CEX_BROKER_CANONICAL_MIGRATION_CONFIRM=true \
+CEX_BROKER_MIGRATION_START_TIME_MS=1700000000000 \
+CEX_BROKER_MIGRATION_END_TIME_MS=1700086400000 \
+bun run scripts/migrate-legacy-market-data-to-canonical.ts
 ```
 
-Legacy backfill stamps `legacy_migration_v1` and `provenance_complete=0`; unavailable bundle/raw ID/raw scope/raw checksum remain `NULL`. Reruns preserve identical logical checksums: order-book canonical views collapse agreeing physical deliveries and OHLCV replacement semantics select the recorded broker version.
+The script reads `market_data.orderbook_snapshots` and `market_data.candles` directly from ClickHouse and writes their canonical equivalents. It never reads fixture files and never calls a broker or exchange. Legacy migration stamps `legacy_migration_v1` and `provenance_complete=0`; unavailable bundle/raw ID/raw scope/raw checksum remain `NULL`. Reruns preserve identical logical checksums: order-book canonical views collapse agreeing physical deliveries and OHLCV replacement semantics select the recorded broker version.
 
 Before cutover, run the parity and replay queries for every configured pair/window and complete an agreed production-like soak. Record feed health, last-frame age, reconnects, unrecoverable gaps, received/archived/invalid/sampled rows, queue saturation, journaled rows, checksum conflicts, parity mismatches, and Maker replay consumption. Any unaccounted row, conflict, parity mismatch, stale feed, or persistent journal growth blocks cutover.
 
-Rollback sets write mode back to `legacy` or `dual`, restores the retained legacy names, and identifies affected capture bundles. The runbook uses renames rather than drops; canonical and legacy base data remain recoverable throughout the retention period.
+Rollback stops the upgraded broker, restores retained legacy names if necessary, and rolls back to the previous legacy-writing application version. The runbook uses renames rather than drops; canonical and legacy base data remain recoverable throughout the retention period.

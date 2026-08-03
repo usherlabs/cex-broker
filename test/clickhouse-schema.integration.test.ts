@@ -12,7 +12,7 @@ import { handleArchiveBatch } from "../services/archive-forwarder/router";
 import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
 import { buildCanonicalOrderBookRows } from "../src/helpers/market-data-archive/canonical-orderbook";
 import { createRawCapture } from "../src/helpers/market-data-archive/capture-contract";
-import { buildLegacyOhlcvBackfillRow } from "../src/helpers/market-data-archive/legacy-backfill";
+import { buildLegacyOhlcvMigrationRow } from "../src/helpers/market-data-archive/legacy-migration";
 import {
 	buildCanonicalCexStreamEventRow,
 	buildCanonicalOhlcvRow,
@@ -275,7 +275,7 @@ describe("ClickHouse market_data schema integration", () => {
 			{ conflicts: "1", replay_rows: "0" },
 		]);
 
-		const legacy = buildLegacyOhlcvBackfillRow({
+		const legacy = buildLegacyOhlcvMigrationRow({
 			deployment_id: TEST_DEPLOYMENT,
 			exchange: "binance",
 			asset_type: "spot",
