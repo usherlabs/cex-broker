@@ -18,7 +18,7 @@ CEX_BROKER_ARCHIVE_FORWARDER_URL=http://archive-forwarder:8090/archive
 CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH=/var/lib/cex-broker/archive-loss.jsonl
 ```
 
-`CEX_BROKER_ARCHIVE_SOURCE` is closed to `broker_read|broker_write` and defaults to `broker_write` for existing deployments. The writer stamps this immutable value into envelopes, rows, and loss records. It is never inferred from API-key presence. Production FIET-901 collector startup requires `broker_read` and a non-empty deployment-owned capture bundle. Development capture explicitly uses `CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT=development` and generates a `development:<deployment>` bundle when none is supplied.
+`CEX_BROKER_ARCHIVE_SOURCE` is closed to `broker_read|broker_write` and defaults to `broker_write` for existing deployments. The writer stamps this immutable value into envelopes, rows, and loss records. It is never inferred from API-key presence. Production market-data collection requires the separately deployed broker to use `broker_read` and a non-empty deployment-owned capture bundle. Development capture explicitly uses `CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT=development` and generates a `development:<deployment>` bundle when none is supplied.
 
 Credential resolution uses the broker's established fixed precedence and requires no archive-specific credential configuration:
 
@@ -51,8 +51,6 @@ CEX_BROKER_MARKET_DATA_COLLECTOR_CONFIG=/etc/cex-broker/market-data-subscription
 Run it with `bun run start-market-data-collector`. The collector starts no loopback broker, loads no CEX credentials, sends no API-key metadata, owns no archive writer, and does not connect to ClickHouse. The remote broker resolves its environment-first credentials and attaches the production environment, deployment, capture bundle, source, and integrity provenance configured in the preceding section. Collector JSON containing `environment`, `captureBundleId`, or other archive identity is rejected.
 
 Each entry has an independent reconnect supervisor and health state. OHLCV retains bootstrap/catch-up and stamps `broker_bootstrap_fetch_v1` separately from live capture. ORDERBOOK, TICKER, and TRADES record unrecoverable gaps after reconnect rather than synthesize missing events.
-
-`CEX_BROKER_OHLCV_COLLECTOR_CONFIG` remains supported as an OHLCV-only array. Move those entries into the canonical document and add `feed: "OHLCV"`; archive identity stays on the broker. The `start-ohlcv-collector` command and existing service directory/image remain compatibility wrappers for both formats.
 
 An external CCXT or Hummingbot fallback is an optional out-of-band producer of the shared capture contract, not a broker-collector implementation. It must declare its provider, versioned fallback source mode, reason, configured exchange, and configured pair. Cross-venue or cross-pair substitution is rejected.
 
