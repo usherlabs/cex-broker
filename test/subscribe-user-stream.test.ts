@@ -3,6 +3,8 @@ import { Buffer } from "node:buffer";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { Exchange } from "@usherlabs/ccxt";
+import type { BrokerExecutionArchiver } from "../src/helpers/broker-execution-archive";
+import type { BrokerArchiveRow } from "../src/helpers/broker-execution-archive/types";
 import {
 	BinanceSpotUserDataStream,
 	setBinanceUserDataWebSocketFactoryForTests,
@@ -120,12 +122,21 @@ class FakeWebSocket {
 	}
 }
 
-function createBinanceExchange(apiKey: string, secret: string) {
+function createBinanceExchange(
+	apiKey: string,
+	secret: string,
+	options: { balance?: unknown } = {},
+) {
 	const calls = {
 		watchBalance: 0,
 		watchOrders: 0,
 		loadMarkets: 0,
+		market: [] as string[],
+		fetchBalance: [] as Array<{ type: string }>,
+		parseWsOrder: [] as Array<Record<string, unknown>>,
+		safeBalance: [] as Array<Record<string, unknown>>,
 	};
+	const marketsById = new Map<string, { id: string; symbol: string }>();
 	const exchange = {
 		apiKey,
 		secret,
@@ -141,10 +152,83 @@ function createBinanceExchange(apiKey: string, secret: string) {
 		loadMarkets: async () => {
 			calls.loadMarkets += 1;
 		},
-		market: (symbol: string) => ({
-			id: symbol.replace("/", "").toUpperCase(),
-			symbol,
-		}),
+		market: (symbol: string) => {
+			calls.market.push(symbol);
+			const market = {
+				id: symbol.replace("/", "").toUpperCase(),
+				symbol,
+			};
+			marketsById.set(market.id, market);
+			return market;
+		},
+		fetchBalance: async (params: { type: string }) => {
+			calls.fetchBalance.push(params);
+			if (params.type !== "spot") {
+				throw new Error(`unexpected balance type: ${params.type}`);
+			}
+			return (
+				options.balance ?? {
+					free: { BTC: 3 },
+					total: { BTC: 4 },
+				}
+			);
+		},
+		parseWsOrder: (event: Record<string, unknown>) => {
+			calls.parseWsOrder.push(event);
+			if (event.e !== "executionReport") {
+				throw new Error(`unexpected order event: ${String(event.e)}`);
+			}
+			const market = marketsById.get(String(event.s));
+			if (!market) {
+				throw new Error(`market was not loaded: ${String(event.s)}`);
+			}
+			const amount = Number(event.q);
+			const filled = Number(event.z);
+			const cost = Number(event.Z);
+			const average = filled > 0 ? cost / filled : undefined;
+			const orderPrice = Number(event.p);
+			const commission = Number(event.n);
+			return {
+				id: String(event.i),
+				clientOrderId: String(event.c),
+				status:
+					event.X === "FILLED"
+						? "closed"
+						: event.X === "CANCELED"
+							? "canceled"
+							: "open",
+				symbol: market.symbol,
+				amount,
+				filled,
+				price: orderPrice > 0 ? orderPrice : average,
+				timestamp: Number(event.O ?? event.T),
+				...(commission > 0 && {
+					fee: { cost: commission, currency: String(event.N) },
+					fees: [{ cost: commission, currency: String(event.N) }],
+				}),
+			};
+		},
+		safeBalance: (balance: Record<string, unknown>) => {
+			calls.safeBalance.push(balance);
+			const result: Record<string, unknown> = {
+				...balance,
+				free: {},
+				used: {},
+				total: {},
+			};
+			for (const [asset, value] of Object.entries(balance)) {
+				if (["info", "timestamp", "datetime"].includes(asset)) continue;
+				const account = value as { free: string; used: string };
+				const free = Number(account.free);
+				const used = Number(account.used);
+				const normalized = { free, used, total: free + used };
+				result[asset] = normalized;
+				(result.free as Record<string, number>)[asset] = free;
+				(result.used as Record<string, number>)[asset] = used;
+				(result.total as Record<string, number>)[asset] = normalized.total;
+			}
+			return result;
+		},
 		watchBalance: async () => {
 			calls.watchBalance += 1;
 			throw new Error("legacy watchBalance should not be called");
@@ -155,6 +239,17 @@ function createBinanceExchange(apiKey: string, secret: string) {
 		},
 	} as unknown as Exchange;
 	return { exchange, calls };
+}
+
+function createRecordingArchiver() {
+	const rows: BrokerArchiveRow[] = [];
+	const archiver = {
+		isEnabled: () => true,
+		getDeploymentId: () => "test-deployment",
+		getSource: () => "broker_read" as const,
+		enqueue: (row: BrokerArchiveRow) => rows.push(row),
+	} as unknown as BrokerExecutionArchiver;
+	return { archiver, rows };
 }
 
 function createBinancePool(
@@ -197,6 +292,14 @@ async function waitForSocket(): Promise<FakeWebSocket> {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 	}
 	throw new Error("Fake Binance WebSocket was not opened");
+}
+
+async function waitFor(condition: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		if (condition()) return;
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+	throw new Error("Timed out waiting for test condition");
 }
 
 function subscribeOnce(
@@ -259,6 +362,7 @@ describe("Binance Subscribe user-data streams", () => {
 	async function startClient(
 		primaryExchange: Exchange,
 		secondaryExchange: Exchange,
+		brokerArchiver?: BrokerExecutionArchiver,
 	) {
 		server = getServer(
 			testPolicy,
@@ -266,6 +370,8 @@ describe("Binance Subscribe user-data streams", () => {
 			["*"],
 			false,
 			"",
+			undefined,
+			brokerArchiver,
 		);
 		const port = await bindServer(server);
 		client = new grpcObj.cex_broker.cex_service(
@@ -381,27 +487,21 @@ describe("Binance Subscribe user-data streams", () => {
 		}
 	});
 
-	test("streams Binance BALANCE frames through WebSocket API user-data subscription", async () => {
+	test("normalizes outboundAccountPosition as a canonical balance snapshot and archives the raw event", async () => {
 		expect(globalThis.WebSocket).toBeUndefined();
 		const primary = createBinanceExchange("primary-key", "primary-secret");
 		const secondary = createBinanceExchange(
 			"secondary-key",
 			"secondary-secret",
 		);
-		server = getServer(
-			testPolicy,
-			createBinancePool(primary.exchange, secondary.exchange),
-			["*"],
-			false,
-			"",
-		);
-		const port = await bindServer(server);
-		client = new grpcObj.cex_broker.cex_service(
-			`127.0.0.1:${port}`,
-			grpc.credentials.createInsecure(),
+		const archive = createRecordingArchiver();
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
+			archive.archiver,
 		);
 
-		const responsePromise = subscribeOnce(client, {
+		const responsePromise = subscribeOnce(subscribeClient, {
 			cex: "BINANCE",
 			symbol: "BTC/USDT",
 			type: SubscriptionType.BALANCE,
@@ -411,49 +511,146 @@ describe("Binance Subscribe user-data streams", () => {
 			method?: string;
 			params?: { apiKey?: string };
 		};
-		socket.emitEvent({
+		const rawEvent = {
 			e: "outboundAccountPosition",
 			E: 1_564_031_571_105,
-			B: [{ a: "BTC", f: "1.0", l: "0.2" }],
-		});
+			B: [
+				{ a: "BTC", f: "1.0", l: "0.2" },
+				{ a: "USDT", f: "25.5", l: "4.5" },
+			],
+		};
+		socket.emitEvent(rawEvent);
 
 		const response = await responsePromise;
 		expect(subscribeRequest.method).toBe("userDataStream.subscribe.signature");
 		expect(subscribeRequest.params?.apiKey).toBe("primary-key");
-		expect(JSON.parse(response.data)).toMatchObject({
-			subscriptionId: 0,
-			event: { e: "outboundAccountPosition" },
+		expect(JSON.parse(response.data)).toEqual({
+			info: rawEvent,
+			timestamp: rawEvent.E,
+			datetime: new Date(rawEvent.E).toISOString(),
+			BTC: { free: 1, used: 0.2, total: 1.2 },
+			USDT: { free: 25.5, used: 4.5, total: 30 },
+			free: { BTC: 1, USDT: 25.5 },
+			used: { BTC: 0.2, USDT: 4.5 },
+			total: { BTC: 1.2, USDT: 30 },
 		});
 		expect(response.symbol).toBe("BTC/USDT");
 		expect(response.type).toBe("BALANCE");
+		expect(primary.calls.safeBalance).toEqual([
+			{
+				info: rawEvent,
+				timestamp: rawEvent.E,
+				datetime: new Date(rawEvent.E).toISOString(),
+				BTC: { free: "1.0", used: "0.2" },
+				USDT: { free: "25.5", used: "4.5" },
+			},
+		]);
+		expect(primary.calls.fetchBalance).toEqual([]);
 		expect(primary.calls.watchBalance).toBe(0);
 		expect(primary.calls.watchOrders).toBe(0);
+
+		await waitFor(() => archive.rows.length === 2);
+		expect(
+			archive.rows.map((row) => JSON.parse(String(row.row.payload_json))),
+		).toEqual([rawEvent, rawEvent]);
 	});
 
-	test("streams Binance ORDERS frames for the selected secondary account", async () => {
+	test("refreshes the authoritative primary balance for balanceUpdate", async () => {
+		const authoritativeBalance = {
+			free: { BTC: 2.5, USDT: 10 },
+			total: { BTC: 3, USDT: 12 },
+		};
+		const primary = createBinanceExchange("primary-key", "primary-secret", {
+			balance: authoritativeBalance,
+		});
+		const secondary = createBinanceExchange(
+			"secondary-key",
+			"secondary-secret",
+		);
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
+		);
+		const responsePromise = subscribeOnce(subscribeClient, {
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: SubscriptionType.BALANCE,
+		});
+
+		const socket = await waitForSocket();
+		socket.emitEvent({
+			e: "balanceUpdate",
+			E: 1_700_000_000_000,
+			a: "BTC",
+			d: "0.5",
+			T: 1_700_000_000_001,
+		});
+
+		expect(JSON.parse((await responsePromise).data)).toEqual(
+			authoritativeBalance,
+		);
+		expect(primary.calls.fetchBalance).toEqual([{ type: "spot" }]);
+		expect(secondary.calls.fetchBalance).toEqual([]);
+		expect(primary.calls.safeBalance).toEqual([]);
+	});
+
+	test("refreshes externalLockUpdate through the selected secondary account", async () => {
+		const secondaryBalance = {
+			free: { BTC: 7 },
+			total: { BTC: 8 },
+		};
+		const primary = createBinanceExchange("primary-key", "primary-secret");
+		const secondary = createBinanceExchange(
+			"secondary-key",
+			"secondary-secret",
+			{ balance: secondaryBalance },
+		);
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
+		);
+		const metadata = new grpc.Metadata();
+		metadata.set("use-secondary-key", "1");
+		const responsePromise = subscribeOnce(
+			subscribeClient,
+			{
+				cex: "binance",
+				symbol: "BTC/USDT",
+				type: SubscriptionType.BALANCE,
+			},
+			metadata,
+		);
+
+		const socket = await waitForSocket();
+		socket.emitEvent({
+			e: "externalLockUpdate",
+			E: 1_700_000_000_010,
+			a: "BTC",
+			d: "1.0",
+			T: 1_700_000_000_011,
+		});
+
+		expect(JSON.parse((await responsePromise).data)).toEqual(secondaryBalance);
+		expect(primary.calls.fetchBalance).toEqual([]);
+		expect(secondary.calls.fetchBalance).toEqual([{ type: "spot" }]);
+	});
+
+	test("normalizes executionReport for the selected account and requested market", async () => {
 		expect(globalThis.WebSocket).toBeUndefined();
 		const primary = createBinanceExchange("primary-key", "primary-secret");
 		const secondary = createBinanceExchange(
 			"secondary-key",
 			"secondary-secret",
 		);
-		server = getServer(
-			testPolicy,
-			createBinancePool(primary.exchange, secondary.exchange),
-			["*"],
-			false,
-			"",
-		);
-		const port = await bindServer(server);
-		client = new grpcObj.cex_broker.cex_service(
-			`127.0.0.1:${port}`,
-			grpc.credentials.createInsecure(),
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
 		);
 		const metadata = new grpc.Metadata();
 		metadata.set("use-secondary-key", "1");
 
 		const responsePromise = subscribeOnce(
-			client,
+			subscribeClient,
 			{
 				cex: "binance",
 				symbol: "BTC/USDT",
@@ -472,24 +669,116 @@ describe("Binance Subscribe user-data streams", () => {
 			s: "ETHUSDT",
 			i: 1,
 		});
-		socket.emitEvent({
+		const rawEvent = {
 			e: "executionReport",
 			E: 1_499_405_658_659,
 			s: "BTCUSDT",
 			i: 2,
-		});
+			c: "client-2",
+			X: "FILLED",
+			q: "2.0",
+			z: "2.0",
+			p: "0",
+			Z: "202.5",
+			O: 1_499_405_658_600,
+			T: 1_499_405_658_659,
+			t: 77,
+			n: "0.01",
+			N: "BNB",
+		};
+		socket.emitEvent(rawEvent);
 
 		const response = await responsePromise;
 		expect(subscribeRequest.method).toBe("userDataStream.subscribe.signature");
 		expect(subscribeRequest.params?.apiKey).toBe("secondary-key");
-		expect(JSON.parse(response.data)).toMatchObject({
-			subscriptionId: 0,
-			event: { e: "executionReport", s: "BTCUSDT", i: 2 },
+		expect(JSON.parse(response.data)).toEqual({
+			id: "2",
+			clientOrderId: "client-2",
+			status: "closed",
+			symbol: "BTC/USDT",
+			amount: 2,
+			filled: 2,
+			price: 101.25,
+			timestamp: 1_499_405_658_600,
+			tradeId: "77",
 		});
 		expect(response.type).toBe("ORDERS");
 		expect(primary.calls.watchOrders).toBe(0);
 		expect(secondary.calls.watchOrders).toBe(0);
 		expect(secondary.calls.loadMarkets).toBe(1);
+		expect(secondary.calls.market).toEqual(["BTC/USDT"]);
+		expect(secondary.calls.parseWsOrder).toEqual([rawEvent]);
+	});
+
+	test("archives listStatus without emitting it and continues to the next executionReport", async () => {
+		const primary = createBinanceExchange("primary-key", "primary-secret");
+		const secondary = createBinanceExchange(
+			"secondary-key",
+			"secondary-secret",
+		);
+		const archive = createRecordingArchiver();
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
+			archive.archiver,
+		);
+		const responsePromise = subscribeOnce(subscribeClient, {
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: SubscriptionType.ORDERS,
+		});
+		const socket = await waitForSocket();
+		const listStatus = {
+			e: "listStatus",
+			E: 1_700_000_000_100,
+			s: "BTCUSDT",
+			g: 42,
+			l: "EXEC_STARTED",
+			L: "EXECUTING",
+		};
+		const executionReport = {
+			e: "executionReport",
+			E: 1_700_000_000_101,
+			s: "BTCUSDT",
+			i: 9,
+			c: "client-9",
+			X: "NEW",
+			q: "1",
+			z: "0",
+			p: "100",
+			Z: "0",
+			O: 1_700_000_000_090,
+			T: 1_700_000_000_101,
+			t: -1,
+			n: "0",
+			N: null,
+		};
+		socket.emitEvent(listStatus);
+		socket.emitEvent(executionReport);
+
+		expect(JSON.parse((await responsePromise).data)).toEqual({
+			id: "9",
+			clientOrderId: "client-9",
+			status: "open",
+			symbol: "BTC/USDT",
+			amount: 1,
+			filled: 0,
+			price: 100,
+			timestamp: 1_700_000_000_090,
+		});
+		expect(primary.calls.parseWsOrder).toEqual([executionReport]);
+
+		await waitFor(() => archive.rows.length === 4);
+		for (const table of [
+			"broker_execution.order_events",
+			"market_data.cex_stream_events",
+		]) {
+			expect(
+				archive.rows
+					.filter((row) => row.table === table)
+					.map((row) => JSON.parse(String(row.row.payload_json))),
+			).toEqual([listStatus, executionReport]);
+		}
 	});
 
 	test("surfaces ws error event diagnostics without leaking signed params", async () => {
