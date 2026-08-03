@@ -2,14 +2,14 @@ import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import { authenticateRequest } from "../../helpers/auth";
 import {
+	normalizeBinanceExecutionReport,
+	normalizeBinanceSpotBalanceEvent,
+} from "../../helpers/binance-user-data-normalization";
+import {
 	BinanceSpotUserDataStream,
 	isBinanceBalanceUserDataEvent,
 	isBinanceOrderUserDataEvent,
 } from "../../helpers/binance-user-data-stream";
-import {
-	normalizeBinanceExecutionReport,
-	normalizeBinanceSpotBalanceEvent,
-} from "../../helpers/binance-user-data-normalization";
 import {
 	type BrokerPoolEntry,
 	createBroker,
@@ -46,6 +46,10 @@ import {
 } from "../../helpers/order-book";
 import type { OtelMetrics } from "../../helpers/otel";
 import { getErrorMessage } from "../../helpers/shared/errors";
+import type {
+	UserDataStreamSupervisor,
+	UserDataSubscription,
+} from "../../helpers/user-data-stream-supervisor";
 import type { SubscribeRequest, SubscribeResponse } from "../types";
 import { SubscribeBrokerLifecycle } from "./broker-lifecycle";
 
@@ -55,6 +59,7 @@ export type SubscribeDeps = {
 	otelMetrics?: OtelMetrics;
 	brokerArchiver?: BrokerExecutionArchiver;
 	brokerLifecycle?: SubscribeBrokerLifecycle;
+	userDataStreamSupervisor?: UserDataStreamSupervisor;
 };
 
 type SubscribeCall = grpc.ServerWritableStream<
@@ -179,16 +184,22 @@ async function streamBinanceUserData(
 		deploymentId: string;
 		assetType: BrokerMarketType;
 	},
+	userDataSource?: UserDataSubscription,
+	knownMarketId?: string | null,
 ): Promise<void> {
-	const userDataStream = new BinanceSpotUserDataStream(broker);
-	call.once("close", () => userDataStream.close());
-	call.once("cancelled", () => userDataStream.close());
-	call.once("error", () => userDataStream.close());
+	const userDataStream =
+		userDataSource ?? new BinanceSpotUserDataStream(broker);
+	if (!userDataSource) {
+		call.once("close", () => userDataStream.close());
+		call.once("cancelled", () => userDataStream.close());
+		call.once("error", () => userDataStream.close());
+	}
 
 	const marketId =
-		subscriptionType === SubscriptionType.ORDERS
+		knownMarketId ??
+		(subscriptionType === SubscriptionType.ORDERS
 			? await getBinanceMarketId(broker, symbol)
-			: null;
+			: null);
 
 	try {
 		for await (const message of userDataStream) {
@@ -319,7 +330,13 @@ async function runCcxtSubscribeLoop(
 }
 
 export function createSubscribeHandler(deps: SubscribeDeps) {
-	const { brokers, whitelistIps, otelMetrics, brokerArchiver } = deps;
+	const {
+		brokers,
+		whitelistIps,
+		otelMetrics,
+		brokerArchiver,
+		userDataStreamSupervisor,
+	} = deps;
 	const brokerLifecycle =
 		deps.brokerLifecycle ?? new SubscribeBrokerLifecycle();
 	return async (call: SubscribeCall) => {
@@ -485,6 +502,33 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					});
 					return;
 				}
+				const marketId =
+					subscriptionType === SubscriptionType.ORDERS
+						? await getBinanceMarketId(accountBroker, resolvedSymbol)
+						: undefined;
+				let userDataSource: UserDataSubscription | undefined;
+				if (selectedBrokerAccount) {
+					if (!userDataStreamSupervisor) {
+						await writeSubscribeError(call, isStreamClosed, {
+							data: JSON.stringify({
+								error: "Configured account user-data supervisor is unavailable",
+							}),
+							timestamp: Date.now(),
+							symbol: resolvedSymbol,
+							type: subscriptionType,
+						});
+						return;
+					}
+					userDataSource = userDataStreamSupervisor.subscribe({
+						exchange: normalizedCex,
+						accountSelector: selectedBrokerAccount.label,
+						kind:
+							subscriptionType === SubscriptionType.BALANCE
+								? "balance"
+								: "orders",
+						marketId,
+					});
+				}
 				await streamBinanceUserData(
 					call,
 					accountBroker,
@@ -492,6 +536,8 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					subscriptionType,
 					isStreamClosed,
 					streamArchiveContext,
+					userDataSource,
+					marketId,
 				);
 				return;
 			}

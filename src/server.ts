@@ -9,6 +9,7 @@ import type {
 } from "./helpers/broker-execution-archive";
 import type { OrderActivityTracker } from "./helpers/order-activity-tracker";
 import type { OtelMetrics } from "./helpers/otel";
+import type { UserDataStreamSupervisor } from "./helpers/user-data-stream-supervisor";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "./proto-package-definition";
 import type { PolicyConfig } from "./types";
 
@@ -34,6 +35,7 @@ export function getServer(
 	orderActivityTracker?: OrderActivityTracker,
 	withdrawalObservationTracker?: WithdrawalObservationTracker,
 	subscribeBrokerLifecycle?: SubscribeBrokerLifecycle,
+	userDataStreamSupervisor?: UserDataStreamSupervisor,
 ) {
 	const server = new grpc.Server();
 
@@ -55,6 +57,7 @@ export function getServer(
 			otelMetrics,
 			brokerArchiver,
 			brokerLifecycle: subscribeBrokerLifecycle,
+			userDataStreamSupervisor,
 		}),
 	});
 	return server;
