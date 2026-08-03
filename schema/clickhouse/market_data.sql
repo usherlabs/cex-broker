@@ -58,6 +58,11 @@ PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
 ORDER BY (exchange, asset_type, symbol, event_time_ms)
 TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY;
 
+-- Every legacy market-data producer has emitted this common archive tag since
+-- the pre-canonical baseline. Add it idempotently so fresh and upgraded schemas
+-- preserve the producer value instead of rejecting or dropping it.
+ALTER TABLE market_data.orderbook_snapshots ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
+
 -- Backward-compatible views (query only; inserts use orderbook_snapshots).
 CREATE VIEW IF NOT EXISTS market_data.orderbook_tob AS
 SELECT
@@ -126,6 +131,8 @@ ENGINE = ReplacingMergeTree(broker_version)
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(open_time_ms))
 ORDER BY (exchange, asset_type, symbol, timeframe, open_time_ms);
 
+ALTER TABLE market_data.candles ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
+
 -- Deduped closed candles for research/backtest queries (ReplacingMergeTree FINAL).
 CREATE VIEW IF NOT EXISTS market_data.candles_closed AS
 SELECT *
@@ -154,6 +161,8 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
 ORDER BY (exchange, asset_type, symbol, stream_type, event_time_ms)
 TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY;
+
+ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
 -- Ticker snapshots from watchTicker.
 CREATE TABLE IF NOT EXISTS market_data.cex_ticker_events
@@ -188,6 +197,8 @@ PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
 ORDER BY (exchange, asset_type, symbol, event_time_ms)
 TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY;
 
+ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
+
 -- Public trade prints from watchTrades.
 CREATE TABLE IF NOT EXISTS market_data.cex_trades
 (
@@ -213,6 +224,8 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
 ORDER BY (exchange, asset_type, symbol, event_time_ms, trade_id)
 TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY;
+
+ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
 -- Replay capture-core columns are added idempotently so this schema upgrades
 -- installations created before canonical replay capture was introduced.

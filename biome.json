@@ -14,7 +14,8 @@
 			"test/**",
 			"scripts/**",
 			"examples/**",
-			"!test/fixtures"
+			"!test/fixtures",
+			"!test/e2e/archive/fixtures/**"
 		],
 		"experimentalScannerIgnores": ["src/proto/**"]
 	},
