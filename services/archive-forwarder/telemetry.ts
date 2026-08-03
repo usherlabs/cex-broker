@@ -12,6 +12,7 @@ export const ARCHIVE_FORWARDER_METRICS = {
 	rowsInserted: "archive_forwarder_rows_inserted_total",
 	rowsRejected: "archive_forwarder_rows_rejected_total",
 	insertFailures: "archive_forwarder_insert_failures_total",
+	checksumConflicts: "archive_forwarder_checksum_conflict_rows_total",
 	lastSuccessfulFlush:
 		"archive_forwarder_last_successful_flush_timestamp_seconds",
 } as const;
@@ -75,6 +76,23 @@ export class ArchiveForwarderTelemetry {
 				{ table, error_class: classifyInsertError(error) },
 			),
 		);
+	}
+
+	public recordChecksumConflicts(
+		source: string,
+		rowsByTable: Readonly<Record<string, number>>,
+	): void {
+		const boundedSource =
+			source === "broker_read" || source === "broker_write" ? source : "other";
+		for (const [table, count] of Object.entries(rowsByTable)) {
+			this.bestEffort(() =>
+				this.metrics.recordCounter(
+					ARCHIVE_FORWARDER_METRICS.checksumConflicts,
+					count,
+					{ source: boundedSource, feed: "ORDERBOOK", table },
+				),
+			);
+		}
 	}
 
 	public recordSuccessfulFlush(completedAt: Date = new Date()): void {

@@ -194,6 +194,44 @@ describe("archive forwarder telemetry", () => {
 		expect(gauges).toHaveLength(0);
 	});
 
+	test("records same-batch checksum conflicts with bounded source/feed labels", async () => {
+		const { telemetry, counters } = createCapturingTelemetry();
+		const common = {
+			source: "broker_write",
+			capture_bundle_id: "bundle-a",
+			exchange: "binance",
+			trading_pair: "BTC-USDT",
+			raw_capture_id: "raw-a",
+			snapshot_id: "snapshot-a",
+			schema_version: "1.0.0",
+			side: "bid",
+			level_index: 0,
+		};
+		const response = await handleArchiveRequest(
+			archiveRequest([
+				{
+					table: "market_data.cex_order_book_levels",
+					row: { ...common, normalized_row_checksum: "a" },
+				},
+				{
+					table: "market_data.cex_order_book_levels",
+					row: { ...common, normalized_row_checksum: "b" },
+				},
+			]),
+			{ inserter: async () => {}, telemetry },
+		);
+		expect(response.status).toBe(400);
+		expect(counters).toContainEqual({
+			name: ARCHIVE_FORWARDER_METRICS.checksumConflicts,
+			value: 2,
+			labels: {
+				source: "broker_write",
+				feed: "ORDERBOOK",
+				table: "market_data.cex_order_book_levels",
+			},
+		});
+	});
+
 	test("keeps a successful request independent of throwing telemetry", async () => {
 		const throwingRecorder: ArchiveMetricsRecorder = {
 			recordCounter: async () => {

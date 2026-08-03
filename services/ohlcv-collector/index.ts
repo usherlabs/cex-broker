@@ -2,6 +2,7 @@ import * as grpc from "@grpc/grpc-js";
 import { SubscribeBrokerLifecycle } from "../../src/handlers/subscribe";
 import { createBrokerExecutionArchiverFromEnv } from "../../src/helpers/broker-execution-archive";
 import { log } from "../../src/helpers/logger";
+import { validateProductionCollectorArchive } from "../../src/helpers/market-data-archive/capture-context";
 import {
 	createOtelLogsFromEnv,
 	createOtelMetricsFromEnv,
@@ -9,7 +10,12 @@ import {
 import { getServer } from "../../src/server";
 import type { PolicyConfig } from "../../src/types";
 import { OhlcvCollector } from "./collector";
-import { loadOhlcvCollectorConfig } from "./config";
+import {
+	loadMarketDataCollectorConfig,
+	loadOhlcvCollectorConfig,
+	MARKET_DATA_COLLECTOR_CONFIG_ENV,
+	type MarketDataSubscription,
+} from "./config";
 
 const PUBLIC_ONLY_POLICY: PolicyConfig = {
 	withdraw: { rule: [] },
@@ -71,10 +77,34 @@ function bindPublicBroker(server: grpc.Server): Promise<number> {
 }
 
 async function run(): Promise<string[]> {
-	const subscriptions = await loadOhlcvCollectorConfig();
+	let subscriptions: MarketDataSubscription[];
+	let productionCaptureBundleId: string | undefined;
+	if (process.env[MARKET_DATA_COLLECTOR_CONFIG_ENV]?.trim()) {
+		const config = await loadMarketDataCollectorConfig();
+		subscriptions = config.subscriptions;
+		process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT = config.environment;
+		if (config.captureBundleId) {
+			process.env.CEX_BROKER_CAPTURE_BUNDLE_ID = config.captureBundleId;
+		}
+		if (config.environment === "production") {
+			productionCaptureBundleId = config.captureBundleId;
+		}
+	} else {
+		subscriptions = (await loadOhlcvCollectorConfig()).map((subscription) => ({
+			...subscription,
+			feed: "OHLCV" as const,
+			bootstrapLimit: 100,
+		}));
+	}
 	const metrics = createOtelMetricsFromEnv();
 	const otelLogs = createOtelLogsFromEnv();
 	const archiver = createBrokerExecutionArchiverFromEnv(otelLogs, metrics);
+	if (productionCaptureBundleId) {
+		validateProductionCollectorArchive({
+			source: archiver.getSource(),
+			captureBundleId: productionCaptureBundleId,
+		});
+	}
 	const subscribeBrokerLifecycle = new SubscribeBrokerLifecycle();
 	const server = getServer(
 		PUBLIC_ONLY_POLICY,
@@ -87,6 +117,10 @@ async function run(): Promise<string[]> {
 		undefined,
 		undefined,
 		subscribeBrokerLifecycle,
+		{
+			sourcePolicy: "provisioned_only",
+			provisionedProfile: "public",
+		},
 	);
 	const shutdown = new AbortController();
 	const onSignal = (signal: NodeJS.Signals) => {
@@ -104,6 +138,7 @@ async function run(): Promise<string[]> {
 		log.info("OHLCV collector service started", {
 			broker_url: brokerUrl,
 			subscriptions: subscriptions.length,
+			feeds: [...new Set(subscriptions.map(({ feed }) => feed))],
 			bootstrap_limit:
 				process.env.CEX_BROKER_OHLCV_ARCHIVE_BOOTSTRAP_LIMIT ?? "100",
 		});

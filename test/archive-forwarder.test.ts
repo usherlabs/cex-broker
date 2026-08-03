@@ -66,6 +66,63 @@ describe("archive forwarder batch parsing", () => {
 		expect(parsed.batch.rows).toHaveLength(1);
 	});
 
+	test("rejects rows whose source disagrees with the archive envelope", () => {
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_read",
+			deployment_id: "deploy-a",
+			rows: [
+				{
+					table: "market_data.cex_trades",
+					row: { source: "broker_write", trade_id: "t-1" },
+				},
+			],
+		});
+
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) return;
+		expect(parsed.batch.rows).toHaveLength(0);
+		expect(parsed.rejectedRowCount).toBe(1);
+		expect(parsed.rejectedRowsByTable).toEqual({
+			"market_data.cex_trades": 1,
+		});
+	});
+
+	test("rejects same-batch order-book logical-key checksum conflicts", () => {
+		const common = {
+			source: "broker_read",
+			capture_bundle_id: "bundle-a",
+			exchange: "binance",
+			trading_pair: "BTC-USDT",
+			raw_capture_id: "raw-a",
+			snapshot_id: "snapshot-a",
+			schema_version: "1.0.0",
+			side: "bid",
+			level_index: 0,
+		};
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_read",
+			deployment_id: "deploy-a",
+			rows: [
+				{
+					table: "market_data.cex_order_book_levels",
+					row: { ...common, normalized_row_checksum: "a" },
+				},
+				{
+					table: "market_data.cex_order_book_levels",
+					row: { ...common, normalized_row_checksum: "b" },
+				},
+			],
+		});
+
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) return;
+		expect(parsed.batch.rows).toHaveLength(0);
+		expect(parsed.rejectedRowCount).toBe(2);
+		expect(parsed.checksumConflictsByTable).toEqual({
+			"market_data.cex_order_book_levels": 2,
+		});
+	});
+
 	test("accepts the broker execution and account balance archive tables", () => {
 		expect(isSupportedTable("broker_execution.transfer_events")).toBe(true);
 		expect(isSupportedTable("broker_execution.fill_events")).toBe(true);
@@ -369,6 +426,9 @@ describe("archive forwarder schema init", () => {
 			.filter((name): name is string => Boolean(name));
 		expect(createdTables).toEqual(
 			expect.arrayContaining([
+				"market_data.cex_order_book_levels",
+				"market_data.cex_order_book_depth_summary",
+				"market_data.cex_ohlcv",
 				"broker_execution.order_events",
 				"broker_execution.market_metadata_snapshots",
 				"broker_execution.transfer_events",
@@ -380,6 +440,28 @@ describe("archive forwarder schema init", () => {
 				"strategy_data.symbol_mapping",
 				"strategy_data.inventory_settlement_events",
 			]),
+		);
+		const marketSchema = statements.join("\n");
+		expect(marketSchema).toContain(
+			"ENGINE = ReplacingMergeTree(broker_version)",
+		);
+		expect(marketSchema).toContain(
+			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_canonical",
+		);
+		expect(marketSchema).toContain(
+			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_conflicts",
+		);
+		expect(marketSchema).toContain(
+			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_depth_summary_canonical",
+		);
+		expect(marketSchema).toContain(
+			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_depth_summary_conflicts",
+		);
+		expect(marketSchema).toContain(
+			"ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version, side, level_index)",
+		);
+		expect(marketSchema).toContain(
+			"ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS capture_bundle_id",
 		);
 
 		const balanceTable = statements.find((query) =>
