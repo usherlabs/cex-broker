@@ -58,7 +58,12 @@ function firstNumber(...values: unknown[]): number | undefined {
 	return undefined;
 }
 
-function normalizeTimestamp(value: unknown): string | undefined {
+// Venues report a moment as either an ISO-8601 string or an epoch-ms number
+// (Binance sends `insertTime` as an integer). The archive's DateTime64 columns
+// are fed ISO-8601 UTC strings — the forwarder configures ClickHouse for exactly
+// that form — so an epoch-ms integer must be converted, never passed through: it
+// would be read as *seconds* and land the row tens of thousands of years ahead.
+export function normalizeTimestamp(value: unknown): string | undefined {
 	if (typeof value === "string" && value.trim()) {
 		return value.trim();
 	}

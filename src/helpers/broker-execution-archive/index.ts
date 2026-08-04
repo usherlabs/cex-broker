@@ -27,6 +27,7 @@ export {
 	normalizeCcxtBalanceForArchive,
 	normalizeCcxtTradeForArchive,
 	normalizeCcxtTransactionForArchive,
+	normalizeTimestamp,
 	type TransferArchiveFields,
 } from "./rows";
 export {

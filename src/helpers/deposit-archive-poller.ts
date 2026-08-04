@@ -4,6 +4,7 @@ import {
 	buildCommonArchiveTags,
 	buildTransferEventArchiveRow,
 	normalizeCcxtTransactionForArchive,
+	normalizeTimestamp,
 	rethrowArchiveDurabilityError,
 } from "./broker-execution-archive";
 import { depositField, normalizeDepositStatus } from "./deposit";
@@ -311,8 +312,7 @@ export class DepositArchivePoller {
 						network: network === undefined ? undefined : String(network),
 						externalId: depositTxid,
 						txid: depositTxid,
-						exchangeTimestamp:
-							typeof creditedAt === "string" ? creditedAt : undefined,
+						exchangeTimestamp: normalizeTimestamp(creditedAt),
 						payload: record,
 					},
 				}),

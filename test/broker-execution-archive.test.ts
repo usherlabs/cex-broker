@@ -14,6 +14,7 @@ import type { LogRecord } from "@opentelemetry/api-logs";
 import type { Exchange } from "@usherlabs/ccxt";
 import { MAX_ARCHIVE_BODY_BYTES } from "../services/archive-forwarder/limits";
 import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
+import { handleDeposit } from "../src/handlers/execute-action/deposit";
 import { handleInternalTransfer } from "../src/handlers/execute-action/internal-transfer";
 import { handleOrders } from "../src/handlers/execute-action/orders";
 import { handleTreasuryCall } from "../src/handlers/execute-action/treasury-call";
@@ -1716,6 +1717,82 @@ describe("broker execution archiver env", () => {
 			await enabled.close();
 		} finally {
 			info.mockRestore();
+		}
+	});
+});
+
+describe("deposit observation archive", () => {
+	test("records the venue credit time when the venue reports it as an epoch integer", async () => {
+		const forwarder = await startForwarderServer();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: forwarder.url,
+			deadLetterPath: createDeadLetterPath(),
+			deploymentId: "test-deploy",
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+		});
+		// Binance reports insertTime as an integer, which ccxt surfaces as
+		// `timestamp`; `datetime` is absent from this shape on purpose.
+		const insertTime = 1_784_000_000_123;
+		const broker = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [
+				{
+					txid: "0xdeposited",
+					currency: "USDC",
+					amount: 10,
+					address: "0xrecipient",
+					status: "ok",
+					timestamp: insertTime,
+					info: { status: "1", insertTime },
+				},
+			],
+		} as unknown as Exchange;
+
+		const context = {
+			call: {
+				request: {
+					payload: {
+						recipientAddress: "0xrecipient",
+						amount: "10",
+						transactionHash: "0xdeposited",
+					},
+				},
+			},
+			wrappedCallback: () => {},
+			policy: { deposit: {} },
+			brokers: {},
+			metadata: {},
+			normalizedCex: "binance",
+			cex: "binance",
+			symbol: "USDC",
+			selectedBrokerAccount: { exchange: broker, label: "primary" },
+			broker,
+			verity: { proof: "" },
+			applyVerityToBroker: () => {},
+			useVerity: false,
+			verityProverUrl: "",
+			brokerArchiver: archiver,
+		} as unknown as ExecuteActionContext;
+
+		try {
+			await handleDeposit(context);
+			await Promise.resolve();
+			await archiver.flush();
+
+			const rows = forwarder.requests.flatMap(
+				(request) => request.body.rows ?? [],
+			) as Array<{ row: Record<string, unknown> }>;
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.row).toMatchObject({
+				event_kind: "deposit",
+				lifecycle_action: "observe_deposit",
+				external_id: "0xdeposited",
+				exchange_timestamp: new Date(insertTime).toISOString(),
+			});
+		} finally {
+			await archiver.close();
+			await forwarder.close();
 		}
 	});
 });

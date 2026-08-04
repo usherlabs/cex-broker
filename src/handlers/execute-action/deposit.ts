@@ -3,6 +3,7 @@ import ccxt from "@usherlabs/ccxt";
 import {
 	archiveTransferEventInBackground,
 	normalizeCcxtTransactionForArchive,
+	normalizeTimestamp,
 } from "../../helpers/broker-execution-archive";
 import {
 	depositField,
@@ -160,8 +161,7 @@ export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
 					network: depositNetwork?.exchangeNetworkId,
 					externalId: depositTxid,
 					txid: depositTxid,
-					exchangeTimestamp:
-						typeof creditedAt === "string" ? creditedAt : undefined,
+					exchangeTimestamp: normalizeTimestamp(creditedAt),
 					payload: deposit,
 				},
 			});
