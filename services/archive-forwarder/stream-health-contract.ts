@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ClickHouseClient } from "@clickhouse/client";
+import { clickHouseRequestDeadline } from "./clickhouse-deadline";
 import type { RowInserter } from "./insert";
 import type { ArchiveBatchRequest, ArchiveRow } from "./types";
 
@@ -759,6 +760,7 @@ export function createClickHouseStreamHealthReplayStore(
 					"SELECT snapshot_id, payload_sha256, payload_json FROM broker_stream_health.snapshots WHERE snapshot_id IN ({snapshot_ids:Array(String)})",
 				query_params: { snapshot_ids: [...snapshotIds] },
 				format: "JSONEachRow",
+				abort_signal: clickHouseRequestDeadline(),
 			});
 			const rows = (await result.json()) as Array<{
 				snapshot_id: string;
@@ -785,6 +787,7 @@ export function createClickHouseStreamHealthReplayStore(
 					incoming_payload_json: conflict.incomingPayloadJson,
 				})),
 				format: "JSONEachRow",
+				abort_signal: clickHouseRequestDeadline(),
 			});
 		},
 	};

@@ -1,5 +1,6 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import path from "path";
+import { clickHouseRequestDeadline } from "./clickhouse-deadline";
 
 function stripSqlComments(sql: string): string {
 	return sql.replace(/--[^\n]*/g, "");
@@ -73,7 +74,10 @@ async function applySchemaFile(
 	const sql = await Bun.file(schemaPath).text();
 	for (const statement of splitSqlStatements(sql)) {
 		try {
-			await client.command({ query: statement });
+			await client.command({
+				query: statement,
+				abort_signal: clickHouseRequestDeadline(),
+			});
 		} catch (error) {
 			if (isIdempotentSchemaError(error)) {
 				continue;
