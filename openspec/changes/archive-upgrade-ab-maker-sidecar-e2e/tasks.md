@@ -5,7 +5,7 @@
 - [x] 1.3 Generate and review the immutable `develop` A/B fixture without replacing the retained `64fdf0607a234be05bac98f3edd3125e2c05d083` historical compatibility fixture.
 - [x] 1.4 Add a fixture verification command that reproduces the `develop` export semantically, checks every recorded hash, and fails on an implicit expectation update.
 - [x] 1.5 Integrate current `develop`, `ed/cute-taxes-cheat-jnrod`, and `ed/clickhouse-local-e2e-5medm` into one candidate while preserving released `develop` fixes and intentional post-upgrade contracts.
-- [ ] 1.6 Reconcile `.github/workflows/ci.yml`, package version/scripts, collector naming, archive request paths, schema manifests, OpenSpec state, and documentation conflicts; record the resulting candidate commit and reviewed range-diffs.
+- [x] 1.6 Reconcile `.github/workflows/ci.yml`, package version/scripts, collector naming, archive request paths, schema manifests, OpenSpec state, and documentation conflicts; record the resulting candidate commit and reviewed range-diffs.
 
 ## 2. Implement the Two-Source Strategy Contract
 
@@ -44,7 +44,7 @@
 - [x] 4.9 Assert zero parameter-bound production parity mismatches, empty deterministic order-book conflict views, and stable canonical/closed views before candidate writes are released.
 - [x] 4.10 Start the upgraded deterministic broker and independent collector against B through the production forwarder and `@clickhouse/client`, then prove linked four-feed canonical output and zero new legacy ORDERBOOK/OHLCV rows.
 - [x] 4.11 Recheck A immutability and B historical parity after upgraded writes, and retain non-destructive failure artifacts without dropping either dataset.
-- [ ] 4.12 Execute the complete A/B command once against the final candidate and retain its commits, versions, invocation, fixture/query hashes, migration summaries, and assertion results as acceptance evidence rather than adding it to ordinary CI.
+- [x] 4.12 Execute the complete A/B command once against the final candidate and retain its commits, versions, invocation, fixture/query hashes, migration summaries, and assertion results as acceptance evidence rather than adding it to ordinary CI.
 
 ## 5. Build the CEX-Owned Conformance Sidecar
 
@@ -77,12 +77,12 @@
 - [x] 7.6 Update migration, archive E2E, sidecar, failure-diagnostics, baseline-regeneration, and rollback runbooks with exact commands, ownership, expected statuses, and cleanup behavior.
 - [x] 7.7 Document truthful native/FIET-907 and production-compatible Maker data flows, including direct ClickHouse exporter ownership and `maker_replay` versus `hb_runtime` acknowledgement paths.
 - [x] 7.8 Replace `Purpose: TBD` in the resulting main strategy, durable-acceptance, and market-capture specs and provide meaningful Purpose text for every newly synced capability.
-- [ ] 7.9 Produce a release evidence report containing baseline/candidate/Maker commits, ClickHouse/tool versions, fixture hashes, one-time A/B migration/parity results, standard CI results, sidecar profiles, and an explicit statement that production soak was not performed or claimed.
+- [x] 7.9 Produce a release evidence report containing baseline/candidate/Maker commits, ClickHouse/tool versions, fixture hashes, one-time A/B migration/parity results, standard CI results, sidecar profiles, and an explicit statement that production soak was not performed or claimed.
 
 ## 8. Final Conformance and OpenSpec Closure
 
-- [ ] 8.1 Run the complete ongoing CEX unit, strategy fault, schema, build/type/lint, Python, Local E2E, existing real-server, smoke-static, and strict OpenSpec validation matrix from a clean candidate checkout, then separately verify the recorded one-time A/B acceptance.
+- [x] 8.1 Run the complete ongoing CEX unit, strategy fault, schema, build/type/lint, Python, Local E2E, existing real-server, smoke-static, and strict OpenSpec validation matrix from a clean candidate checkout, then separately verify the recorded one-time A/B acceptance.
 - [ ] 8.2 Run the pinned FIET Maker `develop` cross-repository native and production-compatible jobs against the exact CEX candidate and verify both evidence manifests agree.
-- [ ] 8.3 Audit executable code, workflows, docs, and manifests for removed credential/profile/attestation/write-mode settings, floating required refs, secret leakage, fake production boundaries, and any mandatory archive startup regression.
+- [x] 8.3 Audit executable code, workflows, docs, and manifests for removed credential/profile/attestation/write-mode settings, floating required refs, secret leakage, fake production boundaries, and any mandatory archive startup regression.
 - [ ] 8.4 Cross-reference completed evidence against FIET-901, FIET-903, FIET-907 ownership, Maker PR 1067 compatibility, and the deterministic definition of done without adding a production-soak task.
 - [ ] 8.5 Verify implementation against every delta requirement, then sync main specs and archive `archive-upgrade-ab-maker-sidecar-e2e` only after all in-repository and external evidence tasks are complete.
