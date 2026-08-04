@@ -4,6 +4,7 @@ import { createClickHouseInserter } from "./insert";
 import { evaluateForwarderHealth, pingClickHouse } from "./health";
 import { handleArchiveRequest } from "./request";
 import { ensureArchiveSchema } from "./schema";
+import { createClickHouseStreamHealthReplayStore } from "./stream-health-contract";
 import { createArchiveForwarderTelemetry } from "./telemetry";
 import {
 	StrategyArchiveSpool,
@@ -25,6 +26,7 @@ const clickhouse = createClient({
 	clickhouse_settings: { date_time_input_format: "best_effort" },
 });
 const inserter = createClickHouseInserter(clickhouse);
+const streamHealthStore = createClickHouseStreamHealthReplayStore(clickhouse);
 const telemetry = createArchiveForwarderTelemetry();
 let spool: StrategyArchiveSpool | undefined;
 let worker: StrategySpoolWorker | undefined;
@@ -46,7 +48,7 @@ async function ensureSchemaAndStartDrainage(): Promise<void> {
 		schemaReady = true;
 		worker?.start();
 		console.log(
-			"ClickHouse archive schema ensured (market_data, broker_execution, broker_account, strategy_data)",
+			"ClickHouse archive schema ensured (market_data, broker_execution, broker_account, broker_stream_health, strategy_data)",
 		);
 	} catch (error) {
 		schemaReady = false;
@@ -102,6 +104,7 @@ const server = Bun.serve({
 				authToken: config.authToken,
 				inserter,
 				spool,
+				streamHealthStore,
 				telemetry,
 			});
 		}

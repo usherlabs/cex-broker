@@ -3,7 +3,7 @@ import { SubscriptionType } from "../../src/helpers/constants";
 import { log } from "../../src/helpers/logger";
 import type { OtelMetrics } from "../../src/helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "../../src/proto-package-definition";
-import type { MarketDataSubscription, OhlcvSubscription } from "./config";
+import type { MarketDataSubscription } from "./config";
 
 type SubscribeResponse = {
 	data: string;
@@ -22,16 +22,12 @@ type CollectorMetrics = Pick<OtelMetrics, "recordCounter">;
 
 export type MarketDataCollectorOptions = {
 	brokerUrl: string;
-	subscriptions: Array<OhlcvSubscription | MarketDataSubscription>;
+	subscriptions: MarketDataSubscription[];
 	metrics?: CollectorMetrics;
 	retry?: Partial<RetryPolicy>;
 };
 
-export type OhlcvCollectorOptions = MarketDataCollectorOptions;
-
-type CollectorSubscription =
-	| (OhlcvSubscription & { feed: "OHLCV"; bootstrapLimit?: number })
-	| MarketDataSubscription;
+type CollectorSubscription = MarketDataSubscription;
 
 export type CollectorFeedHealth = {
 	state: "connecting" | "healthy" | "backoff" | "stopped";
@@ -124,11 +120,7 @@ export class MarketDataCollector {
 	#started = false;
 
 	constructor(options: MarketDataCollectorOptions) {
-		this.#subscriptions = options.subscriptions.map((subscription) =>
-			"feed" in subscription
-				? subscription
-				: { ...subscription, feed: "OHLCV" as const },
-		);
+		this.#subscriptions = options.subscriptions;
 		this.#metrics = options.metrics;
 		this.#retry = { ...DEFAULT_RETRY_POLICY, ...options.retry };
 		this.#client = new grpcObject.cex_broker.cex_service(

@@ -22,7 +22,10 @@ async function run(): Promise<void> {
 			bootstrapLimit: 100,
 		}));
 	}
-	const metrics = createOtelMetricsFromEnv();
+	const metrics = createOtelMetricsFromEnv({
+		allowLegacyBrokerConfig: false,
+		defaultServiceName: "market-data-collector",
+	});
 	const shutdown = new AbortController();
 	const onSignal = (signal: NodeJS.Signals) => {
 		log.info("Market-data collector shutdown requested", { signal });

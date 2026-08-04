@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	COLLECTOR_BROKER_URL_ENV,
 	loadCollectorBrokerUrl,
+	loadMarketDataCollectorConfig,
 	loadOhlcvCollectorConfig,
 	MARKET_DATA_COLLECTOR_CONFIG_ENV,
 	OHLCV_COLLECTOR_CONFIG_ENV,
@@ -32,15 +33,24 @@ describe("market-data collector config", () => {
 			],
 		});
 
-		expect(parsed.subscriptions.map(({ feed }) => feed)).toEqual([
-			"ORDERBOOK",
-			"TICKER",
-			"TRADES",
-			"OHLCV",
-		]);
-		expect(parsed.subscriptions[0]).toMatchObject({
-			exchange: "binance",
-			depthLimit: 25,
+		expect(parsed).toEqual({
+			subscriptions: [
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "ORDERBOOK",
+					depthLimit: 25,
+				},
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TICKER" },
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TRADES" },
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+					bootstrapLimit: 100,
+				},
+			],
 		});
 	});
 
@@ -73,6 +83,37 @@ describe("market-data collector config", () => {
 		);
 	});
 
+	test.each([
+		{ input: undefined },
+		{ input: null },
+		{ input: {} },
+		{ input: { subscriptions: [] } },
+		{
+			input: {
+				subscriptions: [
+					{
+						exchange: "binance",
+						symbol: "BTC/USDT",
+						feed: "TICKER",
+						extra: true,
+					},
+				],
+			},
+		},
+		{
+			input: {
+				subscriptions: [
+					{ exchange: "binance", symbol: "BTC/USDT", feed: "TICKER" },
+					{ exchange: "BINANCE", symbol: "BTC/USDT", feed: "TICKER" },
+				],
+			},
+		},
+	])("rejects malformed config fail-closed", ({ input }) => {
+		expect(() => parseMarketDataCollectorConfig(input)).toThrow(
+			"Invalid market-data collector config",
+		);
+	});
+
 	test("exposes canonical and legacy config environments", () => {
 		expect(MARKET_DATA_COLLECTOR_CONFIG_ENV).toBe(
 			"CEX_BROKER_MARKET_DATA_COLLECTOR_CONFIG",
@@ -80,6 +121,22 @@ describe("market-data collector config", () => {
 		expect(OHLCV_COLLECTOR_CONFIG_ENV).toBe(
 			"CEX_BROKER_OHLCV_COLLECTOR_CONFIG",
 		);
+	});
+
+	test("rejects missing and invalid JSON config files", async () => {
+		await expect(loadMarketDataCollectorConfig(undefined)).rejects.toThrow(
+			`${MARKET_DATA_COLLECTOR_CONFIG_ENV} must point to a JSON file`,
+		);
+
+		const path = `${process.cwd()}/test/.market-data-collector-invalid-${crypto.randomUUID()}.json`;
+		await Bun.write(path, "not-json");
+		try {
+			await expect(loadMarketDataCollectorConfig(path)).rejects.toThrow(
+				"is not valid JSON",
+			);
+		} finally {
+			await Bun.file(path).delete();
+		}
 	});
 });
 
@@ -114,7 +171,7 @@ describe("collector broker target", () => {
 	});
 });
 
-describe("OHLCV collector config", () => {
+describe("OHLCV collector compatibility config", () => {
 	test("parses subscriptions and defaults the timeframe to 1m", () => {
 		expect(
 			parseOhlcvCollectorConfig([
@@ -140,7 +197,7 @@ describe("OHLCV collector config", () => {
 				{ exchange: "BINANCE", symbol: "BTC/USDT", timeframe: "1m" },
 			],
 		},
-	])("rejects malformed config fail-closed", ({ input }) => {
+	])("rejects malformed compatibility config fail-closed", ({ input }) => {
 		expect(() => parseOhlcvCollectorConfig(input)).toThrow(
 			"Invalid OHLCV collector config",
 		);

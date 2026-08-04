@@ -1,10 +1,10 @@
 import { isIP } from "node:net";
 import { z } from "zod";
 
-export const OHLCV_COLLECTOR_CONFIG_ENV = "CEX_BROKER_OHLCV_COLLECTOR_CONFIG";
 export const MARKET_DATA_COLLECTOR_CONFIG_ENV =
 	"CEX_BROKER_MARKET_DATA_COLLECTOR_CONFIG";
 export const COLLECTOR_BROKER_URL_ENV = "CEX_BROKER_URL";
+export const OHLCV_COLLECTOR_CONFIG_ENV = "CEX_BROKER_OHLCV_COLLECTOR_CONFIG";
 
 const exchangeSchema = z
 	.string()
@@ -181,20 +181,16 @@ export async function loadMarketDataCollectorConfig(
 	}
 }
 
-const subscriptionSchema = z
+const ohlcvSubscriptionSchema = z
 	.object({
-		exchange: z
-			.string()
-			.trim()
-			.min(1)
-			.transform((value) => value.toLowerCase()),
-		symbol: z.string().trim().min(1),
+		exchange: exchangeSchema,
+		symbol: symbolSchema,
 		timeframe: z.string().trim().min(1).default("1m"),
 	})
 	.strict();
 
-const configSchema = z
-	.array(subscriptionSchema)
+const ohlcvConfigSchema = z
+	.array(ohlcvSubscriptionSchema)
 	.min(1, "at least one OHLCV subscription is required")
 	.superRefine((subscriptions, context) => {
 		const seen = new Set<string>();
@@ -211,10 +207,10 @@ const configSchema = z
 		}
 	});
 
-export type OhlcvSubscription = z.infer<typeof subscriptionSchema>;
+export type OhlcvSubscription = z.infer<typeof ohlcvSubscriptionSchema>;
 
 export function parseOhlcvCollectorConfig(input: unknown): OhlcvSubscription[] {
-	const result = configSchema.safeParse(input);
+	const result = ohlcvConfigSchema.safeParse(input);
 	if (!result.success) {
 		throw new Error(
 			`Invalid OHLCV collector config: ${formatZodIssues(result.error)}`,
@@ -240,14 +236,14 @@ export async function loadOhlcvCollectorConfig(
 		});
 	}
 
-	let parsed: unknown;
 	try {
-		parsed = JSON.parse(contents);
+		return parseOhlcvCollectorConfig(JSON.parse(contents));
 	} catch (error) {
-		throw new Error(`OHLCV collector config at ${path} is not valid JSON`, {
-			cause: error,
-		});
+		if (error instanceof SyntaxError) {
+			throw new Error(`OHLCV collector config at ${path} is not valid JSON`, {
+				cause: error,
+			});
+		}
+		throw error;
 	}
-
-	return parseOhlcvCollectorConfig(parsed);
 }

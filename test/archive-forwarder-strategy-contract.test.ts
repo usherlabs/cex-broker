@@ -7,7 +7,7 @@ import {
 import fixture from "./fixtures/archive_forwarder_envelope.json";
 
 const PINNED_MAKER_FIXTURE_SHA256 =
-	"784f647e048052a6c3382309b1a86abfbe08bc162363ead9fc88eaa1ba3d50c9";
+	"5c9fd679a5a05ebce5f5158f4cc376360f24a34d9a07edeee43e94e564db3ee7";
 
 const strategyTables = [
 	"strategy_data.policy_evaluation_events",

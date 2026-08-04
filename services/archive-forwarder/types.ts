@@ -31,6 +31,7 @@ export const SUPPORTED_TABLES = [
 	"broker_execution.transfer_events",
 	"broker_execution.fill_events",
 	"broker_account.balance_snapshots",
+	"broker_stream_health.snapshots",
 	"strategy_data.policy_evaluation_events",
 	"strategy_data.strategy_policy_snapshots",
 	"strategy_data.market_identity",

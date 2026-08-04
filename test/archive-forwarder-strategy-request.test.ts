@@ -34,7 +34,10 @@ describe("strategy durable HTTP admission", () => {
 		});
 		expect(response.status).toBe(202);
 		expect(insertCalled).toBe(false);
-		expect(spool.stats()).toMatchObject({ queuedBatches: 1, queuedWork: 3 });
+		expect(spool.stats()).toMatchObject({
+			queuedBatches: 1,
+			queuedWork: fixture.rows.length,
+		});
 		spool.close();
 	});
 
@@ -83,7 +86,15 @@ describe("strategy durable HTTP admission", () => {
 			telemetry: new ArchiveForwarderTelemetry(noopRecorder),
 		});
 		expect(response.status).toBe(200);
-		expect(insertedTables).toHaveLength(3);
+		expect(new Set(insertedTables)).toEqual(
+			new Set([
+				"strategy_data.policy_evaluation_events",
+				"strategy_data.strategy_policy_snapshots",
+				"strategy_data.market_identity",
+				"strategy_data.symbol_mapping",
+				"strategy_data.inventory_settlement_events",
+			]),
+		);
 		expect(new Set(insertedSources)).toEqual(new Set(["maker_replay"]));
 		expect(spool.stats()).toEqual(before);
 		spool.close();
