@@ -20,12 +20,14 @@ type SubscribeClient = grpc.Client & {
 
 type CollectorMetrics = Pick<OtelMetrics, "recordCounter">;
 
-export type OhlcvCollectorOptions = {
+export type MarketDataCollectorOptions = {
 	brokerUrl: string;
 	subscriptions: Array<OhlcvSubscription | MarketDataSubscription>;
 	metrics?: CollectorMetrics;
 	retry?: Partial<RetryPolicy>;
 };
+
+export type OhlcvCollectorOptions = MarketDataCollectorOptions;
 
 type CollectorSubscription =
 	| (OhlcvSubscription & { feed: "OHLCV"; bootstrapLimit?: number })
@@ -113,7 +115,7 @@ function waitForDelay(delayMs: number, signal: AbortSignal): Promise<boolean> {
 	});
 }
 
-export class OhlcvCollector {
+export class MarketDataCollector {
 	readonly #client: SubscribeClient;
 	readonly #subscriptions: CollectorSubscription[];
 	readonly #metrics?: CollectorMetrics;
@@ -121,7 +123,7 @@ export class OhlcvCollector {
 	readonly #health = new Map<string, CollectorFeedHealth>();
 	#started = false;
 
-	constructor(options: OhlcvCollectorOptions) {
+	constructor(options: MarketDataCollectorOptions) {
 		this.#subscriptions = options.subscriptions.map((subscription) =>
 			"feed" in subscription
 				? subscription
@@ -161,7 +163,7 @@ export class OhlcvCollector {
 
 	async run(signal: AbortSignal): Promise<void> {
 		if (this.#started) {
-			throw new Error("OHLCV collector can only be started once");
+			throw new Error("Market-data collector can only be started once");
 		}
 		this.#started = true;
 		try {
@@ -371,4 +373,4 @@ export class OhlcvCollector {
 	}
 }
 
-export const MarketDataCollector = OhlcvCollector;
+export const OhlcvCollector = MarketDataCollector;

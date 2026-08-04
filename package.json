@@ -36,6 +36,7 @@
 		"prepack": "bun run build",
 		"start-broker": "bun run ./src/cli.ts",
 		"start-archive-forwarder": "bun run services/archive-forwarder/index.ts",
+		"start-market-data-collector": "bun run services/ohlcv-collector/index.ts",
 		"start-ohlcv-collector": "bun run services/ohlcv-collector/index.ts",
 		"start-archive-watch": "bun run examples/archive-watch-subscribe.ts",
 		"start-candle-viewer": "bun run research/candle-viewer/server.ts",

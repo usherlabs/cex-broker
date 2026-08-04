@@ -5,8 +5,8 @@ import {
 } from "../src/helpers/market-data-archive/canonical-orderbook";
 import {
 	createMarketCaptureContext,
+	resolveMarketCaptureArchiveState,
 	validateExternalFallbackContext,
-	validateProductionCollectorArchive,
 } from "../src/helpers/market-data-archive/capture-context";
 import {
 	ARCHIVE_SOURCES,
@@ -99,19 +99,56 @@ describe("canonical market capture contract", () => {
 		expect(development.captureBundleId).toBe("development:local-a");
 	});
 
-	test("FIET-901 production collector requires broker_read", () => {
-		expect(() =>
-			validateProductionCollectorArchive({
-				source: "broker_write",
+	test("production market archive eligibility is non-throwing and provenance complete", () => {
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: false,
+				marketArchiveEnabled: true,
+				environment: "production",
+			}),
+		).toEqual({ enabled: false, reason: "archive_disabled" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: false,
+				environment: "production",
+			}),
+		).toEqual({ enabled: false, reason: "market_archive_disabled" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: true,
+				environment: "production",
+				deploymentId: "unknown",
 				captureBundleId: "bundle-a",
 			}),
-		).toThrow("broker_read");
-		expect(() =>
-			validateProductionCollectorArchive({
-				source: "broker_read",
+		).toEqual({ enabled: false, reason: "missing_deployment_id" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: true,
+				environment: "production",
+				deploymentId: "broker-a",
+			}),
+		).toEqual({ enabled: false, reason: "missing_capture_bundle_id" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: true,
+				environment: "staging",
+				deploymentId: "broker-a",
 				captureBundleId: "bundle-a",
 			}),
-		).not.toThrow();
+		).toEqual({ enabled: false, reason: "invalid_capture_environment" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: true,
+				environment: "production",
+				deploymentId: "broker-a",
+				captureBundleId: "bundle-a",
+			}),
+		).toEqual({ enabled: true });
 	});
 
 	test("external fallback rows cannot cross venue or omit their reason", () => {

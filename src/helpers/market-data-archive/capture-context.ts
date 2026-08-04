@@ -58,20 +58,44 @@ export function createMarketCaptureContext(input: {
 	};
 }
 
-export function validateProductionCollectorArchive(input: {
-	source: BrokerArchiveSource;
+export type MarketCaptureArchiveDisabledReason =
+	| "archive_disabled"
+	| "market_archive_disabled"
+	| "invalid_capture_environment"
+	| "missing_deployment_id"
+	| "missing_capture_bundle_id";
+
+export type MarketCaptureArchiveState =
+	| { enabled: true }
+	| { enabled: false; reason: MarketCaptureArchiveDisabledReason };
+
+export function resolveMarketCaptureArchiveState(input: {
+	archiveEnabled: boolean;
+	marketArchiveEnabled: boolean;
+	environment?: string;
+	deploymentId?: string;
 	captureBundleId?: string;
-}): void {
-	if (input.source !== "broker_read") {
-		throw new Error(
-			"FIET-901 production collector requires CEX_BROKER_ARCHIVE_SOURCE=broker_read",
-		);
+}): MarketCaptureArchiveState {
+	if (!input.archiveEnabled) {
+		return { enabled: false, reason: "archive_disabled" };
 	}
-	if (!input.captureBundleId?.trim()) {
-		throw new Error(
-			"FIET-901 production collector requires a capture_bundle_id",
-		);
+	if (!input.marketArchiveEnabled) {
+		return { enabled: false, reason: "market_archive_disabled" };
 	}
+	const environment = input.environment?.trim() || "development";
+	if (environment !== "development" && environment !== "production") {
+		return { enabled: false, reason: "invalid_capture_environment" };
+	}
+	if (environment === "production") {
+		const deploymentId = input.deploymentId?.trim();
+		if (!deploymentId || deploymentId === "unknown") {
+			return { enabled: false, reason: "missing_deployment_id" };
+		}
+		if (!input.captureBundleId?.trim()) {
+			return { enabled: false, reason: "missing_capture_bundle_id" };
+		}
+	}
+	return { enabled: true };
 }
 
 export function validateExternalFallbackContext(input: {

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+	COLLECTOR_BROKER_URL_ENV,
+	loadCollectorBrokerUrl,
 	loadOhlcvCollectorConfig,
 	MARKET_DATA_COLLECTOR_CONFIG_ENV,
 	OHLCV_COLLECTOR_CONFIG_ENV,
+	parseCollectorBrokerUrl,
 	parseMarketDataCollectorConfig,
 	parseOhlcvCollectorConfig,
 } from "../services/ohlcv-collector/config";
@@ -10,8 +13,6 @@ import {
 describe("market-data collector config", () => {
 	test("validates all four feed supervisors and feed-specific options", () => {
 		const parsed = parseMarketDataCollectorConfig({
-			captureBundleId: "bundle-2026-08-03",
-			environment: "production",
 			subscriptions: [
 				{
 					exchange: " Binance ",
@@ -31,7 +32,6 @@ describe("market-data collector config", () => {
 			],
 		});
 
-		expect(parsed.captureBundleId).toBe("bundle-2026-08-03");
 		expect(parsed.subscriptions.map(({ feed }) => feed)).toEqual([
 			"ORDERBOOK",
 			"TICKER",
@@ -46,7 +46,6 @@ describe("market-data collector config", () => {
 
 	test.each([
 		{
-			captureBundleId: "",
 			environment: "production",
 			subscriptions: [
 				{ exchange: "binance", symbol: "BTC/USDT", feed: "TICKER" },
@@ -54,19 +53,21 @@ describe("market-data collector config", () => {
 		},
 		{
 			captureBundleId: "bundle-a",
-			environment: "production",
+			subscriptions: [
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TICKER" },
+			],
+		},
+		{
 			subscriptions: [
 				{ exchange: "binance", symbol: "BTC/USDT", feed: "ORDERBOOK" },
 			],
 		},
 		{
-			captureBundleId: "bundle-a",
-			environment: "production",
 			subscriptions: [
 				{ exchange: "binance", symbol: "BTC/USDT", feed: "OHLCV" },
 			],
 		},
-	])("rejects incomplete production feed configuration", (input) => {
+	])("rejects collector-owned identity or incomplete feed configuration", (input) => {
 		expect(() => parseMarketDataCollectorConfig(input)).toThrow(
 			"Invalid market-data collector config",
 		);
@@ -78,6 +79,37 @@ describe("market-data collector config", () => {
 		);
 		expect(OHLCV_COLLECTOR_CONFIG_ENV).toBe(
 			"CEX_BROKER_OHLCV_COLLECTOR_CONFIG",
+		);
+	});
+});
+
+describe("collector broker target", () => {
+	test.each([
+		"broker.internal:8086",
+		"127.0.0.1:8086",
+		"[2001:db8::1]:8086",
+	])("accepts a gRPC authority: %s", (value) => {
+		expect(parseCollectorBrokerUrl(value)).toBe(value);
+	});
+
+	test.each([
+		undefined,
+		"",
+		"broker.internal",
+		"http://broker.internal:8086",
+		"broker.internal:0",
+		"broker.internal:65536",
+		"[2001:db8::1]",
+	])("rejects a missing or malformed gRPC authority: %s", (value) => {
+		expect(() => parseCollectorBrokerUrl(value)).toThrow(
+			COLLECTOR_BROKER_URL_ENV,
+		);
+	});
+
+	test("loads the target from the collector-only environment variable", () => {
+		expect(COLLECTOR_BROKER_URL_ENV).toBe("CEX_BROKER_URL");
+		expect(loadCollectorBrokerUrl(" broker.internal:8086 ")).toBe(
+			"broker.internal:8086",
 		);
 	});
 });

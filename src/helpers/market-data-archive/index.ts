@@ -17,8 +17,10 @@ export {
 export {
 	captureEnvironmentFromEnv,
 	createMarketCaptureContext,
+	type MarketCaptureArchiveDisabledReason,
+	type MarketCaptureArchiveState,
+	resolveMarketCaptureArchiveState,
 	validateExternalFallbackContext,
-	validateProductionCollectorArchive,
 } from "./capture-context";
 export {
 	ARCHIVE_SOURCES,
