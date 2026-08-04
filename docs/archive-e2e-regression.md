@@ -79,6 +79,42 @@ The suite also contains a permanent source-surface regression check. It fails
 if removed write-mode, credential-policy, credential-profile, attestation, or
 smoke-secret controls return to executable code, workflows, or operator docs.
 
+## Canonical-upgrade baseline and A/B acceptance
+
+The immutable canonical-upgrade baseline derived from the authoritative
+`develop` branch is maintained separately from the historical compatibility
+fixture above. Generate it only from the exact clean baseline checkout and
+verify it without rewriting expectations:
+
+```sh
+bun run archive:baseline:generate
+bun run archive:baseline:verify
+```
+
+The current accepted baseline is commit
+`7a83de5f29a08f42d81f64a75a83bc9318dce94a`, package `0.2.38`. Both authoritative
+remotes must resolve `develop` to that commit during generation. The committed
+manifest records exact DDL, table projections, ordering, deterministic data,
+tool versions, source hashes, and the fixture-derived half-open migration window.
+
+After the final candidate is committed and clean, run the one-time Server 24.8
+A/B acceptance outside ordinary CI:
+
+```sh
+bun run test:acceptance:archive-upgrade
+```
+
+The runner starts isolated A and B servers from that identical fixture. A
+remains unchanged. B receives the production schema initializer, confirmed
+database-to-database migration over the recorded window, parameter-bound
+cutover checks, an idempotent second migration, and upgraded four-feed capture
+through the normal broker/collector/forwarder transport. A failure retains
+stopped databases and a bounded diagnostic manifest; inspect it before removing
+the named containers. Success removes both containers and writes the acceptance
+JSON below the active OpenSpec change. This fixed upgrade acceptance is not a
+recurring CI job; `test:e2e:archive` remains the generalized continuous archive
+regression.
+
 ## Live credentialless public smoke
 
 The non-gating smoke is available only through its scheduled/manual workflow or

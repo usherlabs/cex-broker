@@ -17,14 +17,18 @@ const strategyTables = [
 	"strategy_data.inventory_settlement_events",
 ] as const;
 
-function v2Row(table: (typeof strategyTables)[number], seq: number) {
+function v2Row(
+	table: (typeof strategyTables)[number],
+	seq: number,
+	source = "hb_runtime",
+) {
 	return {
 		table,
 		row: {
-			source: "hb_runtime",
+			source,
 			deployment_id: "maker-a",
 			schema_version: "2",
-			producer_id: "hb_runtime:maker-a:controller-a",
+			producer_id: `${source}:maker-a:controller-a`,
 			producer_run_id: "run-a",
 			stream_name: table,
 			stream_seq: 1,
@@ -34,8 +38,8 @@ function v2Row(table: (typeof strategyTables)[number], seq: number) {
 	};
 }
 
-function batch(rows: unknown[]) {
-	return { source: "hb_runtime", deployment_id: "maker-a", rows };
+function batch(rows: unknown[], source = "hb_runtime") {
+	return { source, deployment_id: "maker-a", rows };
 }
 
 describe("Maker strategy archive contract", () => {
@@ -52,6 +56,18 @@ describe("Maker strategy archive contract", () => {
 	test("accepts one v2 row for every approved strategy table", () => {
 		const rows = strategyTables.map((table, index) => v2Row(table, index + 1));
 		expect(validateStrategyArchiveBatch(batch(rows))).toEqual({ ok: true });
+	});
+
+	test("accepts maker_replay v2 rows for every approved strategy table", () => {
+		const rows = strategyTables.map((table, index) =>
+			v2Row(table, index + 1, "maker_replay"),
+		);
+		expect(validateStrategyArchiveBatch(batch(rows, "maker_replay"))).toEqual({
+			ok: true,
+		});
+		expect(classifyStrategyArchiveBatch(batch(rows, "maker_replay"))).toBe(
+			"strategy_replay",
+		);
 	});
 
 	test.each([
@@ -135,5 +151,22 @@ describe("Maker strategy archive contract", () => {
 				],
 			}),
 		).toBe("direct");
+	});
+
+	test("rejects reserved strategy sources on non-strategy and mixed batches", () => {
+		for (const source of ["hb_runtime", "maker_replay"]) {
+			expect(
+				classifyStrategyArchiveBatch({
+					source,
+					deployment_id: "maker-a",
+					rows: [
+						{
+							table: "market_data.cex_trades",
+							row: { source },
+						},
+					],
+				}),
+			).toBe("invalid_strategy_mix");
+		}
 	});
 });

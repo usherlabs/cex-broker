@@ -1,6 +1,11 @@
 import type { ArchiveBatchRequest, ArchiveRow } from "./types";
 
-export const STRATEGY_ARCHIVE_SOURCE = "hb_runtime";
+export const STRATEGY_RUNTIME_SOURCE = "hb_runtime";
+export const STRATEGY_REPLAY_SOURCE = "maker_replay";
+export const STRATEGY_ARCHIVE_SOURCES = [
+	STRATEGY_RUNTIME_SOURCE,
+	STRATEGY_REPLAY_SOURCE,
+] as const;
 
 export const STRATEGY_ARCHIVE_TABLES = [
 	"strategy_data.policy_evaluation_events",
@@ -13,7 +18,8 @@ export const STRATEGY_ARCHIVE_TABLES = [
 export type StrategyArchiveTable = (typeof STRATEGY_ARCHIVE_TABLES)[number];
 
 export type StrategyBatchClassification =
-	| "strategy"
+	| "strategy_runtime"
+	| "strategy_replay"
 	| "direct"
 	| "invalid_strategy_source"
 	| "invalid_strategy_mix";
@@ -58,12 +64,18 @@ export function classifyStrategyArchiveBatch(
 		isStrategyArchiveTable(entryTable(entry)),
 	);
 
-	if (source === STRATEGY_ARCHIVE_SOURCE) {
-		return rows.length > 0 && rows.every((entry) =>
+	if (
+		source === STRATEGY_RUNTIME_SOURCE ||
+		source === STRATEGY_REPLAY_SOURCE
+	) {
+		if (!(rows.length > 0 && rows.every((entry) =>
 			isStrategyArchiveTable(entryTable(entry)),
-		)
-			? "strategy"
-			: "invalid_strategy_mix";
+		))) {
+			return "invalid_strategy_mix";
+		}
+		return source === STRATEGY_RUNTIME_SOURCE
+			? "strategy_runtime"
+			: "strategy_replay";
 	}
 	return hasStrategyRows ? "invalid_strategy_source" : "direct";
 }
@@ -157,7 +169,10 @@ export function validateStrategyArchiveBatch(
 		return { ok: false, error: "Too many strategy rows" };
 	}
 	const classification = classifyStrategyArchiveBatch(envelope);
-	if (classification !== "strategy") {
+	if (
+		classification !== "strategy_runtime" &&
+		classification !== "strategy_replay"
+	) {
 		return { ok: false, error: "Invalid strategy source or table mix" };
 	}
 	for (const entry of envelope.rows) {

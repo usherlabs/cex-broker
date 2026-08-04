@@ -1,6 +1,11 @@
+import { mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { RowInserter } from "../../../../services/archive-forwarder/insert";
 import { handleArchiveRequest } from "../../../../services/archive-forwarder/request";
+import { StrategyArchiveSpool } from "../../../../services/archive-forwarder/strategy-spool";
+import { StrategySpoolWorker } from "../../../../services/archive-forwarder/strategy-worker";
 import { ArchiveForwarderTelemetry } from "../../../../services/archive-forwarder/telemetry";
 import type { ArchiveBatchRequest } from "../../../../services/archive-forwarder/types";
 import type { ArchiveForwarderEndpoint } from "./archive-e2e-contracts";
@@ -8,12 +13,28 @@ import type { ArchiveForwarderEndpoint } from "./archive-e2e-contracts";
 export async function startArchiveForwarderEndpoint(options: {
 	inserter: RowInserter;
 	authToken?: string;
+	spoolPath?: string;
 }): Promise<ArchiveForwarderEndpoint> {
+	const ownsSpoolDirectory = !options.spoolPath;
+	const spoolDirectory = ownsSpoolDirectory
+		? await mkdtemp(join(tmpdir(), "cex-broker-archive-e2e-spool-"))
+		: undefined;
+	const spool = new StrategyArchiveSpool({
+		path:
+			options.spoolPath ??
+			join(spoolDirectory as string, "strategy-spool.sqlite"),
+	});
 	let requestCount = 0;
 	const batches: ArchiveBatchRequest[] = [];
 	const telemetry = new ArchiveForwarderTelemetry({
 		recordCounter: () => {},
 		setObservableGauge: () => {},
+	});
+	const worker = new StrategySpoolWorker({
+		spool,
+		inserter: options.inserter,
+		telemetry,
+		pollIntervalMs: 5,
 	});
 	const server = http.createServer((incoming, outgoing) => {
 		void (async () => {
@@ -44,6 +65,7 @@ export async function startArchiveForwarderEndpoint(options: {
 				const response = await handleArchiveRequest(request, {
 					authToken: options.authToken,
 					inserter: options.inserter,
+					spool,
 					telemetry,
 				});
 				const headers = Object.fromEntries(response.headers.entries());
@@ -77,9 +99,31 @@ export async function startArchiveForwarderEndpoint(options: {
 		get requestCount() {
 			return requestCount;
 		},
-		close: () =>
-			new Promise<void>((resolve, reject) => {
+		strategySpoolStats: () => spool.stats(),
+		waitForStrategyDrain: async () => {
+			const deadline = Date.now() + 10_000;
+			while (spool.stats().queuedWork > 0) {
+				const result = await worker.drainOnce();
+				if (result.terminal > 0) {
+					throw new Error(
+						"strategy spool reached terminal work during E2E drain",
+					);
+				}
+				if (Date.now() >= deadline) {
+					throw new Error("timed out waiting for strategy E2E spool drain");
+				}
+				if (result.completed === 0) await Bun.sleep(5);
+			}
+		},
+		close: async () => {
+			worker.stop();
+			await new Promise<void>((resolve, reject) => {
 				server.close((error) => (error ? reject(error) : resolve()));
-			}),
+			});
+			spool.close();
+			if (spoolDirectory) {
+				await rm(spoolDirectory, { recursive: true, force: true });
+			}
+		},
 	};
 }

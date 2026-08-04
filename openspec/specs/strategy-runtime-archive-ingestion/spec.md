@@ -1,7 +1,7 @@
 # strategy-runtime-archive-ingestion Specification
 
 ## Purpose
-TBD - created by archiving change maker-archive-forwarder-conformance. Update Purpose after archive.
+Define the closed FIET Maker strategy envelope, versioned producer identity, provenance validation, and persistence-path contract used by the archive-forwarder.
 ## Requirements
 ### Requirement: Strategy runtime requests use a closed envelope contract
 
@@ -96,4 +96,3 @@ Requests that contain no strategy table and do not use `hb_runtime` MUST retain 
 #### Scenario: Broker market rows are submitted
 - **WHEN** a valid `broker_read` or `broker_write` request contains only supported non-strategy rows
 - **THEN** the forwarder MUST insert them through the existing direct path and MUST NOT consume strategy spool quota
-

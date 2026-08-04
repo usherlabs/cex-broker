@@ -7,7 +7,7 @@ forwarder therefore owns a conforming request only after it commits the request
 to its SQLite spool. It then returns HTTP 202 and drains each represented table
 to ClickHouse independently. Maker does not retry an acknowledged batch.
 
-This path is deliberately narrow: `source=hb_runtime` and exclusively these five
+The durable path is deliberately narrow: `source=hb_runtime` and exclusively these five
 tables:
 
 - `strategy_data.policy_evaluation_events`
@@ -16,10 +16,12 @@ tables:
 - `strategy_data.symbol_mapping`
 - `strategy_data.inventory_settlement_events`
 
-Mixed requests are rejected atomically. Strategy tables under another source
-are also rejected. `broker_read`, `broker_write`, account, execution, market-data,
-and Maker replay requests keep their existing direct synchronous ClickHouse path
-and do not consume spool capacity.
+Mixed requests are rejected atomically. Strategy tables under sources other than
+`hb_runtime` and `maker_replay` are rejected. Valid `maker_replay` rows share the
+same schema/provenance checks but use direct synchronous ClickHouse insertion:
+HTTP 200 means stored, HTTP 500 means the replay producer retains retry ownership,
+and HTTP 202 is never returned. `broker_read`, `broker_write`, account, execution,
+market-data, and replay requests do not consume spool capacity.
 
 ## Wire versions
 
@@ -63,6 +65,11 @@ transactional.
 - `400`: invalid envelope, table/source mix, provenance, or schema version/identity.
 - `429`: accepting the batch would exceed the fixed spool quota; ownership was not accepted.
 - `503`: the spool is missing, corrupt, unwritable, or cannot commit; ownership was not accepted.
+
+Those 202/429/503 ownership responses apply to `hb_runtime`. A conforming
+`maker_replay` request returns 200 after direct insertion or 500 on insertion
+failure, without creating batches, work, bytes, retries, deduplication tokens,
+terminal state, or expiry state in the spool.
 
 Transient ClickHouse failures retry after 1, 2, 4, 8, 16, 32, then 60 seconds,
 with ±20% jitter, through retention expiry. Completion is tracked per table, so

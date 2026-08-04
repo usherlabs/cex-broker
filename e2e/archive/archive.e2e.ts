@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { access } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SUPPORTED_TABLES } from "../../services/archive-forwarder/types";
+import { BrokerExecutionArchiver } from "../../src/helpers/broker-execution-archive";
 import {
 	BASELINE_TABLES,
 	assertBaselineTableRows,
@@ -94,7 +97,17 @@ describe("ClickHouse Local archive E2E runtime", () => {
 						rows: rows.map((row) => ({ table: table.table, row })),
 					}),
 				});
-				expect(response.status, `${table.table} HTTP status`).toBe(200);
+				const isRuntimeStrategy = rows[0]?.source === "hb_runtime";
+				expect(response.status, `${table.table} HTTP status`).toBe(
+					isRuntimeStrategy ? 202 : 200,
+				);
+				if (isRuntimeStrategy) {
+					await endpoint.waitForStrategyDrain();
+					expect(endpoint.strategySpoolStats()).toMatchObject({
+						queuedBatches: 0,
+						queuedWork: 0,
+					});
+				}
 			}
 
 			const actual = await harness.query(
@@ -137,6 +150,140 @@ describe("ClickHouse Local archive E2E runtime", () => {
 				"SELECT count() AS count FROM market_data.candles WHERE deployment_id = 'archive-e2e-rejected'",
 			),
 		).toEqual([{ count: 0 }]);
+	});
+
+	test("maker_replay inserts synchronously and leaves the runtime spool unchanged", async () => {
+		const fixture = await loadArchiveBaselineFixture();
+		const table = fixture.tables.find(
+			(entry) => entry.table === "strategy_data.policy_evaluation_events",
+		);
+		if (!table) throw new Error("strategy replay fixture table is missing");
+		const replayRow = {
+			...table.expectedRows[0],
+			source: "maker_replay",
+			deployment_id: "archive-e2e-replay",
+		};
+		const harness = await initializedHarness();
+		const endpoint = await startArchiveForwarderEndpoint({
+			inserter: harness.inserter,
+		});
+		endpoints.push(endpoint);
+		const before = endpoint.strategySpoolStats();
+		const response = await fetch(endpoint.url, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				source: "maker_replay",
+				deployment_id: "archive-e2e-replay",
+				rows: [{ table: table.table, row: replayRow }],
+			}),
+		});
+		expect(response.status).toBe(200);
+		expect(endpoint.strategySpoolStats()).toEqual(before);
+		expect(
+			await harness.query(
+				"SELECT count() AS count FROM strategy_data.policy_evaluation_events WHERE source = 'maker_replay' AND deployment_id = 'archive-e2e-replay'",
+			),
+		).toEqual([{ count: 1 }]);
+
+		const failing = await startArchiveForwarderEndpoint({
+			inserter: async () => {
+				throw new Error("scripted replay insertion failure");
+			},
+		});
+		endpoints.push(failing);
+		const failed = await fetch(failing.url, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				source: "maker_replay",
+				deployment_id: "archive-e2e-replay-failed",
+				rows: [
+					{
+						table: table.table,
+						row: {
+							...replayRow,
+							deployment_id: "archive-e2e-replay-failed",
+						},
+					},
+				],
+			}),
+		});
+		expect(failed.status).toBe(500);
+		expect(failing.strategySpoolStats()).toMatchObject({
+			queuedBatches: 0,
+			queuedWork: 0,
+			accountedBytes: 0,
+		});
+	});
+
+	test("runtime spool survives restart and retries only the failed table", async () => {
+		const fixture = await loadArchiveBaselineFixture();
+		const strategyTables = fixture.tables.filter(({ table }) =>
+			table.startsWith("strategy_data."),
+		);
+		const harness = await initializedHarness();
+		const spoolPath = join(harness.rootDirectory, "strategy-restart.sqlite");
+		const first = await startArchiveForwarderEndpoint({
+			inserter: harness.inserter,
+			spoolPath,
+		});
+		const firstTable = strategyTables[0];
+		if (!firstTable) throw new Error("strategy restart fixture is missing");
+		const admitted = await fetch(first.url, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				source: "hb_runtime",
+				deployment_id: firstTable.expectedRows[0]?.deployment_id,
+				rows: firstTable.expectedRows.map((row) => ({
+					table: firstTable.table,
+					row,
+				})),
+			}),
+		});
+		expect(admitted.status).toBe(202);
+		expect(first.strategySpoolStats().queuedWork).toBe(1);
+		await first.close();
+
+		const restarted = await startArchiveForwarderEndpoint({
+			inserter: harness.inserter,
+			spoolPath,
+		});
+		endpoints.push(restarted);
+		expect(restarted.strategySpoolStats().queuedWork).toBe(1);
+		await restarted.waitForStrategyDrain();
+		expect(restarted.strategySpoolStats().queuedWork).toBe(0);
+
+		const attempts = new Map<string, number>();
+		const retryEndpoint = await startArchiveForwarderEndpoint({
+			inserter: async (table, rows, options) => {
+				const count = (attempts.get(table) ?? 0) + 1;
+				attempts.set(table, count);
+				if (table === strategyTables[1]?.table && count === 1) {
+					throw new Error("connection reset by peer");
+				}
+				await harness.inserter(table, rows, options);
+			},
+		});
+		endpoints.push(retryEndpoint);
+		const retryTables = strategyTables.slice(1, 3);
+		const retryRows = retryTables.flatMap((table) =>
+			table.expectedRows.map((row) => ({ table: table.table, row })),
+		);
+		const retryResponse = await fetch(retryEndpoint.url, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				source: "hb_runtime",
+				deployment_id: retryRows[0]?.row.deployment_id,
+				rows: retryRows,
+			}),
+		});
+		expect(retryResponse.status).toBe(202);
+		await retryEndpoint.waitForStrategyDrain();
+		expect(attempts.get(retryTables[0]?.table ?? "")).toBe(2);
+		expect(attempts.get(retryTables[1]?.table ?? "")).toBe(1);
 	});
 });
 
@@ -188,5 +335,55 @@ describe("archive failure isolation and accounting", () => {
 			new Set(["shutdown_forwarder_failure"]),
 		);
 		expect(result.unaccountedRows).toBe(0);
+	});
+
+	test("queue shedding records the exact oldest payload with the closed loss shape", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "archive-e2e-shed-"));
+		const journalPath = join(directory, "loss.jsonl");
+		const archiver = BrokerExecutionArchiver.create({
+			source: "broker_read",
+			deploymentId: "archive-e2e-shed",
+			forwarderUrl: "http://127.0.0.1:1/archive",
+			deadLetterPath: journalPath,
+			maxQueueSize: 1,
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+			forwarderTimeoutMs: 1,
+		});
+		try {
+			const oldest = {
+				table: "market_data.cex_trades",
+				row: { source: "broker_write", deployment_id: "archive-e2e-shed", trade_id: "oldest" },
+			};
+			archiver.enqueue(oldest);
+			archiver.enqueue({
+				table: "market_data.cex_trades",
+				row: { deployment_id: "archive-e2e-shed", trade_id: "newest" },
+			});
+			const records = (await readFile(journalPath, "utf8"))
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line) as Record<string, unknown>);
+			expect(records).toHaveLength(1);
+			expect(Object.keys(records[0] ?? {}).sort()).toEqual([
+				"deployment_id",
+				"payload",
+				"reason",
+				"source",
+				"timestamp",
+			]);
+			expect(records[0]).toMatchObject({
+				source: "broker_read",
+				deployment_id: "archive-e2e-shed",
+				reason: "queue_shed",
+				payload: {
+					table: oldest.table,
+					row: { ...oldest.row, source: "broker_read" },
+				},
+			});
+		} finally {
+			await archiver.close().catch(() => {});
+			await rm(directory, { recursive: true, force: true });
+		}
 	});
 });

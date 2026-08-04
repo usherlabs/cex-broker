@@ -1,8 +1,11 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Server } from "@grpc/grpc-js";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
-import { OhlcvCollector } from "../../../../services/ohlcv-collector/collector";
+import type { RowInserter } from "../../../../services/archive-forwarder/insert";
+import { MarketDataCollector } from "../../../../services/ohlcv-collector/collector";
 import type { MarketDataSubscription } from "../../../../services/ohlcv-collector/config";
 import { SubscribeBrokerLifecycle } from "../../../../src/handlers/subscribe";
 import type { BrokerPoolEntry } from "../../../../src/helpers/broker";
@@ -322,7 +325,7 @@ type ComposedContext = {
 	endpoint: ArchiveForwarderEndpoint;
 	archiver: BrokerExecutionArchiver;
 	archiveObserver: ArchiveObserver;
-	collector: OhlcvCollector;
+	collector: MarketDataCollector;
 	collectorObserver: CollectorObserver;
 	collectorAbort: AbortController;
 	collectorRun: Promise<void>;
@@ -430,7 +433,7 @@ async function createComposedContext(
 		);
 		const port = await bindServer(server);
 		const collectorObserver = new CollectorObserver();
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
 			subscriptions: SUBSCRIPTIONS,
 			metrics: collectorObserver,
@@ -629,7 +632,10 @@ function assertCompleteTerminalJournal(
 }
 
 async function releaseFrame(
-	context: ComposedContext,
+	context: Pick<
+		ComposedContext,
+		"setClock" | "exchange" | "collectorObserver" | "archiveObserver"
+	>,
 	feed: PublicFeed,
 	payload: unknown,
 	receivedTimeMs: number,
@@ -648,7 +654,12 @@ async function releaseFrame(
 	);
 }
 
-async function releaseLifecycleFrames(context: ComposedContext): Promise<void> {
+async function releaseLifecycleFrames(
+	context: Pick<
+		ComposedContext,
+		"setClock" | "exchange" | "collectorObserver" | "archiveObserver" | "input"
+	>,
+): Promise<void> {
 	const { input } = context;
 	let enqueued = 0;
 	enqueued += 6;
@@ -723,6 +734,354 @@ async function releaseLifecycleFrames(context: ComposedContext): Promise<void> {
 	);
 	if (enqueued !== EXPECTED_ENQUEUED) {
 		throw new Error(`Unexpected lifecycle row plan: ${enqueued}`);
+	}
+}
+
+export type ProductionServerCaptureResult = {
+	requestCount: number;
+	emittedRows: Array<{ table: string; row: Record<string, unknown> }>;
+	feedsObserved: PublicFeed[];
+};
+
+export type ProductionBrokerCollectorTopology = {
+	brokerPort: number;
+	feedsReady: PublicFeed[];
+	capture: () => Promise<{
+		emittedRows: number;
+		feedsObserved: PublicFeed[];
+		sourceWindow: { startTimeMs: number; endTimeMs: number };
+	}>;
+	close: () => Promise<void>;
+};
+
+export async function startProductionBrokerCollectorTopology(options: {
+	forwarderUrl: string;
+	forwarderToken?: string;
+	deploymentId: string;
+	captureBundleId: string;
+	lossJournalPath: string;
+	timeOffsetMs?: number;
+}): Promise<ProductionBrokerCollectorTopology> {
+	const environment = new EnvironmentScope();
+	const originalDateNow = Date.now;
+	let clockMs = 1_700_000_000_000;
+	Date.now = () => clockMs;
+	const collectorAbort = new AbortController();
+	const brokerLifecycle = new SubscribeBrokerLifecycle();
+	const archiveObserver = new ArchiveObserver();
+	const collectorObserver = new CollectorObserver();
+	const exchange = new ControlledExchange();
+	let closed = false;
+	environment.set({
+		CEX_BROKER_ARCHIVE_ENABLED: "true",
+		CEX_BROKER_MARKET_ARCHIVE_ENABLED: "true",
+		CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH: options.lossJournalPath,
+		CEX_BROKER_ARCHIVE_FORWARDER_URL: options.forwarderUrl,
+		CEX_BROKER_DEPLOYMENT_ID: options.deploymentId,
+		CEX_BROKER_CAPTURE_BUNDLE_ID: options.captureBundleId,
+		CEX_BROKER_ARCHIVE_FORWARDER_TOKEN: options.forwarderToken ?? "",
+		ARCHIVE_FORWARDER_TOKEN: options.forwarderToken ?? "",
+		CEX_BROKER_ARCHIVE_SOURCE: "broker_read",
+		CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT: "production",
+		CEX_BROKER_ORDERBOOK_INTERVAL_MS: "1",
+	});
+	const archiver = BrokerExecutionArchiver.create({
+		source: "broker_read",
+		deploymentId: options.deploymentId,
+		forwarderUrl: options.forwarderUrl,
+		forwarderToken: options.forwarderToken,
+		deadLetterPath: options.lossJournalPath,
+		batchSize: 1_000,
+		flushIntervalMs: 60_000,
+		forwarderTimeoutMs: 10_000,
+		otelMetrics: archiveObserver as never,
+	});
+	const brokers = {
+		binance: {
+			primary: {
+				exchange: exchange as unknown as Exchange,
+				label: "spot:primary",
+			},
+			secondaryBrokers: [],
+		},
+	} as unknown as Record<string, BrokerPoolEntry>;
+	const server = getServer(
+		PUBLIC_ONLY_POLICY,
+		brokers,
+		["*"],
+		false,
+		"",
+		undefined,
+		archiver,
+		undefined,
+		undefined,
+		brokerLifecycle,
+	);
+	let collectorRun: Promise<void> | undefined;
+	try {
+		const brokerPort = await bindServer(server);
+		const collector = new MarketDataCollector({
+			brokerUrl: `127.0.0.1:${brokerPort}`,
+			subscriptions: SUBSCRIPTIONS,
+			metrics: collectorObserver,
+			retry: { initialDelayMs: 5, maxDelayMs: 20, jitterRatio: 0 },
+		});
+		collectorRun = collector.run(collectorAbort.signal);
+		await withDeadline(
+			Promise.all(PUBLIC_FEEDS.map((feed) => exchange.waitForCall(feed))).then(
+				() => undefined,
+			),
+			"sidecar broker subscriptions",
+		);
+		const input = (await Bun.file(BASELINE_INPUT_PATH).json()) as BaselineInput;
+		const offset = options.timeOffsetMs ?? 0;
+		if (offset !== 0) {
+			input.orderbook.snapshot.timestamp =
+				Number(input.orderbook.snapshot.timestamp) + offset;
+			input.orderbook.snapshot.receivedTimestamp =
+				Number(input.orderbook.snapshot.receivedTimestamp) + offset;
+			input.candle.bar.openTimeMs += offset;
+			input.candle.receivedTimestamp += offset;
+			input.ticker.input.receivedTimestamp += offset;
+			input.ticker.input.payload.timestamp =
+				Number(input.ticker.input.payload.timestamp) + offset;
+			input.trade.input.receivedTimestamp += offset;
+			for (const trade of input.trade.input.payload) {
+				if (trade && typeof trade === "object") {
+					const row = trade as Record<string, unknown>;
+					row.timestamp = Number(row.timestamp) + offset;
+				}
+			}
+		}
+		return {
+			brokerPort,
+			feedsReady: [...PUBLIC_FEEDS],
+			capture: async () => {
+				await releaseLifecycleFrames({
+					setClock: (timestampMs) => {
+						clockMs = timestampMs;
+					},
+					exchange,
+					collectorObserver,
+					archiveObserver,
+					input,
+				});
+				await archiver.flush();
+				await withDeadline(
+					archiveObserver.waitForFlushed(EXPECTED_ENQUEUED),
+					"sidecar archive flush",
+				);
+				return {
+					emittedRows: EXPECTED_ENQUEUED,
+					feedsObserved: PUBLIC_FEEDS.filter((feed) =>
+						collectorObserver.hasObserved(feed),
+					),
+					sourceWindow: {
+						startTimeMs: Math.min(
+							Number(input.orderbook.snapshot.timestamp),
+							input.candle.bar.openTimeMs,
+							Number(input.ticker.input.payload.timestamp),
+							...input.trade.input.payload.map((trade) =>
+								Number(
+									trade && typeof trade === "object"
+										? (trade as Record<string, unknown>).timestamp
+										: 0,
+								),
+							),
+						),
+						endTimeMs:
+							Math.max(
+								Number(input.orderbook.snapshot.timestamp),
+								input.candle.bar.openTimeMs,
+								Number(input.ticker.input.payload.timestamp),
+								...input.trade.input.payload.map((trade) =>
+									Number(
+										trade && typeof trade === "object"
+											? (trade as Record<string, unknown>).timestamp
+											: 0,
+									),
+								),
+							) + 1,
+					},
+				};
+			},
+			close: async () => {
+				if (closed) return;
+				closed = true;
+				collectorAbort.abort();
+				await exchange.close();
+				if (collectorRun) {
+					await withDeadline(collectorRun, "sidecar collector abort").catch(
+						() => {},
+					);
+				}
+				server.forceShutdown();
+				await brokerLifecycle.closeAll().catch(() => {});
+				await archiver.close();
+				environment.restore();
+				Date.now = originalDateNow;
+			},
+		};
+	} catch (error) {
+		collectorAbort.abort();
+		await exchange.close();
+		server.forceShutdown();
+		await brokerLifecycle.closeAll().catch(() => {});
+		await archiver.close().catch(() => {});
+		environment.restore();
+		Date.now = originalDateNow;
+		throw error;
+	}
+}
+
+export async function runProductionServerArchiveCapture(options: {
+	inserter: RowInserter;
+	deploymentId: string;
+	captureBundleId: string;
+	timeOffsetMs?: number;
+}): Promise<ProductionServerCaptureResult> {
+	const runDirectory = await mkdtemp(
+		join(tmpdir(), "cex-broker-server-capture-"),
+	);
+	const environment = new EnvironmentScope();
+	const originalDateNow = Date.now;
+	let clockMs = 1_700_000_000_000;
+	Date.now = () => clockMs;
+	let endpoint: ArchiveForwarderEndpoint | undefined;
+	let archiver: BrokerExecutionArchiver | undefined;
+	let collector: MarketDataCollector | undefined;
+	let collectorRun: Promise<void> | undefined;
+	let server: Server | undefined;
+	let exchange: ControlledExchange | undefined;
+	const collectorAbort = new AbortController();
+	const brokerLifecycle = new SubscribeBrokerLifecycle();
+	try {
+		endpoint = await startArchiveForwarderEndpoint({
+			inserter: options.inserter,
+			authToken: AUTH_TOKEN,
+			spoolPath: join(runDirectory, "strategy-spool.sqlite"),
+		});
+		environment.set({
+			CEX_BROKER_ARCHIVE_ENABLED: "true",
+			CEX_BROKER_MARKET_ARCHIVE_ENABLED: "true",
+			CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH: join(
+				runDirectory,
+				"archive-loss.jsonl",
+			),
+			CEX_BROKER_ARCHIVE_FORWARDER_URL: endpoint.url,
+			CEX_BROKER_DEPLOYMENT_ID: options.deploymentId,
+			CEX_BROKER_CAPTURE_BUNDLE_ID: options.captureBundleId,
+			CEX_BROKER_ARCHIVE_FORWARDER_TOKEN: AUTH_TOKEN,
+			ARCHIVE_FORWARDER_TOKEN: AUTH_TOKEN,
+			CEX_BROKER_ARCHIVE_SOURCE: "broker_read",
+			CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT: "production",
+			CEX_BROKER_ORDERBOOK_INTERVAL_MS: "1",
+		});
+		const archiveObserver = new ArchiveObserver();
+		archiver = BrokerExecutionArchiver.create({
+			source: "broker_read",
+			deploymentId: options.deploymentId,
+			forwarderUrl: endpoint.url,
+			deadLetterPath: join(runDirectory, "archive-loss.jsonl"),
+			batchSize: 1_000,
+			flushIntervalMs: 60_000,
+			forwarderTimeoutMs: 10_000,
+			otelMetrics: archiveObserver as never,
+		});
+		exchange = new ControlledExchange();
+		const brokers = {
+			binance: {
+				primary: {
+					exchange: exchange as unknown as Exchange,
+					label: "spot:primary",
+				},
+				secondaryBrokers: [],
+			},
+		} as unknown as Record<string, BrokerPoolEntry>;
+		server = getServer(
+			PUBLIC_ONLY_POLICY,
+			brokers,
+			["*"],
+			false,
+			"",
+			undefined,
+			archiver,
+			undefined,
+			undefined,
+			brokerLifecycle,
+		);
+		const port = await bindServer(server);
+		const collectorObserver = new CollectorObserver();
+		collector = new MarketDataCollector({
+			brokerUrl: `127.0.0.1:${port}`,
+			subscriptions: SUBSCRIPTIONS,
+			metrics: collectorObserver,
+			retry: { initialDelayMs: 5, maxDelayMs: 20, jitterRatio: 0 },
+		});
+		collectorRun = collector.run(collectorAbort.signal);
+		await withDeadline(
+			Promise.all(PUBLIC_FEEDS.map((feed) => exchange?.waitForCall(feed))).then(
+				() => undefined,
+			),
+			"server acceptance subscriptions",
+		);
+		const input = (await Bun.file(BASELINE_INPUT_PATH).json()) as BaselineInput;
+		const offset = options.timeOffsetMs ?? 0;
+		if (offset !== 0) {
+			input.orderbook.snapshot.timestamp =
+				Number(input.orderbook.snapshot.timestamp) + offset;
+			input.orderbook.snapshot.receivedTimestamp =
+				Number(input.orderbook.snapshot.receivedTimestamp) + offset;
+			input.candle.bar.openTimeMs += offset;
+			input.candle.receivedTimestamp += offset;
+			input.ticker.input.receivedTimestamp += offset;
+			input.ticker.input.payload.timestamp =
+				Number(input.ticker.input.payload.timestamp) + offset;
+			input.trade.input.receivedTimestamp += offset;
+			for (const trade of input.trade.input.payload) {
+				if (trade && typeof trade === "object") {
+					const row = trade as Record<string, unknown>;
+					row.timestamp = Number(row.timestamp) + offset;
+				}
+			}
+		}
+		await releaseLifecycleFrames({
+			setClock: (timestampMs) => {
+				clockMs = timestampMs;
+			},
+			exchange,
+			collectorObserver,
+			archiveObserver,
+			input,
+		});
+		await archiver.flush();
+		await withDeadline(
+			archiveObserver.waitForFlushed(EXPECTED_ENQUEUED),
+			"server acceptance archive flush",
+		);
+		return {
+			requestCount: endpoint.requestCount,
+			emittedRows: endpoint.batches.flatMap((batch) => batch.rows),
+			feedsObserved: PUBLIC_FEEDS.filter((feed) =>
+				collectorObserver.hasObserved(feed),
+			),
+		};
+	} finally {
+		collectorAbort.abort();
+		await exchange?.close();
+		if (collectorRun) {
+			await withDeadline(
+				collectorRun,
+				"server acceptance collector abort",
+			).catch(() => {});
+		}
+		server?.forceShutdown();
+		await brokerLifecycle.closeAll().catch(() => {});
+		await archiver?.close().catch(() => {});
+		await endpoint?.close().catch(() => {});
+		environment.restore();
+		Date.now = originalDateNow;
+		await rm(runDirectory, { recursive: true, force: true });
 	}
 }
 
@@ -852,7 +1211,7 @@ function unexpectedDestinations(endpoint: ArchiveForwarderEndpoint): string[] {
 	].sort();
 }
 
-function activeFeeds(collector: OhlcvCollector): PublicFeed[] {
+function activeFeeds(collector: MarketDataCollector): PublicFeed[] {
 	const snapshot = collector.getHealthSnapshot();
 	return PUBLIC_FEEDS.filter((feed) =>
 		Object.entries(snapshot).some(

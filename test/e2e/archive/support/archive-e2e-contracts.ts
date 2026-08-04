@@ -1,4 +1,5 @@
 import type { RowInserter } from "../../../../services/archive-forwarder/insert";
+import type { StrategySpoolStats } from "../../../../services/archive-forwarder/strategy-spool";
 import type { ArchiveBatchRequest } from "../../../../services/archive-forwarder/types";
 
 export type PublicFeed = "ORDERBOOK" | "TICKER" | "TRADES" | "OHLCV";
@@ -54,6 +55,8 @@ export type ArchiveForwarderEndpoint = {
 	url: string;
 	requestCount: number;
 	batches: ArchiveBatchRequest[];
+	waitForStrategyDrain: () => Promise<void>;
+	strategySpoolStats: () => StrategySpoolStats;
 	close: () => Promise<void>;
 };
 

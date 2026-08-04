@@ -73,6 +73,8 @@ The following repository components are not production services:
 
 - `examples/archive-watch-subscribe.ts` is an interactive/local subscription example, not the managed continuous collector.
 - `scripts/migrate-legacy-market-data-to-canonical.ts`, replay validators, and Parquet exporters are bounded operator tools that access ClickHouse directly.
+- `scripts/archive-upgrade-acceptance.ts` is the one-time Server 24.8 A/B acceptance harness for the canonical upgrade. It creates isolated A and B databases from the committed `develop` fixture, leaves A immutable, upgrades B with the production schema/migration path, and is not a recurring CI service.
+- `scripts/archive-sidecar.ts` and its supervisor form a bounded cross-repository test composition. They assemble Server 24.8, the production archive-forwarder, a normal deterministic gRPC broker, and an independent collector for FIET Maker conformance; they do not add a production broker startup mode.
 - `research/python/` and `research/hummingbot/` are research libraries and reference integrations, not broker-side daemons.
 - `schema/`, handlers, helpers, generated protobuf modules, and test fixtures are libraries or assets embedded in the services above.
 
@@ -86,5 +88,11 @@ CEX venues, ClickHouse, OpenTelemetry infrastructure, and Verity are external de
 | Archived broker | Full broker, archive-forwarder, ClickHouse | OpenTelemetry, Verity | Requests and active subscriptions can be archived; coverage lasts only while subscribers are connected. |
 | Continuous FIET-901 capture | Deployment-verified `broker_read` full broker, market-data collector, archive-forwarder, ClickHouse | Research readers | The collector keeps feed subscriptions alive while the broker owns CEX access, provenance, and archive delivery. |
 | Research-only | ClickHouse plus the selected viewer or offline tool | Candle viewer, Python/Hummingbot readers | Reads existing data without running or impersonating the broker ingest path. |
+
+## Test and cross-service compositions
+
+The standard archive E2E gate uses pinned ClickHouse Local for deterministic lifecycle and failure testing. The canonical-upgrade A/B command instead uses two real Server 24.8 instances and is recorded once for this upgrade: its A-side is the immutable fixture exported from CEX Broker `develop` at `7a83de5f29a08f42d81f64a75a83bc9318dce94a`; its B-side is the current candidate. Local success is not evidence for the Server transport or migration, and the fixed A/B command is intentionally absent from ordinary CI.
+
+FIET Maker drives the sidecar from its own pinned `develop` checkout. In both profiles, the collector is a separate operator client that keeps broker subscriptions active; it is never presented as Maker. `native_replay` writes strategy reports synchronously as `maker_replay` and exercises the FIET-907 direct-ClickHouse Parquet boundary. `production_compatible` admits `hb_runtime` reports with HTTP 202 to the durable strategy spool and verifies drainage into ClickHouse. See [docs/archive-upgrade-and-sidecar.md](docs/archive-upgrade-and-sidecar.md).
 
 For a continuous-capture rollout, configure and start the full broker first, verify archive health, then start exactly one collector for a subscription set. Stop the old collector before replacing it to avoid duplicate subscriptions and physical archive deliveries.

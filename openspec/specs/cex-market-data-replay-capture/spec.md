@@ -1,7 +1,7 @@
 # cex-market-data-replay-capture Specification
 
 ## Purpose
-TBD - created by archiving change canonical-cex-market-data-replay-archive. Update Purpose after archive.
+Define canonical four-feed CEX capture, deployment provenance, integrity, collector continuity, and migration behavior for replay-ready ClickHouse archives.
 ## Requirements
 ### Requirement: Broker deployments retain the full service contract
 The system SHALL register the same `ExecuteAction` and `Subscribe` RPC contract in TEE and non-TEE broker deployments, and SHALL NOT use an RPC/action allowlist as the mechanism that distinguishes read-only from write-capable deployments.
