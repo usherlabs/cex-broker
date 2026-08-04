@@ -119,6 +119,38 @@ describe("DepositArchivePoller.pollAllOnce", () => {
 		});
 	});
 
+	test("records the venue credit time when the venue reports it as an epoch integer", async () => {
+		// Binance reports insertTime as an integer, which ccxt surfaces as
+		// `timestamp`; `datetime` is absent from this shape on purpose.
+		const insertTime = 1_784_000_000_123;
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [
+				{
+					txid: "0xinteger-credit",
+					currency: "USDC",
+					amount: "12",
+					status: "ok",
+					timestamp: insertTime,
+					info: { status: "1", insertTime },
+				},
+			],
+		};
+		const sink: BrokerArchiveRow[] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver(sink),
+		});
+
+		await poller.pollAllOnce();
+
+		expect(sink).toHaveLength(1);
+		expect(sink[0]?.row).toMatchObject({
+			external_id: "0xinteger-credit",
+			exchange_timestamp: new Date(insertTime).toISOString(),
+		});
+	});
+
 	test("advances the account cursor and does not re-archive within a session", async () => {
 		const depositTimestamp = Date.now() + 10_000;
 		const deposit = {
