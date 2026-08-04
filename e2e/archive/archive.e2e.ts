@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SUPPORTED_TABLES } from "../../services/archive-forwarder/types";
 import { BrokerExecutionArchiver } from "../../src/helpers/broker-execution-archive";
+import { startForwarderServer } from "../../test/archive-forwarder-server";
 import {
 	BASELINE_TABLES,
 	assertBaselineTableRows,
@@ -340,15 +341,18 @@ describe("archive failure isolation and accounting", () => {
 	test("queue shedding records the exact oldest payload with the closed loss shape", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "archive-e2e-shed-"));
 		const journalPath = join(directory, "loss.jsonl");
+		const forwarder = await startForwarderServer();
 		const archiver = BrokerExecutionArchiver.create({
 			source: "broker_read",
 			deploymentId: "archive-e2e-shed",
-			forwarderUrl: "http://127.0.0.1:1/archive",
+			// Queue-shed durability is synchronous. Use a known-live local sink so
+			// cleanup verifies the retained row without depending on how CI handles
+			// connections to an otherwise unused loopback port.
+			forwarderUrl: forwarder.url,
 			deadLetterPath: journalPath,
 			maxQueueSize: 1,
 			batchSize: 100,
 			flushIntervalMs: 60_000,
-			forwarderTimeoutMs: 1,
 		});
 		try {
 			const oldest = {
@@ -383,6 +387,7 @@ describe("archive failure isolation and accounting", () => {
 			});
 		} finally {
 			await archiver.close().catch(() => {});
+			await forwarder.close();
 			await rm(directory, { recursive: true, force: true });
 		}
 	});
