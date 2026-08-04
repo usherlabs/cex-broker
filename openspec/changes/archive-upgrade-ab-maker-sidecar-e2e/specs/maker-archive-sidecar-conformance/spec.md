@@ -19,6 +19,29 @@ The CEX Broker repository SHALL provide a documented test composition with `up`,
 - **THEN** shutdown MUST be bounded and idempotent and remove only run-owned processes, containers, ports, spool, and temporary data
 - **AND** it MUST retain only explicitly selected bounded evidence artifacts
 
+### Requirement: The sidecar exposes a stable non-interactive command contract
+
+The repository SHALL expose `bun run archive:sidecar -- <up|ready|verify|down>`. `up` MUST require `--run-id`, `--profile` with exactly `native_replay` or `production_compatible`, `--candidate-sha`, `--maker-sha`, and `--artifacts-dir`, and MUST write `<artifacts-dir>/<run-id>/manifest.json`. `ready`, `verify`, and `down` MUST require `--manifest <path>`. `ready` MUST accept `--timeout-ms` with default `120000`, and `verify` MUST write `<artifacts-dir>/<run-id>/verification.json`. Exit code `0` SHALL mean success, `2` invalid invocation or manifest, and `1` lifecycle, readiness, or verification failure.
+
+#### Scenario: Sidecar command is invoked correctly
+- **WHEN** an external job supplies every required `up` flag and a supported profile
+- **THEN** the command MUST create the run directory and manifest and return exit code `0` only after owned components start
+- **AND** subsequent lifecycle commands MUST operate on that manifest without requiring a process environment dump
+
+#### Scenario: Readiness times out
+- **WHEN** any required component remains unavailable for 120 seconds or the explicitly supplied bounded timeout
+- **THEN** `ready` MUST return exit code `1` and retain bounded diagnostics below the run artifact directory
+- **AND** it MUST NOT emit a successful readiness result
+
+#### Scenario: Invocation or manifest is invalid
+- **WHEN** a required flag is absent, a profile or commit is invalid, or the manifest cannot be validated
+- **THEN** the command MUST return exit code `2` without claiming lifecycle or conformance success
+
+#### Scenario: Verification fails
+- **WHEN** any selected profile assertion fails
+- **THEN** `verify` MUST return exit code `1` and write a failed secret-free verification result
+- **AND** `down` MUST remain usable and idempotent for the same manifest
+
 ### Requirement: The sidecar uses production boundaries without production credentials
 
 The composition SHALL use the production archive-forwarder HTTP handler/client, schema initializer, broker gRPC registration/Subscribe handler, canonical writer, collector process, and strategy spool worker. It MUST use a deterministic controlled exchange and MUST NOT require or accept live CEX trading credentials as conformance evidence.
@@ -49,7 +72,7 @@ Each sidecar run SHALL emit a machine-readable JSON manifest and verification re
 
 ### Requirement: FIET Maker owns external orchestration from a pinned develop checkout
 
-The required cross-repository job SHALL be initiated from a clean FIET Maker `develop` checkout and SHALL record its resolved immutable commit; at proposal time it resolves to `e28bc3329f8a3f931046ef0279471af875ba58fd`. The Maker job MUST pin the CEX candidate SHA, supply a shared run identity, start the CEX-owned sidecar, execute the Maker-owned runtime/materializer command, invoke CEX verification, and always stop the sidecar.
+The required cross-repository job SHALL be initiated from a clean FIET Maker `develop` checkout, SHALL resolve and record its immutable commit at execution time, and SHALL verify that the expected PR 1067 wire contract is present. No proposal-time Maker commit SHALL act as a permanent pin. The Maker job MUST pin the CEX candidate SHA, supply a shared run identity, start the CEX-owned sidecar, execute the Maker-owned runtime/materializer command, invoke CEX verification, and always stop the sidecar.
 
 #### Scenario: Required Maker conformance runs
 - **WHEN** the Maker job resolves `develop`

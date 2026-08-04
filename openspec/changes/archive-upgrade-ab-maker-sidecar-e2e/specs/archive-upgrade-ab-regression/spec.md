@@ -2,12 +2,12 @@
 
 ### Requirement: The upgrade control is a clean pinned CEX Broker develop export
 
-The A/B upgrade fixture SHALL be generated from a clean checkout of the authoritative CEX Broker `develop` branch, never from `ed/cute-taxes-cheat-jnrod`, the integrated candidate, or another feature branch. The committed fixture MUST record the resolved `develop` commit, branch name, source DDL, deterministic data, table inventory, generator command, tool versions, comparison projections, and SHA-256 hashes of all source and input artifacts. At proposal time the verified `develop` resolution is `7a83de5f29a08f42d81f64a75a83bc9318dce94a`.
+The A/B upgrade fixture SHALL be generated from a clean checkout of the authoritative CEX Broker `develop` branch, never from `ed/cute-taxes-cheat-jnrod`, the integrated candidate, or another feature branch. The committed fixture MUST record the resolved `develop` commit, branch name, `package.json` version from that commit, source DDL, deterministic data, table inventory, generator command, tool versions, comparison projections, and SHA-256 hashes of all source and input artifacts. At proposal time the verified `develop` resolution is `7a83de5f29a08f42d81f64a75a83bc9318dce94a` and its package version is `0.2.38`.
 
 #### Scenario: Upgrade fixture is generated
 - **WHEN** the explicit regeneration command runs
 - **THEN** it MUST reject a dirty source checkout or a source ref that is not the resolved `develop` baseline
-- **AND** it MUST record enough immutable provenance to reproduce every pre-upgrade table and row without historical code execution in normal CI
+- **AND** its recorded package version MUST equal the version read from the resolved commit and it MUST record enough immutable provenance to reproduce every pre-upgrade table and row without historical code execution in normal CI
 
 #### Scenario: Normal upgrade CI runs
 - **WHEN** the A/B suite loads the committed baseline
@@ -35,22 +35,27 @@ The required A/B harness SHALL start two isolated ClickHouse Server 24.8 instanc
 
 ### Requirement: B executes the production canonical migration idempotently
 
-The B-side upgrade SHALL use the current production schema manifest, `scripts/migrate-legacy-market-data-to-canonical.ts`, and the operator phase/parity contract in `schema/clickhouse/migrations/canonical_market_data_replay_cutover.sql`. Schema initialization and the data migration MUST each run at least twice, with no legacy table drops, runtime dual-write selector, or fixture-only migration substitute.
+The B-side upgrade SHALL use the current production schema manifest, `scripts/migrate-legacy-market-data-to-canonical.ts`, and the operator phase/parity contract in `schema/clickhouse/migrations/canonical_market_data_replay_cutover.sql`. The fixture MUST define one safe-integer half-open window `[start_time_ms, end_time_ms)` where start is the minimum of all baseline `orderbook_snapshots.event_time_ms` and `candles.open_time_ms` values and end is the maximum plus one millisecond. The write phase MUST set `CEX_BROKER_CANONICAL_MIGRATION_CONFIRM=true`, pass those values through `CEX_BROKER_MIGRATION_START_TIME_MS` and `CEX_BROKER_MIGRATION_END_TIME_MS`, target B, and bind the same values to every cutover SQL parameter. Schema initialization and the confirmed migration MUST each run at least twice, with no legacy table drops, runtime dual-write selector, or fixture-only migration substitute.
 
 #### Scenario: First B migration runs
 - **WHEN** the candidate schema and migration are applied to B
 - **THEN** legacy candles and order-book snapshots MUST remain readable and their corresponding canonical rows MUST be created according to the production migration
-- **AND** all cutover phase checks MUST execute against the real server
+- **AND** the migration summary MUST report `mode=write`, the fixture's expected non-zero legacy book and candle counts, and the expected non-zero canonical row count before parameter-bound cutover checks execute against the real server
 
 #### Scenario: Migration is repeated
 - **WHEN** schema initialization and the same migration are run again against the migrated B instance
 - **THEN** canonical logical row counts, checksums, provenance classifications, and conflict results MUST remain stable
-- **AND** the rerun MUST create no additional canonical logical value for an already migrated legacy key
+- **AND** the rerun MUST again report confirmed write mode and expected inputs while creating no additional canonical logical value for an already migrated legacy key
+
+#### Scenario: Required write mode or window is absent
+- **WHEN** the migration reports `mode=dry_run`, omits either bounded window variable, uses a window different from the committed fixture, produces zero source/canonical rows where the fixture expects rows, or parity queries receive different parameters
+- **THEN** the one-time A/B acceptance MUST fail
+- **AND** no dry-run or ad hoc query result may be represented as migration evidence
 
 #### Scenario: Migration or parity command is bypassed
 - **WHEN** the harness initializes only the latest schema and inserts fixture-shaped canonical rows directly
 - **THEN** the run MUST NOT qualify as A/B upgrade evidence
-- **AND** required CI MUST fail the missing production migration phase
+- **AND** the acceptance command MUST fail the missing production migration phase
 
 ### Requirement: Legacy data remains exactly compatible across the upgrade
 
@@ -108,19 +113,24 @@ After migration gates pass, the harness SHALL start the integrated upgraded brok
 - **THEN** A table digests and counts MUST remain unchanged
 - **AND** B's historical legacy projections MUST still equal A while its canonical tables contain the separately identified migrated and new-production rows
 
-### Requirement: Real ClickHouse transport and migration are required CI evidence
+### Requirement: Real ClickHouse A/B is one-time acceptance evidence for this upgrade
 
-The A/B suite SHALL run as a required ClickHouse Server 24.8 CI job, use the production `@clickhouse/client` path and network interface, and remain separate from the pinned ClickHouse Local lifecycle. Missing server readiness, migration tests, or discovered tests MUST fail rather than skip.
+The repository SHALL expose `bun run test:acceptance:archive-upgrade` as the documented, rerunnable ClickHouse Server 24.8 command, and the suite SHALL run it once against the final candidate using the production `@clickhouse/client` path and network interface. Its successful manifest MUST be retained with this change's release evidence before sync/archive. It SHALL NOT be normalized into ordinary pull-request CI; the standard archive E2E and existing integration suite remain the ongoing CI contract. A future specification MAY generalize upgrade regressions across arbitrary version pairs and then define a reusable CI job.
 
-#### Scenario: Required A/B CI runs
-- **WHEN** a pull request or candidate branch changes archive schemas, migration, forwarder insertion, canonical row construction, or A/B support
-- **THEN** the two-instance 24.8 job MUST initialize, migrate twice, compare A/B, run parity/conflict checks, and exercise upgraded writes
-- **AND** its evidence MUST record baseline and candidate commits plus all invoked command results
+#### Scenario: Final candidate is accepted
+- **WHEN** `bun run test:acceptance:archive-upgrade` runs against the recorded baseline and final candidate
+- **THEN** it MUST initialize both servers, migrate B twice in confirmed write mode, compare A/B, run parameter-bound parity/conflict checks, and exercise upgraded writes
+- **AND** its manifest MUST record baseline commit/version, candidate commit, exact invocation, fixture and query hashes, ClickHouse version, migration summaries, and all assertion results
 
-#### Scenario: Only Local coverage passes
-- **WHEN** ClickHouse Local lifecycle assertions pass but the Server 24.8 A/B job is absent, skipped, or failed
-- **THEN** the archive upgrade contract MUST remain unverified
-- **AND** the associated change MUST not be marked complete or archived
+#### Scenario: One-time acceptance is missing or failed
+- **WHEN** Server 24.8 is unavailable, no A/B test is discovered, the runner skips a phase, or any assertion fails
+- **THEN** this upgrade MUST remain unaccepted and the associated OpenSpec change MUST not be synced or archived
+- **AND** standard CI success MUST NOT substitute for the missing acceptance artifact
+
+#### Scenario: Ordinary CI runs after acceptance
+- **WHEN** later pull requests execute the repository's standard CI matrix
+- **THEN** CI MUST run the normal archive E2E and existing integration tests without recreating this fixed pre/post upgrade run
+- **AND** the A/B runner may enter CI only through a future generalized upgrade-regression contract rather than a path filter tied to this change
 
 ### Requirement: Failed cutover is non-destructive and recoverable
 
