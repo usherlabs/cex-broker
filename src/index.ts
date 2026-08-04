@@ -19,6 +19,8 @@ import {
 import { DepositArchivePoller } from "./helpers/deposit-archive-poller";
 import { FillArchivePoller } from "./helpers/fill-archive-poller";
 import { log } from "./helpers/logger";
+import { resolveMarketCaptureArchiveState } from "./helpers/market-data-archive/capture-context";
+import { isMarketArchiveEnabled } from "./helpers/market-data-archive/orderbook-sampler";
 import { OrderActivityTracker } from "./helpers/order-activity-tracker";
 import {
 	createOtelLogsFromEnv,
@@ -317,6 +319,23 @@ export default class CEXBroker {
 	 * Starts the broker, applying policies then running appropriate tasks.
 	 */
 	public async run(): Promise<CEXBroker> {
+		const marketArchiveState = resolveMarketCaptureArchiveState({
+			archiveEnabled: this.brokerArchiver?.isEnabled() ?? false,
+			marketArchiveEnabled: isMarketArchiveEnabled(),
+			environment: process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT,
+			deploymentId: this.brokerArchiver?.getDeploymentId(),
+			captureBundleId: process.env.CEX_BROKER_CAPTURE_BUNDLE_ID,
+		});
+		if (
+			!marketArchiveState.enabled &&
+			marketArchiveState.reason !== "archive_disabled" &&
+			marketArchiveState.reason !== "market_archive_disabled"
+		) {
+			log.warn(
+				"Canonical market-data archival is disabled; broker RPC service remains available",
+				{ reason: marketArchiveState.reason },
+			);
+		}
 		if (this.server) {
 			await this.server.forceShutdown();
 		}

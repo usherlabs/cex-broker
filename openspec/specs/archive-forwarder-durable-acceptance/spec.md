@@ -1,7 +1,7 @@
 # archive-forwarder-durable-acceptance Specification
 
 ## Purpose
-TBD - created by archiving change maker-archive-forwarder-conformance. Update Purpose after archive.
+Define when live `hb_runtime` strategy evidence becomes durably owned, how its bounded SQLite spool recovers and drains, and how admission remains distinct from ClickHouse delivery.
 ## Requirements
 ### Requirement: Accepted Maker batches are durable before acknowledgement
 
@@ -124,4 +124,3 @@ CEX Broker and Maker completion MUST reference a published CEX Broker package an
 #### Scenario: Production observation has not run
 - **WHEN** repository conformance is complete but FIET-937's observation window remains pending
 - **THEN** this change MAY complete while FIET-937 continues to block deployment cutover
-

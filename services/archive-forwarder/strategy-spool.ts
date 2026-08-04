@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { groupRowsByTable } from "./insert";
 import type { StrategyArchiveTable } from "./strategy-contract";
 import type { ArchiveBatchRequest } from "./types";
@@ -406,6 +407,9 @@ export class StrategyArchiveSpool {
 
 	public assertWritable(): StrategySpoolStats {
 		try {
+			if (this.path !== ":memory:" && (statSync(this.path).mode & 0o222) === 0) {
+				throw new Error("Strategy archive spool file has no writable mode bit");
+			}
 			const transaction = this.database.transaction(() => {
 				this.database
 					.query(

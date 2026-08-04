@@ -2,14 +2,14 @@ import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import { authenticateRequest } from "../../helpers/auth";
 import {
+	normalizeBinanceExecutionReport,
+	normalizeBinanceSpotBalanceEvent,
+} from "../../helpers/binance-user-data-normalization";
+import {
 	BinanceSpotUserDataStream,
 	isBinanceBalanceUserDataEvent,
 	isBinanceOrderUserDataEvent,
 } from "../../helpers/binance-user-data-stream";
-import {
-	normalizeBinanceExecutionReport,
-	normalizeBinanceSpotBalanceEvent,
-} from "../../helpers/binance-user-data-normalization";
 import {
 	type BrokerPoolEntry,
 	createBroker,

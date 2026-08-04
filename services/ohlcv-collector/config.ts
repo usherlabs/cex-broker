@@ -1,8 +1,10 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 
 export const OHLCV_COLLECTOR_CONFIG_ENV = "CEX_BROKER_OHLCV_COLLECTOR_CONFIG";
 export const MARKET_DATA_COLLECTOR_CONFIG_ENV =
 	"CEX_BROKER_MARKET_DATA_COLLECTOR_CONFIG";
+export const COLLECTOR_BROKER_URL_ENV = "CEX_BROKER_URL";
 
 const exchangeSchema = z
 	.string()
@@ -47,19 +49,10 @@ const marketSubscriptionSchema = z.discriminatedUnion("feed", [
 
 const marketConfigSchema = z
 	.object({
-		captureBundleId: z.string().trim().optional(),
-		environment: z.enum(["development", "production"]).default("production"),
 		subscriptions: z.array(marketSubscriptionSchema).min(1),
 	})
 	.strict()
 	.superRefine((config, context) => {
-		if (config.environment === "production" && !config.captureBundleId) {
-			context.addIssue({
-				code: "custom",
-				message: "captureBundleId is required in production",
-				path: ["captureBundleId"],
-			});
-		}
 		const seen = new Set<string>();
 		for (const [index, subscription] of config.subscriptions.entries()) {
 			const options =
@@ -82,6 +75,60 @@ const marketConfigSchema = z
 
 export type MarketDataSubscription = z.infer<typeof marketSubscriptionSchema>;
 export type MarketDataCollectorConfig = z.infer<typeof marketConfigSchema>;
+
+function invalidBrokerUrl(reason: string): Error {
+	return new Error(
+		`${COLLECTOR_BROKER_URL_ENV} must be a host:port or [IPv6]:port gRPC authority (${reason})`,
+	);
+}
+
+function isValidHostname(host: string): boolean {
+	if (host.length > 253) return false;
+	return host
+		.split(".")
+		.every(
+			(label) =>
+				label.length > 0 &&
+				label.length <= 63 &&
+				/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(label),
+		);
+}
+
+export function parseCollectorBrokerUrl(input: unknown): string {
+	if (typeof input !== "string" || !input.trim()) {
+		throw invalidBrokerUrl("value is required");
+	}
+	const authority = input.trim();
+	let host: string;
+	let portText: string;
+
+	if (authority.startsWith("[")) {
+		const match = /^\[([^\]]+)\]:(\d+)$/.exec(authority);
+		if (!match || isIP(match[1]) !== 6) {
+			throw invalidBrokerUrl("invalid bracketed IPv6 address");
+		}
+		[, host, portText] = match;
+	} else {
+		const match = /^([^:\s]+):(\d+)$/.exec(authority);
+		if (!match) throw invalidBrokerUrl("invalid authority");
+		[, host, portText] = match;
+		if (isIP(host) !== 4 && !isValidHostname(host)) {
+			throw invalidBrokerUrl("invalid hostname or IPv4 address");
+		}
+	}
+
+	const port = Number(portText);
+	if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+		throw invalidBrokerUrl("port must be between 1 and 65535");
+	}
+	return authority;
+}
+
+export function loadCollectorBrokerUrl(
+	value = process.env[COLLECTOR_BROKER_URL_ENV],
+): string {
+	return parseCollectorBrokerUrl(value);
+}
 
 function formatZodIssues(error: z.ZodError): string {
 	return error.issues

@@ -12,6 +12,7 @@ import {
 import {
 	captureEnvironmentFromEnv,
 	createMarketCaptureContext,
+	resolveMarketCaptureArchiveState,
 } from "./capture-context";
 import { createRawCapture } from "./capture-contract";
 import { OhlcvBarTracker } from "./ohlcv-bar-tracker";
@@ -88,6 +89,18 @@ function resolveCaptureContext(
 	});
 }
 
+function canArchiveMarketData(
+	archiver: BrokerExecutionArchiver | undefined,
+): archiver is BrokerExecutionArchiver {
+	return resolveMarketCaptureArchiveState({
+		archiveEnabled: archiver?.isEnabled() ?? false,
+		marketArchiveEnabled: isMarketArchiveEnabled(),
+		environment: process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT,
+		deploymentId: archiver?.getDeploymentId(),
+		captureBundleId: process.env.CEX_BROKER_CAPTURE_BUNDLE_ID,
+	}).enabled;
+}
+
 export function archiveOrderbookInBackground(
 	archiver: BrokerExecutionArchiver | undefined,
 	otelMetrics: OtelMetrics | undefined,
@@ -105,7 +118,7 @@ export function archiveOrderbookInBackground(
 		labels,
 	);
 
-	if (!isMarketArchiveEnabled() || !archiver?.isEnabled()) {
+	if (!canArchiveMarketData(archiver)) {
 		return;
 	}
 
@@ -179,7 +192,7 @@ export function archiveOhlcvInBackground(
 		labels,
 	);
 
-	if (!isMarketArchiveEnabled() || !archiver?.isEnabled()) {
+	if (!canArchiveMarketData(archiver)) {
 		return;
 	}
 
@@ -261,7 +274,7 @@ function archiveMarketRowsInBackground(
 		labels,
 	);
 
-	if (!isMarketArchiveEnabled() || !archiver?.isEnabled()) {
+	if (!canArchiveMarketData(archiver)) {
 		return;
 	}
 

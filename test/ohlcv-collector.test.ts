@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import { OhlcvCollector } from "../services/ohlcv-collector/collector";
+import { MarketDataCollector } from "../services/ohlcv-collector/collector";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "../src/proto-package-definition";
 
 type SubscribeRequest = {
@@ -107,7 +107,7 @@ describe("OHLCV collector supervision", () => {
 			});
 		});
 		const abort = new AbortController();
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
 			subscriptions: [
 				{
@@ -173,7 +173,7 @@ describe("OHLCV collector supervision", () => {
 		});
 		const metrics = new CapturingMetrics();
 		const abort = new AbortController();
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
 			subscriptions: [
 				{ exchange: "binance", symbol: "BTC/USDT", timeframe: "1m" },
@@ -252,7 +252,7 @@ describe("OHLCV collector supervision", () => {
 			}
 		});
 		const abort = new AbortController();
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
 			subscriptions: [
 				{ exchange: "binance", symbol: "BTC/USDT", timeframe: "1m" },

@@ -5,8 +5,8 @@ import {
 } from "../src/helpers/market-data-archive/canonical-orderbook";
 import {
 	createMarketCaptureContext,
+	resolveMarketCaptureArchiveState,
 	validateExternalFallbackContext,
-	validateProductionCollectorArchive,
 } from "../src/helpers/market-data-archive/capture-context";
 import {
 	ARCHIVE_SOURCES,
@@ -73,6 +73,76 @@ function snapshot(
 }
 
 describe("canonical market capture contract", () => {
+	test("canonical rows on legacy tables retain every legacy archive field", () => {
+		const context = {
+			...captureContext,
+			feed: "TICKER" as const,
+			accountSelector: "spot:primary",
+		};
+		const payload = {
+			timestamp: 1_700_000_000_000,
+			last: 100.5,
+			bid: 100,
+			ask: 101,
+		};
+		const raw = createRawCapture(context, {
+			payload,
+			eventTimeMs: payload.timestamp,
+			receivedTimeMs: 1_700_000_000_123,
+			scope: "ccxt_normalized_object",
+		});
+		const stream = buildCanonicalCexStreamEventRow(context, raw);
+		const ticker = buildCanonicalTickerEventRow(context, raw, {
+			eventTimeMs: payload.timestamp,
+			last: payload.last,
+			bid: payload.bid,
+			ask: payload.ask,
+		});
+		for (const row of [stream.row, ticker.row]) {
+			expect(row.account_selector).toBe("spot:primary");
+			expect(row.broker_observed_timestamp).toBe("2023-11-14T22:13:20.123Z");
+		}
+		expect(ticker.row.payload_json).toBe(JSON.stringify(payload));
+	});
+
+	test("canonical legacy Decimal(18,8) fields are normalized before checksumming", () => {
+		const tickerContext = {
+			...captureContext,
+			feed: "TICKER" as const,
+		};
+		const tickerRaw = createRawCapture(tickerContext, {
+			payload: { percentage: 0.2650375939849624 },
+			eventTimeMs: 1_700_000_000_000,
+			receivedTimeMs: 1_700_000_000_125,
+			scope: "ccxt_normalized_object",
+		});
+		const ticker = buildCanonicalTickerEventRow(tickerContext, tickerRaw, {
+			eventTimeMs: 1_700_000_000_000,
+			percentage: 0.2650375939849624,
+		});
+		expect(ticker.row.percentage).toBe(0.26503759);
+
+		const tradeContext = { ...captureContext, feed: "TRADES" as const };
+		const tradeRaw = createRawCapture(tradeContext, {
+			payload: [{ id: "trade-precise", price: 100.123456789 }],
+			eventTimeMs: 1_700_000_000_001,
+			receivedTimeMs: 1_700_000_000_125,
+			scope: "ccxt_normalized_object",
+		});
+		const trade = buildCanonicalTradeRow(tradeContext, tradeRaw, {
+			tradeId: "trade-precise",
+			eventTimeMs: 1_700_000_000_001,
+			price: 100.123456789,
+			amount: 0.123456789,
+			cost: 12.345678999,
+		});
+		expect(trade.row).toMatchObject({
+			price: 100.12345679,
+			amount: 0.12345679,
+			cost: 12.345679,
+		});
+	});
+
 	test("production contexts require a deployment-owned capture bundle", () => {
 		expect(() =>
 			createMarketCaptureContext({
@@ -99,19 +169,56 @@ describe("canonical market capture contract", () => {
 		expect(development.captureBundleId).toBe("development:local-a");
 	});
 
-	test("FIET-901 production collector requires broker_read", () => {
-		expect(() =>
-			validateProductionCollectorArchive({
-				source: "broker_write",
+	test("production market archive eligibility is non-throwing and provenance complete", () => {
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: false,
+				marketArchiveEnabled: true,
+				environment: "production",
+			}),
+		).toEqual({ enabled: false, reason: "archive_disabled" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: false,
+				environment: "production",
+			}),
+		).toEqual({ enabled: false, reason: "market_archive_disabled" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: true,
+				environment: "production",
+				deploymentId: "unknown",
 				captureBundleId: "bundle-a",
 			}),
-		).toThrow("broker_read");
-		expect(() =>
-			validateProductionCollectorArchive({
-				source: "broker_read",
+		).toEqual({ enabled: false, reason: "missing_deployment_id" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: true,
+				environment: "production",
+				deploymentId: "broker-a",
+			}),
+		).toEqual({ enabled: false, reason: "missing_capture_bundle_id" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: true,
+				environment: "staging",
+				deploymentId: "broker-a",
 				captureBundleId: "bundle-a",
 			}),
-		).not.toThrow();
+		).toEqual({ enabled: false, reason: "invalid_capture_environment" });
+		expect(
+			resolveMarketCaptureArchiveState({
+				archiveEnabled: true,
+				marketArchiveEnabled: true,
+				environment: "production",
+				deploymentId: "broker-a",
+				captureBundleId: "bundle-a",
+			}),
+		).toEqual({ enabled: true });
 	});
 
 	test("external fallback rows cannot cross venue or omit their reason", () => {

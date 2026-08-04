@@ -1,65 +1,90 @@
 import { expect, test } from "bun:test";
 import path from "node:path";
+import * as grpc from "@grpc/grpc-js";
+import { CEX_BROKER_PACKAGE_DEFINITION } from "../src/proto-package-definition";
 
-async function waitForFile(filePath: string): Promise<void> {
-	for (let attempt = 0; attempt < 200; attempt += 1) {
-		if (await Bun.file(filePath).exists()) {
-			return;
-		}
-		await Bun.sleep(10);
-	}
-	throw new Error(`Timed out waiting for ${filePath}`);
+type SubscribeRequest = {
+	cex: string;
+	symbol: string;
+	type: string;
+	options: Record<string, string>;
+};
+
+type SubscribeCall = grpc.ServerWritableStream<SubscribeRequest, unknown>;
+
+const grpcObject = grpc.loadPackageDefinition(
+	CEX_BROKER_PACKAGE_DEFINITION,
+) as unknown as {
+	cex_broker: {
+		cex_service: {
+			service: grpc.ServiceDefinition<grpc.UntypedServiceImplementation>;
+		};
+	};
+};
+
+function bindServer(server: grpc.Server): Promise<number> {
+	return new Promise((resolve, reject) => {
+		server.bindAsync(
+			"127.0.0.1:0",
+			grpc.ServerCredentials.createInsecure(),
+			(error, port) => {
+				if (error) reject(error);
+				else resolve(port);
+			},
+		);
+	});
 }
 
-async function waitForFetchCount(
-	filePath: string,
-	minimum: number,
-): Promise<number> {
+async function waitFor(condition: () => boolean): Promise<void> {
 	for (let attempt = 0; attempt < 200; attempt += 1) {
-		if (await Bun.file(filePath).exists()) {
-			const count = Number(await Bun.file(filePath).text());
-			if (count >= minimum) {
-				return count;
-			}
-		}
+		if (condition()) return;
 		await Bun.sleep(10);
 	}
-	throw new Error(`Timed out waiting for ${minimum} fetches in ${filePath}`);
+	throw new Error("Timed out waiting for remote collector condition");
 }
 
-async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
-	exitCode: number;
-	closeMarker: string;
-	countBeforeShutdown: number;
-	countAtShutdown: number;
-	output: string;
-}> {
-	const fixtureId = crypto.randomUUID();
-	const configPath = `/tmp/ohlcv-shutdown-${fixtureId}.json`;
-	const activePath = `/tmp/ohlcv-shutdown-${fixtureId}.active`;
-	const countPath = `/tmp/ohlcv-shutdown-${fixtureId}.count`;
-	const closedPath = `/tmp/ohlcv-shutdown-${fixtureId}.closed`;
+test("entrypoint cancels its remote subscription without stopping the broker", async () => {
+	const requests: SubscribeRequest[] = [];
+	const metadata: Array<Record<string, grpc.MetadataValue>> = [];
+	let cancellations = 0;
+	const server = new grpc.Server();
+	server.addService(grpcObject.cex_broker.cex_service.service, {
+		Subscribe(call: SubscribeCall) {
+			requests.push(call.request);
+			metadata.push(call.metadata.getMap());
+			call.once("cancelled", () => {
+				cancellations += 1;
+			});
+			call.write({
+				data: JSON.stringify({ bid: 100, ask: 101 }),
+				timestamp: Date.now(),
+				symbol: call.request.symbol,
+				type: call.request.type,
+			});
+		},
+	});
+	const port = await bindServer(server);
+	const configPath = `/tmp/market-data-collector-${crypto.randomUUID()}.json`;
 	await Bun.write(
 		configPath,
-		JSON.stringify([{ exchange: "binance", symbol: "BTC/USDT" }]),
+		JSON.stringify({
+			subscriptions: [
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TICKER" },
+			],
+		}),
 	);
 
 	const child = Bun.spawn({
-		cmd: [
-			process.execPath,
-			"--preload",
-			path.resolve("test/fixtures/ohlcv-collector-fake-exchange.ts"),
-			path.resolve("services/ohlcv-collector/index.ts"),
-		],
+		cmd: [process.execPath, path.resolve("services/ohlcv-collector/index.ts")],
 		cwd: process.cwd(),
 		env: {
 			...process.env,
-			CEX_BROKER_OHLCV_COLLECTOR_CONFIG: configPath,
-			CEX_BROKER_OHLCV_ARCHIVE_BOOTSTRAP_LIMIT: "0",
-			OHLCV_TEST_EXCHANGE_ACTIVE_PATH: activePath,
-			OHLCV_TEST_EXCHANGE_COUNT_PATH: countPath,
-			OHLCV_TEST_EXCHANGE_CLOSED_PATH: closedPath,
-			OHLCV_TEST_EXCHANGE_CLOSE_HANG: String(exchangeCloseHangs),
+			CEX_BROKER_URL: `127.0.0.1:${port}`,
+			CEX_BROKER_MARKET_DATA_COLLECTOR_CONFIG: configPath,
+			CEX_BROKER_OHLCV_COLLECTOR_CONFIG: "",
+			OTEL_EXPORTER_OTLP_ENDPOINT: "",
+			CEX_BROKER_OTEL_HOST: "",
+			CEX_BROKER_CLICKHOUSE_HOST: "",
 		},
 		stdout: "pipe",
 		stderr: "pipe",
@@ -68,15 +93,16 @@ async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 	const stderr = new Response(child.stderr).text();
 
 	try {
-		await waitForFile(activePath);
-		const countBeforeShutdown = await waitForFetchCount(countPath, 5);
-		expect(await Bun.file(closedPath).exists()).toBe(false);
-		await Bun.sleep(100);
-		const countAtShutdown = await waitForFetchCount(
-			countPath,
-			countBeforeShutdown + 1,
-		);
-		expect(await Bun.file(closedPath).exists()).toBe(false);
+		await waitFor(() => requests.length === 1);
+		expect(requests[0]).toEqual({
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: "TICKER",
+			options: {},
+		});
+		expect(metadata[0]?.["api-key"]).toBeUndefined();
+		expect(metadata[0]?.["api-secret"]).toBeUndefined();
+
 		child.kill("SIGTERM");
 		const result = await Promise.race([
 			child.exited.then((exitCode) => ({ exitCode })),
@@ -89,39 +115,29 @@ async function runShutdownCase(exchangeCloseHangs: boolean): Promise<{
 				`Collector did not exit within 5s\nstdout:\n${await stdout}\nstderr:\n${await stderr}`,
 			);
 		}
-		return {
-			exitCode: result.exitCode,
-			closeMarker: await Bun.file(closedPath).text(),
-			countBeforeShutdown,
-			countAtShutdown,
-			output: `${await stdout}\n${await stderr}`,
-		};
+		expect(result.exitCode).toBe(0);
+		await waitFor(() => cancellations === 1);
+
+		// The independently owned broker is still bound after the collector exits.
+		const probePort = await new Promise<number>((resolve, reject) => {
+			server.bindAsync(
+				"127.0.0.1:0",
+				grpc.ServerCredentials.createInsecure(),
+				(error, boundPort) => {
+					if (error) reject(error);
+					else resolve(boundPort);
+				},
+			);
+		});
+		expect(probePort).toBeGreaterThan(0);
 	} finally {
 		if (child.exitCode === null) {
 			child.kill("SIGKILL");
 			await child.exited;
 		}
-		await Promise.all(
-			[configPath, activePath, countPath, closedPath].map(async (filePath) => {
-				if (await Bun.file(filePath).exists()) {
-					await Bun.file(filePath).delete();
-				}
-			}),
-		);
+		server.forceShutdown();
+		if (await Bun.file(configPath).exists()) {
+			await Bun.file(configPath).delete();
+		}
 	}
-}
-
-test("entrypoint exits promptly on SIGTERM after an exchange stream opens", async () => {
-	const result = await runShutdownCase(false);
-	expect(result.exitCode).toBe(0);
-	expect(result.closeMarker).toBe("closed");
-	expect(result.countAtShutdown).toBeGreaterThan(result.countBeforeShutdown);
-});
-
-test("entrypoint bounds shutdown when an exchange close does not resolve", async () => {
-	const result = await runShutdownCase(true);
-	expect(result.exitCode).toBe(0);
-	expect(result.closeMarker).toBe("close_attempted");
-	expect(result.output).toContain("OHLCV collector shutdown path timed out");
-	expect(result.output).toContain("subscribe_brokers");
 });

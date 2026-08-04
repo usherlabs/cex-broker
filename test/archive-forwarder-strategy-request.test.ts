@@ -66,6 +66,50 @@ describe("strategy durable HTTP admission", () => {
 		spool.close();
 	});
 
+	test("inserts maker_replay synchronously without changing spool ownership", async () => {
+		const spool = new StrategyArchiveSpool({ path: ":memory:" });
+		const replay = structuredClone(fixture);
+		replay.source = "maker_replay";
+		for (const entry of replay.rows) entry.row.source = "maker_replay";
+		const insertedTables: string[] = [];
+		const insertedSources: unknown[] = [];
+		const before = spool.stats();
+		const response = await handleArchiveRequest(post(replay), {
+			inserter: async (table, rows) => {
+				insertedTables.push(table);
+				insertedSources.push(...rows.map((row) => row.source));
+			},
+			spool,
+			telemetry: new ArchiveForwarderTelemetry(noopRecorder),
+		});
+		expect(response.status).toBe(200);
+		expect(insertedTables).toHaveLength(3);
+		expect(new Set(insertedSources)).toEqual(new Set(["maker_replay"]));
+		expect(spool.stats()).toEqual(before);
+		spool.close();
+	});
+
+	test("returns 500 for maker_replay insertion failure without spooling", async () => {
+		const spool = new StrategyArchiveSpool({ path: ":memory:" });
+		const replay = structuredClone(fixture);
+		replay.source = "maker_replay";
+		for (const entry of replay.rows) entry.row.source = "maker_replay";
+		const response = await handleArchiveRequest(post(replay), {
+			inserter: async () => {
+				throw new Error("ClickHouse is down");
+			},
+			spool,
+			telemetry: new ArchiveForwarderTelemetry(noopRecorder),
+		});
+		expect(response.status).toBe(500);
+		expect(spool.stats()).toMatchObject({
+			queuedBatches: 0,
+			queuedWork: 0,
+			accountedBytes: 0,
+		});
+		spool.close();
+	});
+
 	test("rejects strategy source/table/version failures before admission", async () => {
 		const spool = new StrategyArchiveSpool({ path: ":memory:" });
 		const invalid = structuredClone(fixture);
