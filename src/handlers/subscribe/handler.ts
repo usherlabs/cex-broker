@@ -3,10 +3,13 @@ import type { Exchange } from "@usherlabs/ccxt";
 import { authenticateRequest } from "../../helpers/auth";
 import {
 	BinanceSpotUserDataStream,
-	type BinanceUserDataEvent,
 	isBinanceBalanceUserDataEvent,
 	isBinanceOrderUserDataEvent,
 } from "../../helpers/binance-user-data-stream";
+import {
+	normalizeBinanceExecutionReport,
+	normalizeBinanceSpotBalanceEvent,
+} from "../../helpers/binance-user-data-normalization";
 import {
 	type BrokerPoolEntry,
 	createBroker,
@@ -208,19 +211,6 @@ async function streamBinanceUserData(
 			}
 
 			const receivedTimestamp = Date.now();
-			if (
-				!(await writeSubscribeFrame(call, isClosed, {
-					data: JSON.stringify({
-						subscriptionId: message.subscriptionId,
-						event,
-					} satisfies BinanceUserDataEvent),
-					timestamp: receivedTimestamp,
-					symbol,
-					type: subscriptionType,
-				}))
-			) {
-				break;
-			}
 			const archiveSubscriptionType =
 				subscriptionType === SubscriptionType.BALANCE ? "BALANCE" : "ORDERS";
 			archiveSubscribeStreamInBackground(archiveContext?.archiver, {
@@ -245,6 +235,27 @@ async function streamBinanceUserData(
 						receivedTimestamp,
 					},
 				);
+			}
+
+			if (
+				subscriptionType === SubscriptionType.ORDERS &&
+				event.e === "listStatus"
+			) {
+				continue;
+			}
+			const data =
+				subscriptionType === SubscriptionType.BALANCE
+					? await normalizeBinanceSpotBalanceEvent(broker, event)
+					: normalizeBinanceExecutionReport(broker, event);
+			if (
+				!(await writeSubscribeFrame(call, isClosed, {
+					data: JSON.stringify(data),
+					timestamp: receivedTimestamp,
+					symbol,
+					type: subscriptionType,
+				}))
+			) {
+				break;
 			}
 		}
 	} finally {
