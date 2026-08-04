@@ -1,4 +1,5 @@
 import type { ClickHouseClient } from "@clickhouse/client";
+import { clickHouseRequestDeadline } from "./clickhouse-deadline";
 import type { ArchiveForwarderTelemetry } from "./telemetry";
 import type { ArchiveRow, ArchiveBatchResult, SupportedTable } from "./types";
 import { isSupportedTable } from "./types";
@@ -73,6 +74,7 @@ export function createClickHouseInserter(
 			table,
 			values: rows,
 			format: "JSONEachRow",
+			abort_signal: clickHouseRequestDeadline(),
 			...(options?.deduplicationToken
 				? {
 						clickhouse_settings: {

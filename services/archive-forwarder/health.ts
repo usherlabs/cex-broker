@@ -1,4 +1,5 @@
 import type { ClickHouseClient } from "@clickhouse/client";
+import { clickHouseRequestDeadline } from "./clickhouse-deadline";
 import type { StrategySpoolStats } from "./strategy-spool";
 
 export type ForwarderHealthInput = {
@@ -33,6 +34,7 @@ export async function pingClickHouse(
 		const result = await client.query({
 			query: "SELECT 1 AS ok",
 			format: "JSONEachRow",
+			abort_signal: clickHouseRequestDeadline(),
 		});
 		const rows = (await result.json()) as Array<{ ok: number }>;
 		return rows[0]?.ok === 1;
