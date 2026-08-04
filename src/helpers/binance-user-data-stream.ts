@@ -11,6 +11,23 @@ export type BinanceUserDataEvent = {
 	event: Record<string, unknown>;
 };
 
+export type BinanceUserDataStreamFailureKind =
+	| "auth_failed"
+	| "transport_error"
+	| "remote_closed"
+	| "protocol_error"
+	| "backpressure";
+
+export type BinanceUserDataStreamObserver = {
+	onConnected?: () => void;
+	onAuthenticated?: () => void;
+	onEvent?: (event: BinanceUserDataEvent) => void;
+	onFailure?: (failure: {
+		kind: BinanceUserDataStreamFailureKind;
+		reason: string;
+	}) => void;
+};
+
 type BinanceUserDataMessage =
 	| {
 			id?: string | null;
@@ -39,6 +56,7 @@ type WebSocketFactory = (url: string) => WebSocketLike;
 
 type BinanceSpotUserDataStreamOptions = {
 	maxBufferedEvents?: number;
+	observer?: BinanceUserDataStreamObserver;
 };
 
 let createWebSocket: WebSocketFactory = (url) =>
@@ -240,6 +258,7 @@ export class BinanceSpotUserDataStream
 	private readonly requestId =
 		`user-data-${Date.now()}-${userDataRequestCounter++}`;
 	private readonly maxBufferedEvents: number;
+	private readonly observer?: BinanceUserDataStreamObserver;
 	private readonly queue: BinanceUserDataEvent[] = [];
 	private readonly waiters: Array<{
 		resolve: (event: BinanceUserDataEvent | null) => void;
@@ -256,15 +275,22 @@ export class BinanceSpotUserDataStream
 		this.maxBufferedEvents =
 			options.maxBufferedEvents ??
 			DEFAULT_BINANCE_USER_DATA_MAX_BUFFERED_EVENTS;
+		this.observer = options.observer;
 		this.secretValues = [
 			getOptionalExchangeString(exchange, "apiKey"),
 			getOptionalExchangeString(exchange, "secret"),
 		].filter((value): value is string => value !== null);
 		this.ws = createWebSocket(getBinanceSpotWsApiUrl(exchange));
-		this.ws.on("open", () => this.subscribe());
+		this.ws.on("open", () => {
+			this.observer?.onConnected?.();
+			this.subscribe();
+		});
 		this.ws.on("message", (data) => this.handleMessage(data));
 		this.ws.on("error", (error) =>
-			this.fail(formatBinanceUserDataWebSocketError(error, this.secretValues)),
+			this.fail(
+				formatBinanceUserDataWebSocketError(error, this.secretValues),
+				"transport_error",
+			),
 		);
 		this.ws.on("close", (code, reason) => this.handleClose(code, reason));
 	}
@@ -299,6 +325,7 @@ export class BinanceSpotUserDataStream
 		}
 		this.fail(
 			formatBinanceUserDataWebSocketClose(code, reason, this.secretValues),
+			"remote_closed",
 		);
 	}
 
@@ -334,6 +361,7 @@ export class BinanceSpotUserDataStream
 				error instanceof Error
 					? error
 					: new Error("Invalid Binance user-data message"),
+				"protocol_error",
 			);
 			return;
 		}
@@ -346,10 +374,12 @@ export class BinanceSpotUserDataStream
 							message.error?.message ??
 							`Binance user-data subscription failed with status ${message.status}`,
 					),
+					"auth_failed",
 				);
 				return;
 			}
 			this.subscriptionId = message.result?.subscriptionId ?? null;
+			this.observer?.onAuthenticated?.();
 			return;
 		}
 
@@ -369,6 +399,7 @@ export class BinanceSpotUserDataStream
 						? `${errorMessage} (code ${errorCode})`
 						: errorMessage,
 				),
+				"protocol_error",
 			);
 			return;
 		}
@@ -387,6 +418,7 @@ export class BinanceSpotUserDataStream
 		if (this.closed) {
 			return;
 		}
+		this.observer?.onEvent?.(event);
 
 		const waiter = this.waiters.shift();
 		if (waiter) {
@@ -398,6 +430,7 @@ export class BinanceSpotUserDataStream
 				new Error(
 					`Binance user-data stream buffered event limit exceeded (${this.maxBufferedEvents}); downstream consumer is not keeping up`,
 				),
+				"backpressure",
 			);
 			return;
 		}
@@ -420,11 +453,12 @@ export class BinanceSpotUserDataStream
 		});
 	}
 
-	private fail(error: Error): void {
+	private fail(error: Error, kind: BinanceUserDataStreamFailureKind): void {
 		if (this.closeError) {
 			return;
 		}
 		this.closeError = error;
+		this.observer?.onFailure?.({ kind, reason: error.message });
 		this.closed = true;
 		this.queue.length = 0;
 		this.flushWaiters();

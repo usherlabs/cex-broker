@@ -12,6 +12,12 @@ import {
 	validateStrategyArchiveBatch,
 } from "./strategy-contract";
 import {
+	classifyStreamHealthArchiveBatch,
+	insertStreamHealthArchiveBatch,
+	type StreamHealthReplayStore,
+	validateStreamHealthArchiveBatch,
+} from "./stream-health-contract";
+import {
 	StrategySpoolQuotaError,
 	StrategySpoolUnavailableError,
 	type StrategyArchiveSpool,
@@ -22,6 +28,7 @@ export type ArchiveRequestDependencies = {
 	authToken?: string;
 	inserter: RowInserter;
 	spool?: Pick<StrategyArchiveSpool, "admit">;
+	streamHealthStore?: StreamHealthReplayStore;
 	telemetry: ArchiveForwarderTelemetry;
 };
 
@@ -55,6 +62,24 @@ export async function handleArchiveRequest(
 		body = JSON.parse(bodyRead.text);
 	} catch {
 		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+	}
+
+	const streamHealthClassification = classifyStreamHealthArchiveBatch(body);
+	if (
+		streamHealthClassification === "invalid_stream_health_mix" ||
+		streamHealthClassification === "invalid_stream_health_source"
+	) {
+		return Response.json(
+			{ error: "Invalid stream health archive source or table mix" },
+			{ status: 400 },
+		);
+	}
+	const streamHealthValidation =
+		streamHealthClassification === "stream_health"
+			? validateStreamHealthArchiveBatch(body)
+			: undefined;
+	if (streamHealthValidation && !streamHealthValidation.ok) {
+		return Response.json({ error: streamHealthValidation.error }, { status: 400 });
 	}
 
 	const strategyClassification = classifyStrategyArchiveBatch(body);
@@ -123,6 +148,31 @@ export async function handleArchiveRequest(
 			{ error: "Too many archive rows for table", ...tableLimit },
 			{ status: 413 },
 		);
+	}
+
+	if (streamHealthValidation?.ok) {
+		if (!dependencies.streamHealthStore) {
+			return Response.json(
+				{ error: "Stream health replay store unavailable" },
+				{ status: 503 },
+			);
+		}
+		const result = await insertStreamHealthArchiveBatch(
+			dependencies.inserter,
+			dependencies.streamHealthStore,
+			streamHealthValidation,
+		);
+		if (!result.ok) {
+			return Response.json({ error: result.error }, { status: result.status });
+		}
+		if (result.inserted > 0) {
+			dependencies.telemetry.recordRowsInserted(
+				"broker_stream_health.snapshots",
+				result.inserted,
+			);
+			dependencies.telemetry.recordSuccessfulFlush();
+		}
+		return Response.json(result);
 	}
 
 	if (strategyClassification === "strategy") {

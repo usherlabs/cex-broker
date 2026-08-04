@@ -127,6 +127,7 @@ describe("archive forwarder batch parsing", () => {
 		expect(isSupportedTable("broker_execution.transfer_events")).toBe(true);
 		expect(isSupportedTable("broker_execution.fill_events")).toBe(true);
 		expect(isSupportedTable("broker_account.balance_snapshots")).toBe(true);
+		expect(isSupportedTable("broker_stream_health.snapshots")).toBe(true);
 		expect(isSupportedTable("broker_account.unknown")).toBe(false);
 
 		const parsed = parseArchiveBatchRequest({
@@ -415,6 +416,7 @@ describe("archive forwarder schema init", () => {
 				"market_data",
 				"broker_execution",
 				"broker_account",
+				"broker_stream_health",
 				"strategy_data",
 			]),
 		);
@@ -434,6 +436,8 @@ describe("archive forwarder schema init", () => {
 				"broker_execution.transfer_events",
 				"broker_execution.fill_events",
 				"broker_account.balance_snapshots",
+				"broker_stream_health.snapshots",
+				"broker_stream_health.replay_conflicts",
 				"strategy_data.policy_evaluation_events",
 				"strategy_data.strategy_policy_snapshots",
 				"strategy_data.market_identity",
@@ -482,5 +486,17 @@ describe("archive forwarder schema init", () => {
 			"ORDER BY (exchange, account_selector, balance_scope, broker_observed_timestamp, observation_id)",
 		);
 		expect(balanceTable).not.toContain("TTL");
+
+		const streamHealthTable = statements.find((query) =>
+			/CREATE TABLE IF NOT EXISTS\s+broker_stream_health\.snapshots/i.test(
+				query,
+			),
+		);
+		expect(streamHealthTable).toContain("heartbeat_at DateTime64(3, 'UTC')");
+		expect(streamHealthTable).toContain(
+			"state Enum8('connecting' = 1, 'connected' = 2, 'disconnected' = 3, 'error' = 4)",
+		);
+		expect(streamHealthTable).toContain("payload_sha256 FixedString(64)");
+		expect(streamHealthTable).not.toContain("TTL");
 	});
 });

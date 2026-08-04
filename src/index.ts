@@ -27,6 +27,11 @@ import {
 	OtelLogs,
 	OtelMetrics,
 } from "./helpers/otel";
+import {
+	StreamHealthPublisher,
+	streamHealthPublisherConfigFromEnv,
+} from "./helpers/stream-health-publisher";
+import { UserDataStreamSupervisor } from "./helpers/user-data-stream-supervisor";
 import { getServer } from "./server";
 import {
 	type BrokerCredentials,
@@ -67,6 +72,7 @@ export default class CEXBroker {
 	private fillArchivePoller?: FillArchivePoller;
 	private depositArchivePoller?: DepositArchivePoller;
 	private accountBalanceArchivePoller?: AccountBalanceArchivePoller;
+	private userDataStreamSupervisor?: UserDataStreamSupervisor;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -302,6 +308,10 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
+		if (this.userDataStreamSupervisor) {
+			await this.userDataStreamSupervisor.close();
+			this.userDataStreamSupervisor = undefined;
+		}
 		if (this.brokerArchiver) {
 			await this.brokerArchiver.close();
 		}
@@ -344,6 +354,19 @@ export default class CEXBroker {
 		if (this.otelMetrics?.isOtelEnabled()) {
 			await this.otelMetrics.initialize();
 		}
+		if (
+			!this.userDataStreamSupervisor &&
+			Object.keys(this.brokers).length > 0
+		) {
+			const publisher = new StreamHealthPublisher(
+				streamHealthPublisherConfigFromEnv(),
+			);
+			this.userDataStreamSupervisor = new UserDataStreamSupervisor({
+				brokers: this.brokers,
+				publisher,
+			});
+			this.userDataStreamSupervisor.start();
+		}
 
 		this.server = getServer(
 			this.policy,
@@ -356,6 +379,7 @@ export default class CEXBroker {
 			this.orderActivityTracker,
 			this.withdrawalObservationTracker,
 			undefined,
+			this.userDataStreamSupervisor,
 		);
 
 		this.server.bindAsync(

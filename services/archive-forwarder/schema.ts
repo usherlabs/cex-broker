@@ -57,6 +57,7 @@ const ARCHIVE_SCHEMA_FILES = [
 	"market_data.sql",
 	"broker_execution.sql",
 	"broker_account.sql",
+	"broker_stream_health.sql",
 	"strategy_data.sql",
 ] as const;
 
