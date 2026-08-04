@@ -1,6 +1,9 @@
 import type { ArchiveBatchRequest, ArchiveRow } from "./types";
 
-export const STRATEGY_ARCHIVE_SOURCE = "hb_runtime";
+export const STRATEGY_ARCHIVE_SOURCES: ReadonlySet<string> = new Set([
+	"hb_runtime",
+	"maker_orchestrator",
+]);
 
 export const STRATEGY_ARCHIVE_TABLES = [
 	"strategy_data.policy_evaluation_events",
@@ -58,7 +61,7 @@ export function classifyStrategyArchiveBatch(
 		isStrategyArchiveTable(entryTable(entry)),
 	);
 
-	if (source === STRATEGY_ARCHIVE_SOURCE) {
+	if (typeof source === "string" && STRATEGY_ARCHIVE_SOURCES.has(source)) {
 		return rows.length > 0 && rows.every((entry) =>
 			isStrategyArchiveTable(entryTable(entry)),
 		)
