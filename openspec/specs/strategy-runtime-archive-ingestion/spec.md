@@ -5,16 +5,26 @@ TBD - created by archiving change maker-archive-forwarder-conformance. Update Pu
 ## Requirements
 ### Requirement: Strategy runtime requests use a closed envelope contract
 
-The archive forwarder MUST accept a strategy runtime request only when its non-empty envelope source is `hb_runtime`, its deployment id is non-empty, it contains between one and 1000 rows, and every row targets an approved strategy runtime table.
+The archive forwarder MUST accept a strategy runtime request only when its non-empty envelope source belongs to exactly the admitted producer set `{hb_runtime, maker_orchestrator}`, its deployment id is non-empty, it contains between one and 1000 rows, and every row targets an approved strategy runtime table.
 
 The approved table set SHALL be exactly `strategy_data.policy_evaluation_events`, `strategy_data.strategy_policy_snapshots`, `strategy_data.market_identity`, `strategy_data.symbol_mapping`, and `strategy_data.inventory_settlement_events`.
+
+Conforming batches from either admitted producer MUST enter the same durable strategy-spool ownership path and return HTTP 202 without direct synchronous ClickHouse insertion.
 
 #### Scenario: All five strategy tables are submitted
 - **WHEN** one `hb_runtime` envelope contains conforming rows for all five approved tables
 - **THEN** the request MUST pass strategy contract validation
 
+#### Scenario: Maker orchestrator strategy rows are submitted
+- **WHEN** one `maker_orchestrator` envelope contains conforming rows for an approved strategy table
+- **THEN** the request MUST pass strategy contract validation
+
+#### Scenario: Either admitted producer transfers durable ownership
+- **WHEN** a conforming `hb_runtime` or `maker_orchestrator` strategy envelope is submitted
+- **THEN** the forwarder MUST durably admit it to the strategy spool and return HTTP 202 without direct ClickHouse insertion
+
 #### Scenario: Strategy and non-strategy rows are mixed
-- **WHEN** an `hb_runtime` envelope contains an approved strategy table and any non-strategy table
+- **WHEN** an envelope from either admitted producer contains an approved strategy table and any non-strategy table
 - **THEN** the entire request MUST be rejected with HTTP 400 before durable admission or ClickHouse insertion
 
 #### Scenario: Strategy table uses another source
@@ -53,10 +63,10 @@ Version `2` rows MUST contain non-empty `producer_id`, `producer_run_id`, `strea
 
 ### Requirement: Envelope and row provenance agree
 
-When a strategy row supplies `source` or `deployment_id`, its value MUST equal the corresponding envelope value. Credentials and broker configuration MUST NOT supply or override these Maker identities.
+When a strategy row supplies `source` or `deployment_id`, its value MUST equal the corresponding envelope value. Credentials and broker configuration MUST NOT supply or override these producer identities.
 
-#### Scenario: Row source differs from envelope
-- **WHEN** a row declares a source other than the envelope source
+#### Scenario: Row source differs across admitted producers
+- **WHEN** an `hb_runtime` envelope contains a row declaring `maker_orchestrator`, or a `maker_orchestrator` envelope contains a row declaring `hb_runtime`
 - **THEN** the entire request MUST be rejected before admission
 
 #### Scenario: Row deployment differs from envelope
@@ -91,9 +101,8 @@ The CEX Broker contract fixture MUST equal the pinned Maker `archive_forwarder_e
 
 ### Requirement: Non-strategy archive behavior remains compatible
 
-Requests that contain no strategy table and do not use `hb_runtime` MUST retain the existing direct ClickHouse insertion and synchronous success/failure contract.
+Requests that contain no strategy table and do not use either admitted strategy producer MUST retain the existing direct ClickHouse insertion and synchronous success/failure contract.
 
 #### Scenario: Broker market rows are submitted
 - **WHEN** a valid `broker_read` or `broker_write` request contains only supported non-strategy rows
 - **THEN** the forwarder MUST insert them through the existing direct path and MUST NOT consume strategy spool quota
-
