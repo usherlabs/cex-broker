@@ -76,6 +76,11 @@ jobs:
       - name: Run required archive E2E regression
         run: bun run test:e2e:archive
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.2"
+
       - name: Run canonical checksum fixture verification
         run: uv run --project research/python --extra dev pytest research/python/tests/test_canonical_capture_fixture.py -q
 
