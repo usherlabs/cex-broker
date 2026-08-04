@@ -28,6 +28,11 @@ export type DepositArchivePollerConfig = {
 	// Constant defaults (no env vars): every broker env var must be allowlisted in a
 	// Gramine manifest in another repo, so the poller intentionally introduces none.
 	pollIntervalMs: number;
+	// Bounds the venue call. A fetchDeposits promise that never settles would
+	// strand #pollOne forever: no error, no metric, no reschedule — the one
+	// poller death mode that leaves no trace at all. The bound converts it into
+	// an ordinary poll failure, which is already observable.
+	fetchTimeoutMs: number;
 	// How far back the first poll of an account reaches. A restart loses the
 	// in-memory cursor and re-scans this window; duplicate rows are acceptable
 	// because transfer_events is plain MergeTree and consumers deduplicate at read
@@ -39,9 +44,26 @@ export type DepositArchivePollerConfig = {
 
 const DEFAULT_CONFIG: DepositArchivePollerConfig = {
 	pollIntervalMs: 60_000,
+	fetchTimeoutMs: 30_000,
 	lookbackMs: 24 * 60 * 60 * 1000,
 	depositsLimit: 50,
 };
+
+function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	label: string,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const expiry = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(
+			() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+			timeoutMs,
+		);
+		timer.unref?.();
+	});
+	return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
+}
 
 const ALL_CURRENCIES_CODE = "*";
 
@@ -50,6 +72,8 @@ type DepositPollTarget = {
 	account: BrokerAccount;
 	code: typeof ALL_CURRENCIES_CODE;
 };
+
+type PollOutcome = "ok" | "error" | "unsupported";
 
 type LastArchivedDeposit = {
 	status: string | undefined;
@@ -218,7 +242,24 @@ export class DepositArchivePoller {
 		return true;
 	}
 
+	// The heartbeat is the only signal that separates a healthy-idle poller from a
+	// hung one: the archive and error counters are both silent on a quiet venue.
+	// It therefore records on every exit, including an unexpected throw, which is
+	// why the outcome starts pessimistic and is only narrowed by a completed poll.
 	async #pollOne(target: DepositPollTarget): Promise<void> {
+		let outcome: PollOutcome = "error";
+		try {
+			outcome = await this.#pollTarget(target);
+		} finally {
+			void this.params.metrics?.recordCounter(
+				"cex_deposit_poller_polls_total",
+				1,
+				{ exchange: target.exchangeId, outcome },
+			);
+		}
+	}
+
+	async #pollTarget(target: DepositPollTarget): Promise<PollOutcome> {
 		const exchange = target.account.exchange as unknown as ExchangeWithDeposits;
 		const key = this.#targetKey(target);
 		if (
@@ -232,17 +273,17 @@ export class DepositArchivePoller {
 					account: target.account.label,
 				});
 			}
-			return;
+			return "unsupported";
 		}
 
 		const since =
 			this.#cursors.get(key) ?? Date.now() - this.#config.lookbackMs;
 		let deposits: unknown[];
 		try {
-			deposits = await exchange.fetchDeposits(
-				undefined,
-				since,
-				this.#config.depositsLimit,
+			deposits = await withTimeout(
+				exchange.fetchDeposits(undefined, since, this.#config.depositsLimit),
+				this.#config.fetchTimeoutMs,
+				"fetchDeposits",
 			);
 		} catch (error) {
 			void this.params.metrics?.recordCounter(
@@ -255,10 +296,10 @@ export class DepositArchivePoller {
 				account: target.account.label,
 				error,
 			});
-			return;
+			return "error";
 		}
 		if (!Array.isArray(deposits) || deposits.length === 0) {
-			return;
+			return "ok";
 		}
 
 		let archived = 0;
@@ -359,6 +400,7 @@ export class DepositArchivePoller {
 				this.#lastArchivedByTarget.delete(key);
 			}
 		}
+		return "ok";
 	}
 
 	#targetKey(target: DepositPollTarget): string {

@@ -27,6 +27,26 @@ function poolWith(exchange: unknown): Record<string, BrokerPoolEntry> {
 	};
 }
 
+type RecordedCounter = {
+	name: string;
+	value: number;
+	labels: Record<string, string | number>;
+};
+
+function fakeMetrics(sink: RecordedCounter[]) {
+	return {
+		recordCounter: async (
+			name: string,
+			value: number,
+			labels: Record<string, string | number>,
+		) => {
+			sink.push({ name, value, labels });
+		},
+	} as unknown as ConstructorParameters<
+		typeof DepositArchivePoller
+	>[0]["metrics"];
+}
+
 function fakeArchiver(sink: BrokerArchiveRow[]): BrokerExecutionArchiver {
 	return {
 		isEnabled: () => true,
@@ -387,6 +407,114 @@ describe("DepositArchivePoller.pollAllOnce", () => {
 				external_id: "0xrecovered",
 				status: "ok",
 			});
+		} finally {
+			warn.mockRestore();
+		}
+	});
+});
+
+describe("DepositArchivePoller liveness signal", () => {
+	test("records a heartbeat for a successful poll", async () => {
+		const counters: RecordedCounter[] = [];
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [],
+		};
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver([]),
+			metrics: fakeMetrics(counters),
+		});
+
+		await poller.pollAllOnce();
+
+		expect(counters).toEqual([
+			{
+				name: "cex_deposit_poller_polls_total",
+				value: 1,
+				labels: { exchange: "binance", outcome: "ok" },
+			},
+		]);
+	});
+
+	test("records a heartbeat for an account without fetchDeposits", async () => {
+		const info = spyOn(log, "info").mockImplementation(() => {});
+		try {
+			const counters: RecordedCounter[] = [];
+			const poller = new DepositArchivePoller({
+				brokers: poolWith({ has: { fetchDeposits: false } }),
+				archiver: fakeArchiver([]),
+				metrics: fakeMetrics(counters),
+			});
+
+			await poller.pollAllOnce();
+
+			expect(counters).toEqual([
+				{
+					name: "cex_deposit_poller_polls_total",
+					value: 1,
+					labels: { exchange: "binance", outcome: "unsupported" },
+				},
+			]);
+		} finally {
+			info.mockRestore();
+		}
+	});
+
+	test("counts a hung fetchDeposits as a failed poll and polls again", async () => {
+		const warn = spyOn(log, "warn").mockImplementation(() => {});
+		try {
+			let calls = 0;
+			const exchange = {
+				has: { fetchDeposits: true },
+				fetchDeposits: async () => {
+					calls += 1;
+					if (calls === 1) {
+						// Never settles: the silent-death mode the timeout exists for.
+						return new Promise<unknown[]>(() => {});
+					}
+					return [
+						{
+							txid: "0xafter-hang",
+							currency: "USDC",
+							amount: "5",
+							status: "ok",
+							timestamp: Date.now() + 10_000,
+						},
+					];
+				},
+			};
+			const counters: RecordedCounter[] = [];
+			const sink: BrokerArchiveRow[] = [];
+			const poller = new DepositArchivePoller({
+				brokers: poolWith(exchange),
+				archiver: fakeArchiver(sink),
+				metrics: fakeMetrics(counters),
+				config: { fetchTimeoutMs: 10 },
+			});
+
+			expect(await poller.pollAllOnce()).toBe(true);
+
+			expect(warn.mock.calls[0]?.[0]).toBe("Deposit archive poll failed");
+			expect(
+				String((warn.mock.calls[0]?.[1] as { error: unknown }).error),
+			).toContain("fetchDeposits timed out after 10ms");
+			expect(counters).toEqual([
+				{
+					name: "cex_deposit_poller_errors_total",
+					value: 1,
+					labels: { exchange: "binance" },
+				},
+				{
+					name: "cex_deposit_poller_polls_total",
+					value: 1,
+					labels: { exchange: "binance", outcome: "error" },
+				},
+			]);
+
+			expect(await poller.pollAllOnce()).toBe(true);
+			expect(sink).toHaveLength(1);
+			expect(sink[0]?.row).toMatchObject({ external_id: "0xafter-hang" });
 		} finally {
 			warn.mockRestore();
 		}
