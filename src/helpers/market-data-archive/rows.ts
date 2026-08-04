@@ -32,12 +32,34 @@ function withNormalizedChecksum(
 	};
 }
 
+function legacyMarketFields(
+	context: MarketCaptureContext,
+	rawCapture: RawCapture,
+): Record<string, unknown> {
+	return {
+		account_selector: context.accountSelector,
+		broker_observed_timestamp: new Date(
+			rawCapture.receivedTimeMs,
+		).toISOString(),
+	};
+}
+
+/**
+ * ClickHouse stores the legacy ticker and trade values as Decimal(18,8).
+ * Normalize before computing the canonical checksum so the digest describes
+ * the value that can actually be queried back from storage.
+ */
+function legacyDecimal8(value: number | undefined): number | undefined {
+	return value === undefined ? undefined : Number(value.toFixed(8));
+}
+
 export function buildCanonicalCexStreamEventRow(
 	context: MarketCaptureContext,
 	rawCapture: RawCapture,
 ): BrokerArchiveRow {
 	const row = withNormalizedChecksum({
 		...captureCoreFields(context, rawCapture),
+		...legacyMarketFields(context, rawCapture),
 		stream_type: context.feed,
 		event_time_ms: rawCapture.eventTimeMs,
 		payload_encoding: "canonical_json_v1",
@@ -56,19 +78,21 @@ export function buildCanonicalTickerEventRow(
 	}
 	const row = withNormalizedChecksum({
 		...captureCoreFields(context, rawCapture),
+		...legacyMarketFields(context, rawCapture),
 		source_time_ms: ticker.eventTimeMs,
 		event_time_ms: ticker.eventTimeMs,
-		last: ticker.last,
-		bid: ticker.bid,
-		ask: ticker.ask,
-		high: ticker.high,
-		low: ticker.low,
-		open: ticker.open,
-		close: ticker.close,
-		base_volume: ticker.baseVolume,
-		quote_volume: ticker.quoteVolume,
-		change: ticker.change,
-		percentage: ticker.percentage,
+		last: legacyDecimal8(ticker.last),
+		bid: legacyDecimal8(ticker.bid),
+		ask: legacyDecimal8(ticker.ask),
+		high: legacyDecimal8(ticker.high),
+		low: legacyDecimal8(ticker.low),
+		open: legacyDecimal8(ticker.open),
+		close: legacyDecimal8(ticker.close),
+		base_volume: legacyDecimal8(ticker.baseVolume),
+		quote_volume: legacyDecimal8(ticker.quoteVolume),
+		change: legacyDecimal8(ticker.change),
+		percentage: legacyDecimal8(ticker.percentage),
+		payload_json: JSON.stringify(rawCapture.redactedPayload),
 	});
 	return { table: "market_data.cex_ticker_events", row };
 }
@@ -83,13 +107,14 @@ export function buildCanonicalTradeRow(
 	}
 	const row = withNormalizedChecksum({
 		...captureCoreFields(context, rawCapture),
+		...legacyMarketFields(context, rawCapture),
 		source_time_ms: trade.eventTimeMs,
 		trade_id: trade.tradeId,
 		event_time_ms: trade.eventTimeMs,
 		side: trade.side,
-		price: trade.price,
-		amount: trade.amount,
-		cost: trade.cost,
+		price: legacyDecimal8(trade.price),
+		amount: legacyDecimal8(trade.amount),
+		cost: legacyDecimal8(trade.cost),
 		taker_or_maker: trade.takerOrMaker,
 	});
 	return { table: "market_data.cex_trades", row };
