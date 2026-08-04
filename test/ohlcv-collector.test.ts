@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import { OhlcvCollector } from "../services/ohlcv-collector/collector";
+import { MarketDataCollector } from "../services/ohlcv-collector/collector";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "../src/proto-package-definition";
 
 type SubscribeRequest = {
@@ -94,7 +94,7 @@ class CapturingMetrics {
 	}
 }
 
-describe("OHLCV collector supervision", () => {
+describe("market-data collector supervision", () => {
 	test("opens independent supervisors for all four market feeds", async () => {
 		const requests: SubscribeRequest[] = [];
 		const { server, port } = await startSubscribeServer((call) => {
@@ -107,7 +107,7 @@ describe("OHLCV collector supervision", () => {
 			});
 		});
 		const abort = new AbortController();
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
 			subscriptions: [
 				{
@@ -173,10 +173,15 @@ describe("OHLCV collector supervision", () => {
 		});
 		const metrics = new CapturingMetrics();
 		const abort = new AbortController();
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
 			subscriptions: [
-				{ exchange: "binance", symbol: "BTC/USDT", timeframe: "1m" },
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+				},
 			],
 			metrics,
 			retry: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
@@ -252,11 +257,21 @@ describe("OHLCV collector supervision", () => {
 			}
 		});
 		const abort = new AbortController();
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
 			subscriptions: [
-				{ exchange: "binance", symbol: "BTC/USDT", timeframe: "1m" },
-				{ exchange: "binance", symbol: "ETH/USDT", timeframe: "1m" },
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+				},
+				{
+					exchange: "binance",
+					symbol: "ETH/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+				},
 			],
 			retry: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
 		});

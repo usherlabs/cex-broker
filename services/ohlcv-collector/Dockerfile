@@ -1,12 +1,12 @@
-# OHLCV collector: runs a loopback-only, keyless public broker and keeps one
-# Subscribe(OHLCV) stream alive for every configured pair. The broker forwards
-# captured candles to the separately deployed archive-forwarder.
+# Market-data collector: keeps one external Subscribe stream alive for every
+# configured feed intent against CEX_BROKER_URL.
 #
 # Build from the repository root:
-#   docker build -f services/ohlcv-collector/Dockerfile -t cex-broker-ohlcv-collector .
+#   docker build -f services/ohlcv-collector/Dockerfile -t cex-broker-market-data-collector .
 #
-# Mount a JSON array of {"exchange","symbol","timeframe"} entries and set
-# CEX_BROKER_OHLCV_COLLECTOR_CONFIG to its container path. timeframe defaults to 1m.
+# Set CEX_BROKER_URL to the external broker target and
+# CEX_BROKER_MARKET_DATA_COLLECTOR_CONFIG to a JSON document containing
+# {"subscriptions":[...]} feed intents.
 FROM oven/bun:1.3
 
 WORKDIR /app
@@ -18,11 +18,7 @@ RUN bun install --frozen-lockfile
 COPY src ./src
 COPY services/ohlcv-collector ./services/ohlcv-collector
 
-# Every reconnect invokes the broker's OHLCV bootstrap. At 1m, 1000 bars provide
-# roughly 16 hours of gap coverage without adding a collector-side write/backfill path.
-ENV CEX_BROKER_OHLCV_ARCHIVE_BOOTSTRAP_LIMIT=1000
-
 # The collector needs no elevated privileges; run as the base image's bun user.
 USER bun
 
-CMD ["bun", "run", "services/ohlcv-collector/index.ts"]
+CMD ["bun", "run", "start-market-data-collector"]

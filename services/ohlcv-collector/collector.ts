@@ -3,7 +3,7 @@ import { SubscriptionType } from "../../src/helpers/constants";
 import { log } from "../../src/helpers/logger";
 import type { OtelMetrics } from "../../src/helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "../../src/proto-package-definition";
-import type { MarketDataSubscription, OhlcvSubscription } from "./config";
+import type { MarketDataSubscription } from "./config";
 
 type SubscribeResponse = {
 	data: string;
@@ -20,16 +20,14 @@ type SubscribeClient = grpc.Client & {
 
 type CollectorMetrics = Pick<OtelMetrics, "recordCounter">;
 
-export type OhlcvCollectorOptions = {
+export type MarketDataCollectorOptions = {
 	brokerUrl: string;
-	subscriptions: Array<OhlcvSubscription | MarketDataSubscription>;
+	subscriptions: MarketDataSubscription[];
 	metrics?: CollectorMetrics;
 	retry?: Partial<RetryPolicy>;
 };
 
-type CollectorSubscription =
-	| (OhlcvSubscription & { feed: "OHLCV"; bootstrapLimit?: number })
-	| MarketDataSubscription;
+type CollectorSubscription = MarketDataSubscription;
 
 export type CollectorFeedHealth = {
 	state: "connecting" | "healthy" | "backoff" | "stopped";
@@ -113,7 +111,7 @@ function waitForDelay(delayMs: number, signal: AbortSignal): Promise<boolean> {
 	});
 }
 
-export class OhlcvCollector {
+export class MarketDataCollector {
 	readonly #client: SubscribeClient;
 	readonly #subscriptions: CollectorSubscription[];
 	readonly #metrics?: CollectorMetrics;
@@ -121,12 +119,8 @@ export class OhlcvCollector {
 	readonly #health = new Map<string, CollectorFeedHealth>();
 	#started = false;
 
-	constructor(options: OhlcvCollectorOptions) {
-		this.#subscriptions = options.subscriptions.map((subscription) =>
-			"feed" in subscription
-				? subscription
-				: { ...subscription, feed: "OHLCV" as const },
-		);
+	constructor(options: MarketDataCollectorOptions) {
+		this.#subscriptions = options.subscriptions;
 		this.#metrics = options.metrics;
 		this.#retry = { ...DEFAULT_RETRY_POLICY, ...options.retry };
 		this.#client = new grpcObject.cex_broker.cex_service(
@@ -161,7 +155,7 @@ export class OhlcvCollector {
 
 	async run(signal: AbortSignal): Promise<void> {
 		if (this.#started) {
-			throw new Error("OHLCV collector can only be started once");
+			throw new Error("Market-data collector can only be started once");
 		}
 		this.#started = true;
 		try {
@@ -370,5 +364,3 @@ export class OhlcvCollector {
 		return Math.max(0, Math.round(baseDelay * jitter));
 	}
 }
-
-export const MarketDataCollector = OhlcvCollector;
