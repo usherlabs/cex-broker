@@ -69,14 +69,17 @@ describe("Maker strategy archive contract", () => {
 		});
 	});
 
-	test("rejects an unknown producer carrying strategy rows", () => {
-		expect(
-			classifyStrategyArchiveBatch({
-				...makerOrchestratorFixture,
-				source: "unknown_runtime",
-			}),
-		).toBe("invalid_strategy_source");
-	});
+	test.each(["unknown_runtime", "broker_read", "broker_write"])(
+		"rejects %s carrying strategy rows",
+		(source) => {
+			expect(
+				classifyStrategyArchiveBatch({
+					...makerOrchestratorFixture,
+					source,
+				}),
+			).toBe("invalid_strategy_source");
+		},
+	);
 
 	test("rejects cross-producer row and envelope provenance", () => {
 		const hbEnvelopeWithMakerRow = structuredClone(fixture);
