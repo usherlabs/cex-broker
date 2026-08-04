@@ -40,7 +40,17 @@ function requireClient(): ClickHouseClient {
 	return client;
 }
 
-async function probeClickHouse(): Promise<boolean> {
+// An unreachable host normally refuses the connection immediately, but a
+// half-started server can accept the socket and never answer. Without a
+// deadline the probe would block beforeAll indefinitely and the file would be
+// reported as a wall of per-test timeouts naming neither ClickHouse nor the
+// URL. The deadline turns that into a definite unavailable verdict, and the
+// reason is carried so the required-service failure says what went wrong.
+const PROBE_TIMEOUT_MS = 10_000;
+
+type ProbeResult = { available: true } | { available: false; reason: string };
+
+async function probeClickHouse(): Promise<ProbeResult> {
 	const probe = createClient({
 		url: CLICKHOUSE_URL,
 		username: CLICKHOUSE_USERNAME,
@@ -50,11 +60,20 @@ async function probeClickHouse(): Promise<boolean> {
 		const result = await probe.query({
 			query: "SELECT 1 AS ok",
 			format: "JSONEachRow",
+			abort_signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
 		});
 		const rows = (await result.json()) as Array<{ ok: number }>;
-		return rows[0]?.ok === 1;
-	} catch {
-		return false;
+		return rows[0]?.ok === 1
+			? { available: true }
+			: { available: false, reason: "probe query did not return SELECT 1" };
+	} catch (error) {
+		const reason =
+			error instanceof Error && error.name === "TimeoutError"
+				? `probe did not answer within ${PROBE_TIMEOUT_MS}ms`
+				: error instanceof Error
+					? error.message
+					: String(error);
+		return { available: false, reason };
 	} finally {
 		await probe.close();
 	}
@@ -133,11 +152,12 @@ async function cleanupTestRows(): Promise<void> {
 
 describe("ClickHouse market_data schema integration", () => {
 	beforeAll(async () => {
-		clickhouseAvailable = await probeClickHouse();
-		if (!clickhouseAvailable) {
+		const probe = await probeClickHouse();
+		clickhouseAvailable = probe.available;
+		if (!probe.available) {
 			if (process.env.CLICKHOUSE_REQUIRED === "1") {
 				throw new Error(
-					`Required ClickHouse integration service is unavailable at ${CLICKHOUSE_URL}`,
+					`Required ClickHouse integration service is unavailable at ${CLICKHOUSE_URL}: ${probe.reason}`,
 				);
 			}
 			return;
