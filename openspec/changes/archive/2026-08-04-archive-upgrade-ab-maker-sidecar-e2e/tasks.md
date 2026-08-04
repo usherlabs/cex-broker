@@ -63,9 +63,9 @@
 - [x] 6.3 Add a production-compatible sidecar scenario that distinguishes the Maker Layer 12 broker client from the collector, admits strategy evidence only as durable `hb_runtime`, drains it, and queries all required market/strategy rows.
 - [x] 6.4 Make sidecar verification reject native evidence that claims direct broker or `hb_runtime` behavior and live evidence that lacks HTTP 202 admission plus completed drainage/query proof.
 - [x] 6.5 In FIET Maker, resolve a clean `develop` checkout to its execution-time immutable commit, verify the PR 1067 wire contract is present, and add Maker-owned orchestration for the pinned CEX sidecar candidate without retaining a proposal-time Maker SHA.
-- [ ] 6.6 Run the Maker native emulation/materializer profile with a shared run ID and capture its `maker_replay`, Parquet, and queried ClickHouse evidence.
-- [ ] 6.7 Run the Maker Layer 12 live/sandbox profile with the same cross-repository contract, and capture real broker-boundary plus `hb_runtime` spool/drain evidence.
-- [ ] 6.8 Store bounded cross-repository results that bind resolved Maker and CEX commits; keep any floating scheduled `develop` compatibility run informative and non-substitutive.
+- [x] 6.6 Run the Maker native emulation/materializer profile with a shared run ID and capture its `maker_replay`, Parquet, and queried ClickHouse evidence.
+- [x] 6.7 Run the Maker Layer 12 live/sandbox profile with the same cross-repository contract, and capture real broker-boundary plus `hb_runtime` spool/drain evidence.
+- [x] 6.8 Store bounded cross-repository results that bind resolved Maker and CEX commits; keep any floating scheduled `develop` compatibility run informative and non-substitutive.
 
 ## 7. CI, Documentation, and Release Evidence
 
@@ -82,7 +82,7 @@
 ## 8. Final Conformance and OpenSpec Closure
 
 - [x] 8.1 Run the complete ongoing CEX unit, strategy fault, schema, build/type/lint, Python, Local E2E, existing real-server, smoke-static, and strict OpenSpec validation matrix from a clean candidate checkout, then separately verify the recorded one-time A/B acceptance.
-- [ ] 8.2 Run the pinned FIET Maker `develop` cross-repository native and production-compatible jobs against the exact CEX candidate and verify both evidence manifests agree.
+- [x] 8.2 Run the pinned FIET Maker `develop` cross-repository native and production-compatible jobs against the exact CEX candidate and verify both evidence manifests agree.
 - [x] 8.3 Audit executable code, workflows, docs, and manifests for removed credential/profile/attestation/write-mode settings, floating required refs, secret leakage, fake production boundaries, and any mandatory archive startup regression.
-- [ ] 8.4 Cross-reference completed evidence against FIET-901, FIET-903, FIET-907 ownership, Maker PR 1067 compatibility, and the deterministic definition of done without adding a production-soak task.
-- [ ] 8.5 Verify implementation against every delta requirement, then sync main specs and archive `archive-upgrade-ab-maker-sidecar-e2e` only after all in-repository and external evidence tasks are complete.
+- [x] 8.4 Cross-reference completed evidence against FIET-901, FIET-903, FIET-907 ownership, Maker PR 1067 compatibility, and the deterministic definition of done without adding a production-soak task.
+- [x] 8.5 Verify implementation against every delta requirement, then sync main specs and archive `archive-upgrade-ab-maker-sidecar-e2e` only after all in-repository and external evidence tasks are complete.
