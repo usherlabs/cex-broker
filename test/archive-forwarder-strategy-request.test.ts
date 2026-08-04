@@ -6,6 +6,7 @@ import {
 	type ArchiveMetricsRecorder,
 } from "../services/archive-forwarder/telemetry";
 import fixture from "./fixtures/archive_forwarder_envelope.json";
+import makerOrchestratorFixture from "./fixtures/maker_orchestrator_archive_envelope.json";
 
 const noopRecorder: ArchiveMetricsRecorder = {
 	recordCounter: () => {},
@@ -37,6 +38,29 @@ describe("strategy durable HTTP admission", () => {
 		expect(spool.stats()).toMatchObject({
 			queuedBatches: 1,
 			queuedWork: fixture.rows.length,
+		});
+		spool.close();
+	});
+
+	test("durably admits Maker orchestrator rows without waiting for ClickHouse", async () => {
+		const spool = new StrategyArchiveSpool({ path: ":memory:" });
+		let insertCalled = false;
+		const response = await handleArchiveRequest(
+			post(makerOrchestratorFixture),
+			{
+				inserter: async () => {
+					insertCalled = true;
+					throw new Error("ClickHouse is down");
+				},
+				spool,
+				telemetry: new ArchiveForwarderTelemetry(noopRecorder),
+			},
+		);
+		expect(response.status).toBe(202);
+		expect(insertCalled).toBe(false);
+		expect(spool.stats()).toMatchObject({
+			queuedBatches: 1,
+			queuedWork: makerOrchestratorFixture.rows.length,
 		});
 		spool.close();
 	});

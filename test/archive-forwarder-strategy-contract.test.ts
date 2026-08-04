@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+	STRATEGY_ARCHIVE_SOURCES,
 	classifyStrategyArchiveBatch,
 	validateStrategyArchiveBatch,
 } from "../services/archive-forwarder/strategy-contract";
 import fixture from "./fixtures/archive_forwarder_envelope.json";
+import makerOrchestratorFixture from "./fixtures/maker_orchestrator_archive_envelope.json";
 
 const PINNED_MAKER_FIXTURE_SHA256 =
 	"5c9fd679a5a05ebce5f5158f4cc376360f24a34d9a07edeee43e94e564db3ee7";
@@ -52,6 +54,38 @@ describe("Maker strategy archive contract", () => {
 	test("accepts one v2 row for every approved strategy table", () => {
 		const rows = strategyTables.map((table, index) => v2Row(table, index + 1));
 		expect(validateStrategyArchiveBatch(batch(rows))).toEqual({ ok: true });
+	});
+
+	test("classifies both admitted strategy producers", () => {
+		expect(STRATEGY_ARCHIVE_SOURCES).toEqual(
+			new Set(["hb_runtime", "maker_orchestrator"]),
+		);
+		expect(classifyStrategyArchiveBatch(fixture)).toBe("strategy");
+		expect(classifyStrategyArchiveBatch(makerOrchestratorFixture)).toBe(
+			"strategy",
+		);
+		expect(validateStrategyArchiveBatch(makerOrchestratorFixture)).toEqual({
+			ok: true,
+		});
+	});
+
+	test("rejects an unknown producer carrying strategy rows", () => {
+		expect(
+			classifyStrategyArchiveBatch({
+				...makerOrchestratorFixture,
+				source: "unknown_runtime",
+			}),
+		).toBe("invalid_strategy_source");
+	});
+
+	test("rejects cross-producer row and envelope provenance", () => {
+		const hbEnvelopeWithMakerRow = structuredClone(fixture);
+		hbEnvelopeWithMakerRow.rows[0].row.source = "maker_orchestrator";
+		expect(validateStrategyArchiveBatch(hbEnvelopeWithMakerRow).ok).toBe(false);
+
+		const makerEnvelopeWithHbRow = structuredClone(makerOrchestratorFixture);
+		makerEnvelopeWithHbRow.rows[0].row.source = "hb_runtime";
+		expect(validateStrategyArchiveBatch(makerEnvelopeWithHbRow).ok).toBe(false);
 	});
 
 	test.each([
@@ -104,7 +138,7 @@ describe("Maker strategy archive contract", () => {
 		expect(validateStrategyArchiveBatch(batch([])).ok).toBe(false);
 	});
 
-	test("rejects mixed tables, mixed sources, and row provenance mismatch", () => {
+	test("rejects mixed tables and row deployment mismatch", () => {
 		const strategy = v2Row("strategy_data.policy_evaluation_events", 1);
 		expect(
 			validateStrategyArchiveBatch(
@@ -114,13 +148,6 @@ describe("Maker strategy archive contract", () => {
 				]),
 			).ok,
 		).toBe(false);
-		expect(
-			classifyStrategyArchiveBatch({
-				source: "broker_write",
-				deployment_id: "maker-a",
-				rows: [strategy],
-			}),
-		).toBe("invalid_strategy_source");
 		strategy.row.deployment_id = "maker-b";
 		expect(validateStrategyArchiveBatch(batch([strategy])).ok).toBe(false);
 	});
