@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
-	STRATEGY_ARCHIVE_SOURCES,
 	classifyStrategyArchiveBatch,
+	STRATEGY_ARCHIVE_SOURCES,
 	validateStrategyArchiveBatch,
 } from "../services/archive-forwarder/strategy-contract";
 import fixture from "./fixtures/archive_forwarder_envelope.json";
@@ -69,17 +69,18 @@ describe("Maker strategy archive contract", () => {
 		});
 	});
 
-	test.each(["unknown_runtime", "broker_read", "broker_write"])(
-		"rejects %s carrying strategy rows",
-		(source) => {
-			expect(
-				classifyStrategyArchiveBatch({
-					...makerOrchestratorFixture,
-					source,
-				}),
-			).toBe("invalid_strategy_source");
-		},
-	);
+	test.each([
+		"unknown_runtime",
+		"broker_read",
+		"broker_write",
+	])("rejects %s carrying strategy rows", (source) => {
+		expect(
+			classifyStrategyArchiveBatch({
+				...makerOrchestratorFixture,
+				source,
+			}),
+		).toBe("invalid_strategy_source");
+	});
 
 	test("rejects cross-producer row and envelope provenance", () => {
 		const hbEnvelopeWithMakerRow = structuredClone(fixture);
