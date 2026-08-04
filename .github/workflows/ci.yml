@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
@@ -47,11 +49,21 @@ jobs:
           bun run check:server-lines
           bun run typecheck:sidecar
 
+      - name: Resolve ClickHouse integration endpoint
+        run: |
+          for host in localhost clickhouse; do
+            if curl --fail --silent --max-time 2 "http://${host}:8123/ping" >/dev/null; then
+              echo "CLICKHOUSE_TEST_URL=http://${host}:8123" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "ClickHouse integration service is unreachable" >&2
+          exit 1
+
       - name: Run normal tests
         run: bun run test
         env:
           CLICKHOUSE_REQUIRED: "1"
-          CLICKHOUSE_TEST_URL: http://localhost:8123
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: integration-test
 
