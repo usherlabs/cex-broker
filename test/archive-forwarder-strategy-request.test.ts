@@ -34,7 +34,10 @@ describe("strategy durable HTTP admission", () => {
 		});
 		expect(response.status).toBe(202);
 		expect(insertCalled).toBe(false);
-		expect(spool.stats()).toMatchObject({ queuedBatches: 1, queuedWork: 3 });
+		expect(spool.stats()).toMatchObject({
+			queuedBatches: 1,
+			queuedWork: fixture.rows.length,
+		});
 		spool.close();
 	});
 

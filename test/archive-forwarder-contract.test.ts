@@ -45,6 +45,8 @@ describe("archive forwarder wire contract (shared golden fixture)", () => {
 			new Set([
 				"strategy_data.policy_evaluation_events",
 				"strategy_data.strategy_policy_snapshots",
+				"strategy_data.market_identity",
+				"strategy_data.symbol_mapping",
 				"strategy_data.inventory_settlement_events",
 			]),
 		);
