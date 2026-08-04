@@ -123,6 +123,7 @@ function withDeadline<T>(
 
 class FeedQueue {
 	private calls = 0;
+	private replayBudget = 0;
 	private closed = false;
 	private hasLastValue = false;
 	private lastValue: unknown;
@@ -145,6 +146,10 @@ class FeedQueue {
 			if (this.calls >= waiter.count) waiter.barrier.resolve();
 			else this.callWaiters.push(waiter);
 		}
+		if (this.replayBudget > 0 && this.hasLastValue) {
+			this.replayBudget -= 1;
+			return Promise.resolve(this.lastValue);
+		}
 		return new Promise((resolve, reject) => {
 			this.pending.push({ resolve, reject });
 		});
@@ -155,6 +160,22 @@ class FeedQueue {
 		const barrier = new LifecycleBarrier<void>();
 		this.callWaiters.push({ count, barrier });
 		return barrier.promise;
+	}
+
+	public armReplay(count = 1): void {
+		if (!this.hasLastValue)
+			throw new Error("feed replay armed before a captured value exists");
+		this.replayBudget = Math.max(this.replayBudget, count);
+	}
+
+	public callCount(): number {
+		return this.calls;
+	}
+
+	public latest(): unknown {
+		if (!this.hasLastValue)
+			throw new Error("controlled feed has no captured value");
+		return this.lastValue;
 	}
 
 	public release(value: unknown): void {
@@ -181,7 +202,8 @@ class ControlledExchange {
 	private readonly feeds = new Map(
 		PUBLIC_FEEDS.map((feed) => [feed, new FeedQueue()] as const),
 	);
-	public readonly has = { fetchOHLCV: false };
+	private orderBookSnapshotCalls = 0;
+	public readonly has = { fetchOHLCV: false, fetchOrderBook: true };
 	public readonly watchOrderBook = this.feed("ORDERBOOK").watch;
 	public readonly watchTicker = this.feed("TICKER").watch;
 	public readonly watchTrades = this.feed("TRADES").watch;
@@ -193,6 +215,35 @@ class ControlledExchange {
 
 	public release(feed: PublicFeed, value: unknown): void {
 		this.feed(feed).release(value);
+	}
+
+	public armExternalReplay(): void {
+		for (const feed of this.feeds.values()) feed.armReplay();
+	}
+
+	public callCounts(): Record<PublicFeed, number> {
+		return Object.fromEntries(
+			PUBLIC_FEEDS.map((feed) => [feed, this.feed(feed).callCount()]),
+		) as Record<PublicFeed, number>;
+	}
+
+	public fetchTicker = async (): Promise<unknown> => {
+		const ticker = this.feed("TICKER");
+		if (ticker.callCount() === 0)
+			throw new Error("controlled ticker is unavailable before capture");
+		return ticker.latest();
+	};
+
+	public fetchOrderBook = async (): Promise<unknown> => {
+		const orderBook = this.feed("ORDERBOOK");
+		if (orderBook.callCount() === 0)
+			throw new Error("controlled order book is unavailable before capture");
+		this.orderBookSnapshotCalls += 1;
+		return orderBook.latest();
+	};
+
+	public orderBookSnapshotCallCount(): number {
+		return this.orderBookSnapshotCalls;
 	}
 
 	public async close(): Promise<void> {
@@ -341,10 +392,10 @@ type ComposedContext = {
 	closed: boolean;
 };
 
-async function bindServer(server: Server): Promise<number> {
+async function bindServer(server: Server, requestedPort = 0): Promise<number> {
 	return new Promise((resolve, reject) => {
 		server.bindAsync(
-			"127.0.0.1:0",
+			`127.0.0.1:${requestedPort}`,
 			grpc.ServerCredentials.createInsecure(),
 			(error, port) => (error ? reject(error) : resolve(port)),
 		);
@@ -751,6 +802,12 @@ export type ProductionBrokerCollectorTopology = {
 		feedsObserved: PublicFeed[];
 		sourceWindow: { startTimeMs: number; endTimeMs: number };
 	}>;
+	brokerObservations: () => {
+		collectorSubscriptionCalls: Record<PublicFeed, number>;
+		totalSubscriptionCalls: Record<PublicFeed, number>;
+		externalSubscriptionCalls: Record<PublicFeed, number>;
+		orderBookSnapshotCalls: number;
+	};
 	close: () => Promise<void>;
 };
 
@@ -761,6 +818,7 @@ export async function startProductionBrokerCollectorTopology(options: {
 	captureBundleId: string;
 	lossJournalPath: string;
 	timeOffsetMs?: number;
+	brokerPort?: number;
 }): Promise<ProductionBrokerCollectorTopology> {
 	const environment = new EnvironmentScope();
 	const originalDateNow = Date.now;
@@ -772,6 +830,9 @@ export async function startProductionBrokerCollectorTopology(options: {
 	const collectorObserver = new CollectorObserver();
 	const exchange = new ControlledExchange();
 	let closed = false;
+	let collectorSubscriptionCalls = Object.fromEntries(
+		PUBLIC_FEEDS.map((feed) => [feed, 0]),
+	) as Record<PublicFeed, number>;
 	environment.set({
 		CEX_BROKER_ARCHIVE_ENABLED: "true",
 		CEX_BROKER_MARKET_ARCHIVE_ENABLED: "true",
@@ -819,7 +880,7 @@ export async function startProductionBrokerCollectorTopology(options: {
 	);
 	let collectorRun: Promise<void> | undefined;
 	try {
-		const brokerPort = await bindServer(server);
+		const brokerPort = await bindServer(server, options.brokerPort);
 		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${brokerPort}`,
 			subscriptions: SUBSCRIPTIONS,
@@ -871,6 +932,8 @@ export async function startProductionBrokerCollectorTopology(options: {
 					archiveObserver.waitForFlushed(EXPECTED_ENQUEUED),
 					"sidecar archive flush",
 				);
+				collectorSubscriptionCalls = exchange.callCounts();
+				exchange.armExternalReplay();
 				return {
 					emittedRows: EXPECTED_ENQUEUED,
 					feedsObserved: PUBLIC_FEEDS.filter((feed) =>
@@ -903,6 +966,24 @@ export async function startProductionBrokerCollectorTopology(options: {
 								),
 							) + 1,
 					},
+				};
+			},
+			brokerObservations: () => {
+				const totalSubscriptionCalls = exchange.callCounts();
+				const externalSubscriptionCalls = Object.fromEntries(
+					PUBLIC_FEEDS.map((feed) => [
+						feed,
+						Math.max(
+							totalSubscriptionCalls[feed] - collectorSubscriptionCalls[feed],
+							0,
+						),
+					]),
+				) as Record<PublicFeed, number>;
+				return {
+					collectorSubscriptionCalls: { ...collectorSubscriptionCalls },
+					totalSubscriptionCalls,
+					externalSubscriptionCalls,
+					orderBookSnapshotCalls: exchange.orderBookSnapshotCallCount(),
 				};
 			},
 			close: async () => {

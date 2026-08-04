@@ -1,23 +1,20 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import {
-	STRATEGY_ARCHIVE_TABLES,
-	type StrategyArchiveTable,
-} from "../services/archive-forwarder/strategy-contract";
+import { join, resolve } from "node:path";
 import { startProductionBrokerCollectorTopology } from "../test/e2e/archive/support/archive-lifecycle";
 import {
 	type SidecarManifest,
 	validateSidecarManifest,
 } from "./archive-sidecar";
+import {
+	exportCanonicalOrderBookParquet,
+	validateCanonicalMarketReplayWindow,
+} from "./export-canonical-orderbook-parquet";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "..");
-const HISTORICAL_FIXTURE = new URL(
-	"../test/e2e/archive/fixtures/archive-baseline-v1.json",
-	import.meta.url,
-);
 
 type SidecarState = {
 	ready: boolean;
@@ -29,12 +26,9 @@ type SidecarState = {
 		feedsObserved: string[];
 		sourceWindow: { startTimeMs: number; endTimeMs: number };
 	};
-	strategy?: {
-		source: "maker_replay" | "hb_runtime";
-		httpStatus: number;
-		spoolDrained: boolean;
-	};
 	forwarderHealth?: Record<string, unknown>;
+	brokerObservations?: Record<string, unknown>;
+	referenceExport?: Record<string, unknown>;
 	error?: string;
 };
 
@@ -115,77 +109,58 @@ async function waitForDrain(
 	throw new Error(`Strategy spool did not drain: ${JSON.stringify(latest)}`);
 }
 
-async function strategyRows(
-	manifest: SidecarManifest,
-	source: "maker_replay" | "hb_runtime",
-): Promise<
-	Array<{ table: StrategyArchiveTable; row: Record<string, unknown> }>
-> {
-	const fixture = JSON.parse(await readFile(HISTORICAL_FIXTURE, "utf8")) as {
-		tables: Array<{
-			table: string;
-			expectedRows: Array<Record<string, unknown>>;
-		}>;
-	};
-	const now = Date.now();
-	return STRATEGY_ARCHIVE_TABLES.map((table, index) => {
-		const original = fixture.tables.find((entry) => entry.table === table)
-			?.expectedRows[0];
-		if (!original)
-			throw new Error(`Historical strategy fixture is missing ${table}`);
-		const sequence = index + 1;
-		return {
-			table,
-			row: {
-				...original,
-				event_time_ms: now + sequence,
-				emitted_at_ms: now + sequence + 1,
-				source,
-				deployment_id: manifest.deploymentId,
-				schema_version: "2",
-				run_id: manifest.runId,
-				producer_id: "fiet-maker-sidecar",
-				producer_run_id: manifest.runId,
-				stream_name: `${manifest.profile}:${table}`,
-				stream_seq: sequence,
-				seq: sequence,
-				archive_event_id: `${manifest.runId}:${table}:${sequence}`,
-			},
-		};
-	});
+async function sha256File(path: string): Promise<string> {
+	return createHash("sha256")
+		.update(await readFile(path))
+		.digest("hex");
 }
 
-async function postStrategy(
+async function prepareReferenceExport(
 	manifest: SidecarManifest,
 	secret: string,
-): Promise<{
-	source: "maker_replay" | "hb_runtime";
-	httpStatus: number;
-	spoolDrained: boolean;
-	health: Record<string, unknown>;
-}> {
-	const source =
-		manifest.profile === "native_replay" ? "maker_replay" : "hb_runtime";
-	const response = await fetch(manifest.forwarderUrl, {
-		method: "POST",
-		headers: {
-			authorization: `Bearer ${secret}`,
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({
-			source,
-			deployment_id: manifest.deploymentId,
-			rows: await strategyRows(manifest, source),
-		}),
+	marketCapture: NonNullable<SidecarState["marketCapture"]>,
+): Promise<Record<string, unknown>> {
+	const replayWindow = {
+		clickhouseUrl: manifest.clickhouseUrl,
+		username: "default",
+		password: secret,
+		captureBundleIds: [manifest.captureBundleId],
+		exchange: "binance",
+		tradingPair: "BTC-USDT",
+		...marketCapture.sourceWindow,
+	};
+	const coverage = await validateCanonicalMarketReplayWindow(replayWindow);
+	const exported = await exportCanonicalOrderBookParquet({
+		...replayWindow,
+		outputDirectory: join(manifest.artifactsDir, "fiet-907-reference-export"),
 	});
-	const expected = source === "maker_replay" ? 200 : 202;
-	if (response.status !== expected) {
-		throw new Error(
-			`Strategy ${source} returned ${response.status}, expected ${expected}: ${await response.text()}`,
-		);
-	}
-	const health = await waitForDrain(manifest);
-	return { source, httpStatus: response.status, spoolDrained: true, health };
+	const result = {
+		schemaVersion: "cex-canonical-orderbook-export/v1",
+		runId: manifest.runId,
+		captureBundleId: manifest.captureBundleId,
+		exchange: "binance",
+		tradingPair: "BTC-USDT",
+		sourceWindow: marketCapture.sourceWindow,
+		levels: {
+			path: exported.levelsPath,
+			rows: exported.levelRows,
+			sha256: await sha256File(exported.levelsPath),
+		},
+		summary: {
+			path: exported.summaryPath,
+			rows: exported.summaryRows,
+			sha256: await sha256File(exported.summaryPath),
+		},
+		coverage,
+	};
+	await writeFile(
+		manifest.referenceExportPath,
+		`${JSON.stringify(result, null, 2)}\n`,
+		{
+			mode: 0o600,
+		},
+	);
+	return result;
 }
 
 async function main(): Promise<void> {
@@ -219,10 +194,14 @@ async function main(): Promise<void> {
 	let topology:
 		| Awaited<ReturnType<typeof startProductionBrokerCollectorTopology>>
 		| undefined;
+	let observationTimer: ReturnType<typeof setInterval> | undefined;
+	let observationWrite: Promise<void> | undefined;
 	let shuttingDown = false;
 	const shutdown = async () => {
 		if (shuttingDown) return;
 		shuttingDown = true;
+		if (observationTimer) clearInterval(observationTimer);
+		await observationWrite?.catch(() => {});
 		await topology?.close().catch(() => {});
 		if (forwarder.exitCode === null) forwarder.kill("SIGTERM");
 		await new Promise<void>((resolveExit) => {
@@ -252,21 +231,35 @@ async function main(): Promise<void> {
 			captureBundleId: manifest.captureBundleId,
 			lossJournalPath: `${manifest.artifactsDir}/archive-loss.jsonl`,
 			timeOffsetMs: offset,
+			brokerPort: Number(manifest.brokerUrl.split(":")[1]),
 		});
 		const marketCapture = await topology.capture();
-		const strategy = await postStrategy(manifest, secret);
-		await writeState(manifest, {
+		const referenceExport =
+			manifest.profile === "native_replay"
+				? await prepareReferenceExport(manifest, secret, marketCapture)
+				: undefined;
+		const forwarderHealth = await waitForDrain(manifest);
+		const readyState: SidecarState = {
 			ready: true,
 			brokerPort: topology.brokerPort,
 			feedsReady: topology.feedsReady,
 			marketCapture,
-			strategy: {
-				source: strategy.source,
-				httpStatus: strategy.httpStatus,
-				spoolDrained: strategy.spoolDrained,
-			},
-			forwarderHealth: strategy.health,
-		});
+			forwarderHealth,
+			brokerObservations: topology.brokerObservations(),
+			...(referenceExport ? { referenceExport } : {}),
+		};
+		await writeState(manifest, readyState);
+		observationTimer = setInterval(() => {
+			if (observationWrite || shuttingDown || !topology) return;
+			const write = writeState(manifest, {
+				...readyState,
+				brokerObservations: topology.brokerObservations(),
+			});
+			observationWrite = write;
+			void write.finally(() => {
+				if (observationWrite === write) observationWrite = undefined;
+			});
+		}, 250);
 		await new Promise<void>((resolveStop) => {
 			const finish = () => resolveStop();
 			process.once("SIGTERM", finish);

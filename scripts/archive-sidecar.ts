@@ -10,14 +10,13 @@ import {
 	CHECKSUM_ALGORITHM,
 	MARKET_CAPTURE_SCHEMA_VERSION,
 } from "../src/helpers/market-data-archive/capture-contract";
-import {
-	exportCanonicalOrderBookParquet,
-	validateCanonicalMarketReplayWindow,
-} from "./export-canonical-orderbook-parquet";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "..");
 const BASELINE_SHA = "7a83de5f29a08f42d81f64a75a83bc9318dce94a";
+const ARCHIVE_IMPLEMENTATION_SHA = "3398066ae2c396a9a9e0220f88715ac22b6d8694";
 const CLICKHOUSE_IMAGE = "clickhouse/clickhouse-server:24.8";
+const MAKER_WIRE_FIXTURE_SHA256 =
+	"784f647e048052a6c3382309b1a86abfbe08bc162363ead9fc88eaa1ba3d50c9";
 const MANIFEST_SCHEMA = "cex-archive-sidecar/v1";
 const READY_TIMEOUT_MS = 120_000;
 const STRATEGY_TABLES = [
@@ -56,6 +55,7 @@ export type SidecarManifest = {
 	runId: string;
 	profile: Profile;
 	candidateSha: string;
+	archiveImplementationSha: string;
 	makerSha: string;
 	baselineSha: string;
 	artifactsDir: string;
@@ -64,10 +64,14 @@ export type SidecarManifest = {
 	logPath: string;
 	verificationPath: string;
 	spoolPath: string;
+	producerAccessPath: string;
+	makerResultPath: string;
+	referenceExportPath: string;
 	containerName: string;
 	clickhouseUrl: string;
 	forwarderUrl: string;
 	forwarderHealthUrl: string;
+	brokerUrl: string;
 	deploymentId: string;
 	captureBundleId: string;
 	createdAt: string;
@@ -97,7 +101,39 @@ type SidecarState = {
 		spoolDrained: boolean;
 	};
 	forwarderHealth?: Record<string, unknown>;
+	brokerObservations?: {
+		collectorSubscriptionCalls: Record<string, number>;
+		totalSubscriptionCalls: Record<string, number>;
+		externalSubscriptionCalls: Record<string, number>;
+		orderBookSnapshotCalls: number;
+	};
+	referenceExport?: Record<string, unknown>;
 	error?: string;
+};
+
+export type MakerSidecarResult = {
+	schemaVersion: "fiet-maker-cex-sidecar-conformance/v1";
+	status: "passed";
+	runId: string;
+	profile: Profile;
+	makerSha: string;
+	candidateSha: string;
+	deploymentId: string;
+	source: "maker_replay" | "hb_runtime";
+	producerId: string;
+	producerRunId: string;
+	delivery: {
+		httpStatus: 200 | 202;
+		acceptedRows: number;
+		spoolQueuedBefore: number;
+		spoolQueuedAfter: number;
+	};
+	tableRows: Record<(typeof STRATEGY_TABLES)[number], number>;
+	profileEvidence: {
+		brokerBoundaryObserved: boolean;
+		[key: string]: unknown;
+	};
+	artifactHashes: Record<string, unknown>;
 };
 
 const MANIFEST_KEYS = new Set([
@@ -105,6 +141,7 @@ const MANIFEST_KEYS = new Set([
 	"runId",
 	"profile",
 	"candidateSha",
+	"archiveImplementationSha",
 	"makerSha",
 	"baselineSha",
 	"artifactsDir",
@@ -113,10 +150,14 @@ const MANIFEST_KEYS = new Set([
 	"logPath",
 	"verificationPath",
 	"spoolPath",
+	"producerAccessPath",
+	"makerResultPath",
+	"referenceExportPath",
 	"containerName",
 	"clickhouseUrl",
 	"forwarderUrl",
 	"forwarderHealthUrl",
+	"brokerUrl",
 	"deploymentId",
 	"captureBundleId",
 	"createdAt",
@@ -161,7 +202,12 @@ function validSha(value: string): boolean {
 
 export function parseSidecarInvocation(args: string[]): SidecarInvocation {
 	const [operation, ...rest] = args;
-	if (!operation || !["up", "ready", "verify", "down"].includes(operation)) {
+	if (
+		operation !== "up" &&
+		operation !== "ready" &&
+		operation !== "verify" &&
+		operation !== "down"
+	) {
 		throw new SidecarUsageError("Operation must be up, ready, verify, or down");
 	}
 	const parsed = flags(rest);
@@ -268,7 +314,12 @@ export function validateSidecarManifest(value: unknown): SidecarManifest {
 	if (profile !== "native_replay" && profile !== "production_compatible") {
 		throw new SidecarUsageError("Unsupported manifest profile");
 	}
-	for (const key of ["candidateSha", "makerSha", "baselineSha"]) {
+	for (const key of [
+		"candidateSha",
+		"archiveImplementationSha",
+		"makerSha",
+		"baselineSha",
+	]) {
 		if (!validSha(requiredString(record, key)))
 			throw new SidecarUsageError(`Invalid manifest ${key}`);
 	}
@@ -279,6 +330,9 @@ export function validateSidecarManifest(value: unknown): SidecarManifest {
 		"logPath",
 		"verificationPath",
 		"spoolPath",
+		"producerAccessPath",
+		"makerResultPath",
+		"referenceExportPath",
 	]) {
 		if (!isAbsolute(requiredString(record, key)))
 			throw new SidecarUsageError(`${key} must be absolute`);
@@ -296,6 +350,9 @@ export function validateSidecarManifest(value: unknown): SidecarManifest {
 		logPath: "supervisor.log",
 		verificationPath: "verification.json",
 		spoolPath: "strategy-spool.sqlite",
+		producerAccessPath: "producer-access.json",
+		makerResultPath: "maker-result.json",
+		referenceExportPath: "reference-export.json",
 	};
 	for (const [key, filename] of Object.entries(ownedPaths)) {
 		if (requiredString(record, key) !== join(artifactsDir, filename)) {
@@ -314,9 +371,25 @@ export function validateSidecarManifest(value: unknown): SidecarManifest {
 	}
 	if (
 		record.baselineSha !== BASELINE_SHA ||
+		record.archiveImplementationSha !== ARCHIVE_IMPLEMENTATION_SHA ||
 		record.clickhouseImage !== CLICKHOUSE_IMAGE
 	) {
 		throw new SidecarUsageError("Manifest pinned runtime identity is invalid");
+	}
+	if (!/^[A-Za-z0-9.-]+:\d{1,5}$/.test(requiredString(record, "brokerUrl"))) {
+		throw new SidecarUsageError("Manifest brokerUrl is invalid");
+	}
+	const [brokerHost, brokerPort] = requiredString(record, "brokerUrl").split(
+		":",
+	);
+	if (
+		brokerHost !== "127.0.0.1" ||
+		Number(brokerPort) <= 0 ||
+		Number(brokerPort) > 65_535
+	) {
+		throw new SidecarUsageError(
+			"Manifest brokerUrl is outside the loopback boundary",
+		);
 	}
 	for (const [key, expectedPath] of [
 		["clickhouseUrl", "/"],
@@ -361,6 +434,169 @@ export function validateSidecarManifest(value: unknown): SidecarManifest {
 	for (const key of commandKeys)
 		requiredString(commands as Record<string, unknown>, key);
 	return record as SidecarManifest;
+}
+
+export function validateMakerSidecarResult(value: unknown): MakerSidecarResult {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		throw new SidecarUsageError("Maker result must be an object");
+	}
+	assertNoSecrets(value, "makerResult");
+	const result = value as Record<string, unknown>;
+	const keys = Object.keys(result).sort();
+	const expectedKeys = [
+		"artifactHashes",
+		"candidateSha",
+		"delivery",
+		"deploymentId",
+		"makerSha",
+		"producerId",
+		"producerRunId",
+		"profile",
+		"profileEvidence",
+		"runId",
+		"schemaVersion",
+		"source",
+		"status",
+		"tableRows",
+	].sort();
+	if (keys.join(",") !== expectedKeys.join(",")) {
+		throw new SidecarUsageError(
+			"Maker result uses an unknown or incomplete field set",
+		);
+	}
+	if (
+		result.schemaVersion !== "fiet-maker-cex-sidecar-conformance/v1" ||
+		result.status !== "passed"
+	) {
+		throw new SidecarUsageError(
+			"Maker result did not pass the supported schema",
+		);
+	}
+	const profile = requiredString(result, "profile") as Profile;
+	if (profile !== "native_replay" && profile !== "production_compatible") {
+		throw new SidecarUsageError("Maker result profile is unsupported");
+	}
+	for (const key of ["makerSha", "candidateSha"]) {
+		if (!validSha(requiredString(result, key))) {
+			throw new SidecarUsageError(`Maker result ${key} is invalid`);
+		}
+	}
+	const runId = requiredString(result, "runId");
+	const deploymentId = requiredString(result, "deploymentId");
+	const source = requiredString(result, "source");
+	const expectedSource =
+		profile === "native_replay" ? "maker_replay" : "hb_runtime";
+	const producerId = requiredString(result, "producerId");
+	if (
+		source !== expectedSource ||
+		result.producerRunId !== runId ||
+		producerId !== `${expectedSource}:${deploymentId}:cex-sidecar-conformance`
+	) {
+		throw new SidecarUsageError(
+			"Maker result provenance is not the exact external producer",
+		);
+	}
+	const delivery = result.delivery as Record<string, unknown> | undefined;
+	const expectedStatus = profile === "native_replay" ? 200 : 202;
+	if (
+		!delivery ||
+		delivery.httpStatus !== expectedStatus ||
+		!Number.isSafeInteger(delivery.acceptedRows) ||
+		Number(delivery.acceptedRows) < STRATEGY_TABLES.length ||
+		!Number.isSafeInteger(delivery.spoolQueuedBefore) ||
+		!Number.isSafeInteger(delivery.spoolQueuedAfter)
+	) {
+		throw new SidecarUsageError("Maker result delivery evidence is invalid");
+	}
+	if (
+		profile === "native_replay" &&
+		delivery.spoolQueuedBefore !== delivery.spoolQueuedAfter
+	) {
+		throw new SidecarUsageError("Native replay must not use the durable spool");
+	}
+	const tableRows = result.tableRows as Record<string, unknown> | undefined;
+	if (
+		!tableRows ||
+		Object.keys(tableRows).sort().join(",") !==
+			[...STRATEGY_TABLES].sort().join(",") ||
+		STRATEGY_TABLES.some(
+			(table) =>
+				!Number.isSafeInteger(tableRows[table]) || Number(tableRows[table]) < 1,
+		)
+	) {
+		throw new SidecarUsageError(
+			"Maker result must account for all five strategy tables",
+		);
+	}
+	const profileEvidence = result.profileEvidence as
+		| Record<string, unknown>
+		| undefined;
+	if (
+		!profileEvidence ||
+		profileEvidence.brokerBoundaryObserved !==
+			(profile === "production_compatible")
+	) {
+		throw new SidecarUsageError(
+			"Maker result broker-boundary claim conflicts with profile",
+		);
+	}
+	if (profile === "production_compatible") {
+		const brokerObservation = profileEvidence.brokerObservation as
+			| Record<string, unknown>
+			| undefined;
+		if (
+			brokerObservation?.schemaVersion !==
+				"fiet-hummingbot-external-sidecar-broker/v1" ||
+			brokerObservation.status !== "passed" ||
+			brokerObservation.boundary !== "external_sidecar_broker" ||
+			brokerObservation.layer12Boundary !== "layer12_live_reference_depth"
+		) {
+			throw new SidecarUsageError(
+				"Production-compatible evidence lacks the real Layer12 broker path",
+			);
+		}
+	} else {
+		const consumer = profileEvidence.consumer as
+			| Record<string, unknown>
+			| undefined;
+		if (
+			consumer?.path !==
+				"hb_maker_emulation.order_book_depth_sourcing.load_precomputed_order_book" ||
+			consumer.sourceMode !== "vendor_archive_normalized" ||
+			!Number.isSafeInteger(consumer.levelRows) ||
+			Number(consumer.levelRows) < 1 ||
+			!Number.isSafeInteger(consumer.summaryRows) ||
+			Number(consumer.summaryRows) < 1
+		) {
+			throw new SidecarUsageError(
+				"Native replay evidence lacks the Maker emulation fixture consumer",
+			);
+		}
+	}
+	const makerCheckout = profileEvidence.makerCheckout as
+		| Record<string, unknown>
+		| undefined;
+	const wireContractTests = makerCheckout?.wireContractTests as
+		| Record<string, unknown>
+		| undefined;
+	if (
+		makerCheckout?.branch !== "develop" ||
+		makerCheckout.clean !== true ||
+		makerCheckout.sha !== result.makerSha ||
+		makerCheckout.originDevelopSha !== result.makerSha ||
+		makerCheckout.pr1067Ancestor !== true ||
+		makerCheckout.fixtureSha256 !== MAKER_WIRE_FIXTURE_SHA256 ||
+		!wireContractTests ||
+		wireContractTests.exitCode !== 0
+	) {
+		throw new SidecarUsageError(
+			"Maker result lacks refreshed develop and PR 1067 contract evidence",
+		);
+	}
+	if (!result.artifactHashes || typeof result.artifactHashes !== "object") {
+		throw new SidecarUsageError("Maker result artifact hashes are absent");
+	}
+	return result as MakerSidecarResult;
 }
 
 async function run(
@@ -483,8 +719,22 @@ async function assertCleanCandidate(): Promise<void> {
 	}
 }
 
+async function assertArchiveImplementationAncestor(): Promise<void> {
+	const result = await run(
+		"git",
+		["merge-base", "--is-ancestor", ARCHIVE_IMPLEMENTATION_SHA, "HEAD"],
+		true,
+	);
+	if (result.code !== 0) {
+		throw new SidecarUsageError(
+			"checked-out CEX candidate does not contain the reviewed archive implementation",
+		);
+	}
+}
+
 async function up(invocation: UpInvocation): Promise<SidecarManifest> {
 	await assertCleanCandidate();
+	await assertArchiveImplementationAncestor();
 	if ((await currentCommit()) !== invocation.candidateSha) {
 		throw new SidecarUsageError(
 			"candidate-sha must equal the checked-out CEX commit",
@@ -506,6 +756,11 @@ async function up(invocation: UpInvocation): Promise<SidecarManifest> {
 		.slice(0, 50);
 	const containerName = `cex-sidecar-${safeId}`;
 	const forwarderPort = await freePort();
+	const brokerPort = await freePort();
+	const ephemeralPaths = {
+		spoolPath: join(artifactsDir, "strategy-spool.sqlite"),
+		producerAccessPath: join(artifactsDir, "producer-access.json"),
+	};
 	let containerStarted = false;
 	let supervisorPid: number | undefined;
 	try {
@@ -555,6 +810,7 @@ async function up(invocation: UpInvocation): Promise<SidecarManifest> {
 			runId: invocation.runId,
 			profile: invocation.profile,
 			candidateSha: invocation.candidateSha,
+			archiveImplementationSha: ARCHIVE_IMPLEMENTATION_SHA,
 			makerSha: invocation.makerSha,
 			baselineSha: BASELINE_SHA,
 			artifactsDir,
@@ -562,11 +818,15 @@ async function up(invocation: UpInvocation): Promise<SidecarManifest> {
 			statePath: join(artifactsDir, "state.json"),
 			logPath,
 			verificationPath: join(artifactsDir, "verification.json"),
-			spoolPath: join(artifactsDir, "strategy-spool.sqlite"),
+			spoolPath: ephemeralPaths.spoolPath,
+			producerAccessPath: ephemeralPaths.producerAccessPath,
+			makerResultPath: join(artifactsDir, "maker-result.json"),
+			referenceExportPath: join(artifactsDir, "reference-export.json"),
 			containerName,
 			clickhouseUrl: `http://127.0.0.1:${port}`,
 			forwarderUrl: `http://127.0.0.1:${forwarderPort}/archive`,
 			forwarderHealthUrl: `http://127.0.0.1:${forwarderPort}/health`,
+			brokerUrl: `127.0.0.1:${brokerPort}`,
 			deploymentId: `sidecar-${invocation.runId}`,
 			captureBundleId: `sidecar-bundle-${invocation.runId}`,
 			createdAt: new Date().toISOString(),
@@ -583,6 +843,20 @@ async function up(invocation: UpInvocation): Promise<SidecarManifest> {
 		await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
 			mode: 0o600,
 		});
+		await writeFile(
+			manifest.producerAccessPath,
+			`${JSON.stringify(
+				{
+					schemaVersion: "cex-archive-sidecar-producer-access/v1",
+					forwarderUrl: manifest.forwarderUrl,
+					brokerUrl: manifest.brokerUrl,
+					bearer: internalSecret(invocation.runId),
+				},
+				null,
+				2,
+			)}\n`,
+			{ mode: 0o600 },
+		);
 		await waitReady(manifest, READY_TIMEOUT_MS);
 		return manifest;
 	} catch (error) {
@@ -591,6 +865,7 @@ async function up(invocation: UpInvocation): Promise<SidecarManifest> {
 		}
 		if (containerStarted)
 			await run("docker", ["rm", "-f", containerName], true);
+		await removeSidecarEphemeralFiles(ephemeralPaths);
 		throw error;
 	}
 }
@@ -617,7 +892,7 @@ async function sha256File(path: string): Promise<string> {
 async function verify(
 	manifest: SidecarManifest,
 ): Promise<Record<string, unknown>> {
-	const state = await waitReady(manifest, READY_TIMEOUT_MS);
+	let state = await waitReady(manifest, READY_TIMEOUT_MS);
 	const client = createClient({
 		url: manifest.clickhouseUrl,
 		username: "default",
@@ -625,6 +900,20 @@ async function verify(
 	});
 	let result: Record<string, unknown>;
 	try {
+		const makerResult = validateMakerSidecarResult(
+			JSON.parse(await readFile(manifest.makerResultPath, "utf8")),
+		);
+		if (
+			makerResult.runId !== manifest.runId ||
+			makerResult.profile !== manifest.profile ||
+			makerResult.makerSha !== manifest.makerSha ||
+			makerResult.candidateSha !== manifest.candidateSha ||
+			makerResult.deploymentId !== manifest.deploymentId
+		) {
+			throw new Error(
+				"Maker result identity does not match the sidecar manifest",
+			);
+		}
 		const marketTables = [
 			"market_data.cex_stream_events",
 			"market_data.cex_ticker_events",
@@ -645,70 +934,67 @@ async function verify(
 		}
 		const expectedSource =
 			manifest.profile === "native_replay" ? "maker_replay" : "hb_runtime";
+		const expectedProducerId = `${expectedSource}:${manifest.deploymentId}:cex-sidecar-conformance`;
 		const strategyCounts: Record<string, number> = {};
 		for (const table of STRATEGY_TABLES) {
 			strategyCounts[table] = await queryCount(
 				client,
 				table,
-				`deployment_id = '${manifest.deploymentId}' AND source = '${expectedSource}' AND schema_version = '2' AND producer_run_id = '${manifest.runId}' AND stream_seq > 0 AND seq > 0`,
+				`deployment_id = '${manifest.deploymentId}' AND source = '${expectedSource}' AND schema_version = '2' AND producer_id = '${expectedProducerId}' AND producer_run_id = '${manifest.runId}' AND stream_seq > 0 AND seq > 0`,
 			);
 			if (strategyCounts[table] === 0)
 				throw new Error(`Missing v2 ${expectedSource} rows in ${table}`);
 		}
-		if (
-			manifest.profile === "native_replay" &&
-			(state.strategy?.httpStatus !== 200 ||
-				state.strategy.spoolDrained !== true)
-		) {
-			throw new Error(
-				"Native replay did not use synchronous out-of-spool delivery",
-			);
-		}
-		if (
-			manifest.profile === "production_compatible" &&
-			(state.strategy?.httpStatus !== 202 ||
-				state.strategy.spoolDrained !== true)
-		) {
-			throw new Error(
-				"Production-compatible strategy evidence lacks durable admission and drainage",
-			);
+		if (manifest.profile === "production_compatible") {
+			const deadline = Date.now() + 5_000;
+			while (Date.now() < deadline) {
+				state = await readState(manifest);
+				if (
+					Number(
+						state.brokerObservations?.externalSubscriptionCalls.ORDERBOOK ?? 0,
+					) >= 1 &&
+					Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) >= 1
+				) {
+					break;
+				}
+				await Bun.sleep(100);
+			}
+			if (
+				Number(
+					state.brokerObservations?.externalSubscriptionCalls.ORDERBOOK ?? 0,
+				) < 1 ||
+				Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) < 1
+			) {
+				throw new Error(
+					"Production-compatible Maker Layer12 broker observations were not recorded",
+				);
+			}
 		}
 		const exportArtifacts: Record<string, unknown> = {};
 		if (manifest.profile === "native_replay") {
-			if (!state.marketCapture?.sourceWindow)
-				throw new Error("Native replay window is absent");
-			const exportDirectory = join(
-				manifest.artifactsDir,
-				"fiet-907-reference-export",
-			);
-			const replayWindow = {
-				clickhouseUrl: manifest.clickhouseUrl,
-				username: "default",
-				password: internalSecret(manifest.runId),
-				captureBundleIds: [manifest.captureBundleId],
-				exchange: "binance",
-				tradingPair: "BTC-USDT",
-				...state.marketCapture.sourceWindow,
-			};
-			const replayCoverage =
-				await validateCanonicalMarketReplayWindow(replayWindow);
-			const exported = await exportCanonicalOrderBookParquet({
-				...replayWindow,
-				outputDirectory: exportDirectory,
-			});
-			if (exported.levelRows === 0 || exported.summaryRows === 0)
-				throw new Error("FIET-907 reference export is empty");
-			exportArtifacts.levels = {
-				path: exported.levelsPath,
-				rows: exported.levelRows,
-				sha256: await sha256File(exported.levelsPath),
-			};
-			exportArtifacts.summary = {
-				path: exported.summaryPath,
-				rows: exported.summaryRows,
-				sha256: await sha256File(exported.summaryPath),
-			};
-			exportArtifacts.coverage = replayCoverage;
+			const referenceExport = JSON.parse(
+				await readFile(manifest.referenceExportPath, "utf8"),
+			) as Record<string, unknown>;
+			if (
+				referenceExport.schemaVersion !== "cex-canonical-orderbook-export/v1" ||
+				referenceExport.runId !== manifest.runId
+			) {
+				throw new Error("Native reference export identity is invalid");
+			}
+			for (const label of ["levels", "summary"] as const) {
+				const artifact = referenceExport[label] as
+					| Record<string, unknown>
+					| undefined;
+				if (
+					!artifact ||
+					typeof artifact.path !== "string" ||
+					Number(artifact.rows) < 1 ||
+					artifact.sha256 !== (await sha256File(artifact.path))
+				) {
+					throw new Error(`Native reference export ${label} is invalid`);
+				}
+			}
+			Object.assign(exportArtifacts, referenceExport);
 		}
 		const versionResult = await client.query({
 			query: "SELECT version() AS version",
@@ -736,6 +1022,10 @@ async function verify(
 				path: verificationInputStatePath,
 				sha256: await sha256File(verificationInputStatePath),
 			},
+			makerResult: {
+				path: manifest.makerResultPath,
+				sha256: await sha256File(manifest.makerResultPath),
+			},
 		};
 		result = {
 			schemaVersion: "cex-archive-sidecar-verification/v1",
@@ -745,6 +1035,7 @@ async function verify(
 			commits: {
 				baseline: manifest.baselineSha,
 				candidate: manifest.candidateSha,
+				archiveImplementation: manifest.archiveImplementationSha,
 				maker: manifest.makerSha,
 			},
 			identities: {
@@ -772,6 +1063,8 @@ async function verify(
 				spool: state.forwarderHealth?.spool,
 				marketCounts,
 				strategyCounts,
+				makerResult,
+				brokerObservations: state.brokerObservations,
 				exportArtifacts,
 			},
 			artifactHashes: evidenceArtifactHashes,
@@ -786,6 +1079,7 @@ async function verify(
 			commits: {
 				baseline: manifest.baselineSha,
 				candidate: manifest.candidateSha,
+				archiveImplementation: manifest.archiveImplementationSha,
 				maker: manifest.makerSha,
 			},
 			error: error instanceof Error ? error.message : String(error),
@@ -807,6 +1101,20 @@ async function verify(
 	return result;
 }
 
+export async function removeSidecarEphemeralFiles(paths: {
+	spoolPath: string;
+	producerAccessPath: string;
+}): Promise<void> {
+	for (const path of [
+		paths.spoolPath,
+		`${paths.spoolPath}-wal`,
+		`${paths.spoolPath}-shm`,
+		paths.producerAccessPath,
+	]) {
+		await rm(path, { force: true });
+	}
+}
+
 async function down(manifest: SidecarManifest): Promise<void> {
 	if (processAlive(manifest.supervisorPid)) {
 		process.kill(manifest.supervisorPid, "SIGTERM");
@@ -819,13 +1127,7 @@ async function down(manifest: SidecarManifest): Promise<void> {
 	if (!manifest.containerName.startsWith("cex-sidecar-"))
 		throw new SidecarUsageError("Refusing to remove an unowned container");
 	await run("docker", ["rm", "-f", manifest.containerName], true);
-	for (const path of [
-		manifest.spoolPath,
-		`${manifest.spoolPath}-wal`,
-		`${manifest.spoolPath}-shm`,
-	]) {
-		await rm(path, { force: true });
-	}
+	await removeSidecarEphemeralFiles(manifest);
 }
 
 async function main(): Promise<void> {

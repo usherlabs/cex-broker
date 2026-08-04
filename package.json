@@ -47,6 +47,7 @@
 		"start-broker-server": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll'",
 		"start-broker-server-with-verity": "bunx nodemon --watch src --watch policy --ext ts,js,json --exec 'bun run start-broker --policy policy/policy.json --port 8086 --whitelistAll --verityProverUrl http://verity-prover:8080'",
 		"build:ts": "bunx tsc",
+		"typecheck:sidecar": "bunx tsc -p tsconfig.sidecar.json",
 		"test": "bun test test",
 		"test:e2e:archive": "bun test --max-concurrency 1 --timeout 120000 ./e2e/archive/archive.e2e.ts",
 		"archive:baseline:generate": "bun run scripts/archive-upgrade-baseline.ts generate",

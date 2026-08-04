@@ -70,6 +70,16 @@ Each sidecar run SHALL emit a machine-readable JSON manifest and verification re
 - **THEN** verification MUST fail rather than emit a partial conformance success
 - **AND** the failure artifact MUST remain secret-free
 
+#### Scenario: External Maker producer is handed off safely
+- **WHEN** the sidecar becomes ready for a Maker-owned profile command
+- **THEN** its manifest MUST already expose the loopback broker endpoint, fixed Maker result path, and any required checksum-bound native reference export
+- **AND** producer authorization MUST be available only through an owner-only ephemeral file whose contents are omitted from retained evidence and removed by `down`
+
+#### Scenario: Sidecar attempts to substitute for Maker
+- **WHEN** the supervisor constructs or posts strategy rows, or verification accepts a producer other than the exact Maker conformance producer
+- **THEN** conformance MUST fail because the external-producer boundary was bypassed
+- **AND** CEX-generated substitute rows MUST not count in any of the five strategy-table queries
+
 ### Requirement: FIET Maker owns external orchestration from a pinned develop checkout
 
 The required cross-repository job SHALL be initiated from a clean FIET Maker `develop` checkout, SHALL resolve and record its immutable commit at execution time, and SHALL verify that the expected PR 1067 wire contract is present. No proposal-time Maker commit SHALL act as a permanent pin. The Maker job MUST pin the CEX candidate SHA, supply a shared run identity, start the CEX-owned sidecar, execute the Maker-owned runtime/materializer command, invoke CEX verification, and always stop the sidecar.
@@ -110,6 +120,7 @@ The production-compatible profile SHALL run the Maker Layer 12 live/sandbox boun
 #### Scenario: Production-compatible profile runs
 - **WHEN** Layer 12 starts with the sidecar broker endpoint and shared run identity
 - **THEN** its CEX interactions MUST traverse the normal broker gRPC surface while the collector independently sustains archival subscriptions
+- **AND** retained evidence MUST distinguish the real Hummingbot connector subscription from the Layer 12 reference-depth snapshot action used by policy authoring
 - **AND** live strategy batches MUST receive HTTP 202 only after durable spool admission
 
 #### Scenario: Production-compatible verification runs

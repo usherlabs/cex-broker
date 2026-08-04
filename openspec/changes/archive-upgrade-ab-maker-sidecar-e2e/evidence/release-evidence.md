@@ -1,16 +1,21 @@
 # Canonical archive candidate evidence
 
-Status: CEX-owned implementation and acceptance complete; Maker-owned external
-orchestration remains pending and this report is not yet cross-service release
-conformance.
+Status: the immutable CEX archive implementation/A-B acceptance is retained;
+the sidecar harness is being amended for a genuine external Maker producer.
+Maker-owned execution evidence remains pending, so this report is not yet
+cross-service release conformance.
 
 ## Source identities
 
 - CEX pre-upgrade A: `develop` at
   `7a83de5f29a08f42d81f64a75a83bc9318dce94a`, package `0.2.38`
-- CEX post-upgrade B: `3398066ae2c396a9a9e0220f88715ac22b6d8694`
-- FIET Maker authoritative `develop` resolved for interface testing:
-  `e28bc3329f8a3f931046ef0279471af875ba58fd`
+- CEX reviewed archive implementation B:
+  `3398066ae2c396a9a9e0220f88715ac22b6d8694`
+- CEX amended sidecar harness: pending clean candidate commit; required results
+  will record this as `candidateSha` and the reviewed implementation separately
+  as `archiveImplementationSha`
+- FIET Maker authoritative `develop`: resolved only when the post-merge
+  conformance command runs; no proposal-time Maker SHA is a release pin
 - Baseline fixture content:
   `f600be17f20d4cafa26f6486469f10818b0c0171ad78f96c658a0c9baa76409e`
 
@@ -39,12 +44,14 @@ zero parameter-bound parity mismatches, empty conflict views, honest incomplete
 legacy provenance, unchanged A and legacy B projections, and canonical-only
 upgraded ORDERBOOK/OHLCV writes.
 
-## CEX-owned sidecar interface proofs
+## Superseded CEX-only sidecar interface proofs
 
-Both controlled, credential-free profiles used the production archive-forwarder,
-real SQLite spool, Server `24.8.14.39`, normal gRPC broker wiring, and independent
-collector. They bind the CEX candidate and resolved Maker `develop` SHA, but do
-not substitute for the pending Maker-owned job.
+The following controlled, credential-free runs used the production
+archive-forwarder, real SQLite spool, Server `24.8.14.39`, normal gRPC broker
+wiring, and independent collector. Review of the handoff found that the CEX
+supervisor itself generated the five strategy rows. Their hashes remain here to
+preserve history, but they no longer qualify as either Maker profile and cannot
+close any external-evidence task.
 
 - `native_replay`: HTTP 200 synchronous `maker_replay`; all five strategy tables
   queried with v2 identity; spool stayed empty; all four market feeds had raw and
@@ -58,11 +65,14 @@ not substitute for the pending Maker-owned job.
 
 ## Explicitly pending
 
-- FIET Maker must invoke the sidecar from a clean checkout of its resolved
-  `develop`, run its own native emulation/materializer and Layer 12 sandbox jobs,
-  and retain the two cross-repository manifests under shared run identities.
-- Until those Maker-owned jobs pass, tasks 6.5-6.8, 8.2, 8.4, and 8.5 remain
-  open and the OpenSpec change must not be synced or archived.
+- Task 6.5 now has Maker-owned orchestration, PR 1067/fixture preflight, a
+  checksum-bound CEX-to-Maker Parquet adapter, the real Hummingbot v2.13
+  `layer12_live`/external-broker gate, and unconditional sidecar cleanup.
+- FIET Maker must still invoke the amended sidecar from a clean post-merge
+  `develop`, run the native materializer and production-compatible jobs, and
+  retain the two cross-repository manifests under shared run identities.
+- Until those jobs pass, tasks 6.6-6.8, 8.2, 8.4, and 8.5 remain open and the
+  OpenSpec change must not be synced or archived.
 
 Production soak was not performed and is not claimed. It is intentionally not a
 completion requirement for this change.

@@ -109,6 +109,27 @@ Readiness requires broker gRPC, forwarder health, writable spool, ClickHouse sch
 
 The interface emits a JSON evidence manifest containing run ID, resolved CEX baseline/candidate and Maker commits, capture bundle/deployment IDs, non-secret endpoints, schema/checksum versions, ClickHouse/Bun/Python versions, migration counts, spool-drain results, and artifact hashes. It must never include tokens, CEX credentials, or raw environment dumps.
 
+The sidecar is not a Maker strategy producer. Its manifest publishes the
+loopback broker endpoint, an owner-only ephemeral producer-access path, a fixed
+Maker result path, and a fixed native reference-export path before readiness.
+Only the access path is retained; the bearer value is never serialized into
+evidence and `down` deletes the access file. For native replay, the supervisor
+creates and checksum-binds the direct-ClickHouse reference export before
+readiness so the external Maker materializer can consume it before CEX
+verification. For production-compatible runs, the controlled exchange retains
+one bounded frame for the external Maker subscriber and records collector and
+external subscription counts separately. It also records the independent
+order-book snapshot action made through Layer 12's production reference-depth
+adapter, so connector load and controller data consumption cannot be conflated.
+
+The supervisor never constructs or posts strategy rows. The CEX verifier reads
+the Maker-owned result, requires the exact external producer identity
+`<source>:<deployment>:cex-sidecar-conformance`, and queries that identity in
+all five strategy tables. The manifest records the amended harness commit as
+the candidate and separately records the reviewed archive implementation
+ancestor, so the already retained A/B evidence remains attributable without
+pretending the harness amendment was part of that earlier acceptance.
+
 No new core broker environment setting is introduced. Existing archive variables can be supplied inside the test composition. The deterministic exchange is credentialless and production broker startup remains valid when archival configuration is absent.
 
 Alternative considered: place the whole composition in FIET Maker. Rejected because CEX Broker owns its service topology, schemas, migration, and verification semantics. Maker owns when and how the composition is invoked from its repository.

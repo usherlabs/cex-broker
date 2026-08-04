@@ -66,16 +66,33 @@ client. Readiness checks schema/ClickHouse health, spool writability, broker
 startup, and all four collector subscriptions. The collector is not the Maker
 client and owns no credentials or ClickHouse connection.
 
-- `native_replay` submits all five strategy tables as `maker_replay`, requires
-  synchronous HTTP 200 with unchanged spool state, validates the canonical
-  four-feed window, and creates conflict-checked Parquet through the retained
-  direct-ClickHouse FIET-907 reference exporter.
-- `production_compatible` submits all five strategy tables as `hb_runtime`,
-  requires durable HTTP 202, waits for an empty/non-terminal spool, and queries
-  the persisted v2 producer/run/stream identities.
+The sidecar does not fabricate or submit Maker strategy rows. Before readiness,
+the manifest publishes the loopback `brokerUrl`, `producerAccessPath`,
+`makerResultPath`, and `referenceExportPath`. The producer-access file is mode
+0600, contains the ephemeral loopback producer bearer, is consumed only by the
+external Maker job, and is deleted by `down`; its contents never enter retained
+evidence. For native replay, readiness also writes the conflict-checked,
+checksum-bound direct-ClickHouse export so Maker can consume it before
+verification.
+
+- `native_replay`: external Maker adapts the CEX export to its FIET-907 fixture
+  schema, submits all five strategy tables as `maker_replay`, and reports
+  synchronous HTTP 200 with unchanged spool state and no broker participation.
+- `production_compatible`: real Maker/Hummingbot selects `layer12_live`, makes
+  an external gRPC ORDERBOOK subscription distinct from the collector, invokes
+  the Layer 12 reference-depth snapshot path through the normal broker action
+  surface, submits all five strategy tables through its `ArchiveEmitter` as
+  `hb_runtime`, and reports observed HTTP 202 plus eventual spool drainage.
+
+`verify` reads the Maker-owned result, binds it to the manifest, requires the
+exact producer id `<source>:<deployment>:cex-sidecar-conformance`, checks the
+profile-specific broker and acknowledgement claims, and then queries all market
+and strategy tables. A result created by the CEX supervisor or another producer
+cannot qualify.
 
 The manifest and verification JSON use a closed field allowlist. They record
-run/profile identity, immutable CEX/Maker commits, deployment/capture identities,
+run/profile identity, immutable CEX/Maker commits, the reviewed archive
+implementation ancestor, deployment/capture identities,
 non-secret endpoints, tool/schema/checksum versions, delivery outcomes, and
 artifact hashes. They never serialize the process environment, test auth token,
 CEX credentials, or credential-bearing payloads. Supervisor logs remain bounded

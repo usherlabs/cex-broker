@@ -62,7 +62,7 @@
 - [x] 6.2 Add a native replay sidecar scenario that selects a bounded conflict-free canonical window, verifies export checksums/schema, and accepts Maker strategy evidence only as synchronous `maker_replay`.
 - [x] 6.3 Add a production-compatible sidecar scenario that distinguishes the Maker Layer 12 broker client from the collector, admits strategy evidence only as durable `hb_runtime`, drains it, and queries all required market/strategy rows.
 - [x] 6.4 Make sidecar verification reject native evidence that claims direct broker or `hb_runtime` behavior and live evidence that lacks HTTP 202 admission plus completed drainage/query proof.
-- [ ] 6.5 In FIET Maker, resolve a clean `develop` checkout to its execution-time immutable commit, verify the PR 1067 wire contract is present, and add Maker-owned orchestration for the pinned CEX sidecar candidate without retaining a proposal-time Maker SHA.
+- [x] 6.5 In FIET Maker, resolve a clean `develop` checkout to its execution-time immutable commit, verify the PR 1067 wire contract is present, and add Maker-owned orchestration for the pinned CEX sidecar candidate without retaining a proposal-time Maker SHA.
 - [ ] 6.6 Run the Maker native emulation/materializer profile with a shared run ID and capture its `maker_replay`, Parquet, and queried ClickHouse evidence.
 - [ ] 6.7 Run the Maker Layer 12 live/sandbox profile with the same cross-repository contract, and capture real broker-boundary plus `hb_runtime` spool/drain evidence.
 - [ ] 6.8 Store bounded cross-repository results that bind resolved Maker and CEX commits; keep any floating scheduled `develop` compatibility run informative and non-substitutive.
