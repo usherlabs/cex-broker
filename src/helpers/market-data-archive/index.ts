@@ -15,6 +15,7 @@ export {
 	createOrderbookTobSampler,
 } from "./capture";
 export {
+	assertMarketCaptureArchiveStartable,
 	captureEnvironmentFromEnv,
 	createMarketCaptureContext,
 	type MarketCaptureArchiveDisabledReason,

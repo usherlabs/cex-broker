@@ -98,6 +98,33 @@ export function resolveMarketCaptureArchiveState(input: {
 	return { enabled: true };
 }
 
+/**
+ * Throws when archival was requested but its capture identity is incomplete.
+ *
+ * `archive_disabled` and `market_archive_disabled` are deliberate opt-outs and
+ * must keep the broker available — that is the whole point of resolving to a
+ * typed state instead of throwing. Every other disabled reason means archival
+ * was asked for and cannot be honoured, which is a misconfiguration: a broker
+ * started in that state serves RPC and passes health while writing no
+ * market-data row at all, and the only trace is one line at boot.
+ */
+export function assertMarketCaptureArchiveStartable(
+	state: MarketCaptureArchiveState,
+): void {
+	if (
+		state.enabled ||
+		state.reason === "archive_disabled" ||
+		state.reason === "market_archive_disabled"
+	) {
+		return;
+	}
+	throw new Error(
+		`Refusing to start: canonical market-data archival was requested but its capture identity is incomplete (${state.reason}). ` +
+			"Set CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT, CEX_BROKER_DEPLOYMENT_ID and CEX_BROKER_CAPTURE_BUNDLE_ID, " +
+			"or disable archival explicitly via CEX_BROKER_MARKET_ARCHIVE_ENABLED.",
+	);
+}
+
 export function validateExternalFallbackContext(input: {
 	configuredExchange: string;
 	configuredSymbol: string;

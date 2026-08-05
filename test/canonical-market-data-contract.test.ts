@@ -4,6 +4,7 @@ import {
 	OrderBookValidationError,
 } from "../src/helpers/market-data-archive/canonical-orderbook";
 import {
+	assertMarketCaptureArchiveStartable,
 	createMarketCaptureContext,
 	resolveMarketCaptureArchiveState,
 	validateExternalFallbackContext,
@@ -219,6 +220,36 @@ describe("canonical market capture contract", () => {
 				captureBundleId: "bundle-a",
 			}),
 		).toEqual({ enabled: true });
+	});
+
+	test("startup fails closed when archival was requested but capture identity is incomplete", () => {
+		// The resolver stays non-throwing (above); the START decision is what must
+		// fail closed. Without this, a production broker missing its deployment or
+		// bundle id runs healthy, serves RPC, and writes no market-data row at all —
+		// one warn line at boot and no counter, metric or alarm anywhere.
+		for (const reason of [
+			"invalid_capture_environment",
+			"missing_deployment_id",
+			"missing_capture_bundle_id",
+		] as const) {
+			expect(() =>
+				assertMarketCaptureArchiveStartable({ enabled: false, reason }),
+			).toThrow(reason);
+		}
+
+		// Deliberate opt-outs must keep the broker available — that is the whole
+		// point of resolving to a typed state rather than throwing outright.
+		for (const reason of [
+			"archive_disabled",
+			"market_archive_disabled",
+		] as const) {
+			expect(() =>
+				assertMarketCaptureArchiveStartable({ enabled: false, reason }),
+			).not.toThrow();
+		}
+		expect(() =>
+			assertMarketCaptureArchiveStartable({ enabled: true }),
+		).not.toThrow();
 	});
 
 	test("external fallback rows cannot cross venue or omit their reason", () => {
