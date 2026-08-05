@@ -8,24 +8,34 @@ Define the closed FIET Maker strategy envelope, versioned producer identity, pro
 
 ### Requirement: Strategy runtime requests use a closed envelope contract
 
-The archive forwarder MUST accept a strategy request only when its non-empty envelope source is exactly `hb_runtime` or `maker_replay`, its deployment id is non-empty, it contains between one and 1000 rows, and every row targets an approved strategy table. The selected source MUST remain the truthful producer mode and MUST NOT be inferred, rewritten, or promoted by broker, credential, deployment, or spool configuration.
+The archive forwarder MUST accept a strategy request only when its non-empty envelope source belongs to exactly the admitted producer set `{hb_runtime, maker_orchestrator, maker_replay}`, its deployment id is non-empty, it contains between one and 1000 rows, and every row targets an approved strategy table. The selected source MUST remain the truthful producer mode and MUST NOT be inferred, rewritten, or promoted by broker, credential, deployment, or spool configuration.
 
 The approved table set SHALL be exactly `strategy_data.policy_evaluation_events`, `strategy_data.strategy_policy_snapshots`, `strategy_data.market_identity`, `strategy_data.symbol_mapping`, and `strategy_data.inventory_settlement_events`.
 
+Conforming batches from either live runtime producer (`hb_runtime`, `maker_orchestrator`) MUST enter the same durable strategy-spool ownership path and return HTTP 202 without direct synchronous ClickHouse insertion.
+
 #### Scenario: All five strategy tables are submitted
-- **WHEN** one `hb_runtime` or `maker_replay` envelope contains conforming rows for all five approved tables
+- **WHEN** one `hb_runtime`, `maker_orchestrator`, or `maker_replay` envelope contains conforming rows for all five approved tables
 - **THEN** the request MUST pass the common strategy contract validation before its source-specific persistence path is selected
+
+#### Scenario: Maker orchestrator strategy rows are submitted
+- **WHEN** one `maker_orchestrator` envelope contains conforming rows for an approved strategy table
+- **THEN** the request MUST pass strategy contract validation
+
+#### Scenario: Either live runtime producer transfers durable ownership
+- **WHEN** a conforming `hb_runtime` or `maker_orchestrator` strategy envelope is submitted
+- **THEN** the forwarder MUST durably admit it to the strategy spool and return HTTP 202 without direct ClickHouse insertion
 
 #### Scenario: Strategy and non-strategy rows are mixed
 - **WHEN** a reserved strategy-source envelope contains an approved strategy table and any non-strategy table
 - **THEN** the entire request MUST be rejected with HTTP 400 before durable admission or ClickHouse insertion
 
 #### Scenario: Strategy table uses another source
-- **WHEN** an envelope under `broker_read`, `broker_write`, or any source other than `hb_runtime` or `maker_replay` targets an approved strategy table
+- **WHEN** an envelope under `broker_read`, `broker_write`, or any source outside the admitted producer set targets an approved strategy table
 - **THEN** the entire request MUST be rejected with HTTP 400
 
 #### Scenario: Reserved strategy source contains no strategy table
-- **WHEN** an `hb_runtime` or `maker_replay` envelope contains only non-strategy rows
+- **WHEN** an envelope from any admitted strategy producer contains only non-strategy rows
 - **THEN** the entire request MUST be rejected with HTTP 400
 - **AND** it MUST NOT fall through to the generic synchronous archive path
 
@@ -66,15 +76,15 @@ Version `2` rows under either source MUST contain non-empty `producer_id`, `prod
 
 ### Requirement: Envelope and row provenance agree
 
-For both `hb_runtime` and `maker_replay`, when a strategy row supplies `source` or `deployment_id`, its value MUST equal the corresponding envelope value before source-specific path selection. Credentials and broker configuration MUST NOT supply, infer, override, or promote these Maker identities.
+For every admitted strategy producer, when a strategy row supplies `source` or `deployment_id`, its value MUST equal the corresponding envelope value before source-specific path selection. Credentials and broker configuration MUST NOT supply, infer, override, or promote these producer identities.
 
 #### Scenario: Maker replay row source differs from envelope
 - **WHEN** a `maker_replay` row declares a source other than its envelope source
 - **THEN** the entire request MUST be rejected before direct insertion
 - **AND** the spool and ClickHouse MUST remain unchanged for that request
 
-#### Scenario: Live runtime row source differs from envelope
-- **WHEN** an `hb_runtime` row declares a source other than its envelope source
+#### Scenario: Row source differs across live runtime producers
+- **WHEN** an `hb_runtime` envelope contains a row declaring `maker_orchestrator`, or a `maker_orchestrator` envelope contains a row declaring `hb_runtime`
 - **THEN** the entire request MUST be rejected before spool admission
 
 #### Scenario: Row deployment differs from envelope
@@ -115,7 +125,7 @@ The existing CEX Broker contract fixture MUST remain byte-equivalent to Maker's 
 
 ### Requirement: Non-strategy archive behavior remains compatible
 
-Requests that contain no strategy table and do not use either reserved strategy source (`hb_runtime` or `maker_replay`) MUST retain the existing direct ClickHouse insertion and synchronous success/failure contract.
+Requests that contain no strategy table and do not use any admitted strategy producer (`hb_runtime`, `maker_orchestrator`, or `maker_replay`) MUST retain the existing direct ClickHouse insertion and synchronous success/failure contract.
 
 #### Scenario: Broker market rows are submitted
 - **WHEN** a valid `broker_read` or `broker_write` request contains only supported non-strategy rows
@@ -128,7 +138,7 @@ Requests that contain no strategy table and do not use either reserved strategy 
 
 ### Requirement: Strategy source selects one closed persistence and acknowledgement contract
 
-`hb_runtime` SHALL remain the one-attempt live runtime source: each valid batch MUST be durably admitted to the configured SQLite strategy spool before HTTP 202 and MUST drain asynchronously as isolated per-table work with stable ClickHouse deduplication tokens. `maker_replay` SHALL remain a bounded offline source: each valid batch MUST insert through the direct ClickHouse path, return HTTP 200 only after all inserts succeed, return HTTP 500 on insertion failure, and consume no spool quota.
+`hb_runtime` and `maker_orchestrator` SHALL remain the one-attempt live runtime sources: each valid batch MUST be durably admitted to the configured SQLite strategy spool before HTTP 202 and MUST drain asynchronously as isolated per-table work with stable ClickHouse deduplication tokens. `maker_replay` SHALL remain a bounded offline source: each valid batch MUST insert through the direct ClickHouse path, return HTTP 200 only after all inserts succeed, return HTTP 500 on insertion failure, and consume no spool quota.
 
 #### Scenario: Live runtime batch is valid
 - **WHEN** a conforming `hb_runtime` batch is received while the spool is writable and within quota
