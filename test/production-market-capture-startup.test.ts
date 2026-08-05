@@ -128,11 +128,16 @@ test("production broker starts its full RPC service without archive configuratio
 	}
 });
 
-test("incomplete production market provenance does not gate the full RPC service", async () => {
+test("incomplete production market provenance refuses to start", async () => {
+	// A production broker that asked for archival but cannot identify its capture
+	// must NOT come up. Starting is the dangerous outcome, not a degraded one: it
+	// serves RPC and passes health while writing no market-data row, leaving one
+	// warn line at boot as the only trace. Availability is still preserved for
+	// DELIBERATE opt-outs (archive disabled / market archive disabled), which the
+	// surrounding tests cover.
 	const original = captureEnvironment();
 	const deadLetterPath = `/tmp/cex-broker-production-ineligible-${crypto.randomUUID()}.jsonl`;
 	let broker: CEXBroker | undefined;
-	let client: FullBrokerClient | undefined;
 	try {
 		const port = await reservePort();
 		process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT = "production";
@@ -145,15 +150,8 @@ test("incomplete production market provenance does not gate the full RPC service
 
 		broker = new CEXBroker({}, policy);
 		broker.port = port;
-		await broker.run();
-		client = new grpcObject.cex_broker.cex_service(
-			`127.0.0.1:${port}`,
-			grpc.credentials.createInsecure(),
-		);
-		await waitForReady(client);
-		await expectFullRpcService(client);
+		await expect(broker.run()).rejects.toThrow("missing_deployment_id");
 	} finally {
-		client?.close();
 		await broker?.stop();
 		restoreEnvironment(original);
 		if (await Bun.file(deadLetterPath).exists()) {
