@@ -27,6 +27,10 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
+        with:
+          # Full history: the archive baseline test resolves BASELINE_COMMIT^ and
+          # diffs it against its parent, which a shallow clone cannot satisfy.
+          fetch-depth: 0
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
