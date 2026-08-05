@@ -58,18 +58,30 @@ async function waitFor(condition: () => boolean): Promise<void> {
 	throw new Error("Timed out waiting for market-data collector condition");
 }
 
+function waitForReady(client: grpc.Client): Promise<void> {
+	return new Promise((resolve, reject) => {
+		client.waitForReady(Date.now() + 1_000, (error) => {
+			if (error) reject(error);
+			else resolve();
+		});
+	});
+}
+
 async function runShutdownCase(): Promise<{
 	exitCode: number;
 	requests: SubscribeRequest[];
 	cancelledCount: number;
+	metadata: Array<Record<string, grpc.MetadataValue>>;
 	output: string;
 }> {
 	const fixtureId = crypto.randomUUID();
 	const configPath = `/tmp/market-data-collector-${fixtureId}.json`;
 	const requests: SubscribeRequest[] = [];
+	const metadata: Array<Record<string, grpc.MetadataValue>> = [];
 	const cancelled = new Set<string>();
 	const { server, port } = await startSubscribeServer((call) => {
 		requests.push(call.request);
+		metadata.push(call.metadata.getMap());
 		const requestKey = `${call.request.type}:${call.request.symbol}`;
 		call.once("cancelled", () => cancelled.add(requestKey));
 		call.write({
@@ -112,6 +124,10 @@ async function runShutdownCase(): Promise<{
 			...process.env,
 			CEX_BROKER_URL: `127.0.0.1:${port}`,
 			CEX_BROKER_MARKET_DATA_COLLECTOR_CONFIG: configPath,
+			CEX_BROKER_OHLCV_COLLECTOR_CONFIG: "",
+			OTEL_EXPORTER_OTLP_ENDPOINT: "",
+			CEX_BROKER_OTEL_HOST: "",
+			CEX_BROKER_CLICKHOUSE_HOST: "",
 		},
 		stdout: "pipe",
 		stderr: "pipe",
@@ -135,6 +151,10 @@ async function runShutdownCase(): Promise<{
 				}),
 			]),
 		);
+		for (const values of metadata) {
+			expect(values["api-key"]).toBeUndefined();
+			expect(values["api-secret"]).toBeUndefined();
+		}
 
 		child.kill("SIGTERM");
 		const result = await Promise.race([
@@ -150,10 +170,21 @@ async function runShutdownCase(): Promise<{
 		}
 
 		await waitFor(() => cancelled.size === 4);
+		const probeClient = new grpc.Client(
+			`127.0.0.1:${port}`,
+			grpc.credentials.createInsecure(),
+		);
+		try {
+			await waitForReady(probeClient);
+		} finally {
+			probeClient.close();
+		}
+
 		return {
 			exitCode: result.exitCode,
 			requests,
 			cancelledCount: cancelled.size,
+			metadata,
 			output: `${await stdout}\n${await stderr}`,
 		};
 	} finally {
@@ -168,11 +199,12 @@ async function runShutdownCase(): Promise<{
 	}
 }
 
-test("entrypoint connects to an external broker for all four feeds and stops cleanly on SIGTERM", async () => {
+test("entrypoint keeps four keyless external subscriptions alive and stops without stopping the broker", async () => {
 	const result = await runShutdownCase();
 
 	expect(result.exitCode).toBe(0);
 	expect(result.requests).toHaveLength(4);
 	expect(result.cancelledCount).toBe(4);
+	expect(result.metadata).toHaveLength(4);
 	expect(result.output).toContain("Market-data collector service stopped");
 });

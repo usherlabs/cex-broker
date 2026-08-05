@@ -1,8 +1,13 @@
 import type { ArchiveBatchRequest, ArchiveRow } from "./types";
 
-export const STRATEGY_ARCHIVE_SOURCES: ReadonlySet<string> = new Set([
+export const STRATEGY_RUNTIME_SOURCES: ReadonlySet<string> = new Set([
 	"hb_runtime",
 	"maker_orchestrator",
+]);
+export const STRATEGY_REPLAY_SOURCE = "maker_replay";
+export const STRATEGY_ARCHIVE_SOURCES: ReadonlySet<string> = new Set([
+	...STRATEGY_RUNTIME_SOURCES,
+	STRATEGY_REPLAY_SOURCE,
 ]);
 
 export const STRATEGY_ARCHIVE_TABLES = [
@@ -16,7 +21,8 @@ export const STRATEGY_ARCHIVE_TABLES = [
 export type StrategyArchiveTable = (typeof STRATEGY_ARCHIVE_TABLES)[number];
 
 export type StrategyBatchClassification =
-	| "strategy"
+	| "strategy_runtime"
+	| "strategy_replay"
 	| "direct"
 	| "invalid_strategy_source"
 	| "invalid_strategy_mix";
@@ -62,11 +68,13 @@ export function classifyStrategyArchiveBatch(
 	);
 
 	if (typeof source === "string" && STRATEGY_ARCHIVE_SOURCES.has(source)) {
-		return rows.length > 0 && rows.every((entry) =>
-			isStrategyArchiveTable(entryTable(entry)),
-		)
-			? "strategy"
-			: "invalid_strategy_mix";
+		const onlyStrategyRows =
+			rows.length > 0 &&
+			rows.every((entry) => isStrategyArchiveTable(entryTable(entry)));
+		if (!onlyStrategyRows) return "invalid_strategy_mix";
+		return source === STRATEGY_REPLAY_SOURCE
+			? "strategy_replay"
+			: "strategy_runtime";
 	}
 	return hasStrategyRows ? "invalid_strategy_source" : "direct";
 }
@@ -160,7 +168,10 @@ export function validateStrategyArchiveBatch(
 		return { ok: false, error: "Too many strategy rows" };
 	}
 	const classification = classifyStrategyArchiveBatch(envelope);
-	if (classification !== "strategy") {
+	if (
+		classification !== "strategy_runtime" &&
+		classification !== "strategy_replay"
+	) {
 		return { ok: false, error: "Invalid strategy source or table mix" };
 	}
 	for (const entry of envelope.rows) {

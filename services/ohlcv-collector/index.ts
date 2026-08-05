@@ -2,20 +2,26 @@ import { log } from "../../src/helpers/logger";
 import { createOtelMetricsFromEnv } from "../../src/helpers/otel";
 import { MarketDataCollector } from "./collector";
 import {
+	loadCollectorBrokerUrl,
 	loadMarketDataCollectorConfig,
+	loadOhlcvCollectorConfig,
 	MARKET_DATA_COLLECTOR_CONFIG_ENV,
+	type MarketDataSubscription,
 } from "./config";
 
-const BROKER_URL_ENV = "CEX_BROKER_URL";
-
 async function run(): Promise<void> {
-	const brokerUrl = process.env[BROKER_URL_ENV]?.trim();
-	if (!brokerUrl) {
-		throw new Error(`${BROKER_URL_ENV} must be nonempty`);
+	const brokerUrl = loadCollectorBrokerUrl();
+	let subscriptions: MarketDataSubscription[];
+	if (process.env[MARKET_DATA_COLLECTOR_CONFIG_ENV]?.trim()) {
+		const config = await loadMarketDataCollectorConfig();
+		subscriptions = config.subscriptions;
+	} else {
+		subscriptions = (await loadOhlcvCollectorConfig()).map((subscription) => ({
+			...subscription,
+			feed: "OHLCV" as const,
+			bootstrapLimit: 100,
+		}));
 	}
-	const { subscriptions } = await loadMarketDataCollectorConfig(
-		process.env[MARKET_DATA_COLLECTOR_CONFIG_ENV],
-	);
 	const metrics = createOtelMetricsFromEnv({
 		allowLegacyBrokerConfig: false,
 		defaultServiceName: "market-data-collector",

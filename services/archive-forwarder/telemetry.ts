@@ -21,6 +21,12 @@ export const ARCHIVE_FORWARDER_METRICS = {
 	strategyRowsAdmitted: "archive_forwarder_strategy_rows_admitted_total",
 	strategyAdmissionsRejected:
 		"archive_forwarder_strategy_admissions_rejected_total",
+	strategyReplayBatchesInserted:
+		"archive_forwarder_strategy_replay_batches_inserted_total",
+	strategyReplayRowsInserted:
+		"archive_forwarder_strategy_replay_rows_inserted_total",
+	strategyReplayInsertionFailures:
+		"archive_forwarder_strategy_replay_insertion_failures_total",
 	strategySpoolPendingBatches:
 		"archive_forwarder_strategy_spool_pending_batches",
 	strategySpoolPendingWork: "archive_forwarder_strategy_spool_pending_work",
@@ -164,6 +170,33 @@ export class ArchiveForwarderTelemetry {
 				ARCHIVE_FORWARDER_METRICS.strategyAdmissionsRejected,
 				1,
 				{ reason: STRATEGY_REJECTION_REASONS.has(reason) ? reason : "other" },
+			),
+		);
+	}
+
+	public recordStrategyReplaySuccess(rowCount: number): void {
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyReplayBatchesInserted,
+				1,
+				{},
+			),
+		);
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyReplayRowsInserted,
+				rowCount,
+				{},
+			),
+		);
+	}
+
+	public recordStrategyReplayInsertionFailure(): void {
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.strategyReplayInsertionFailures,
+				1,
+				{},
 			),
 		);
 	}

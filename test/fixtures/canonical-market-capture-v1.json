@@ -20,7 +20,7 @@
 		"payload": { "bids": [[100, 1]], "asks": [[101, 2]], "timestamp": 1700000000000 },
 		"eventTimeMs": 1700000000000,
 		"receivedTimeMs": 1700000000010,
-		"expected": { "raw_capture_id": "448292b1e054b7ad576b56e06129fca37cdbad9bede03061d01148e94d9bfdea", "raw_checksum": "8bcac32d02d0f86948c0533e9a1b8fffa33597c306bd6b81ced4e54c6d7e5cc0", "normalized_row_checksum": "8f8ab0c1a298bb08410b07de16d4bada51dd8b26a0567e4889f522631e14f539" }
+		"expected": { "raw_capture_id": "448292b1e054b7ad576b56e06129fca37cdbad9bede03061d01148e94d9bfdea", "raw_checksum": "8bcac32d02d0f86948c0533e9a1b8fffa33597c306bd6b81ced4e54c6d7e5cc0", "normalized_row_checksum": "e3e9be16f9fd1f7d08f891a555c647a9cb635de17074fde84208b3f114cb000b" }
 	},
 	"ticker": {
 		"feed": "TICKER",
@@ -29,7 +29,7 @@
 		"eventTimeMs": 1700000000100,
 		"receivedTimeMs": 1700000000110,
 		"normalized": { "eventTimeMs": 1700000000100, "last": 100.5, "bid": 100, "ask": 101 },
-		"expected": { "raw_capture_id": "ccbcc74e6aeb65af676f85f9834d8ce86869de49f77d1e1fcb839430d9b48747", "raw_checksum": "cc4815a23f75ab5ee4e09cad3dc02cf0008839e816d8970e6d85b4c53406b5e2", "normalized_row_checksum": "dbc0941239434fa9a66fba610dfaa4a8918ada58bdc7fca05c55152901ae3c29" }
+		"expected": { "raw_capture_id": "ccbcc74e6aeb65af676f85f9834d8ce86869de49f77d1e1fcb839430d9b48747", "raw_checksum": "cc4815a23f75ab5ee4e09cad3dc02cf0008839e816d8970e6d85b4c53406b5e2", "normalized_row_checksum": "0cf0c19624fdc61c2380403160dec5095b3f924d5a8172e398814ca2db74d78c" }
 	},
 	"trade": {
 		"feed": "TRADES",
@@ -38,7 +38,7 @@
 		"eventTimeMs": 1700000000200,
 		"receivedTimeMs": 1700000000210,
 		"normalized": { "tradeId": "trade-42", "eventTimeMs": 1700000000200, "side": "buy", "price": 100.25, "amount": 0.5, "cost": 50.125, "takerOrMaker": "taker" },
-		"expected": { "raw_capture_id": "fcafa03d10a308ed8a71fd103300cd069766f18283e65aaa4a677eebb882d565", "raw_checksum": "775321781aa4768105277b75fe04ef2d37ac801223072ce99c3cb12352c3696d", "normalized_row_checksum": "f992c12410f493992858fc4a6774dae5d309b0ddac29267533233603249b2ea7" }
+		"expected": { "raw_capture_id": "fcafa03d10a308ed8a71fd103300cd069766f18283e65aaa4a677eebb882d565", "raw_checksum": "775321781aa4768105277b75fe04ef2d37ac801223072ce99c3cb12352c3696d", "normalized_row_checksum": "20bc45261dcfe562256bab2e42c95dd0b243d9305e1f818d2aa87c520ba12b91" }
 	},
 	"ohlcv": {
 		"feed": "OHLCV",

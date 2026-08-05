@@ -364,3 +364,5 @@ export class MarketDataCollector {
 		return Math.max(0, Math.round(baseDelay * jitter));
 	}
 }
+
+export const OhlcvCollector = MarketDataCollector;

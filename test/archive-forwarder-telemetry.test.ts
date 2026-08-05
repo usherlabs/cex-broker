@@ -104,6 +104,74 @@ describe("archive forwarder telemetry", () => {
 		expect(gauges).toHaveLength(0);
 	});
 
+	test("records bounded maker replay success and insertion-failure counters", async () => {
+		const success = createCapturingTelemetry();
+		const replayBody = {
+			source: "maker_replay",
+			deployment_id: "replay-a",
+			rows: [
+				{
+					table: "strategy_data.policy_evaluation_events",
+					row: {
+						source: "maker_replay",
+						deployment_id: "replay-a",
+						schema_version: "1",
+					},
+				},
+			],
+		};
+		const successResponse = await handleArchiveRequest(
+			new Request("http://localhost/archive", {
+				method: "POST",
+				body: JSON.stringify(replayBody),
+			}),
+			{ inserter: async () => {}, telemetry: success.telemetry },
+		);
+		expect(successResponse.status).toBe(200);
+		expect(success.counters).toEqual(
+			expect.arrayContaining([
+				{
+					name: ARCHIVE_FORWARDER_METRICS.strategyReplayBatchesInserted,
+					value: 1,
+					labels: {},
+				},
+				{
+					name: ARCHIVE_FORWARDER_METRICS.strategyReplayRowsInserted,
+					value: 1,
+					labels: {},
+				},
+			]),
+		);
+
+		const failure = createCapturingTelemetry();
+		const failureResponse = await handleArchiveRequest(
+			new Request("http://localhost/archive", {
+				method: "POST",
+				body: JSON.stringify(replayBody),
+			}),
+			{
+				inserter: async () => {
+					throw new Error("network unavailable");
+				},
+				telemetry: failure.telemetry,
+			},
+		);
+		expect(failureResponse.status).toBe(500);
+		expect(failure.counters).toContainEqual({
+			name: ARCHIVE_FORWARDER_METRICS.strategyReplayInsertionFailures,
+			value: 1,
+			labels: {},
+		});
+		expect(
+			failure.counters.some(({ name }) =>
+				[
+					ARCHIVE_FORWARDER_METRICS.strategyBatchesAdmitted,
+					ARCHIVE_FORWARDER_METRICS.strategyRowsAdmitted,
+				].includes(name),
+			),
+		).toBe(false);
+	});
+
 	test("records every rejected row by table, including malformed rows", async () => {
 		const { telemetry, counters } = createCapturingTelemetry();
 		let insertCalled = false;

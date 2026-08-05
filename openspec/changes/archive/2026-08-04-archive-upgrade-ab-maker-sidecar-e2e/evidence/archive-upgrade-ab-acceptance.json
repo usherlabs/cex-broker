@@ -1,0 +1,148 @@
+{
+  "status": "accepted",
+  "startedAt": "2026-08-04T04:12:54.032Z",
+  "completedAt": "2026-08-04T04:13:00.261Z",
+  "invocation": "bun run test:acceptance:archive-upgrade",
+  "baseline": {
+    "branch": "develop",
+    "commit": "7a83de5f29a08f42d81f64a75a83bc9318dce94a",
+    "packageVersion": "0.2.38",
+    "commitTimestamp": "2026-08-03T13:47:48-03:00",
+    "fixtureContentHash": "f600be17f20d4cafa26f6486469f10818b0c0171ad78f96c658a0c9baa76409e"
+  },
+  "candidate": {
+    "commit": "3398066ae2c396a9a9e0220f88715ac22b6d8694",
+    "dirty": false,
+    "diffHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "clickhouse": {
+    "image": "clickhouse/clickhouse-server:24.8",
+    "version": "24.8.14.39",
+    "endpoints": {
+      "a": "http://127.0.0.1:32783",
+      "b": "http://127.0.0.1:32784"
+    }
+  },
+  "initial": {
+    "legacyHash": "d8ab53784dc0805dec9be0be1b0dd803eb9c8a4c4670d67fb7e7cd8410eb5927",
+    "schemaHash": "c9f46fec22c781b1979ab1e27af82c287cc0e0203207fe2620032eb5ca4bf8c4",
+    "tableHashes": {
+      "market_data.candles": "5af62fcd711a01e1016ff458e2d6d1196e909f0be334527d4e7495dd922f05f0",
+      "market_data.orderbook_snapshots": "c3875807ad56ccdcbe1098e9839b6034b30004eceff75e1654188341b0d75f0f",
+      "market_data.cex_stream_events": "e3ac93cc05870a93294099b545bf126922ea046edb06f1e6a03f77b8cb22ac23",
+      "market_data.cex_ticker_events": "98e9a5bc6b92967747f4ee70c365c9494e8ee5be42d471ca417ebaa1f738f207",
+      "market_data.cex_trades": "9416352a762e847cf06ab1ee58b1606c37f68ad1af3fb86ee4cc5eeff9fe7e89",
+      "broker_execution.order_events": "f20cac81eaed24aa946d7902e3fed8e6fb6e6201d32d6ab118a9069ab8046b93",
+      "broker_execution.market_metadata_snapshots": "334239ea4c4f8b3d611749bcd5ddd517513d06d4c15a8f9c53a3a8a66a3e9c77",
+      "broker_execution.transfer_events": "3c8ca8e8c77bf549287cd7a9bbd48ac23a09289bcef0a6af73ea65a28da1cfe1",
+      "broker_execution.fill_events": "a458819fa6a8a4736cce599398d03d5c98c72c78a9f97d4f5633d28a6e7c3772",
+      "broker_account.balance_snapshots": "a413a1e24516225411047b0454a54f995b4cce72fccaccdeaa64725d2df82902",
+      "strategy_data.policy_evaluation_events": "8c42f2342face942cbd478c407752e915ab10faec3bbf805677fc731d2a50c9a",
+      "strategy_data.strategy_policy_snapshots": "e1246e0e8b47256abcacea6e91483f6d718f112861de5295d3f6227a4e1a8ef9",
+      "strategy_data.market_identity": "4e9f280334e12310afec6e823d2f979fbb3ad3269994484a9ee100396e196bba",
+      "strategy_data.symbol_mapping": "017eefe82e2a1229ad06b4dafa8afd2e220b7c73bbd9ee0c4ee98c426c48b8fc",
+      "strategy_data.inventory_settlement_events": "a7789a80a9ef92768ef7a45b96cb1f5c7e51e032b1c8bcde5794a56eae9c2ff9"
+    }
+  },
+  "migration": {
+    "window": {
+      "startTimeMs": 2000000000000,
+      "endTimeMs": 2000000040001
+    },
+    "first": {
+      "window": {
+        "start_time_ms": 2000000000000,
+        "end_time_ms": 2000000040001
+      },
+      "legacy_order_books": 1,
+      "legacy_candles": 1,
+      "canonical_rows": 6,
+      "mode": "write"
+    },
+    "second": {
+      "window": {
+        "start_time_ms": 2000000000000,
+        "end_time_ms": 2000000040001
+      },
+      "legacy_order_books": 1,
+      "legacy_candles": 1,
+      "canonical_rows": 6,
+      "mode": "write"
+    },
+    "firstCanonical": {
+      "counts": {
+        "levels": 4,
+        "summaries": 1,
+        "ohlcv": 1
+      },
+      "hash": "9b7b10f81cbfe3d20a286dfca223eb3449dcf49f0032d0ca51abd79d6eb1ac83",
+      "conflicts": 0,
+      "provenanceRows": 6
+    },
+    "secondCanonical": {
+      "counts": {
+        "levels": 4,
+        "summaries": 1,
+        "ohlcv": 1
+      },
+      "hash": "9b7b10f81cbfe3d20a286dfca223eb3449dcf49f0032d0ca51abd79d6eb1ac83",
+      "conflicts": 0,
+      "provenanceRows": 6
+    }
+  },
+  "parity": {
+    "first": {
+      "queryHashes": [
+        "a2045c3ebeb7de66840d3c8d1849fae54518aded1390a64d9922aa090af1200b",
+        "f27e2d18ab61ff40cb916bf1174b3f62c1dfb69d902529f943001d7f15ff4820"
+      ],
+      "resultHashes": [
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ]
+    },
+    "second": {
+      "queryHashes": [
+        "a2045c3ebeb7de66840d3c8d1849fae54518aded1390a64d9922aa090af1200b",
+        "f27e2d18ab61ff40cb916bf1174b3f62c1dfb69d902529f943001d7f15ff4820"
+      ],
+      "resultHashes": [
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ]
+    }
+  },
+  "productionCapture": {
+    "deploymentId": "archive-ab-upgraded-684426-e1b02612",
+    "captureBundleId": "archive-ab-bundle-684426-e1b02612",
+    "feedsObserved": [
+      "ORDERBOOK",
+      "TICKER",
+      "TRADES",
+      "OHLCV"
+    ],
+    "emittedRows": 15,
+    "requestCount": 1,
+    "storedCounts": {
+      "raw": "18",
+      "levels": "8",
+      "summaries": "2",
+      "tickers": "5",
+      "trades": "5",
+      "ohlcv": "2",
+      "legacy_books": "0",
+      "legacy_candles": "0"
+    }
+  },
+  "assertions": {
+    "initiallyIdentical": true,
+    "migrationConfirmedTwice": true,
+    "migrationLogicallyIdempotent": true,
+    "parameterBoundParityClean": true,
+    "conflictsEmpty": true,
+    "incompleteProvenanceHonest": true,
+    "legacyParityPreserved": true,
+    "controlImmutable": true,
+    "upgradedProducerCanonicalOnly": true
+  }
+}

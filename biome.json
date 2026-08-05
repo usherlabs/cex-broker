@@ -9,14 +9,15 @@
 		"ignoreUnknown": true,
 		"includes": [
 			"src/**",
+			"!!src/proto",
 			"services/ohlcv-collector/**",
 			"policy/**",
 			"test/**",
 			"scripts/**",
 			"examples/**",
-			"!test/fixtures"
-		],
-		"experimentalScannerIgnores": ["src/proto/**"]
+			"!test/fixtures",
+			"!test/e2e/archive/fixtures"
+		]
 	},
 	"formatter": {
 		"enabled": true,

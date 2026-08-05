@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import type { BrokerExecutionArchiver } from "../src/helpers/broker-execution-archive";
+import { archiveTickerInBackground } from "../src/helpers/market-data-archive/capture";
 import {
 	extractLatestOhlcvBar,
 	extractOhlcvBars,
@@ -37,6 +39,59 @@ describe("market data archive rows", () => {
 
 		expect(row.table).toBe("market_data.cex_stream_events");
 		expect(JSON.stringify(row.row)).not.toContain("hidden");
+	});
+
+	test("incomplete production provenance skips market payload processing", () => {
+		const originalEnvironment =
+			process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT;
+		const originalBundle = process.env.CEX_BROKER_CAPTURE_BUNDLE_ID;
+		const originalMarketEnabled = process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+		let payloadReads = 0;
+		const payload = Object.defineProperty({}, "timestamp", {
+			get() {
+				payloadReads += 1;
+				return 1_700_000_000_000;
+			},
+		});
+		const archiver = {
+			isEnabled: () => true,
+			getDeploymentId: () => "unknown",
+			getSource: () => "broker_write" as const,
+			enqueue: () => {
+				throw new Error("ineligible market archive must not enqueue");
+			},
+		} as unknown as BrokerExecutionArchiver;
+
+		try {
+			process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT = "production";
+			delete process.env.CEX_BROKER_CAPTURE_BUNDLE_ID;
+			delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+			archiveTickerInBackground(archiver, undefined, {
+				exchange: "binance",
+				symbol: "BTC/USDT",
+				assetType: "spot",
+				deploymentId: "unknown",
+				payload,
+				receivedTimestamp: 1_700_000_000_100,
+			});
+			expect(payloadReads).toBe(0);
+		} finally {
+			if (originalEnvironment === undefined) {
+				delete process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT;
+			} else {
+				process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT = originalEnvironment;
+			}
+			if (originalBundle === undefined) {
+				delete process.env.CEX_BROKER_CAPTURE_BUNDLE_ID;
+			} else {
+				process.env.CEX_BROKER_CAPTURE_BUNDLE_ID = originalBundle;
+			}
+			if (originalMarketEnabled === undefined) {
+				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+			} else {
+				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalMarketEnabled;
+			}
+		}
 	});
 });
 

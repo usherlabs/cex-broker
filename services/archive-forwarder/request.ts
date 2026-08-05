@@ -93,7 +93,10 @@ export async function handleArchiveRequest(
 			{ status: 400 },
 		);
 	}
-	if (strategyClassification === "strategy") {
+	if (
+		strategyClassification === "strategy_runtime" ||
+		strategyClassification === "strategy_replay"
+	) {
 		const validation = validateStrategyArchiveBatch(body);
 		if (!validation.ok) {
 			dependencies.telemetry.recordStrategyAdmissionRejected("invalid_contract");
@@ -175,7 +178,7 @@ export async function handleArchiveRequest(
 		return Response.json(result);
 	}
 
-	if (strategyClassification === "strategy") {
+	if (strategyClassification === "strategy_runtime") {
 		if (!dependencies.spool) {
 			dependencies.telemetry.recordStrategyAdmissionRejected("spool_unavailable");
 			return Response.json(
@@ -226,6 +229,9 @@ export async function handleArchiveRequest(
 			);
 		}
 		if (result.failed > 0) {
+			if (strategyClassification === "strategy_replay") {
+				dependencies.telemetry.recordStrategyReplayInsertionFailure();
+			}
 			console.warn(
 				`Failed ${result.failed} archive row(s) from ${parsed.batch.source}: ${result.failedTables.join(", ")}`,
 			);
@@ -234,8 +240,14 @@ export async function handleArchiveRequest(
 				{ status: 500 },
 			);
 		}
+		if (strategyClassification === "strategy_replay") {
+			dependencies.telemetry.recordStrategyReplaySuccess(result.inserted);
+		}
 		return Response.json({ ok: true, ...result });
 	} catch (error) {
+		if (strategyClassification === "strategy_replay") {
+			dependencies.telemetry.recordStrategyReplayInsertionFailure();
+		}
 		console.error("Archive insert failed:", error);
 		return Response.json(
 			{ error: "Archive insert failed" },

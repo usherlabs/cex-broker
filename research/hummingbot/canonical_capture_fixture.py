@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -137,6 +138,13 @@ def _core(context: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
 	}
 
 
+def _legacy_market_fields(raw: dict[str, Any]) -> dict[str, Any]:
+	observed = datetime.fromtimestamp(
+		raw["receivedTimeMs"] / 1000, tz=timezone.utc
+	).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+	return {"broker_observed_timestamp": observed}
+
+
 def _verify_capture(
 	fixture: dict[str, Any],
 	name: str,
@@ -165,6 +173,7 @@ def verify_fixture(path: str | Path) -> list[str]:
 	stream_raw = _raw(fixture, stream)
 	stream_row = {
 		**_core(stream_context, stream_raw),
+		**_legacy_market_fields(stream_raw),
 		"stream_type": stream_context["feed"],
 		"event_time_ms": stream_raw["eventTimeMs"],
 		"payload_encoding": "canonical_json_v1",
@@ -190,11 +199,17 @@ def verify_fixture(path: str | Path) -> list[str]:
 		context = _context(fixture, capture)
 		raw = _raw(fixture, capture)
 		row = {**_core(context, raw)}
+		row.update(_legacy_market_fields(raw))
 		for source_field, row_field in field_map.items():
 			if source_field in capture["normalized"]:
 				row[row_field] = capture["normalized"][source_field]
 		if name == "ticker":
 			row["source_time_ms"] = capture["normalized"]["eventTimeMs"]
+			row["payload_json"] = json.dumps(
+				capture["payload"],
+				ensure_ascii=False,
+				separators=(",", ":"),
+			)
 		else:
 			row["source_time_ms"] = capture["normalized"]["eventTimeMs"]
 		failures += _verify_capture(fixture, name, row, raw)

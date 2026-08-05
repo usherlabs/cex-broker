@@ -54,8 +54,8 @@ SELECT
         legacy.is_closed != canonical.is_closed OR
         legacy.broker_version != canonical.broker_version
     ) AS value_mismatches
-FROM market_data.candles FINAL AS legacy
-LEFT JOIN market_data.cex_ohlcv FINAL AS canonical
+FROM market_data.candles AS legacy FINAL
+LEFT JOIN market_data.cex_ohlcv AS canonical FINAL
   ON canonical.exchange = legacy.exchange
  AND canonical.trading_pair = replaceAll(legacy.symbol, '/', '-')
  AND canonical.timeframe = legacy.timeframe
