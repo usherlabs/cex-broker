@@ -25,6 +25,8 @@ export type MarketDataCollectorOptions = {
 	subscriptions: MarketDataSubscription[];
 	metrics?: CollectorMetrics;
 	retry?: Partial<RetryPolicy>;
+	/** Test override for the OHLCV message-gap deadline; production derives it from the timeframe. */
+	ohlcvStaleDeadlineMs?: number;
 };
 
 type CollectorSubscription = MarketDataSubscription;
@@ -46,6 +48,7 @@ type RetryPolicy = {
 type StreamResult =
 	| { reason: "aborted" }
 	| { reason: "end" | "close" }
+	| { reason: "stale"; deadlineMs: number }
 	| { reason: "error"; error: grpc.ServiceError };
 
 const DEFAULT_RETRY_POLICY: RetryPolicy = {
@@ -55,6 +58,45 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
 	random: Math.random,
 };
 const BACKOFF_RESET_AFTER_MS = 60_000;
+
+// Liveness invariant: OHLCV is a cadence-bearing market-data feed — the broker
+// forwards at least one candle update per timeframe (a bar closes every
+// timeframe even on a quiet market), so an OHLCV stream that stays silent for
+// several timeframes is a dead upstream (e.g. an exchange WebSocket that died
+// without a close event), never legitimate quiet. That expected cadence is the
+// only thing that licenses a message-gap deadline here. Event-driven feeds
+// (ORDERBOOK/TICKER/TRADES) and all user-data streams have no guaranteed
+// cadence and MUST NOT get per-message timeouts — silence there can be real.
+const OHLCV_STALE_TIMEFRAME_MULTIPLIER = 5;
+const OHLCV_STALE_MIN_DEADLINE_MS = 90_000;
+
+const TIMEFRAME_UNIT_MS: Record<string, number> = {
+	s: 1_000,
+	m: 60_000,
+	h: 3_600_000,
+	d: 86_400_000,
+	w: 604_800_000,
+	M: 2_592_000_000,
+};
+
+function timeframeToMs(timeframe: string): number {
+	const match = /^(\d+)([smhdwM])$/.exec(timeframe);
+	if (!match) {
+		throw new Error(
+			`Unsupported OHLCV timeframe "${timeframe}"; expected <number><s|m|h|d|w|M>`,
+		);
+	}
+	return Number(match[1]) * TIMEFRAME_UNIT_MS[match[2]];
+}
+
+export class OhlcvStreamStaleError extends Error {
+	constructor(subscription: MarketDataSubscription, deadlineMs: number) {
+		super(
+			`OHLCV stream ${subscription.exchange}:${subscription.symbol} delivered no frames for ${deadlineMs}ms; upstream is dead`,
+		);
+		this.name = "OhlcvStreamStaleError";
+	}
+}
 
 const grpcObject = grpc.loadPackageDefinition(
 	CEX_BROKER_PACKAGE_DEFINITION,
@@ -117,12 +159,21 @@ export class MarketDataCollector {
 	readonly #metrics?: CollectorMetrics;
 	readonly #retry: RetryPolicy;
 	readonly #health = new Map<string, CollectorFeedHealth>();
+	readonly #ohlcvStaleDeadlineMs?: number;
 	#started = false;
 
 	constructor(options: MarketDataCollectorOptions) {
 		this.#subscriptions = options.subscriptions;
 		this.#metrics = options.metrics;
 		this.#retry = { ...DEFAULT_RETRY_POLICY, ...options.retry };
+		this.#ohlcvStaleDeadlineMs = options.ohlcvStaleDeadlineMs;
+		// Fail at construction on an unparseable timeframe: a config typo must be
+		// a boot error, not a subscription that silently runs without liveness.
+		for (const subscription of options.subscriptions) {
+			if (subscription.feed === "OHLCV") {
+				this.#staleDeadlineMs(subscription);
+			}
+		}
 		this.#client = new grpcObject.cex_broker.cex_service(
 			options.brokerUrl,
 			grpc.credentials.createInsecure(),
@@ -137,6 +188,19 @@ export class MarketDataCollector {
 
 	#healthKey(subscription: CollectorSubscription): string {
 		return `${subscription.exchange}:${subscription.symbol}:${subscription.feed}`;
+	}
+
+	#staleDeadlineMs(
+		subscription: Extract<CollectorSubscription, { feed: "OHLCV" }>,
+	): number {
+		return (
+			this.#ohlcvStaleDeadlineMs ??
+			Math.max(
+				timeframeToMs(subscription.timeframe) *
+					OHLCV_STALE_TIMEFRAME_MULTIPLIER,
+				OHLCV_STALE_MIN_DEADLINE_MS,
+			)
+		);
 	}
 
 	#updateHealth(
@@ -181,6 +245,14 @@ export class MarketDataCollector {
 				await this.#supervise(subscription, signal);
 				return;
 			} catch (error) {
+				// Deliberately fatal: a stale OHLCV stream means the upstream died
+				// without a close event, and an in-process resubscribe can silently
+				// reattach to the same wedged channel. Crash so the process exits
+				// nonzero and the container supervisor restarts it with fresh state —
+				// the remedy proven to restore candles within a minute.
+				if (error instanceof OhlcvStreamStaleError) {
+					throw error;
+				}
 				log.error("OHLCV collector pair supervisor failed; restarting", {
 					...pairLabels(subscription),
 					error,
@@ -244,6 +316,20 @@ export class MarketDataCollector {
 				break;
 			}
 
+			if (result.reason === "stale") {
+				this.#updateHealth(subscription, { state: "stopped" });
+				void this.#metrics?.recordCounter(
+					"cex_ohlcv_collector_stale_streams_total",
+					1,
+					labels,
+				);
+				log.error(
+					"OHLCV stream delivered no frames within the cadence deadline; exiting so the container restarts",
+					{ ...labels, deadline_ms: result.deadlineMs },
+				);
+				throw new OhlcvStreamStaleError(subscription, result.deadlineMs);
+			}
+
 			if (Date.now() - openedAt >= BACKOFF_RESET_AFTER_MS) {
 				consecutiveFailures = 0;
 			}
@@ -273,13 +359,32 @@ export class MarketDataCollector {
 		return new Promise((resolve) => {
 			let settled = false;
 			let stream: grpc.ClientReadableStream<SubscribeResponse>;
+			let staleTimer: ReturnType<typeof setTimeout> | undefined;
+			const staleDeadlineMs =
+				subscription.feed === "OHLCV"
+					? this.#staleDeadlineMs(subscription)
+					: undefined;
 			const settle = (result: StreamResult) => {
 				if (settled) {
 					return;
 				}
 				settled = true;
+				clearTimeout(staleTimer);
 				signal.removeEventListener("abort", onAbort);
 				resolve(result);
+			};
+			// Message-gap deadline, re-armed on every frame. Only cadence-bearing
+			// OHLCV streams get one — see the liveness invariant on
+			// OHLCV_STALE_TIMEFRAME_MULTIPLIER.
+			const armStaleDeadline = () => {
+				if (staleDeadlineMs === undefined || settled) {
+					return;
+				}
+				clearTimeout(staleTimer);
+				staleTimer = setTimeout(() => {
+					stream.cancel();
+					settle({ reason: "stale", deadlineMs: staleDeadlineMs });
+				}, staleDeadlineMs);
 			};
 			const onAbort = () => {
 				stream.cancel();
@@ -311,7 +416,12 @@ export class MarketDataCollector {
 				return;
 			}
 
+			armStaleDeadline();
+
 			stream.on("data", (response) => {
+				// Any frame proves the upstream is alive, whether or not it carries
+				// countable bars, so the deadline re-arms before payload inspection.
+				armStaleDeadline();
 				const frames =
 					subscription.feed === "OHLCV"
 						? countOhlcvBars(response.data)
