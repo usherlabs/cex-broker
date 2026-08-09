@@ -1,5 +1,9 @@
 import { closeSync, fsyncSync, openSync, writeSync } from "node:fs";
-import { request as httpRequest } from "node:http";
+import {
+	type ClientRequest,
+	request as httpRequest,
+	type IncomingMessage,
+} from "node:http";
 import { request as httpsRequest } from "node:https";
 import { SeverityNumber } from "@opentelemetry/api-logs";
 import { log } from "../logger";
@@ -58,6 +62,20 @@ type ArchiverStats = {
 	forwarderFailures: number;
 };
 
+export type BrokerExecutionArchiveHealthSnapshot = {
+	healthy: boolean;
+	queue_depth: number;
+	oldest_pending_age_ms: number;
+	shed_total: number;
+	last_failure_at: number | null;
+	last_shed_at: number | null;
+	last_success_at: number | null;
+	sink_latency_ms: number | null;
+	sink_errors_total: number;
+	in_flight: boolean;
+	in_flight_age_ms: number;
+};
+
 const DEFAULT_MAX_QUEUE_SIZE = 10_000;
 const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_FLUSH_INTERVAL_MS = 1_000;
@@ -73,6 +91,8 @@ type ArchiveLossRecord = {
 	reason: ArchiveLossReason;
 	payload: BrokerArchiveRow;
 };
+
+type QueuedArchiveRow = BrokerArchiveRow;
 
 const MARKET_FEEDS = new Set(["ORDERBOOK", "TICKER", "TRADES", "OHLCV"]);
 
@@ -130,7 +150,8 @@ export class BrokerExecutionArchiver {
 	private readonly batchSize: number;
 	private readonly flushIntervalMs: number;
 	private readonly forwarderTimeoutMs: number;
-	private readonly queue: BrokerArchiveRow[] = [];
+	private readonly queue: QueuedArchiveRow[] = [];
+	private readonly enqueueTimes = new WeakMap<QueuedArchiveRow, number>();
 	private readonly stats: ArchiverStats = {
 		enqueued: 0,
 		shed: 0,
@@ -139,6 +160,16 @@ export class BrokerExecutionArchiver {
 	};
 	private flushTimer: ReturnType<typeof setInterval> | null = null;
 	private flushInFlight: Promise<void> | null = null;
+	private inFlightBatch: QueuedArchiveRow[] | null = null;
+	private inFlightStartedAtMs: number | null = null;
+	private lastFailureAtMs: number | null = null;
+	private lastShedAtMs: number | null = null;
+	private lastSuccessAtMs: number | null = null;
+	private lastFailureEventSequence: number | null = null;
+	private lastShedEventSequence: number | null = null;
+	private lastSuccessEventSequence: number | null = null;
+	private lastSinkLatencyMs: number | null = null;
+	private healthEventSequence = 0;
 	private lastShedWarnAtMs = 0;
 	private closing = false;
 	private closed = false;
@@ -199,6 +230,7 @@ export class BrokerExecutionArchiver {
 
 		try {
 			this.flushTimer = setInterval(() => {
+				this.emitArchiveHealthMetrics();
 				void this.flush();
 			}, this.flushIntervalMs);
 			this.flushTimer.unref?.();
@@ -255,21 +287,22 @@ export class BrokerExecutionArchiver {
 			row: { ...row.row, source: this.source },
 		};
 		if (this.queue.length >= this.maxQueueSize) {
-			const shedRow = this.queue[0];
-			if (shedRow) {
-				this.appendLossRecords([shedRow], "queue_shed");
+			const shedEntry = this.queue[0];
+			if (shedEntry) {
+				this.appendLossRecords([shedEntry], "queue_shed");
 				this.queue.shift();
 			}
 			this.stats.shed += 1;
+			this.recordHealthEvent("shed");
 			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
-				table: shedRow?.table ?? "unknown",
+				table: shedEntry?.table ?? "unknown",
 				source: this.source,
-				feed: shedRow ? archiveFeed(shedRow) : "NON_MARKET",
+				feed: shedEntry ? archiveFeed(shedEntry) : "NON_MARKET",
 			});
 			void this.recordArchiveMetric("cex_archive_queue_saturated_rows_total", {
-				table: shedRow?.table ?? "unknown",
+				table: shedEntry?.table ?? "unknown",
 				source: this.source,
-				feed: shedRow ? archiveFeed(shedRow) : "NON_MARKET",
+				feed: shedEntry ? archiveFeed(shedEntry) : "NON_MARKET",
 			});
 			// The durable journal is authoritative; this rate-limited warning makes
 			// sustained queue pressure visible without becoming another loss sink.
@@ -278,11 +311,12 @@ export class BrokerExecutionArchiver {
 				log.warn("Archive queue full: shedding oldest rows", {
 					shed_total: this.stats.shed,
 					queue_max: this.maxQueueSize,
-					table: shedRow?.table ?? "unknown",
+					table: shedEntry?.table ?? "unknown",
 				});
 				this.lastShedWarnAtMs = now;
 			}
 		}
+		this.enqueueTimes.set(archiveRow, Date.now());
 		this.queue.push(archiveRow);
 		this.stats.enqueued += 1;
 		void this.recordArchiveMetric("cex_archive_rows_enqueued_total", {
@@ -290,6 +324,7 @@ export class BrokerExecutionArchiver {
 			source: this.source,
 			feed: archiveFeed(archiveRow),
 		});
+		this.emitArchiveHealthMetrics();
 		if (this.queue.length >= this.batchSize) {
 			void this.flush();
 		}
@@ -308,9 +343,13 @@ export class BrokerExecutionArchiver {
 		}
 		// flushBatch resolves a boolean the callers read directly; the in-flight
 		// handle only needs completion, so discard it to keep this a Promise<void>.
+		const inFlightState: { promise?: Promise<void> } = {};
 		const inFlight = this.flushBatch()
 			.then(() => undefined)
 			.finally(() => {
+				if (this.flushInFlight !== inFlightState.promise) {
+					return;
+				}
 				this.flushInFlight = null;
 				if (
 					!this.closed &&
@@ -321,6 +360,7 @@ export class BrokerExecutionArchiver {
 					queueMicrotask(() => void this.flush());
 				}
 			});
+		inFlightState.promise = inFlight;
 		this.flushInFlight = inFlight;
 		return inFlight;
 	}
@@ -371,6 +411,145 @@ export class BrokerExecutionArchiver {
 		return this.queue.length;
 	}
 
+	getHealthSnapshot(): Readonly<BrokerExecutionArchiveHealthSnapshot> {
+		const now = Date.now();
+		const oldestPendingAtMs = this.oldestPendingEnqueueAtMs();
+		const oldestPendingAgeMs =
+			oldestPendingAtMs === null ? 0 : Math.max(0, now - oldestPendingAtMs);
+		const inFlightAgeMs =
+			this.inFlightStartedAtMs === null
+				? 0
+				: Math.max(0, now - this.inFlightStartedAtMs);
+		const lastUnhealthyEventSequence = Math.max(
+			this.lastFailureEventSequence ?? Number.NEGATIVE_INFINITY,
+			this.lastShedEventSequence ?? Number.NEGATIVE_INFINITY,
+		);
+		const recoveredFromEvents =
+			lastUnhealthyEventSequence === Number.NEGATIVE_INFINITY ||
+			(this.lastSuccessEventSequence !== null &&
+				this.lastSuccessEventSequence > lastUnhealthyEventSequence);
+		const healthy =
+			this.enabled &&
+			!this.closing &&
+			!this.closed &&
+			this.queue.length < this.maxQueueSize &&
+			oldestPendingAgeMs <= this.forwarderTimeoutMs &&
+			inFlightAgeMs <= this.forwarderTimeoutMs &&
+			recoveredFromEvents;
+
+		return {
+			healthy,
+			queue_depth: this.queue.length,
+			oldest_pending_age_ms: oldestPendingAgeMs,
+			shed_total: this.stats.shed,
+			last_failure_at: this.lastFailureAtMs,
+			last_shed_at: this.lastShedAtMs,
+			last_success_at: this.lastSuccessAtMs,
+			sink_latency_ms: this.lastSinkLatencyMs,
+			sink_errors_total: this.stats.forwarderFailures,
+			in_flight: this.inFlightBatch !== null,
+			in_flight_age_ms: inFlightAgeMs,
+		};
+	}
+
+	private oldestPendingEnqueueAtMs(): number | null {
+		let oldest: number | null = null;
+		for (const entry of this.queue) {
+			const enqueuedAtMs = this.enqueueTimes.get(entry);
+			if (enqueuedAtMs === undefined) {
+				continue;
+			}
+			oldest = oldest === null ? enqueuedAtMs : Math.min(oldest, enqueuedAtMs);
+		}
+		for (const entry of this.inFlightBatch ?? []) {
+			const enqueuedAtMs = this.enqueueTimes.get(entry);
+			if (enqueuedAtMs === undefined) {
+				continue;
+			}
+			oldest = oldest === null ? enqueuedAtMs : Math.min(oldest, enqueuedAtMs);
+		}
+		return oldest;
+	}
+
+	private recordHealthEvent(event: "failure" | "shed" | "success"): void {
+		const eventSequence = ++this.healthEventSequence;
+		const eventTimestampMs = Date.now();
+		switch (event) {
+			case "failure":
+				this.lastFailureAtMs = eventTimestampMs;
+				this.lastFailureEventSequence = eventSequence;
+				return;
+			case "shed":
+				this.lastShedAtMs = eventTimestampMs;
+				this.lastShedEventSequence = eventSequence;
+				return;
+			case "success":
+				this.lastSuccessAtMs = eventTimestampMs;
+				this.lastSuccessEventSequence = eventSequence;
+				return;
+		}
+	}
+
+	private emitArchiveHealthMetrics(): void {
+		const snapshot = this.getHealthSnapshot();
+		const labels = { source: this.source };
+		void this.recordArchiveObservableGauge(
+			"cex_archive_health",
+			snapshot.healthy ? 1 : 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_queue_depth",
+			snapshot.queue_depth,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_oldest_pending_age_ms",
+			snapshot.oldest_pending_age_ms,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_shed_total",
+			snapshot.shed_total,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_last_failure_at",
+			snapshot.last_failure_at ?? 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_last_shed_at",
+			snapshot.last_shed_at ?? 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_last_success_at",
+			snapshot.last_success_at ?? 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_sink_latency_ms",
+			snapshot.sink_latency_ms ?? 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_sink_errors_total",
+			snapshot.sink_errors_total,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_in_flight",
+			snapshot.in_flight ? 1 : 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_in_flight_age_ms",
+			snapshot.in_flight_age_ms,
+			labels,
+		);
+	}
+
 	private closeLossJournal(): void {
 		if (this.deadLetterFd === undefined) {
 			return;
@@ -400,8 +579,9 @@ export class BrokerExecutionArchiver {
 			this.appendLossRecords([dropped], "queue_shed");
 			this.queue.shift();
 			this.stats.shed += 1;
+			this.recordHealthEvent("shed");
 			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
-				table: dropped?.table ?? "unknown",
+				table: dropped.table,
 				source: this.source,
 				feed: archiveFeed(dropped),
 			});
@@ -477,6 +657,8 @@ export class BrokerExecutionArchiver {
 		if (batch.length === 0) {
 			return true;
 		}
+		this.inFlightBatch = batch;
+		this.inFlightStartedAtMs = Date.now();
 
 		// Secondary observability mirror: execution rows (not market_data.*, which
 		// has no OTel schema) are echoed to OTel logs when
@@ -499,11 +681,22 @@ export class BrokerExecutionArchiver {
 				await this.postToForwarder(batch);
 			} catch (error) {
 				this.stats.forwarderFailures += 1;
+				this.recordHealthEvent("failure");
+				this.lastSinkLatencyMs = Math.max(
+					0,
+					Date.now() - (this.inFlightStartedAtMs ?? Date.now()),
+				);
 				// Re-apply the oldest-shed bound: the batch was spliced out before the
 				// post, so new rows may have refilled the queue while it was in flight.
-				// Pushing it back can exceed maxQueueSize by up to batchSize, so trim.
-				this.queue.push(...batch);
-				this.enforceQueueBound();
+				// Prepending preserves the original order and timestamps. Requeueing can
+				// exceed maxQueueSize by up to batchSize, so trim the oldest entries.
+				this.queue.unshift(...batch);
+				try {
+					this.enforceQueueBound();
+				} finally {
+					this.clearInFlightBatch(batch);
+					this.emitArchiveHealthMetrics();
+				}
 				void this.recordArchiveMetric("cex_archive_forwarder_failures_total", {
 					count: batch.length,
 				});
@@ -513,22 +706,38 @@ export class BrokerExecutionArchiver {
 		}
 
 		this.stats.flushed += batch.length;
+		this.recordHealthEvent("success");
+		this.lastSinkLatencyMs = Math.max(
+			0,
+			Date.now() - (this.inFlightStartedAtMs ?? Date.now()),
+		);
+		this.clearInFlightBatch(batch);
 		this.recordFlushHealth(batch);
+		this.emitArchiveHealthMetrics();
 		return true;
+	}
+
+	private clearInFlightBatch(batch: QueuedArchiveRow[]): void {
+		if (this.inFlightBatch !== batch) {
+			return;
+		}
+		this.inFlightBatch = null;
+		this.inFlightStartedAtMs = null;
 	}
 
 	// Self-health emitted only on a successful forwarder post:
 	// a per-table rows-flushed counter to compare against enqueued, and a
 	// last-flush-success gauge (unix seconds) whose staleness is the "archive plane
 	// stuck" signal. Fire-and-forget so metrics never gate flushing.
-	private recordFlushHealth(batch: BrokerArchiveRow[]): void {
+	private recordFlushHealth(batch: readonly QueuedArchiveRow[]): void {
 		const countByTable = new Map<
 			string,
 			{ row: BrokerArchiveRow; count: number }
 		>();
 		for (const entry of batch) {
-			const key = `${entry.table}\u0000${archiveFeed(entry)}`;
-			const grouped = countByTable.get(key) ?? { row: entry, count: 0 };
+			const row = entry;
+			const key = `${row.table}\u0000${archiveFeed(row)}`;
+			const grouped = countByTable.get(key) ?? { row, count: 0 };
 			grouped.count += 1;
 			countByTable.set(key, grouped);
 		}
@@ -564,9 +773,22 @@ export class BrokerExecutionArchiver {
 	private async recordArchiveGauge(
 		metricName: string,
 		value: number,
+		labels: Record<string, string | number> = {},
 	): Promise<void> {
 		try {
-			await this.otelMetrics?.recordGauge(metricName, value, {});
+			await this.otelMetrics?.recordGauge(metricName, value, labels);
+		} catch {
+			// Archive metrics must not affect flushing.
+		}
+	}
+
+	private async recordArchiveObservableGauge(
+		metricName: string,
+		value: number,
+		labels: Record<string, string | number>,
+	): Promise<void> {
+		try {
+			await this.otelMetrics?.setObservableGauge(metricName, value, labels);
 		} catch {
 			// Archive metrics must not affect flushing.
 		}
@@ -614,38 +836,181 @@ export class BrokerExecutionArchiver {
 			headers.authorization = `Bearer ${this.forwarderAuthToken}`;
 		}
 		return new Promise<void>((resolve, reject) => {
-			const req = doRequest(
-				url,
-				{
-					method: "POST",
-					headers,
-					// Bound the request: a hung forwarder would otherwise stall the flush
-					// loop (flushes are serialized behind flushInFlight) indefinitely.
-					timeout: this.forwarderTimeoutMs,
-				},
-				(res) => {
-					// Drain the body so the socket can be released/reused.
-					res.on("data", () => {});
-					res.on("end", () => {
-						const status = res.statusCode ?? 0;
-						if (status < 200 || status >= 300) {
-							reject(
+			let req: ClientRequest | undefined;
+			let response: IncomingMessage | undefined;
+			let settled = false;
+			let requestClosed = false;
+			let requestCloseFailureScheduled = false;
+			let responseClosed = false;
+			let responseEnded = false;
+			let outerTimer: ReturnType<typeof setTimeout> | undefined;
+
+			function cleanupRequestListeners(): void {
+				req?.removeListener("error", onRequestError);
+				req?.removeListener("timeout", onRequestTimeout);
+				req?.removeListener("close", onRequestClose);
+			}
+
+			function cleanupResponseListeners(): void {
+				response?.removeListener("data", onResponseData);
+				response?.removeListener("end", onResponseEnd);
+				response?.removeListener("aborted", onResponseAborted);
+				response?.removeListener("error", onResponseError);
+				response?.removeListener("close", onResponseClose);
+			}
+
+			function onRequestClose(): void {
+				requestClosed = true;
+				// Bun can emit ClientRequest.close after the request body finishes and
+				// before response end, but a close with no response at all is a terminal
+				// pre-header transport failure. Defer one microtask so a response callback
+				// already queued for the same turn wins without masking a real close.
+				if (!settled && !response && !requestCloseFailureScheduled) {
+					requestCloseFailureScheduled = true;
+					queueMicrotask(() => {
+						if (!settled && !response) {
+							settle(
 								new Error(
-									`Archive forwarder returned ${status} ${res.statusMessage ?? ""}`,
+									"Archive forwarder request closed before response headers",
 								),
+								false,
+								true,
 							);
-							return;
 						}
-						resolve();
 					});
-				},
-			);
-			req.on("error", reject);
-			req.on("timeout", () => {
-				req.destroy(new Error("Archive forwarder request timed out"));
-			});
-			req.write(body);
-			req.end();
+				}
+				if (settled) {
+					cleanupRequestListeners();
+				}
+			}
+
+			function onRequestError(error: Error): void {
+				if (!settled) {
+					settle(error, true);
+				} else {
+					cleanupRequestListeners();
+				}
+			}
+
+			function onRequestTimeout(): void {
+				settle(new Error("Archive forwarder socket timed out"), true);
+			}
+
+			function onResponseData(): void {}
+
+			function onResponseEnd(): void {
+				responseEnded = true;
+				if (!response?.complete) {
+					settle(new Error("Archive forwarder response was incomplete"), true);
+					return;
+				}
+				const status = response.statusCode ?? 0;
+				if (status < 200 || status >= 300) {
+					settle(
+						new Error(
+							`Archive forwarder returned ${status} ${response.statusMessage ?? ""}`,
+						),
+						false,
+					);
+					return;
+				}
+				settle(undefined, false);
+			}
+
+			function onResponseAborted(): void {
+				settle(new Error("Archive forwarder response was aborted"), true);
+			}
+
+			function onResponseError(error: Error): void {
+				if (!settled) {
+					settle(error, true);
+				}
+			}
+
+			function onResponseClose(): void {
+				responseClosed = true;
+				if (!settled && !responseEnded) {
+					settle(
+						new Error("Archive forwarder response closed before completion"),
+						true,
+					);
+					return;
+				}
+				cleanupResponseListeners();
+			}
+
+			function settle(
+				error: Error | undefined,
+				destroyRequest: boolean,
+				retainClosedRequestError = false,
+			): void {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				if (outerTimer) {
+					clearTimeout(outerTimer);
+					outerTimer = undefined;
+				}
+				response?.removeListener("data", onResponseData);
+				response?.removeListener("end", onResponseEnd);
+				response?.removeListener("aborted", onResponseAborted);
+				if (responseClosed) {
+					cleanupResponseListeners();
+				}
+				// Keep the request error listener until close when destruction is
+				// requested. ClientRequest can emit its destroy error asynchronously.
+				if (destroyRequest && req && !requestClosed) {
+					req.destroy(error);
+				} else if (retainClosedRequestError && req && requestClosed) {
+					// The close event already happened; retain only the guarded error
+					// listener so a late transport error cannot become unhandled.
+					req.removeListener("timeout", onRequestTimeout);
+					req.removeListener("close", onRequestClose);
+				} else if (!req || requestClosed) {
+					cleanupRequestListeners();
+				}
+				if (error) {
+					reject(error);
+				} else {
+					resolve();
+				}
+			}
+
+			// ClientRequest.timeout only observes socket inactivity. This outer timer
+			// covers lookup, connection, request write, response headers/body, and end.
+			outerTimer = setTimeout(() => {
+				settle(new Error("Archive forwarder request deadline exceeded"), true);
+			}, this.forwarderTimeoutMs);
+
+			try {
+				req = doRequest(
+					url,
+					{
+						method: "POST",
+						headers,
+						timeout: this.forwarderTimeoutMs,
+					},
+					(nextResponse) => {
+						response = nextResponse;
+						response.on("data", onResponseData);
+						response.on("end", onResponseEnd);
+						response.on("aborted", onResponseAborted);
+						response.on("error", onResponseError);
+						response.on("close", onResponseClose);
+						if (settled) {
+							response.resume();
+						}
+					},
+				);
+				req.on("error", onRequestError);
+				req.on("timeout", onRequestTimeout);
+				req.on("close", onRequestClose);
+				req.write(body);
+				req.end();
+			} catch (error) {
+				settle(error instanceof Error ? error : new Error(String(error)), true);
+			}
 		});
 	}
 }
