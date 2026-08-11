@@ -1,5 +1,6 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { clickHouseRequestDeadline } from "./clickhouse-deadline";
+import { archiveDedupeToken } from "./dedupe-token";
 import type { ArchiveForwarderTelemetry } from "./telemetry";
 import type { ArchiveRow, ArchiveBatchResult, SupportedTable } from "./types";
 import { isSupportedTable } from "./types";
@@ -33,6 +34,7 @@ export async function insertArchiveRows(
 	inserter: RowInserter,
 	rows: ArchiveRow[],
 	telemetry?: ArchiveForwarderTelemetry,
+	batchId?: string,
 ): Promise<ArchiveBatchResult> {
 	const grouped = groupRowsByTable(rows);
 	const byTable: Record<string, number> = {};
@@ -40,12 +42,21 @@ export async function insertArchiveRows(
 	let inserted = 0;
 	let failed = 0;
 
+	// One table failing fails the whole request, and the sender retries the whole
+	// batch — including the tables that already landed. Without a batch identity
+	// those re-posts duplicate; with one, ClickHouse discards them.
 	for (const [table, tableRows] of grouped.entries()) {
 		if (tableRows.length === 0) {
 			continue;
 		}
 		try {
-			await inserter(table, tableRows);
+			await inserter(
+				table,
+				tableRows,
+				batchId
+					? { deduplicationToken: archiveDedupeToken(batchId, table) }
+					: undefined,
+			);
 			byTable[table] = tableRows.length;
 			inserted += tableRows.length;
 			telemetry?.recordRowsInserted(table, tableRows.length);

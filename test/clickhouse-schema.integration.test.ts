@@ -1147,4 +1147,72 @@ describe("ClickHouse market_data schema integration", () => {
 			expect(await result.json()).toEqual([{ count: "1" }]);
 		}
 	});
+
+	test("a market-data batch replayed under its original id lands exactly once", async () => {
+		if (!clickhouseAvailable || !client) return;
+		// The sender re-posts a whole batch after any table in it fails, so the
+		// tables that already landed are inserted a second time. cex_stream_events
+		// is the sharp case: plain MergeTree, and no canonical view collapses a
+		// duplicate at read time.
+		const eventMs = TEST_EVENT_MS + 600_000;
+		const context: MarketCaptureContext = {
+			source: "broker_read",
+			deploymentId: TEST_DEPLOYMENT,
+			captureBundleId: "integration-replay-bundle",
+			exchange: "binance",
+			symbol: "TEST/REPLAY",
+			assetType: "spot",
+			feed: "TICKER",
+			provider: "ccxt:binance",
+			sourceMode: "broker_live_stream_v1",
+			schemaVersion: "1.0.0",
+			checksumAlgorithm: "sha256-canonical-json-v1",
+			provenanceComplete: true,
+		};
+		const rawCapture = createRawCapture(context, {
+			payload: { eventTimeMs: eventMs, last: 100.5 },
+			eventTimeMs: eventMs,
+			receivedTimeMs: eventMs + 5,
+			scope: "ccxt_normalized_object",
+		});
+		const batch = {
+			source: "broker_read",
+			deployment_id: TEST_DEPLOYMENT,
+			batch_id: `integration-replay-${TEST_DEPLOYMENT}`,
+			rows: [buildCanonicalCexStreamEventRow(context, rawCapture)],
+		};
+
+		const first = await handleArchiveBatch(
+			createClickHouseInserter(client),
+			batch,
+		);
+		const replay = await handleArchiveBatch(
+			createClickHouseInserter(client),
+			batch,
+		);
+		expect(first.failed).toBe(0);
+		expect(replay.failed).toBe(0);
+
+		const counted = await client.query({
+			query: `SELECT count() AS count FROM market_data.cex_stream_events
+				WHERE deployment_id = {deployment_id:String} AND symbol = 'TEST/REPLAY'`,
+			query_params: { deployment_id: TEST_DEPLOYMENT },
+			format: "JSONEachRow",
+		});
+		expect(await counted.json()).toEqual([{ count: "1" }]);
+
+		// A different batch carrying the same row is a distinct insert, not a
+		// replay: deduplication must not swallow genuinely re-captured data.
+		await handleArchiveBatch(createClickHouseInserter(client), {
+			...batch,
+			batch_id: `${batch.batch_id}-other`,
+		});
+		const afterDistinctBatch = await client.query({
+			query: `SELECT count() AS count FROM market_data.cex_stream_events
+				WHERE deployment_id = {deployment_id:String} AND symbol = 'TEST/REPLAY'`,
+			query_params: { deployment_id: TEST_DEPLOYMENT },
+			format: "JSONEachRow",
+		});
+		expect(await afterDistinctBatch.json()).toEqual([{ count: "2" }]);
+	});
 });

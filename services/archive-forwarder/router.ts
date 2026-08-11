@@ -123,6 +123,14 @@ export function parseArchiveBatchRequest(body: unknown): ParsedArchiveBatch {
 	if (!Array.isArray(record.rows)) {
 		return { ok: false };
 	}
+	// Absent is a valid contract (the sender claims no retry identity); present
+	// but blank is a broken sender that would silently lose deduplication.
+	if (
+		record.batch_id !== undefined &&
+		(typeof record.batch_id !== "string" || record.batch_id.trim() === "")
+	) {
+		return { ok: false };
+	}
 	const inputRowCount = record.rows.length;
 	const structurallyValidRows = record.rows.filter((entry) =>
 		isValidArchiveRow(entry, record.source as string),
@@ -139,6 +147,9 @@ export function parseArchiveBatchRequest(body: unknown): ParsedArchiveBatch {
 		batch: {
 			source: record.source,
 			deployment_id: record.deployment_id,
+			...(record.batch_id === undefined
+				? {}
+				: { batch_id: record.batch_id as string }),
 			rows,
 		},
 		inputRowCount,
@@ -196,7 +207,12 @@ export async function handleArchiveBatch(
 	request: ArchiveBatchRequest,
 	telemetry?: ArchiveForwarderTelemetry,
 ): Promise<ArchiveBatchResult> {
-	const result = await insertArchiveRows(inserter, request.rows, telemetry);
+	const result = await insertArchiveRows(
+		inserter,
+		request.rows,
+		telemetry,
+		request.batch_id,
+	);
 	// Requires rows to have actually landed. `failed === 0` is also true for an
 	// empty batch, and an empty POST advancing this gauge would keep a staleness
 	// alert green while nothing reaches ClickHouse — the precise failure this

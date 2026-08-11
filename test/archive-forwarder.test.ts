@@ -10,7 +10,10 @@ import {
 	parseArchiveBatchRequest,
 } from "../services/archive-forwarder/router";
 import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
-import { isSupportedTable } from "../services/archive-forwarder/types";
+import {
+	isSupportedTable,
+	SUPPORTED_TABLES,
+} from "../services/archive-forwarder/types";
 
 describe("archive forwarder batch parsing", () => {
 	test("parseArchiveBatchRequest accepts broker_write payloads", () => {
@@ -395,7 +398,139 @@ describe("archive forwarder routing", () => {
 	});
 });
 
+describe("archive forwarder retry deduplication", () => {
+	const rows = [
+		{ table: "market_data.cex_stream_events", row: { event_time_ms: 1 } },
+		{ table: "market_data.cex_ohlcv", row: { open_time_ms: 1 } },
+	];
+
+	function recordingInserter(failTable?: string) {
+		const calls: Array<{ table: string; token?: string }> = [];
+		const inserter = async (
+			table: string,
+			_rows: Record<string, unknown>[],
+			options?: { deduplicationToken?: string },
+		) => {
+			calls.push({ table, token: options?.deduplicationToken });
+			if (table === failTable) {
+				throw new Error("ClickHouse unavailable");
+			}
+		};
+		return { calls, inserter };
+	}
+
+	test("a batch retried under its original id repeats every table's token", async () => {
+		const batch = {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			batch_id: "batch-1",
+			rows,
+		};
+		// First attempt: one table lands, the sibling fails, so the sender re-posts
+		// the whole batch — the landed table included.
+		const attempt = recordingInserter("market_data.cex_ohlcv");
+		const first = await handleArchiveBatch(attempt.inserter, batch);
+		expect(first.inserted).toBe(1);
+		expect(first.failedTables).toEqual(["market_data.cex_ohlcv"]);
+
+		const retry = recordingInserter();
+		await handleArchiveBatch(retry.inserter, batch);
+
+		expect(retry.calls).toEqual(attempt.calls);
+		expect(
+			retry.calls.every((call) => /^[a-f0-9]{64}$/.test(call.token ?? "")),
+		).toBe(true);
+		// Distinct tables in one batch must not share a token, or the second
+		// insert of the batch would be discarded as a repeat of the first.
+		expect(new Set(retry.calls.map((call) => call.token)).size).toBe(2);
+	});
+
+	test("a different batch id produces different tokens for the same rows", async () => {
+		const first = recordingInserter();
+		await handleArchiveBatch(first.inserter, {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			batch_id: "batch-1",
+			rows,
+		});
+		const second = recordingInserter();
+		await handleArchiveBatch(second.inserter, {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			batch_id: "batch-2",
+			rows,
+		});
+
+		expect(second.calls.map(({ token }) => token)).not.toEqual(
+			first.calls.map(({ token }) => token),
+		);
+	});
+
+	test("a sender that claims no retry identity inserts without a token", async () => {
+		const { calls, inserter } = recordingInserter();
+		await handleArchiveBatch(inserter, {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			rows,
+		});
+		expect(calls.map(({ token }) => token)).toEqual([undefined, undefined]);
+	});
+
+	test("a blank batch id is rejected rather than silently losing deduplication", () => {
+		expect(
+			parseArchiveBatchRequest({
+				source: "broker_write",
+				deployment_id: "deploy-1",
+				batch_id: "   ",
+				rows,
+			}).ok,
+		).toBe(false);
+		expect(
+			parseArchiveBatchRequest({
+				source: "broker_write",
+				deployment_id: "deploy-1",
+				batch_id: 7,
+				rows,
+			}).ok,
+		).toBe(false);
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			batch_id: "batch-1",
+			rows,
+		});
+		expect(parsed.ok && parsed.batch.batch_id).toBe("batch-1");
+	});
+});
+
 describe("archive forwarder schema init", () => {
+	test("every market_data table the forwarder writes carries the dedup window", async () => {
+		// Without this setting on the table, the retry tokens are accepted and
+		// ignored, and a redelivered batch duplicates silently.
+		const statements: string[] = [];
+		const client = {
+			command: async ({ query }: { query: string }) => {
+				statements.push(query);
+			},
+		} as unknown as ClickHouseClient;
+
+		await ensureArchiveSchema(client);
+
+		const marketDataTables = SUPPORTED_TABLES.filter((table) =>
+			table.startsWith("market_data."),
+		);
+		for (const table of marketDataTables) {
+			const applied = statements.some(
+				(query) =>
+					query.includes(table) &&
+					/MODIFY SETTING non_replicated_deduplication_window = 1000000/.test(
+						query,
+					),
+			);
+			expect(`${table}:${applied}`).toBe(`${table}:true`);
+		}
+	});
+
 	test("ensureArchiveSchema applies every archive database from its SQL files", async () => {
 		const statements: string[] = [];
 		const client = {

@@ -1665,16 +1665,20 @@ describe("broker execution archiver queue", () => {
 		}
 	});
 
-	test("keeps the queue within maxQueueSize when a failed batch is requeued after refill", async () => {
+	test("holds a failed batch outside the bounded queue and redelivers it under its original id", async () => {
 		// Gate the forwarder so a batch stays in flight while new rows refill the
-		// queue, then fail it — the classic over-cap window for the requeue path.
+		// queue, then fail it. The failed rows must survive the refill without
+		// pushing the queue past its bound, and must go back out unchanged.
 		let releasePost: () => void = () => {};
 		const postGate = new Promise<void>((resolve) => {
 			releasePost = resolve;
 		});
+		let status = 503;
 		const server = await startForwarderServer(async () => {
-			await postGate;
-			return { status: 503 };
+			if (status === 503) {
+				await postGate;
+			}
+			return { status };
 		});
 		try {
 			const archiver = BrokerExecutionArchiver.create({
@@ -1708,9 +1712,24 @@ describe("broker execution archiver queue", () => {
 			releasePost();
 			await flushPromise;
 
-			// Without bound enforcement this would be 6 (3 refill + 3 requeued).
-			expect(archiver.getQueueDepth()).toBe(3);
-			expect(archiver.getStats().shed).toBeGreaterThanOrEqual(3);
+			// The failed rows are held aside, so all six are still pending and the
+			// refill cost nothing — the old requeue shed three of them here.
+			expect(archiver.getQueueDepth()).toBe(6);
+			expect(archiver.getStats().shed).toBe(0);
+
+			// The bound still governs the queue itself: the next arrival sheds.
+			archiver.enqueue(row("7"));
+			expect(archiver.getStats().shed).toBe(1);
+
+			status = 200;
+			await archiver.flush();
+			await archiver.flush();
+			expect(archiver.getQueueDepth()).toBe(0);
+
+			// The retry re-posts the original rows under the original batch id.
+			const [firstPost, retryPost] = server.requests;
+			expect(retryPost?.body.batch_id).toBe(firstPost?.body.batch_id);
+			expect(retryPost?.body.rows).toEqual(firstPost?.body.rows);
 
 			await archiver.close();
 		} finally {
@@ -1987,6 +2006,9 @@ describe("broker execution archiver queue", () => {
 			expect(beforeSuccessHealthCalls).not.toEqual(
 				expect.arrayContaining([expect.objectContaining({ value: 1 })]),
 			);
+			// First flush redelivers the held batch, second drains what arrived
+			// during the outage.
+			await archiver.flush();
 			await archiver.flush();
 			const recovered = archiver.getHealthSnapshot();
 			expect(recovered.healthy).toBe(true);
@@ -2055,6 +2077,12 @@ describe("broker execution archiver queue", () => {
 			});
 			archiver.enqueue({
 				table: "broker_execution.order_events",
+				row: { order_id: "same-ms-retained-2" },
+			});
+			// The failed batch is held outside the queue, so saturation is reached by
+			// arrivals alone — one more enqueue is what sheds.
+			archiver.enqueue({
+				table: "broker_execution.order_events",
 				row: { order_id: "same-ms-shed" },
 			});
 			const shed = archiver.getHealthSnapshot();
@@ -2063,6 +2091,7 @@ describe("broker execution archiver queue", () => {
 			expect(shed.shed_total).toBe(1);
 
 			status = 200;
+			await archiver.flush();
 			await archiver.flush();
 			const recovered = archiver.getHealthSnapshot();
 			expect(recovered.healthy).toBe(true);
