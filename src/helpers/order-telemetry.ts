@@ -1,3 +1,6 @@
+// Imported from the row builder module rather than the package barrel: the
+// barrel pulls in capture.ts, which imports this module at runtime.
+import { normalizeTimestamp } from "./broker-execution-archive/rows";
 import { log } from "./logger";
 import type { OtelMetrics } from "./otel";
 import { REDACTED_ERROR_MESSAGE } from "./shared/errors";
@@ -300,18 +303,6 @@ function computeAveragePrice(
 		return undefined;
 	}
 	return executedQuoteQuantity / executedBaseQuantity;
-}
-
-function normalizeTimestamp(value: unknown): string | undefined {
-	if (typeof value === "string" && value.trim()) {
-		return value.trim();
-	}
-	const timestamp = firstNumber(value);
-	if (timestamp === undefined) {
-		return undefined;
-	}
-	const date = new Date(timestamp);
-	return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
 function getFees(record: JsonRecord | undefined, info: JsonRecord | undefined) {
