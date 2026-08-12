@@ -15,6 +15,8 @@ import {
 	type SubscribeArchiveType,
 	type TransferEventKind,
 	type TransferLifecycleAction,
+	USER_ASSET_BALANCE_SCOPE,
+	USER_ASSET_PRECISION_BASIS,
 } from "./types";
 
 type BalanceQuantityMap = Record<string, string>;
@@ -246,6 +248,154 @@ export function buildAccountBalanceSnapshotRow(input: {
 			aggregate_total_map_present: Number(balance.totalMapPresent),
 			precision_basis: ACCOUNT_BALANCE_PRECISION_BASIS,
 		}),
+	};
+}
+
+// -----------------------------------------------------------------------------
+// Binance user-asset snapshot (sapi getUserAsset)
+// -----------------------------------------------------------------------------
+
+export type NormalizedUserAssets = {
+	reportedAssets: string[];
+	incompleteAssets: string[];
+	freeBalances: BalanceQuantityMap;
+	lockedBalances: BalanceQuantityMap;
+	freezeBalances: BalanceQuantityMap;
+	withdrawingBalances: BalanceQuantityMap;
+};
+
+const USER_ASSET_BUCKETS = {
+	freeBalances: "free",
+	lockedBalances: "locked",
+	freezeBalances: "freeze",
+	withdrawingBalances: "withdrawing",
+} as const;
+
+// The venue sends decimal strings. Keep them verbatim (only trimmed) so the
+// stored quantity is venue-raw, and reject anything non-numeric rather than
+// coercing it — a NaN written as "0" would silently erase owned funds.
+function userAssetQuantity(value: unknown): string | undefined {
+	if (typeof value === "number") {
+		return decimalString(value);
+	}
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	if (!trimmed || !Number.isFinite(Number(trimmed))) {
+		return undefined;
+	}
+	return trimmed;
+}
+
+/**
+ * Normalizes a `POST /sapi/v3/asset/getUserAsset` response into one coherent
+ * snapshot.
+ *
+ * Fails closed on a response shape we cannot account for: a non-array body or a
+ * duplicate/unkeyed asset entry would each drop owned quantity on the floor, and
+ * an under-counted NAV is worse than an absent one. Per-bucket uncertainty is
+ * narrower and is reported rather than thrown: the asset is listed in
+ * `incompleteAssets` and its key is left out of the bucket map, so a reader sees
+ * "unknown", never an implicit zero.
+ */
+export function normalizeBinanceUserAssetsForArchive(
+	response: unknown,
+): NormalizedUserAssets {
+	if (!Array.isArray(response)) {
+		throw new Error(
+			"binance_user_asset_malformed_response: getUserAsset did not return an array",
+		);
+	}
+
+	const reportedAssets: string[] = [];
+	const incompleteAssets: string[] = [];
+	const maps: Record<keyof typeof USER_ASSET_BUCKETS, BalanceQuantityMap> = {
+		freeBalances: {},
+		lockedBalances: {},
+		freezeBalances: {},
+		withdrawingBalances: {},
+	};
+
+	for (const entry of response) {
+		const record = asRecord(entry);
+		const asset =
+			typeof record?.asset === "string" ? record.asset.trim() : undefined;
+		if (!record || !asset) {
+			throw new Error(
+				"binance_user_asset_malformed_response: getUserAsset entry has no asset key",
+			);
+		}
+		if (reportedAssets.includes(asset)) {
+			throw new Error(
+				`binance_user_asset_malformed_response: getUserAsset returned duplicate entries for ${asset}`,
+			);
+		}
+		reportedAssets.push(asset);
+
+		let complete = true;
+		for (const [field, venueKey] of Object.entries(USER_ASSET_BUCKETS) as Array<
+			[keyof typeof USER_ASSET_BUCKETS, string]
+		>) {
+			const quantity = userAssetQuantity(record[venueKey]);
+			if (quantity === undefined) {
+				complete = false;
+				continue;
+			}
+			maps[field][asset] = quantity;
+		}
+		if (!complete) {
+			incompleteAssets.push(asset);
+		}
+	}
+
+	return {
+		reportedAssets: reportedAssets.sort(),
+		incompleteAssets: incompleteAssets.sort(),
+		freeBalances: sortedBalanceMap(maps.freeBalances),
+		lockedBalances: sortedBalanceMap(maps.lockedBalances),
+		freezeBalances: sortedBalanceMap(maps.freezeBalances),
+		withdrawingBalances: sortedBalanceMap(maps.withdrawingBalances),
+	};
+}
+
+export function buildUserAssetSnapshotRow(input: {
+	tags: BrokerArchiveCommonTags;
+	userAssets: NormalizedUserAssets;
+}): BrokerArchiveRow {
+	const { tags, userAssets } = input;
+	const observationId = createHash("sha256")
+		.update(
+			JSON.stringify({
+				deployment_id: tags.deployment_id,
+				exchange: tags.exchange,
+				account_selector: tags.account_selector,
+				balance_scope: USER_ASSET_BALANCE_SCOPE,
+				broker_observed_timestamp: tags.broker_observed_timestamp,
+				userAssets,
+			}),
+		)
+		.digest("hex");
+
+	return {
+		table: "broker_account.user_asset_snapshots",
+		row: {
+			broker_observed_timestamp: tags.broker_observed_timestamp,
+			source: tags.source,
+			deployment_id: tags.deployment_id,
+			schema_version: ARCHIVE_SCHEMA_VERSION,
+			exchange: tags.exchange,
+			account_selector: tags.account_selector,
+			balance_scope: USER_ASSET_BALANCE_SCOPE,
+			observation_id: observationId,
+			reported_assets: userAssets.reportedAssets,
+			incomplete_assets: userAssets.incompleteAssets,
+			free_balances: userAssets.freeBalances,
+			locked_balances: userAssets.lockedBalances,
+			freeze_balances: userAssets.freezeBalances,
+			withdrawing_balances: userAssets.withdrawingBalances,
+			precision_basis: USER_ASSET_PRECISION_BASIS,
+		},
 	};
 }
 

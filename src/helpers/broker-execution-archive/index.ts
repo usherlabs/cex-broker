@@ -20,10 +20,13 @@ export {
 	buildOrderEventArchiveRow,
 	buildSubscribeStreamArchiveRow,
 	buildTransferEventArchiveRow,
+	buildUserAssetSnapshotRow,
 	extractBinanceInternalTransferId,
 	type FillArchiveFields,
 	type NormalizedCcxtBalance,
 	type NormalizedCcxtTransfer,
+	type NormalizedUserAssets,
+	normalizeBinanceUserAssetsForArchive,
 	normalizeCcxtBalanceForArchive,
 	normalizeCcxtTradeForArchive,
 	normalizeCcxtTransactionForArchive,
@@ -44,6 +47,8 @@ export {
 	type SubscribeArchiveType,
 	type TransferEventKind,
 	type TransferLifecycleAction,
+	USER_ASSET_BALANCE_SCOPE,
+	USER_ASSET_PRECISION_BASIS,
 } from "./types";
 export {
 	DEFAULT_WITHDRAWAL_OBSERVATION_TRACKER_MAX_ENTRIES,

@@ -36,6 +36,7 @@ import {
 	StreamHealthPublisher,
 	streamHealthPublisherConfigFromEnv,
 } from "./helpers/stream-health-publisher";
+import { UserAssetArchivePoller } from "./helpers/user-asset-archive-poller";
 import { UserDataStreamSupervisor } from "./helpers/user-data-stream-supervisor";
 import { getServer } from "./server";
 import {
@@ -77,6 +78,7 @@ export default class CEXBroker {
 	private fillArchivePoller?: FillArchivePoller;
 	private depositArchivePoller?: DepositArchivePoller;
 	private accountBalanceArchivePoller?: AccountBalanceArchivePoller;
+	private userAssetArchivePoller?: UserAssetArchivePoller;
 	private userDataStreamSupervisor?: UserDataStreamSupervisor;
 
 	/**
@@ -310,6 +312,10 @@ export default class CEXBroker {
 			await this.accountBalanceArchivePoller.stop();
 			this.accountBalanceArchivePoller = undefined;
 		}
+		if (this.userAssetArchivePoller) {
+			await this.userAssetArchivePoller.stop();
+			this.userAssetArchivePoller = undefined;
+		}
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
@@ -360,6 +366,10 @@ export default class CEXBroker {
 		if (this.accountBalanceArchivePoller) {
 			await this.accountBalanceArchivePoller.stop();
 			this.accountBalanceArchivePoller = undefined;
+		}
+		if (this.userAssetArchivePoller) {
+			await this.userAssetArchivePoller.stop();
+			this.userAssetArchivePoller = undefined;
 		}
 		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
 
@@ -446,6 +456,16 @@ export default class CEXBroker {
 				metrics: this.otelMetrics,
 			});
 			this.accountBalanceArchivePoller.start();
+
+			// Same durability gate and cadence family, separate poller: the sapi
+			// user-asset read is the only source for travel-rule-frozen funds, and
+			// must not share a failure with the spot balance snapshot.
+			this.userAssetArchivePoller = new UserAssetArchivePoller({
+				brokers: this.brokers,
+				archiver: this.brokerArchiver,
+				metrics: this.otelMetrics,
+			});
+			this.userAssetArchivePoller.start();
 		}
 		return this;
 	}

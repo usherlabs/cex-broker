@@ -68,7 +68,13 @@ describe("archive E2E immutable baseline", () => {
 			SUPPORTED_TABLES.filter(
 				(table) => !(BASELINE_TABLES as readonly string[]).includes(table),
 			),
-		).toEqual([...CANONICAL_BASE_TABLES, "broker_stream_health.snapshots"]);
+		).toEqual([
+			...CANONICAL_BASE_TABLES,
+			// Landed after the immutable baseline was cut, so it is outside the
+			// frozen inventory until the fixture is regenerated.
+			"broker_account.user_asset_snapshots",
+			"broker_stream_health.snapshots",
+		]);
 		const marketSchema = await Bun.file(
 			new URL("../schema/clickhouse/market_data.sql", import.meta.url),
 		).text();
