@@ -32,6 +32,8 @@ import {
 	buildOrderEventArchiveRow,
 	buildSubscribeStreamArchiveRow,
 	buildTransferEventArchiveRow,
+	buildUserAssetSnapshotRow,
+	normalizeBinanceUserAssetsForArchive,
 	normalizeCcxtBalanceForArchive,
 	normalizeCcxtTradeForArchive,
 	normalizeCcxtTransactionForArchive,
@@ -470,6 +472,94 @@ describe("broker execution archive rows", () => {
 		const second = buildAccountBalanceSnapshotRow({ tags, balance });
 
 		expect(first.row.observation_id).toBe(second.row.observation_id);
+	});
+
+	test("exposes the travel-rule freeze bucket as its own column with venue-raw quantities", () => {
+		const userAssets = normalizeBinanceUserAssetsForArchive([
+			{
+				asset: "USDC",
+				free: "12.34000000",
+				locked: "0",
+				freeze: "118.50000000",
+				withdrawing: "0",
+				ipoable: "0",
+				btcValuation: "0.00000000",
+			},
+		]);
+		const row = buildUserAssetSnapshotRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				accountSelector: "primary",
+				exchange: "binance",
+				brokerObservedTimestamp: "2026-08-12T12:00:00.000Z",
+			}),
+			userAssets,
+		});
+
+		expect(row.table).toBe("broker_account.user_asset_snapshots");
+		expect(row.row).toMatchObject({
+			broker_observed_timestamp: "2026-08-12T12:00:00.000Z",
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			schema_version: "1",
+			exchange: "binance",
+			account_selector: "primary",
+			balance_scope: "user_asset",
+			reported_assets: ["USDC"],
+			incomplete_assets: [],
+			// Venue strings kept verbatim, never re-rendered through a JS number.
+			free_balances: { USDC: "12.34000000" },
+			locked_balances: { USDC: "0" },
+			freeze_balances: { USDC: "118.50000000" },
+			withdrawing_balances: { USDC: "0" },
+			precision_basis: "venue_raw_string",
+		});
+		expect(row.row.observation_id).toMatch(/^[a-f0-9]{64}$/);
+		// The endpoint carries no venue timestamp; none is invented.
+		expect(row.row).not.toHaveProperty("exchange_timestamp");
+	});
+
+	test("reports an unreadable bucket as unknown rather than as zero", () => {
+		const userAssets = normalizeBinanceUserAssetsForArchive([
+			{ asset: "USDC", free: "1", locked: "0", withdrawing: "0" },
+			{ asset: "BTC", free: "0", locked: "0", freeze: "", withdrawing: "0" },
+		]);
+
+		expect(userAssets.incompleteAssets).toEqual(["BTC", "USDC"]);
+		expect(userAssets.reportedAssets).toEqual(["BTC", "USDC"]);
+		expect(userAssets.freezeBalances).toEqual({});
+		expect(userAssets.freeBalances).toEqual({ BTC: "0", USDC: "1" });
+	});
+
+	test("fails closed on a getUserAsset response whose owned quantity cannot be accounted for", () => {
+		expect(() => normalizeBinanceUserAssetsForArchive({ assets: [] })).toThrow(
+			"binance_user_asset_malformed_response",
+		);
+		expect(() =>
+			normalizeBinanceUserAssetsForArchive([{ free: "1", freeze: "2" }]),
+		).toThrow("binance_user_asset_malformed_response");
+		expect(() =>
+			normalizeBinanceUserAssetsForArchive([
+				{ asset: "USDC", freeze: "1" },
+				{ asset: "USDC", freeze: "2" },
+			]),
+		).toThrow("binance_user_asset_malformed_response");
+	});
+
+	test("derives a stable user-asset observation id from the complete normalized observation", () => {
+		const userAssets = normalizeBinanceUserAssetsForArchive([
+			{ asset: "USDC", free: "1", locked: "0", freeze: "0", withdrawing: "0" },
+		]);
+		const tags = buildCommonArchiveTags({
+			deploymentId: "deploy-a",
+			accountSelector: "primary",
+			exchange: "binance",
+			brokerObservedTimestamp: "2026-08-12T12:00:00.000Z",
+		});
+
+		expect(
+			buildUserAssetSnapshotRow({ tags, userAssets }).row.observation_id,
+		).toBe(buildUserAssetSnapshotRow({ tags, userAssets }).row.observation_id);
 	});
 
 	test("builds order event rows tagged for broker_execution.order_events", () => {

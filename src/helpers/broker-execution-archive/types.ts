@@ -5,7 +5,8 @@ export type BrokerArchiveSource =
 	| typeof BROKER_WRITE_SOURCE;
 
 // Bumped only on a breaking broker archive column-shape change. Stamped onto
-// transfer, fill, and account-balance rows so a reader can identify their layout.
+// transfer, fill, account-balance, and user-asset rows so a reader can identify
+// their layout.
 export const ARCHIVE_SCHEMA_VERSION = "1" as const;
 
 export type BrokerArchiveTable =
@@ -14,6 +15,7 @@ export type BrokerArchiveTable =
 	| "broker_execution.transfer_events"
 	| "broker_execution.fill_events"
 	| "broker_account.balance_snapshots"
+	| "broker_account.user_asset_snapshots"
 	| "market_data.orderbook_snapshots"
 	| "market_data.candles"
 	| "market_data.cex_stream_events"
@@ -64,3 +66,12 @@ export const FILL_EVENT_KIND = "trade_history_fill" as const;
 export const ACCOUNT_BALANCE_SCOPE = "spot" as const;
 export const ACCOUNT_BALANCE_PRECISION_BASIS =
 	"ccxt_normalized_number" as const;
+
+// Second account-balance scope, from Binance's sapi getUserAsset endpoint. It is
+// a sibling of the "spot" scope, not a replacement: it is the only read that
+// exposes the travel-rule freeze bucket, but it covers fewer venues and returns
+// no venue timestamp.
+export const USER_ASSET_BALANCE_SCOPE = "user_asset" as const;
+// Unlike the fetchBalance scope, these quantities are the venue's own decimal
+// strings, never round-tripped through a JavaScript number.
+export const USER_ASSET_PRECISION_BASIS = "venue_raw_string" as const;
