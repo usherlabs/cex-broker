@@ -8,6 +8,7 @@
 --   {
 --     "source": "broker_write",
 --     "deployment_id": "<deployment>",
+--     "batch_id": "<stable across retries of these exact rows>",
 --     "rows": [{ "table": "<fully.qualified.table>", "row": { ...columns } }]
 --   }
 --
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS market_data.orderbook_snapshots
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
 ORDER BY (exchange, asset_type, symbol, event_time_ms)
-TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY;
+TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY
+SETTINGS non_replicated_deduplication_window = 1000000;
 
 -- Every legacy market-data producer has emitted this common archive tag since
 -- the pre-canonical baseline. Add it idempotently so fresh and upgraded schemas
@@ -129,7 +131,8 @@ CREATE TABLE IF NOT EXISTS market_data.candles
 )
 ENGINE = ReplacingMergeTree(broker_version)
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(open_time_ms))
-ORDER BY (exchange, asset_type, symbol, timeframe, open_time_ms);
+ORDER BY (exchange, asset_type, symbol, timeframe, open_time_ms)
+SETTINGS non_replicated_deduplication_window = 1000000;
 
 ALTER TABLE market_data.candles ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
@@ -160,7 +163,8 @@ CREATE TABLE IF NOT EXISTS market_data.cex_stream_events
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
 ORDER BY (exchange, asset_type, symbol, stream_type, event_time_ms)
-TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY;
+TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY
+SETTINGS non_replicated_deduplication_window = 1000000;
 
 ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
@@ -195,7 +199,8 @@ CREATE TABLE IF NOT EXISTS market_data.cex_ticker_events
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
 ORDER BY (exchange, asset_type, symbol, event_time_ms)
-TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY;
+TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY
+SETTINGS non_replicated_deduplication_window = 1000000;
 
 ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
@@ -223,7 +228,8 @@ CREATE TABLE IF NOT EXISTS market_data.cex_trades
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
 ORDER BY (exchange, asset_type, symbol, event_time_ms, trade_id)
-TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY;
+TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY
+SETTINGS non_replicated_deduplication_window = 1000000;
 
 ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
@@ -317,7 +323,7 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(source_time_ms))
 ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version, side, level_index)
 TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
-SETTINGS allow_nullable_key = 1;
+SETTINGS allow_nullable_key = 1, non_replicated_deduplication_window = 1000000;
 
 CREATE TABLE IF NOT EXISTS market_data.cex_order_book_depth_summary
 (
@@ -365,7 +371,7 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(source_time_ms))
 ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version)
 TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
-SETTINGS allow_nullable_key = 1;
+SETTINGS allow_nullable_key = 1, non_replicated_deduplication_window = 1000000;
 
 CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_conflicts AS
 SELECT
@@ -470,9 +476,32 @@ CREATE TABLE IF NOT EXISTS market_data.cex_ohlcv
 ENGINE = ReplacingMergeTree(broker_version)
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(open_time_ms))
 ORDER BY (exchange, trading_pair, timeframe, open_time_ms, schema_version)
-SETTINGS allow_nullable_key = 1;
+SETTINGS allow_nullable_key = 1, non_replicated_deduplication_window = 1000000;
 
 CREATE VIEW IF NOT EXISTS market_data.cex_ohlcv_closed AS
 SELECT *
 FROM market_data.cex_ohlcv FINAL
 WHERE is_closed = 1;
+
+-- Insert deduplication for the forwarder's retry path. A batch the forwarder
+-- could not fully commit is re-posted verbatim under its original id, so the
+-- tables that already landed are inserted again; each insert carries a token
+-- derived from that id, and this window is what makes ClickHouse recognise the
+-- token and skip the repeat. Existing deployments pick it up here, since the
+-- CREATE statements above are no-ops once the tables exist.
+ALTER TABLE market_data.orderbook_snapshots
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.candles
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_stream_events
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_ticker_events
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_trades
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_order_book_levels
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_order_book_depth_summary
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_ohlcv
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;

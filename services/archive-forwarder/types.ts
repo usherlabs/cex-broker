@@ -6,6 +6,13 @@ export type ArchiveRow = {
 export type ArchiveBatchRequest = {
 	source: string;
 	deployment_id: string;
+	/**
+	 * Retry identity of this batch: the same rows re-posted after a failure carry
+	 * the same id, so the forwarder can make the re-insert a no-op. Transport
+	 * metadata — it never reaches a row, and a sender that cannot keep an id
+	 * stable across its retries must omit it rather than send a fresh one.
+	 */
+	batch_id?: string;
 	rows: ArchiveRow[];
 };
 

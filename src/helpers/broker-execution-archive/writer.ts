@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { closeSync, fsyncSync, openSync, writeSync } from "node:fs";
 import {
 	type ClientRequest,
@@ -81,8 +82,16 @@ const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_FLUSH_INTERVAL_MS = 1_000;
 const DEFAULT_FORWARDER_TIMEOUT_MS = 3_000;
 const SHED_WARN_INTERVAL_MS = 60_000;
+// A pinned batch is retried verbatim, so a batch the forwarder rejects for its
+// own content (an unknown table after a version skew, say) would otherwise pin
+// the archive plane behind it forever. Give up after this many attempts and
+// journal it, the same terms every other undeliverable row gets.
+const MAX_PINNED_BATCH_ATTEMPTS = 10;
 
-type ArchiveLossReason = "queue_shed" | "shutdown_forwarder_failure";
+type ArchiveLossReason =
+	| "queue_shed"
+	| "shutdown_forwarder_failure"
+	| "retry_exhausted";
 
 type ArchiveLossRecord = {
 	timestamp: string;
@@ -93,6 +102,20 @@ type ArchiveLossRecord = {
 };
 
 type QueuedArchiveRow = BrokerArchiveRow;
+
+/**
+ * A batch the forwarder did not accept, held aside instead of being pushed back
+ * into the queue. The retry must re-post byte-identical rows under the same
+ * `batchId`: that pair is what lets the forwarder recognise the re-post and skip
+ * the tables that already landed before a sibling table failed. Rows mixed back
+ * into the queue could not offer that — new arrivals and the oldest-first shed
+ * both reshape the next batch.
+ */
+type PinnedRetryBatch = {
+	batchId: string;
+	rows: QueuedArchiveRow[];
+	attempts: number;
+};
 
 const MARKET_FEEDS = new Set(["ORDERBOOK", "TICKER", "TRADES", "OHLCV"]);
 
@@ -158,6 +181,7 @@ export class BrokerExecutionArchiver {
 		flushed: 0,
 		forwarderFailures: 0,
 	};
+	private pendingRetry: PinnedRetryBatch | null = null;
 	private flushTimer: ReturnType<typeof setInterval> | null = null;
 	private flushInFlight: Promise<void> | null = null;
 	private inFlightBatch: QueuedArchiveRow[] | null = null;
@@ -335,7 +359,11 @@ export class BrokerExecutionArchiver {
 	}
 
 	async flush(): Promise<void> {
-		if (!this.enabled || this.closed || this.queue.length === 0) {
+		if (
+			!this.enabled ||
+			this.closed ||
+			(this.queue.length === 0 && this.pendingRetry === null)
+		) {
 			return;
 		}
 		if (this.flushInFlight) {
@@ -373,16 +401,24 @@ export class BrokerExecutionArchiver {
 		}
 		let closeError: unknown;
 		try {
-			while (this.queue.length > 0 || this.flushInFlight) {
+			while (
+				this.pendingRetry !== null ||
+				this.queue.length > 0 ||
+				this.flushInFlight
+			) {
 				if (this.flushInFlight) {
 					await this.flushInFlight;
 					continue;
 				}
-				const depthBefore = this.queue.length;
-				const flushed = await this.flushBatch();
-				if (!flushed && this.queue.length >= depthBefore && depthBefore > 0) {
-					const undelivered = [...this.queue];
+				// No retry loop at shutdown: one failed attempt and everything still
+				// held — pinned batch first, then the queue — goes to the journal.
+				if (!(await this.flushBatch())) {
+					const undelivered = [
+						...(this.pendingRetry?.rows ?? []),
+						...this.queue,
+					];
 					this.appendLossRecords(undelivered, "shutdown_forwarder_failure");
+					this.pendingRetry = null;
 					this.queue.length = 0;
 					break;
 				}
@@ -407,8 +443,10 @@ export class BrokerExecutionArchiver {
 		return { ...this.stats };
 	}
 
+	// Pinned rows are undelivered too, so they count as depth even though they sit
+	// outside the queue and outside its bound.
 	getQueueDepth(): number {
-		return this.queue.length;
+		return this.queue.length + (this.pendingRetry?.rows.length ?? 0);
 	}
 
 	getHealthSnapshot(): Readonly<BrokerExecutionArchiveHealthSnapshot> {
@@ -439,7 +477,9 @@ export class BrokerExecutionArchiver {
 
 		return {
 			healthy,
-			queue_depth: this.queue.length,
+			// Reported depth includes pinned rows; the saturation check above stays
+			// on the queue proper, which is the only part the bound governs.
+			queue_depth: this.getQueueDepth(),
 			oldest_pending_age_ms: oldestPendingAgeMs,
 			shed_total: this.stats.shed,
 			last_failure_at: this.lastFailureAtMs,
@@ -454,6 +494,13 @@ export class BrokerExecutionArchiver {
 
 	private oldestPendingEnqueueAtMs(): number | null {
 		let oldest: number | null = null;
+		for (const entry of this.pendingRetry?.rows ?? []) {
+			const enqueuedAtMs = this.enqueueTimes.get(entry);
+			if (enqueuedAtMs === undefined) {
+				continue;
+			}
+			oldest = oldest === null ? enqueuedAtMs : Math.min(oldest, enqueuedAtMs);
+		}
 		for (const entry of this.queue) {
 			const enqueuedAtMs = this.enqueueTimes.get(entry);
 			if (enqueuedAtMs === undefined) {
@@ -567,32 +614,6 @@ export class BrokerExecutionArchiver {
 		}
 	}
 
-	// Drop oldest rows until the queue is within maxQueueSize, counting each into
-	// the shed stat/metric. Mirrors the enqueue-time shed policy for the requeue
-	// path, which can otherwise push the queue past the bound during an outage.
-	private enforceQueueBound(): void {
-		while (this.queue.length > this.maxQueueSize) {
-			const dropped = this.queue[0];
-			if (!dropped) {
-				return;
-			}
-			this.appendLossRecords([dropped], "queue_shed");
-			this.queue.shift();
-			this.stats.shed += 1;
-			this.recordHealthEvent("shed");
-			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
-				table: dropped.table,
-				source: this.source,
-				feed: archiveFeed(dropped),
-			});
-			void this.recordArchiveMetric("cex_archive_queue_saturated_rows_total", {
-				table: dropped.table,
-				source: this.source,
-				feed: archiveFeed(dropped),
-			});
-		}
-	}
-
 	private appendLossRecords(
 		rows: readonly BrokerArchiveRow[],
 		reason: ArchiveLossReason,
@@ -653,10 +674,14 @@ export class BrokerExecutionArchiver {
 	}
 
 	private async flushBatch(): Promise<boolean> {
-		const batch = this.queue.splice(0, this.batchSize);
+		// A pinned batch goes back out before anything newer, unchanged and under
+		// its original id, so the forwarder sees a retry rather than a new batch.
+		const pinned = this.pendingRetry;
+		const batch = pinned ? pinned.rows : this.queue.splice(0, this.batchSize);
 		if (batch.length === 0) {
 			return true;
 		}
+		const batchId = pinned?.batchId ?? randomUUID();
 		this.inFlightBatch = batch;
 		this.inFlightStartedAtMs = Date.now();
 
@@ -674,11 +699,11 @@ export class BrokerExecutionArchiver {
 
 		// The forwarder is the durable sink for every archive table it supports
 		// (market_data.*, broker_execution.*, broker_account.*, strategy_data.*).
-		// Requeue the whole batch on failure so nothing is silently dropped while a
+		// Pin the whole batch on failure so nothing is silently dropped while a
 		// forwarder is set.
 		if (this.forwarderUrl) {
 			try {
-				await this.postToForwarder(batch);
+				await this.postToForwarder(batch, batchId);
 			} catch (error) {
 				this.stats.forwarderFailures += 1;
 				this.recordHealthEvent("failure");
@@ -686,13 +711,18 @@ export class BrokerExecutionArchiver {
 					0,
 					Date.now() - (this.inFlightStartedAtMs ?? Date.now()),
 				);
-				// Re-apply the oldest-shed bound: the batch was spliced out before the
-				// post, so new rows may have refilled the queue while it was in flight.
-				// Prepending preserves the original order and timestamps. Requeueing can
-				// exceed maxQueueSize by up to batchSize, so trim the oldest entries.
-				this.queue.unshift(...batch);
+				const attempts = (pinned?.attempts ?? 0) + 1;
 				try {
-					this.enforceQueueBound();
+					if (attempts >= MAX_PINNED_BATCH_ATTEMPTS) {
+						this.pendingRetry = null;
+						this.appendLossRecords(batch, "retry_exhausted");
+						log.warn("Broker execution archive gave up on a batch", {
+							attempts,
+							rows: batch.length,
+						});
+					} else {
+						this.pendingRetry = { batchId, rows: batch, attempts };
+					}
 				} finally {
 					this.clearInFlightBatch(batch);
 					this.emitArchiveHealthMetrics();
@@ -705,6 +735,7 @@ export class BrokerExecutionArchiver {
 			}
 		}
 
+		this.pendingRetry = null;
 		this.stats.flushed += batch.length;
 		this.recordHealthEvent("success");
 		this.lastSinkLatencyMs = Math.max(
@@ -817,13 +848,17 @@ export class BrokerExecutionArchiver {
 	// archive plane. node's request stays on the transport proven to work in the
 	// enclave. Same failure class and mitigation as resolveOnChainSender in
 	// travel-rule-deposit-reconciler.ts.
-	private postToForwarder(batch: BrokerArchiveRow[]): Promise<void> {
+	private postToForwarder(
+		batch: BrokerArchiveRow[],
+		batchId: string,
+	): Promise<void> {
 		if (!this.forwarderUrl || batch.length === 0) {
 			return Promise.resolve();
 		}
 		const body = JSON.stringify({
 			source: this.source,
 			deployment_id: this.deploymentId,
+			batch_id: batchId,
 			rows: batch,
 		});
 		const url = new URL(this.forwarderUrl);

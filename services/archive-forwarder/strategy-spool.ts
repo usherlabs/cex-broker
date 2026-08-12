@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
+import { archiveDedupeToken } from "./dedupe-token";
 import { groupRowsByTable } from "./insert";
 import type { StrategyArchiveTable } from "./strategy-contract";
 import type { ArchiveBatchRequest } from "./types";
@@ -99,12 +100,6 @@ type WorkRow = {
 
 function utf8Bytes(value: string): number {
 	return new TextEncoder().encode(value).byteLength;
-}
-
-function dedupeToken(batchId: string, table: string): string {
-	return createHash("sha256")
-		.update(`maker-archive-forwarder-v1\0${batchId}\0${table}`)
-		.digest("hex");
 }
 
 function groupedRows(batch: ArchiveBatchRequest) {
@@ -243,7 +238,7 @@ export class StrategyArchiveSpool {
 						batchId,
 						group.table,
 						group.rowsJson,
-						dedupeToken(batchId, group.table),
+						archiveDedupeToken(batchId, group.table),
 						admittedAtMs,
 					);
 			}
