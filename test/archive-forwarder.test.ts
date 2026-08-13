@@ -466,14 +466,31 @@ describe("archive forwarder retry deduplication", () => {
 		);
 	});
 
-	test("a sender that claims no retry identity inserts without a token", async () => {
-		const { calls, inserter } = recordingInserter();
-		await handleArchiveBatch(inserter, {
+	test("a sender that claims no retry identity gets unique per-attempt tokens", async () => {
+		// Token-less inserts are not exempt from deduplication: ClickHouse dedupes
+		// token-less blocks by content hash inside the window, collapsing
+		// legitimate byte-identical deliveries. A unique token per attempt keeps
+		// every delivery physically auditable.
+		const first = recordingInserter();
+		await handleArchiveBatch(first.inserter, {
 			source: "broker_write",
 			deployment_id: "deploy-1",
 			rows,
 		});
-		expect(calls.map(({ token }) => token)).toEqual([undefined, undefined]);
+		expect(
+			first.calls.every((call) => /^[a-f0-9]{64}$/.test(call.token ?? "")),
+		).toBe(true);
+		expect(new Set(first.calls.map(({ token }) => token)).size).toBe(2);
+
+		const second = recordingInserter();
+		await handleArchiveBatch(second.inserter, {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			rows,
+		});
+		expect(second.calls.map(({ token }) => token)).not.toEqual(
+			first.calls.map(({ token }) => token),
+		);
 	});
 
 	test("a blank batch id is rejected rather than silently losing deduplication", () => {

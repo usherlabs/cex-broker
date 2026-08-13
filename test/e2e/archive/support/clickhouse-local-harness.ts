@@ -46,7 +46,7 @@ export class ClickHouseLocalHarness {
 		this.rootDirectory = rootDirectory;
 		this.databasePath = join(rootDirectory, "database");
 		this.binaryPath = binaryPath;
-		this.inserter = (table, rows) => this.insert(table, rows);
+		this.inserter = (table, rows, options) => this.insert(table, rows, options);
 	}
 
 	public static async create(
@@ -129,10 +129,21 @@ export class ClickHouseLocalHarness {
 	private async insert(
 		table: SupportedTable,
 		rows: Record<string, unknown>[],
+		options?: { deduplicationToken?: string },
 	): Promise<void> {
 		if (rows.length === 0) return;
 		const input = `${rows.map((row) => JSON.stringify(row)).join("\n")}\n`;
-		await this.runSerialized(`INSERT INTO ${table} FORMAT JSONEachRow`, input);
+		// Mirror createClickHouseInserter: the token must reach ClickHouse, or the
+		// harness silently falls back to content-hash deduplication inside the
+		// dedup window — different physics than production, which defeats the
+		// duplicate-auditability regression. Tokens are sha256 hex, safe to inline.
+		const settings = options?.deduplicationToken
+			? ` SETTINGS insert_deduplication_token = '${options.deduplicationToken}'`
+			: "";
+		await this.runSerialized(
+			`INSERT INTO ${table}${settings} FORMAT JSONEachRow`,
+			input,
+		);
 	}
 
 	private runSerialized(
