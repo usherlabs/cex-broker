@@ -319,6 +319,25 @@ describe("broker execution archive redaction", () => {
 });
 
 describe("broker execution archive rows", () => {
+	test("includes optional trace_id on common archive tags", () => {
+		const tags = buildCommonArchiveTags({
+			deploymentId: "deploy-a",
+			accountSelector: "primary",
+			exchange: "binance",
+			symbol: "USDT",
+			brokerObservedTimestamp: "2026-07-14T12:00:00.000Z",
+			traceId: "trace-from-prover",
+		});
+		expect(tags.trace_id).toBe("trace-from-prover");
+
+		const withoutTrace = buildCommonArchiveTags({
+			deploymentId: "deploy-a",
+			accountSelector: "primary",
+			exchange: "binance",
+		});
+		expect(withoutTrace.trace_id).toBeUndefined();
+	});
+
 	test("builds one coherent spot balance row without reducing venue total for locked capital", () => {
 		const balance = normalizeCcxtBalanceForArchive({
 			timestamp: 1_784_000_000_123,

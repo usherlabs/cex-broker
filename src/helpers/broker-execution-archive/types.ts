@@ -37,6 +37,8 @@ export type BrokerArchiveCommonTags = {
 	exchange: string;
 	symbol: string;
 	broker_observed_timestamp: string;
+	/** Optional caller correlation ID (`x-trace-id`). */
+	trace_id?: string;
 };
 
 export type OrderArchiveAction =

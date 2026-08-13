@@ -44,6 +44,7 @@ export function archiveOrderExecutionInBackground(
 				exchange: context.cex,
 				symbol: telemetry.symbol,
 				brokerObservedTimestamp: telemetry.brokerObservedTimestamp,
+				traceId: context.traceId,
 			});
 			archiver.enqueue(
 				buildOrderEventArchiveRow({
@@ -73,6 +74,7 @@ export function archiveSubscribeStreamInBackground(
 		subscriptionType: SubscribeArchiveType;
 		streamPayload: unknown;
 		secretLiterals?: readonly string[];
+		traceId?: string;
 	},
 ): void {
 	if (!archiver?.isEnabled()) {
@@ -85,6 +87,7 @@ export function archiveSubscribeStreamInBackground(
 				accountSelector: input.accountSelector,
 				exchange: input.exchange,
 				symbol: input.symbol,
+				traceId: input.traceId,
 			});
 			archiver.enqueue(
 				buildSubscribeStreamArchiveRow({
@@ -111,6 +114,7 @@ export function archiveTransferEventInBackground(
 		assetSymbol?: string;
 		brokerObservedTimestamp?: string;
 		transfer: TransferArchiveFields;
+		traceId?: string;
 	},
 ): void {
 	if (!archiver?.isEnabled()) {
@@ -124,6 +128,7 @@ export function archiveTransferEventInBackground(
 				exchange: input.exchange,
 				symbol: input.assetSymbol,
 				brokerObservedTimestamp: input.brokerObservedTimestamp,
+				traceId: input.traceId,
 			});
 			archiver.enqueue(
 				buildTransferEventArchiveRow({ tags, transfer: input.transfer }),
@@ -142,6 +147,7 @@ export function archiveWithdrawalObservationsInBackground(
 		exchange: string;
 		accountSelector?: string;
 		transactions: unknown;
+		traceId?: string;
 	},
 ): void {
 	try {
@@ -168,6 +174,7 @@ export function archiveWithdrawalObservationsInBackground(
 				accountSelector: input.accountSelector,
 				assetSymbol,
 				brokerObservedTimestamp,
+				traceId: input.traceId,
 				transfer: {
 					eventKind: "withdrawal",
 					lifecycleAction: "observe_withdrawal",
@@ -207,6 +214,7 @@ export async function captureMarketMetadataSnapshot(
 		makerActionId?: string;
 		idempotencyId?: string;
 		brokerObservedTimestamp?: string;
+		traceId?: string;
 	},
 ): Promise<string | undefined> {
 	if (!archiver?.canPersistMarketMetadataSnapshot()) {
@@ -238,6 +246,7 @@ export async function captureMarketMetadataSnapshot(
 			exchange: input.exchange,
 			symbol: input.symbol,
 			brokerObservedTimestamp: input.brokerObservedTimestamp,
+			traceId: input.traceId,
 		});
 		const row = buildMarketMetadataSnapshotRow({
 			tags,

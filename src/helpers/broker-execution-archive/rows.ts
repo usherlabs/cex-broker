@@ -414,6 +414,7 @@ export function buildCommonArchiveTags(input: {
 	exchange: string;
 	symbol?: string;
 	brokerObservedTimestamp?: string;
+	traceId?: string;
 }): BrokerArchiveCommonTags {
 	return {
 		source: input.source ?? BROKER_WRITE_SOURCE,
@@ -423,6 +424,7 @@ export function buildCommonArchiveTags(input: {
 		symbol: input.symbol?.trim() || "unknown",
 		broker_observed_timestamp:
 			input.brokerObservedTimestamp ?? new Date().toISOString(),
+		trace_id: input.traceId,
 	};
 }
 

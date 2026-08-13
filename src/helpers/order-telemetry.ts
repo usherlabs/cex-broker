@@ -27,6 +27,8 @@ export type OrderTelemetryContext = {
 	idempotencyId?: string;
 	makerActionId?: string;
 	brokerObservedTimestamp?: string;
+	/** Optional caller correlation ID (`x-trace-id`). */
+	traceId?: string;
 };
 
 export type OrderExecutionTelemetry = {

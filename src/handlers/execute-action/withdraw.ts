@@ -44,6 +44,7 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 		verityProverUrl,
 		otelMetrics,
 		brokerArchiver,
+		traceId,
 	} = ctx;
 	const verityProof = verity.proof;
 
@@ -143,6 +144,7 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 			exchange: cex,
 			accountSelector: selectedBrokerAccount?.label,
 			assetSymbol: normalized.assetSymbol ?? symbol,
+			traceId,
 			transfer: {
 				eventKind: "withdrawal",
 				lifecycleAction: "submit_withdrawal",
@@ -176,6 +178,7 @@ export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 			exchange: cex,
 			accountSelector: selectedBrokerAccount?.label,
 			assetSymbol: symbol,
+			traceId,
 			transfer: {
 				eventKind: "withdrawal",
 				lifecycleAction: "submit_withdrawal",

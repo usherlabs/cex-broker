@@ -18,6 +18,7 @@ import type { OrderActivityTracker } from "../../helpers/order-activity-tracker"
 import { isOrderBookCallMethod } from "../../helpers/order-book";
 import type { OtelMetrics } from "../../helpers/otel";
 import { safeLogError } from "../../helpers/shared/errors";
+import { extractTraceId } from "../../helpers/trace-context";
 import {
 	buildHttpClientOverrideFromMetadata,
 	verityHttpClientOverridePredicate,
@@ -68,6 +69,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 		const startTime = Date.now();
 		const { action: rawAction, cex, symbol } = call.request;
 		const action = resolveAction(rawAction);
+		const traceId = extractTraceId(call.metadata);
 		let actionCompleted = false;
 
 		const wrappedCallback: grpc.sendUnaryData<ActionResponse> = (
@@ -78,34 +80,50 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				actionCompleted = true;
 				const latency = Date.now() - startTime;
 				const actionName = getActionName(action);
-				otelMetrics?.recordHistogram("execute_action_duration_ms", latency, {
+				const baseLabels: Record<string, string | number> = {
 					action: actionName,
 					cex: cex || "unknown",
-				});
+				};
+				if (traceId) {
+					baseLabels.trace_id = traceId;
+				}
+				otelMetrics?.recordHistogram(
+					"execute_action_duration_ms",
+					latency,
+					baseLabels,
+				);
 				if (error) {
 					otelMetrics?.recordCounter("execute_action_errors_total", 1, {
-						action: actionName,
-						cex: cex || "unknown",
+						...baseLabels,
 						error_type: error.code
 							? grpc.status[error.code] || "unknown"
 							: "unknown",
 					});
 				} else {
-					otelMetrics?.recordCounter("execute_action_success_total", 1, {
-						action: actionName,
-						cex: cex || "unknown",
-					});
+					otelMetrics?.recordCounter(
+						"execute_action_success_total",
+						1,
+						baseLabels,
+					);
 				}
 			}
 			callback(error, value);
 		};
 
 		try {
-			log.info(`Request - ExecuteAction:`, { action, cex, symbol });
-			otelMetrics?.recordCounter("execute_action_requests_total", 1, {
+			log.info(`Request - ExecuteAction:`, { action, cex, symbol, traceId });
+			const requestLabels: Record<string, string | number> = {
 				action: getActionName(action),
 				cex: cex || "unknown",
-			});
+			};
+			if (traceId) {
+				requestLabels.trace_id = traceId;
+			}
+			otelMetrics?.recordCounter(
+				"execute_action_requests_total",
+				1,
+				requestLabels,
+			);
 
 			if (!authenticateRequest(call, whitelistIps)) {
 				return wrappedCallback(
@@ -174,6 +192,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				policy,
 				brokers,
 				metadata,
+				traceId,
 				normalizedCex,
 				cex,
 				symbol,

@@ -30,6 +30,7 @@ export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
 		selectedBrokerAccount,
 		broker,
 		brokerArchiver,
+		traceId,
 	} = ctx;
 
 	if (!symbol) {
@@ -151,6 +152,7 @@ export async function handleDeposit(ctx: ExecuteActionContext): Promise<void> {
 				exchange: normalizedCex,
 				accountSelector: selectedBrokerAccount?.label,
 				assetSymbol: symbol,
+				traceId,
 				transfer: {
 					eventKind: "deposit",
 					lifecycleAction: "observe_deposit",

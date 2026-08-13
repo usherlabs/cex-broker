@@ -43,6 +43,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 		otelMetrics,
 		brokerArchiver,
 		orderActivityTracker,
+		traceId,
 	} = ctx;
 	const verityProof = verity.proof;
 
@@ -133,6 +134,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 				symbol: resolution.symbol,
 				action: "CreateOrder",
 				brokerObservedTimestamp: submissionTimestamp,
+				traceId,
 				...telemetryIds,
 			},
 		);
@@ -157,6 +159,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			requestedNotional: orderValue.amount * orderValue.price,
 			orderAuthor: orderValue.orderAuthor,
 			brokerObservedTimestamp: submissionTimestamp,
+			traceId,
 			...telemetryIds,
 		};
 		emitOrderExecutionTelemetryInBackground(
@@ -193,6 +196,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 				resolvedOrderTelemetry.requestedQuantity ?? orderValue.amount,
 			requestedNotional: orderValue.amount * orderValue.price,
 			orderAuthor: orderValue.orderAuthor,
+			traceId,
 			...extractOrderTelemetryIds(createOrderParams),
 		};
 		emitOrderExecutionTelemetryInBackground(
@@ -276,6 +280,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 			cex,
 			accountLabel: selectedBrokerAccount?.label,
 			symbol,
+			traceId: ctx.traceId,
 			...extractOrderTelemetryIds(getOrderValue.params),
 		};
 		emitOrderExecutionTelemetryInBackground(
@@ -307,6 +312,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 			cex,
 			accountLabel: selectedBrokerAccount?.label,
 			symbol,
+			traceId: ctx.traceId,
 			...extractOrderTelemetryIds(getOrderValue.params),
 		};
 		emitOrderExecutionTelemetryInBackground(
@@ -350,6 +356,7 @@ async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
 		otelMetrics,
 		brokerArchiver,
 		orderActivityTracker,
+		traceId,
 	} = ctx;
 	const verityProof = verity.proof;
 
@@ -370,6 +377,7 @@ async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
 			cex,
 			accountLabel: selectedBrokerAccount?.label,
 			symbol,
+			traceId,
 			...extractOrderTelemetryIds(cancelOrderValue.params),
 		};
 		const cancelledOrder = await broker.cancelOrder(
@@ -400,6 +408,7 @@ async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
 			cex,
 			accountLabel: selectedBrokerAccount?.label,
 			symbol,
+			traceId,
 			...extractOrderTelemetryIds(cancelOrderValue.params),
 		};
 		emitOrderExecutionTelemetryInBackground(

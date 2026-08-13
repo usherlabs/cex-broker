@@ -56,6 +56,8 @@ export interface OtelMetricsEnvOptions {
 const DEFAULT_SERVICE = "cex-broker";
 const DEFAULT_OTLP_PORT = 4318;
 const EXPORT_INTERVAL_MS = 5_000;
+/** Hard ceiling for a single OTLP HTTP export attempt. */
+const EXPORT_TIMEOUT_MS = 2_000;
 
 abstract class BaseOtelSignal<TProvider> {
 	private provider: TProvider | null = null;
@@ -113,19 +115,26 @@ abstract class BaseOtelSignal<TProvider> {
 		return this.isEnabled && this.provider !== null;
 	}
 
+	/**
+	 * Detach the provider immediately and shut it down in the background.
+	 * Never awaits collector I/O — a dead OTLP endpoint must not block stop().
+	 */
 	public async close(): Promise<void> {
-		if (!this.provider) {
+		const provider = this.provider;
+		if (!provider) {
 			return;
-		}
-		try {
-			await this.shutdownProvider(this.provider);
-			log.info(`OTel ${this.signal} provider shut down`);
-		} catch (error) {
-			log.error(`Error shutting down OTel ${this.signal} provider:`, error);
 		}
 		this.provider = null;
 		this.isEnabled = false;
 		this.onProviderClosed();
+
+		void this.shutdownProvider(provider)
+			.then(() => {
+				log.info(`OTel ${this.signal} provider shut down`);
+			})
+			.catch((error) => {
+				log.error(`Error shutting down OTel ${this.signal} provider:`, error);
+			});
 	}
 }
 
@@ -171,10 +180,12 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 	): MeterProviderType {
 		const exporter = new OTLPMetricExporter({
 			url: appendOtlpPath(endpoint, "metrics", appendSignalPath),
+			timeoutMillis: EXPORT_TIMEOUT_MS,
 		});
 		const reader = new PeriodicExportingMetricReader({
 			exporter,
 			exportIntervalMillis: EXPORT_INTERVAL_MS,
+			exportTimeoutMillis: EXPORT_TIMEOUT_MS,
 		});
 		const resource = resourceFromAttributes({
 			"service.name": serviceName,
@@ -362,8 +373,11 @@ export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
 	): LoggerProvider {
 		const exporter = new OTLPLogExporter({
 			url: appendOtlpPath(endpoint, "logs", appendSignalPath),
+			timeoutMillis: EXPORT_TIMEOUT_MS,
 		});
-		const processor = new BatchLogRecordProcessor(exporter);
+		const processor = new BatchLogRecordProcessor(exporter, {
+			exportTimeoutMillis: EXPORT_TIMEOUT_MS,
+		});
 		const resource = resourceFromAttributes({
 			"service.name": serviceName,
 		});
@@ -379,7 +393,9 @@ export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
 	}
 
 	protected shutdownProvider(provider: LoggerProvider): Promise<void> {
-		return provider.forceFlush().then(() => provider.shutdown());
+		// Do not forceFlush first — that blocks on the collector. shutdown()
+		// attempts a best-effort flush and must not gate process teardown.
+		return provider.shutdown();
 	}
 
 	protected override onProviderClosed(): void {

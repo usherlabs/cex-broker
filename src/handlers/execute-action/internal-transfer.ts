@@ -34,6 +34,7 @@ export async function handleInternalTransfer(
 		useVerity,
 		verityProverUrl,
 		brokerArchiver,
+		traceId,
 	} = ctx;
 
 	if (!symbol) {
@@ -117,6 +118,7 @@ export async function handleInternalTransfer(
 			exchange: normalizedCex,
 			accountSelector: fromSelector,
 			assetSymbol: symbol,
+			traceId,
 			transfer: {
 				eventKind: "internal_transfer",
 				lifecycleAction: "submit_internal_transfer",

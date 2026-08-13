@@ -46,6 +46,7 @@ import {
 } from "../../helpers/order-book";
 import type { OtelMetrics } from "../../helpers/otel";
 import { getErrorMessage } from "../../helpers/shared/errors";
+import { extractTraceId } from "../../helpers/trace-context";
 import type {
 	UserDataStreamSupervisor,
 	UserDataSubscription,
@@ -183,6 +184,7 @@ async function streamBinanceUserData(
 		accountSelector?: string;
 		deploymentId: string;
 		assetType: BrokerMarketType;
+		traceId?: string;
 	},
 	userDataSource?: UserDataSubscription,
 	knownMarketId?: string | null,
@@ -230,6 +232,7 @@ async function streamBinanceUserData(
 				symbol,
 				subscriptionType: archiveSubscriptionType,
 				streamPayload: event,
+				traceId: archiveContext?.traceId,
 			});
 			if (archiveContext) {
 				archiveCexStreamEventInBackground(
@@ -288,6 +291,7 @@ async function runCcxtSubscribeLoop(
 		deploymentId: string;
 		assetType: BrokerMarketType;
 		archiveSubscriptionType?: "ORDERS" | "BALANCE";
+		traceId?: string;
 	},
 ): Promise<void> {
 	while (!isClosed()) {
@@ -310,6 +314,7 @@ async function runCcxtSubscribeLoop(
 				symbol,
 				subscriptionType: archiveContext.archiveSubscriptionType,
 				streamPayload: data,
+				traceId: archiveContext.traceId,
 			});
 			archiveCexStreamEventInBackground(
 				archiveContext.archiver,
@@ -341,6 +346,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		deps.brokerLifecycle ?? new SubscribeBrokerLifecycle();
 	return async (call: SubscribeCall) => {
 		const subscribeStartTime = Date.now();
+		const traceId = extractTraceId(call.metadata);
 		let streamClosed = false;
 		let ownedBroker: Exchange | null = null;
 		let ownedBrokerClosePromise: Promise<unknown> | undefined;
@@ -364,31 +370,51 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		const closeOwnedBrokerOnCallEnd = () => {
 			void closeOwnedBroker();
 		};
+		const withTraceLabels = (
+			labels: Record<string, string | number>,
+		): Record<string, string | number> => {
+			if (traceId) {
+				return { ...labels, trace_id: traceId };
+			}
+			return labels;
+		};
 
 		call.once("cancelled", markStreamClosed);
 		call.once("cancelled", closeOwnedBrokerOnCallEnd);
 		call.once("error", closeOwnedBrokerOnCallEnd);
 		call.once("end", () => {
 			markStreamClosed();
-			log.info("Subscribe stream ended");
+			log.info("Subscribe stream ended", { traceId });
 			const duration = Date.now() - subscribeStartTime;
-			otelMetrics?.recordHistogram("subscribe_duration_ms", duration, {
-				cex: call.request?.cex || "unknown",
-				symbol: call.request?.symbol || "unknown",
-			});
+			otelMetrics?.recordHistogram(
+				"subscribe_duration_ms",
+				duration,
+				withTraceLabels({
+					cex: call.request?.cex || "unknown",
+					symbol: call.request?.symbol || "unknown",
+				}),
+			);
 		});
 		call.once("error", (error) => {
 			markStreamClosed();
 			log.error("Subscribe stream error:", error);
-			otelMetrics?.recordCounter("subscribe_errors_total", 1, {
-				error_type: error instanceof Error ? error.message : "unknown",
-			});
+			otelMetrics?.recordCounter(
+				"subscribe_errors_total",
+				1,
+				withTraceLabels({
+					error_type: error instanceof Error ? error.message : "unknown",
+				}),
+			);
 		});
 
 		if (!authenticateRequest(call, whitelistIps)) {
-			otelMetrics?.recordCounter("subscribe_errors_total", 1, {
-				error_type: "permission_denied",
-			});
+			otelMetrics?.recordCounter(
+				"subscribe_errors_total",
+				1,
+				withTraceLabels({
+					error_type: "permission_denied",
+				}),
+			);
 			call.emit(
 				"error",
 				{
@@ -415,14 +441,19 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				cex: request.cex,
 				symbol: request.symbol,
 				type: subscriptionType,
+				traceId,
 			});
 
 			const subscriptionTypeName = getSubscriptionTypeName(subscriptionType);
-			otelMetrics?.recordCounter("subscribe_requests_total", 1, {
-				cex: cex || "unknown",
-				symbol: symbol || "unknown",
-				type: subscriptionTypeName,
-			});
+			otelMetrics?.recordCounter(
+				"subscribe_requests_total",
+				1,
+				withTraceLabels({
+					cex: cex || "unknown",
+					symbol: symbol || "unknown",
+					type: subscriptionTypeName,
+				}),
+			);
 
 			if (!cex || !symbol) {
 				await writeSubscribeError(call, isStreamClosed, {
@@ -481,6 +512,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				accountSelector: selectedBrokerAccount?.label,
 				deploymentId,
 				assetType,
+				traceId,
 			};
 
 			if (

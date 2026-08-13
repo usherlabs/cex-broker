@@ -40,6 +40,13 @@ const captureEnvKeys = [
 	"CEX_BROKER_CAPTURE_BUNDLE_ID",
 	"CEX_BROKER_ARCHIVE_FORWARDER_URL",
 	"CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH",
+	// Bun auto-loads .env; an OTLP endpoint with no collector makes stop() hang
+	// past the default 5s test timeout while flushing exporters.
+	"OTEL_EXPORTER_OTLP_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+	"CEX_BROKER_OTEL_HOST",
+	"CEX_BROKER_CLICKHOUSE_HOST",
 ] as const;
 
 function captureEnvironment(): Record<string, string | undefined> {
@@ -56,6 +63,15 @@ function restoreEnvironment(
 		if (value === undefined) delete process.env[key];
 		else process.env[key] = value;
 	}
+}
+
+/** Prevent CEXBroker from enabling OTLP exporters that hang stop() with no collector. */
+function disableOtelExporters(): void {
+	delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+	delete process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT;
+	delete process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT;
+	delete process.env.CEX_BROKER_OTEL_HOST;
+	delete process.env.CEX_BROKER_CLICKHOUSE_HOST;
 }
 
 async function reservePort(): Promise<number> {
@@ -110,6 +126,7 @@ test("production broker starts its full RPC service without archive configuratio
 	let client: FullBrokerClient | undefined;
 	try {
 		for (const key of captureEnvKeys) delete process.env[key];
+		disableOtelExporters();
 		process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT = "production";
 		const port = await reservePort();
 		broker = new CEXBroker({}, policy);
@@ -140,6 +157,7 @@ test("incomplete production market provenance refuses to start", async () => {
 	let broker: CEXBroker | undefined;
 	try {
 		const port = await reservePort();
+		disableOtelExporters();
 		process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT = "production";
 		process.env.CEX_BROKER_ARCHIVE_ENABLED = "true";
 		process.env.CEX_BROKER_ARCHIVE_SOURCE = "broker_write";
@@ -170,6 +188,7 @@ test.each([
 	let client: FullBrokerClient | undefined;
 	try {
 		const port = await reservePort();
+		disableOtelExporters();
 		process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT = "production";
 		process.env.CEX_BROKER_ARCHIVE_ENABLED = "true";
 		process.env.CEX_BROKER_ARCHIVE_SOURCE = source;

@@ -31,6 +31,8 @@ export type ExecuteActionContext = {
 	policy: PolicyConfig;
 	brokers: Record<string, BrokerPoolEntry>;
 	metadata: Metadata;
+	/** Optional correlation ID from caller metadata (`x-trace-id`). */
+	traceId?: string;
 	normalizedCex: string;
 	cex: string;
 	symbol?: string;

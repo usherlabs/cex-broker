@@ -93,6 +93,7 @@ export async function handleTreasuryCall(
 				requestedNotional,
 				orderAuthor: callValue.orderAuthor,
 				brokerObservedTimestamp: submissionTimestamp,
+				traceId: ctx.traceId,
 				...telemetryIds,
 			};
 			if (createOrderContext.symbol !== undefined) {
@@ -105,6 +106,7 @@ export async function handleTreasuryCall(
 						symbol: createOrderContext.symbol,
 						action: "CreateOrder",
 						brokerObservedTimestamp: submissionTimestamp,
+						traceId: ctx.traceId,
 						...telemetryIds,
 					},
 				);
@@ -134,6 +136,7 @@ export async function handleTreasuryCall(
 					exchange: ctx.normalizedCex,
 					accountSelector: ctx.selectedBrokerAccount?.label,
 					transactions: result,
+					traceId: ctx.traceId,
 				},
 			);
 		}

@@ -27,6 +27,20 @@ describe("OtelMetrics", () => {
 	});
 
 	describe("Initialization", () => {
+		test("close returns immediately even when the OTLP collector is unreachable", async () => {
+			const metrics = new OtelMetrics({
+				otlpEndpoint: "http://127.0.0.1:1",
+				serviceName: "hang-guard",
+			});
+			expect(metrics.isOtelEnabled()).toBe(true);
+			await metrics.recordCounter("hang_guard_counter", 1, { probe: "1" });
+
+			const started = Date.now();
+			await metrics.close();
+			expect(Date.now() - started).toBeLessThan(200);
+			expect(metrics.isOtelEnabled()).toBe(false);
+		});
+
 		test("should be enabled when hostname is provided", async () => {
 			const config: OtelConfig = {
 				host: "localhost",
