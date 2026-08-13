@@ -93,6 +93,9 @@ ADD COLUMN IF NOT EXISTS order_author LowCardinality(String) DEFAULT '' AFTER ac
 -- Engine is plain MergeTree (contract), so re-observed rows are NOT collapsed;
 -- dedup, when needed, is at read time (GROUP BY / argMax over exchange,
 -- account_selector, symbol, external_id, lifecycle_action).
+-- observe_balance_update has no external_id; its identity is
+-- (account_selector, asset_symbol, amount, exchange_timestamp), which read-time
+-- consumers use as the dedupe key for that action.
 CREATE TABLE IF NOT EXISTS broker_execution.transfer_events
 (
     broker_observed_timestamp DateTime64(3, 'UTC'),

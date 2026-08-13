@@ -11,6 +11,7 @@ import {
 	TravelRuleDepositReconciler,
 } from "./helpers";
 import { AccountBalanceArchivePoller } from "./helpers/account-balance-archive-poller";
+import { BalanceUpdateArchiveConsumer } from "./helpers/balance-update-archive-consumer";
 import {
 	type BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
@@ -79,6 +80,7 @@ export default class CEXBroker {
 	private depositArchivePoller?: DepositArchivePoller;
 	private accountBalanceArchivePoller?: AccountBalanceArchivePoller;
 	private userAssetArchivePoller?: UserAssetArchivePoller;
+	private balanceUpdateArchiveConsumer?: BalanceUpdateArchiveConsumer;
 	private userDataStreamSupervisor?: UserDataStreamSupervisor;
 
 	/**
@@ -316,6 +318,10 @@ export default class CEXBroker {
 			await this.userAssetArchivePoller.stop();
 			this.userAssetArchivePoller = undefined;
 		}
+		if (this.balanceUpdateArchiveConsumer) {
+			await this.balanceUpdateArchiveConsumer.stop();
+			this.balanceUpdateArchiveConsumer = undefined;
+		}
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
@@ -370,6 +376,10 @@ export default class CEXBroker {
 		if (this.userAssetArchivePoller) {
 			await this.userAssetArchivePoller.stop();
 			this.userAssetArchivePoller = undefined;
+		}
+		if (this.balanceUpdateArchiveConsumer) {
+			await this.balanceUpdateArchiveConsumer.stop();
+			this.balanceUpdateArchiveConsumer = undefined;
 		}
 		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
 
@@ -445,6 +455,15 @@ export default class CEXBroker {
 				metrics: this.otelMetrics,
 			});
 			this.depositArchivePoller.start();
+
+			if (this.userDataStreamSupervisor) {
+				this.balanceUpdateArchiveConsumer = new BalanceUpdateArchiveConsumer({
+					brokers: this.brokers,
+					archiver: this.brokerArchiver,
+					userDataStreamSupervisor: this.userDataStreamSupervisor,
+				});
+				this.balanceUpdateArchiveConsumer.start();
+			}
 		}
 
 		if (this.brokerArchiver?.canPersistAccountBalanceSnapshots()) {
