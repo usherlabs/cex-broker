@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { Metadata } from "@grpc/grpc-js";
 import {
-	TRACE_METADATA_KEY,
 	extractTraceId,
+	TRACE_METADATA_KEY,
 } from "../src/helpers/trace-context";
 
 describe("extractTraceId", () => {

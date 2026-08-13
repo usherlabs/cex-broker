@@ -6,8 +6,8 @@ import { TRACE_METADATA_KEY } from "../src/helpers/trace-context";
 import { getServer } from "../src/server";
 import type { PolicyConfig } from "../src/types";
 import {
-	CapturingOtelMetrics,
 	bindServer,
+	CapturingOtelMetrics,
 	createBinancePool,
 	executeAction,
 	grpcObj,
