@@ -1,4 +1,5 @@
 import type { ClickHouseClient } from "@clickhouse/client";
+import { randomUUID } from "node:crypto";
 import { clickHouseRequestDeadline } from "./clickhouse-deadline";
 import { archiveDedupeToken } from "./dedupe-token";
 import type { ArchiveForwarderTelemetry } from "./telemetry";
@@ -50,13 +51,15 @@ export async function insertArchiveRows(
 			continue;
 		}
 		try {
-			await inserter(
-				table,
-				tableRows,
-				batchId
-					? { deduplicationToken: archiveDedupeToken(batchId, table) }
-					: undefined,
-			);
+			// A token-less insert is NOT exempt from deduplication: with
+			// non_replicated_deduplication_window enabled, ClickHouse dedupes
+			// token-less blocks by content hash, silently collapsing legitimate
+			// byte-identical deliveries from distinct requests. Batches without a
+			// retry identity therefore get a unique token so every delivery lands
+			// physically (the auditable-duplicates contract).
+			await inserter(table, tableRows, {
+				deduplicationToken: archiveDedupeToken(batchId ?? randomUUID(), table),
+			});
 			byTable[table] = tableRows.length;
 			inserted += tableRows.length;
 			telemetry?.recordRowsInserted(table, tableRows.length);
