@@ -48,13 +48,18 @@ export type SubscribeArchiveType = "ORDERS" | "BALANCE";
 
 // A CEX value movement between accounts/wallets (as opposed to an order fill).
 // Values match the fiet-maker CEX_EXECUTION_ARCHIVE_CONTRACT transfer_events grain.
-export type TransferEventKind = "withdrawal" | "deposit" | "internal_transfer";
+export type TransferEventKind =
+	| "withdrawal"
+	| "deposit"
+	| "internal_transfer"
+	| "balance_delta";
 
 // Which movement lifecycle step produced the row (contract `lifecycle_action`).
 export type TransferLifecycleAction =
 	| "submit_withdrawal"
 	| "observe_withdrawal"
 	| "observe_deposit"
+	| "observe_balance_update"
 	| "submit_internal_transfer";
 
 // fill_events.event_kind. The contract fixture uses "create_order_fill" for fills

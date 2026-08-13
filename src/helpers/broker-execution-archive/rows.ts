@@ -542,6 +542,7 @@ export type TransferArchiveFields = {
 	eventKind: TransferEventKind;
 	lifecycleAction: TransferLifecycleAction;
 	status?: string;
+	assetSymbol?: string;
 	amount?: string;
 	address?: string;
 	network?: string;
@@ -556,10 +557,11 @@ export type TransferArchiveFields = {
 	payload: unknown;
 };
 
-// asset_symbol mirrors the shared `symbol` tag for transfers (the moved asset,
-// e.g. "USDC"), per the contract. event_kind/lifecycle_action and the two
-// withdrawal identities are primary read keys; they are always emitted
-// (external_id/client_withdrawal_id/status default to "").
+// asset_symbol defaults to the shared `symbol` tag for transfer producers whose
+// movement is symbol-scoped. Account-scoped producers supply it independently.
+// event_kind/lifecycle_action and the two withdrawal identities are primary read
+// keys; they are always emitted (external_id/client_withdrawal_id/status default
+// to "").
 export function buildTransferEventArchiveRow(input: {
 	tags: BrokerArchiveCommonTags;
 	transfer: TransferArchiveFields;
@@ -573,7 +575,7 @@ export function buildTransferEventArchiveRow(input: {
 			event_kind: transfer.eventKind,
 			lifecycle_action: transfer.lifecycleAction,
 			status: transfer.status ?? "",
-			asset_symbol: tags.symbol,
+			asset_symbol: transfer.assetSymbol ?? tags.symbol,
 			amount: transfer.amount,
 			address: transfer.address,
 			network: transfer.network,
