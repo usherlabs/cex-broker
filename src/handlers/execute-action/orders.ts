@@ -26,26 +26,17 @@ import { parsePayloadForAction, rejectWithGrpcError } from "./context";
 
 async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 	const {
-		call,
-		wrappedCallback,
 		policy,
 		brokers,
-		metadata,
-		normalizedCex,
 		cex,
 		symbol,
 		selectedBrokerAccount,
 		broker,
-		verity,
-		applyVerityToBroker,
-		useVerity,
-		verityProverUrl,
 		otelMetrics,
 		brokerArchiver,
 		orderActivityTracker,
 		traceId,
 	} = ctx;
-	const verityProof = verity.proof;
 
 	const orderValue = parsePayloadForAction(ctx, CreateOrderPayloadSchema);
 	if (orderValue === null) return;
@@ -231,25 +222,16 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 
 async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 	const {
-		call,
-		wrappedCallback,
-		policy,
 		brokers,
-		metadata,
-		normalizedCex,
 		cex,
 		symbol,
 		selectedBrokerAccount,
 		broker,
-		verity,
-		applyVerityToBroker,
-		useVerity,
-		verityProverUrl,
 		otelMetrics,
 		brokerArchiver,
 		orderActivityTracker,
+		traceId,
 	} = ctx;
-	const verityProof = verity.proof;
 
 	const getOrderValue = parsePayloadForAction(
 		ctx,
@@ -280,7 +262,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 			cex,
 			accountLabel: selectedBrokerAccount?.label,
 			symbol,
-			traceId: ctx.traceId,
+			traceId,
 			...extractOrderTelemetryIds(getOrderValue.params),
 		};
 		emitOrderExecutionTelemetryInBackground(
@@ -312,7 +294,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 			cex,
 			accountLabel: selectedBrokerAccount?.label,
 			symbol,
-			traceId: ctx.traceId,
+			traceId,
 			...extractOrderTelemetryIds(getOrderValue.params),
 		};
 		emitOrderExecutionTelemetryInBackground(
@@ -339,26 +321,16 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 
 async function handleCancelOrder(ctx: ExecuteActionContext): Promise<void> {
 	const {
-		call,
-		wrappedCallback,
-		policy,
 		brokers,
-		metadata,
-		normalizedCex,
 		cex,
 		symbol,
 		selectedBrokerAccount,
 		broker,
-		verity,
-		applyVerityToBroker,
-		useVerity,
-		verityProverUrl,
 		otelMetrics,
 		brokerArchiver,
 		orderActivityTracker,
 		traceId,
 	} = ctx;
-	const verityProof = verity.proof;
 
 	const cancelOrderValue = parsePayloadForAction(ctx, CancelOrderPayloadSchema);
 	if (cancelOrderValue === null) return;

@@ -24,29 +24,18 @@ import {
 } from "../../helpers/transfer-network";
 import { WithdrawPayloadSchema } from "../../schemas/action-payloads";
 import type { ExecuteActionContext } from "./context";
-import { parsePayloadForAction, rejectWithGrpcError } from "./context";
+import { parsePayloadForAction } from "./context";
 
 export async function handleWithdraw(ctx: ExecuteActionContext): Promise<void> {
 	const {
-		call,
-		wrappedCallback,
 		policy,
-		brokers,
-		metadata,
-		normalizedCex,
 		cex,
 		symbol,
 		selectedBrokerAccount,
 		broker,
-		verity,
-		applyVerityToBroker,
-		useVerity,
-		verityProverUrl,
-		otelMetrics,
 		brokerArchiver,
 		traceId,
 	} = ctx;
-	const verityProof = verity.proof;
 
 	if (!symbol) {
 		return ctx.wrappedCallback(
