@@ -163,7 +163,10 @@ describe("ClickHouse Local archive E2E runtime", () => {
 			throw new Error("broker execution order fixture is missing");
 		}
 		const deploymentId = "archive-e2e-identical-execution";
-		const row = { ...fixtureRow, deployment_id: deploymentId };
+		const row = {
+			...(fixtureRow as Record<string, unknown>),
+			deployment_id: deploymentId,
+		};
 		const harness = await initializedHarness();
 		const endpoint = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
@@ -175,7 +178,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
-					source: row.source,
+					source: String(row.source),
 					deployment_id: deploymentId,
 					batch_id: batchId,
 					rows: [{ table: table.table, row }],
