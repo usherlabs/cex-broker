@@ -11,6 +11,11 @@ import { log } from "../logger";
 import type { OtelLogs, OtelMetrics } from "../otel";
 import { REDACTED_ERROR_MESSAGE } from "../shared/errors";
 import {
+	type ArchiveLossReason,
+	type ArchiveLossRecord,
+	LOSS_JOURNAL_RECORD_VERSION,
+} from "./loss-journal";
+import {
 	BROKER_WRITE_SOURCE,
 	type BrokerArchiveRow,
 	type BrokerArchiveSource,
@@ -87,19 +92,6 @@ const SHED_WARN_INTERVAL_MS = 60_000;
 // the archive plane behind it forever. Give up after this many attempts and
 // journal it, the same terms every other undeliverable row gets.
 const MAX_PINNED_BATCH_ATTEMPTS = 10;
-
-type ArchiveLossReason =
-	| "queue_shed"
-	| "shutdown_forwarder_failure"
-	| "retry_exhausted";
-
-type ArchiveLossRecord = {
-	timestamp: string;
-	source: BrokerArchiveSource;
-	deployment_id: string;
-	reason: ArchiveLossReason;
-	payload: BrokerArchiveRow;
-};
 
 type QueuedArchiveRow = BrokerArchiveRow;
 
@@ -413,11 +405,13 @@ export class BrokerExecutionArchiver {
 				// No retry loop at shutdown: one failed attempt and everything still
 				// held — pinned batch first, then the queue — goes to the journal.
 				if (!(await this.flushBatch())) {
-					const undelivered = [
-						...(this.pendingRetry?.rows ?? []),
-						...this.queue,
-					];
-					this.appendLossRecords(undelivered, "shutdown_forwarder_failure");
+					const pinned = this.pendingRetry;
+					this.appendLossRecords(
+						pinned?.rows ?? [],
+						"shutdown_forwarder_failure",
+						pinned?.batchId ?? null,
+					);
+					this.appendLossRecords(this.queue, "shutdown_forwarder_failure");
 					this.pendingRetry = null;
 					this.queue.length = 0;
 					break;
@@ -617,6 +611,7 @@ export class BrokerExecutionArchiver {
 	private appendLossRecords(
 		rows: readonly BrokerArchiveRow[],
 		reason: ArchiveLossReason,
+		batchId: string | null = null,
 	): void {
 		if (rows.length === 0) {
 			return;
@@ -627,12 +622,16 @@ export class BrokerExecutionArchiver {
 			);
 		}
 		const timestamp = new Date().toISOString();
-		const records: ArchiveLossRecord[] = rows.map((payload) => ({
+		const records: ArchiveLossRecord[] = rows.map((payload, index) => ({
 			timestamp,
 			source: this.source,
 			deployment_id: this.deploymentId,
 			reason,
 			payload,
+			record_version: LOSS_JOURNAL_RECORD_VERSION,
+			batch_id: batchId,
+			batch_row_index: index,
+			batch_row_count: rows.length,
 		}));
 		try {
 			const bytes = Buffer.from(
@@ -715,7 +714,7 @@ export class BrokerExecutionArchiver {
 				try {
 					if (attempts >= MAX_PINNED_BATCH_ATTEMPTS) {
 						this.pendingRetry = null;
-						this.appendLossRecords(batch, "retry_exhausted");
+						this.appendLossRecords(batch, "retry_exhausted", batchId);
 						log.warn("Broker execution archive gave up on a batch", {
 							attempts,
 							rows: batch.length,

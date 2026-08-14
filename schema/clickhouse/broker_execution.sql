@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS broker_execution.order_events
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(parseDateTimeBestEffortOrZero(broker_observed_timestamp))
-ORDER BY (exchange, symbol, broker_observed_timestamp);
+ORDER BY (exchange, symbol, broker_observed_timestamp)
+SETTINGS non_replicated_deduplication_window = 1000000;
 
 ALTER TABLE broker_execution.order_events
 ADD COLUMN IF NOT EXISTS order_author LowCardinality(String) DEFAULT '' AFTER account_selector;
@@ -124,7 +125,8 @@ CREATE TABLE IF NOT EXISTS broker_execution.transfer_events
 )
 ENGINE = MergeTree
 PARTITION BY toDate(broker_observed_timestamp)
-ORDER BY (account_selector, broker_observed_timestamp, exchange, symbol, event_kind, lifecycle_action);
+ORDER BY (account_selector, broker_observed_timestamp, exchange, symbol, event_kind, lifecycle_action)
+SETTINGS non_replicated_deduplication_window = 1000000;
 
 -- CREATE TABLE IF NOT EXISTS is a no-op on an already-populated table, so an
 -- added column reaches fresh deployments only. Inserts name every column, so a
@@ -177,7 +179,8 @@ CREATE TABLE IF NOT EXISTS broker_execution.fill_events
 )
 ENGINE = MergeTree
 PARTITION BY toDate(broker_observed_timestamp)
-ORDER BY (symbol, account_selector, broker_observed_timestamp, exchange, order_id, fill_index);
+ORDER BY (symbol, account_selector, broker_observed_timestamp, exchange, order_id, fill_index)
+SETTINGS non_replicated_deduplication_window = 1000000;
 
 -- Pre-order top-of-book snapshots captured immediately before an order action,
 -- joinable to order_events via market_metadata_hash and the order identifiers.
@@ -204,4 +207,20 @@ CREATE TABLE IF NOT EXISTS broker_execution.market_metadata_snapshots
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(parseDateTimeBestEffortOrZero(broker_observed_timestamp))
-ORDER BY (exchange, symbol, broker_observed_timestamp);
+ORDER BY (exchange, symbol, broker_observed_timestamp)
+SETTINGS non_replicated_deduplication_window = 1000000;
+
+-- Insert deduplication for the forwarder's retry path. A batch the forwarder
+-- could not fully commit is re-posted verbatim under its original id, so the
+-- tables that already landed are inserted again; each insert carries a token
+-- derived from that id, and this window is what makes ClickHouse recognise the
+-- token and skip the repeat. Existing deployments pick it up here, since the
+-- CREATE statements above are no-ops once the tables exist.
+ALTER TABLE broker_execution.order_events
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE broker_execution.transfer_events
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE broker_execution.fill_events
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE broker_execution.market_metadata_snapshots
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
