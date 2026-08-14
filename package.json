@@ -54,6 +54,7 @@
 		"archive:baseline:verify": "bun run scripts/archive-upgrade-baseline.ts verify",
 		"test:acceptance:archive-upgrade": "bun run scripts/archive-upgrade-acceptance.ts",
 		"archive:sidecar": "bun run scripts/archive-sidecar.ts",
+		"archive:loss:replay": "bun run scripts/archive-loss-replay.ts",
 		"test:smoke:archive": "bun run scripts/archive-live-smoke.ts",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint",
