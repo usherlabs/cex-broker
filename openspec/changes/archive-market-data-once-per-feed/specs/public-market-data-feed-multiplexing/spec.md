@@ -47,6 +47,11 @@ For a canonical public feed, the broker SHALL use the configured primary exchang
 ### Requirement: Each canonical public feed has one collection and archive owner
 The broker runtime SHALL own at most one accepted upstream watch loop, ORDERBOOK sampler or OHLCV tracker, and market archive path for each canonical `ORDERBOOK`, `TICKER`, `TRADES`, or `OHLCV` feed. Every resolved watch tick SHALL produce one archive decision, including a decision that is disabled or sampled out, before subscriber fanout; a decision does not necessarily produce a ClickHouse write. Each accepted physical observation MUST be offered to the archive path at most once by its worker.
 
+#### Scenario: ORDERBOOK worker preserves immediate-hedgeability evidence
+- **WHEN** a worker accepts an ORDERBOOK observation used by FIET Maker to cap counterpart DEX liquidity
+- **THEN** its retained base snapshot MUST preserve normalized L2 price and aggregate amount levels before subscriber slicing
+- **AND** the worker MUST NOT require or synthesize L3 order identity to represent immediately marketable displayed depth
+
 #### Scenario: Concurrent identical subscriptions receive one physical observation
 - **WHEN** two or more clients concurrently subscribe to the same canonical public feed and the exchange releases a frame
 - **THEN** the broker MUST invoke the corresponding CCXT watch once for that feed iteration

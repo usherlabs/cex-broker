@@ -8,6 +8,11 @@ The production collector SHALL be an independent gRPC client of a separately dep
 - **THEN** it MUST validate that each required feed has a supervisor and required options such as depth limit or timeframe
 - **AND** failure of one feed MUST NOT terminate supervisors for other feeds or pairs
 
+#### Scenario: Capture is intended to replay the Maker hedge envelope
+- **WHEN** deployment capture is declared as replay evidence for a Maker position policy with ORDERBOOK depth P and configured measurement bands
+- **THEN** the collector ORDERBOOK request and broker archive configuration MUST retain at least P levels unless explicit exhaustion or boundary evidence proves every band complete
+- **AND** deployment verification MUST reject a capture profile whose archived rows cannot reproduce the live per-band bid and ask depth used as the immediate-hedgeability cap
+
 #### Scenario: Broker target is missing or malformed
 - **WHEN** the independent collector starts without a valid `CEX_BROKER_URL` gRPC `host:port` target
 - **THEN** startup MUST fail before opening any subscriptions
