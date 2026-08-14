@@ -163,7 +163,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 			throw new Error("broker execution order fixture is missing");
 		}
 		const deploymentId = "archive-e2e-identical-execution";
-		const row = {
+		const row: Record<string, unknown> = {
 			...(fixtureRow as Record<string, unknown>),
 			deployment_id: deploymentId,
 		};
