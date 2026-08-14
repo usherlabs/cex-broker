@@ -34,10 +34,20 @@ The production collector SHALL be an independent gRPC client of a separately dep
 - **AND** the collector MUST remain the coverage/liveness subscriber rather than the mechanism that prevents duplicate physical capture
 
 #### Scenario: OHLCV bootstrap is supported
-- **WHEN** the first OHLCV subscriber creates a canonical feed with a configured bootstrap window
-- **THEN** the broker MUST fetch and archive available historical bars before or alongside the live stream
+- **WHEN** an OHLCV worker has no completed archive bootstrap and the first positive bootstrap request arrives, even if a zero-bootstrap client created the worker earlier
+- **THEN** the broker MUST atomically claim, fetch, and archive available historical bars before or alongside the live stream
 - **AND** bootstrap rows MUST use a source mode distinct from live stream rows
 - **AND** later subscriber bootstrap delivery for the same feed MUST NOT create additional archived bootstrap rows
+
+#### Scenario: OHLCV archive bootstrap fetch fails
+- **WHEN** the positive subscriber that owns the archive-bootstrap attempt cannot fetch history
+- **THEN** its live subscription MUST continue and the worker MUST remain available
+- **AND** a later positive collector attach or reconnect MUST be allowed to retry ownership because no bootstrap completed
+
+#### Scenario: Collector reconnects after another client kept the worker alive
+- **WHEN** a positive-bootstrap collector disconnects and reconnects while a zero-bootstrap or other logical subscriber keeps the OHLCV worker alive
+- **THEN** a previously completed archived bootstrap MUST NOT be repeated
+- **AND** if no bootstrap previously completed, the reconnecting collector MUST be allowed to claim it
 
 #### Scenario: Collector stops
 - **WHEN** the collector receives a termination signal

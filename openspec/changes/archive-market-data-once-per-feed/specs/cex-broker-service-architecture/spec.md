@@ -10,9 +10,14 @@ The service architecture SHALL distinguish long-running services from examples, 
 - **AND** it MUST NOT present a single collector instance as necessary to prevent duplicate physical exchange watches or archive captures, because the full broker owns canonical feed sharing
 
 #### Scenario: Reader compares collector and Maker subscriptions
-- **WHEN** the collector and Maker subscribe to the same canonical public feed
+- **WHEN** the collector and Maker subscribe to the same canonical public feed, including ORDERBOOK options that resolve to a compatible venue acquisition profile
 - **THEN** the document MUST show two independent logical gRPC subscriptions attached to one broker-owned physical exchange watcher and archive path
 - **AND** it MUST preserve the collector's liveness responsibility and Maker's third-party client boundary
+
+#### Scenario: Reader inspects ORDERBOOK depth handling
+- **WHEN** a reader compares compatible and incompatible ORDERBOOK requests
+- **THEN** the document MUST show subscriber depth as a projection after venue acquisition-profile resolution rather than a universal physical key rule
+- **AND** it MUST show conservative separate workers for unverified venues and coalesced profiles for verified Binance/MEXC behavior
 
 #### Scenario: Reader inspects ClickHouse clients
 - **WHEN** a reader follows archive or research data flows

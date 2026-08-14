@@ -10,10 +10,15 @@ The production-compatible profile SHALL run the Maker Layer 12 live/sandbox boun
 - **AND** live strategy batches MUST receive HTTP 202 only after durable spool admission
 
 #### Scenario: Collector and Maker overlap on a public feed
-- **WHEN** the independent collector and real Maker connector subscribe to the same exchange, resolved symbol, market type, and public feed
+- **WHEN** the independent collector and real Maker connector subscribe to the same exchange, resolved symbol, market type, and public feed with options that resolve to one compatible acquisition profile
 - **THEN** evidence MUST record both logical subscriptions and MUST prove Maker receives the shared feed frame
 - **AND** the controlled exchange MUST record one physical CCXT watch for the canonical feed rather than treating Maker as an additional watch-call increase
 - **AND** ClickHouse evidence MUST contain one canonical broker capture for the controlled physical observation
+
+#### Scenario: Binance or MEXC depth profiles overlap
+- **WHEN** collector explicit depth and Maker omitted depth target Binance or MEXC and the verified resolver guarantees one profile covers both plus archive depth
+- **THEN** production-compatible evidence MUST identify the resolved profile and prove the two logical clients share it
+- **AND** Maker and collector payloads MUST retain their respective omitted-depth and explicit-depth response contracts
 
 #### Scenario: Production-compatible verification runs
 - **WHEN** Maker execution completes and the sidecar worker drains admitted work
