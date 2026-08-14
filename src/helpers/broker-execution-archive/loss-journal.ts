@@ -20,12 +20,28 @@ export type ArchiveLossRecord = {
 	batch_row_count: number;
 };
 
-export type ParsedArchiveLossRecord =
-	| ArchiveLossRecord
-	| Omit<
-			ArchiveLossRecord,
-			"record_version" | "batch_id" | "batch_row_index" | "batch_row_count"
-	  >;
+type ParsedArchiveLossRecordBase = Omit<
+	ArchiveLossRecord,
+	| "payload"
+	| "record_version"
+	| "batch_id"
+	| "batch_row_index"
+	| "batch_row_count"
+> & { payload: { table: string; row: Record<string, unknown> } };
+
+export type ParsedArchiveLossRecord = ParsedArchiveLossRecordBase &
+	(
+		| Pick<
+				ArchiveLossRecord,
+				"record_version" | "batch_id" | "batch_row_index" | "batch_row_count"
+		  >
+		| {
+				record_version?: never;
+				batch_id?: never;
+				batch_row_index?: never;
+				batch_row_count?: never;
+		  }
+	);
 
 export type ParsedLossJournalLine =
 	| { ok: true; record: ParsedArchiveLossRecord }
@@ -70,7 +86,7 @@ export function parseLossJournalLine(line: string): ParsedLossJournalLine {
 
 	const base = {
 		timestamp: parsed.timestamp,
-		source: parsed.source,
+		source: parsed.source as BrokerArchiveSource,
 		deployment_id: parsed.deployment_id,
 		reason: parsed.reason as ArchiveLossReason,
 		payload: {
