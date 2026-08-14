@@ -521,7 +521,7 @@ describe("archive forwarder retry deduplication", () => {
 });
 
 describe("archive forwarder schema init", () => {
-	test("every market_data table the forwarder writes carries the dedup window", async () => {
+	test("every token-deduplicated table the forwarder writes carries the dedup window", async () => {
 		// Without this setting on the table, the retry tokens are accepted and
 		// ignored, and a redelivered batch duplicates silently.
 		const statements: string[] = [];
@@ -533,10 +533,12 @@ describe("archive forwarder schema init", () => {
 
 		await ensureArchiveSchema(client);
 
-		const marketDataTables = SUPPORTED_TABLES.filter((table) =>
-			table.startsWith("market_data."),
+		const tokenDeduplicatedTables = SUPPORTED_TABLES.filter((table) =>
+			["market_data.", "broker_execution.", "broker_account."].some((prefix) =>
+				table.startsWith(prefix),
+			),
 		);
-		for (const table of marketDataTables) {
+		for (const table of tokenDeduplicatedTables) {
 			const applied = statements.some(
 				(query) =>
 					query.includes(table) &&

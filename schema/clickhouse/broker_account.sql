@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS broker_account.balance_snapshots
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(broker_observed_timestamp)
-ORDER BY (exchange, account_selector, balance_scope, broker_observed_timestamp, observation_id);
+ORDER BY (exchange, account_selector, balance_scope, broker_observed_timestamp, observation_id)
+SETTINGS non_replicated_deduplication_window = 1000000;
 
 -- Durable Binance user-asset observations. Each row is one coherent
 -- `POST /sapi/v3/asset/getUserAsset` response for one configured broker account.
@@ -80,4 +81,16 @@ CREATE TABLE IF NOT EXISTS broker_account.user_asset_snapshots
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(broker_observed_timestamp)
-ORDER BY (exchange, account_selector, balance_scope, broker_observed_timestamp, observation_id);
+ORDER BY (exchange, account_selector, balance_scope, broker_observed_timestamp, observation_id)
+SETTINGS non_replicated_deduplication_window = 1000000;
+
+-- Insert deduplication for the forwarder's retry path. A batch the forwarder
+-- could not fully commit is re-posted verbatim under its original id, so the
+-- tables that already landed are inserted again; each insert carries a token
+-- derived from that id, and this window is what makes ClickHouse recognise the
+-- token and skip the repeat. Existing deployments pick it up here, since the
+-- CREATE statements above are no-ops once the tables exist.
+ALTER TABLE broker_account.balance_snapshots
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE broker_account.user_asset_snapshots
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;

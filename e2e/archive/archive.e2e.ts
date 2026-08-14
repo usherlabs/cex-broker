@@ -153,6 +153,44 @@ describe("ClickHouse Local archive E2E runtime", () => {
 		).toEqual([{ count: 0 }]);
 	});
 
+	test("distinct broker execution batch tokens preserve byte-identical deliveries", async () => {
+		const fixture = await loadArchiveBaselineFixture();
+		const table = fixture.tables.find(
+			(entry) => entry.table === "broker_execution.order_events",
+		);
+		const fixtureRow = table?.expectedRows[0];
+		if (!table || !fixtureRow) {
+			throw new Error("broker execution order fixture is missing");
+		}
+		const deploymentId = "archive-e2e-identical-execution";
+		const row = { ...fixtureRow, deployment_id: deploymentId };
+		const harness = await initializedHarness();
+		const endpoint = await startArchiveForwarderEndpoint({
+			inserter: harness.inserter,
+		});
+		endpoints.push(endpoint);
+
+		for (const batchId of ["independent-delivery-1", "independent-delivery-2"]) {
+			const response = await fetch(endpoint.url, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					source: row.source,
+					deployment_id: deploymentId,
+					batch_id: batchId,
+					rows: [{ table: table.table, row }],
+				}),
+			});
+			expect(response.status).toBe(200);
+		}
+
+		expect(
+			await harness.query(
+				`SELECT count() AS count FROM broker_execution.order_events WHERE deployment_id = '${deploymentId}'`,
+			),
+		).toEqual([{ count: 2 }]);
+	});
+
 	test("maker_replay inserts synchronously and leaves the runtime spool unchanged", async () => {
 		const fixture = await loadArchiveBaselineFixture();
 		const table = fixture.tables.find(
