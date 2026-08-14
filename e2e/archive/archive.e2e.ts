@@ -370,8 +370,12 @@ describe("archive failure isolation and accounting", () => {
 				.map((line) => JSON.parse(line) as Record<string, unknown>);
 			expect(records).toHaveLength(1);
 			expect(Object.keys(records[0] ?? {}).sort()).toEqual([
+				"batch_id",
+				"batch_row_count",
+				"batch_row_index",
 				"deployment_id",
 				"payload",
+				"record_version",
 				"reason",
 				"source",
 				"timestamp",
