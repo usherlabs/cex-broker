@@ -1,0 +1,270 @@
+{
+	"orderbook": {
+		"deploymentId": "archive-e2e-baseline",
+		"accountSelector": "spot:primary",
+		"exchange": "binance",
+		"symbol": "BTC/USDT",
+		"assetType": "spot",
+		"snapshot": {
+			"timestamp": 1700000000000,
+			"receivedTimestamp": 1700000000123,
+			"bids": [[40000.125, 1.5], [39999.5, 2.25]],
+			"asks": [[40001.25, 1.25], [40002.5, 3.5]],
+			"sequence": "9001"
+		}
+	},
+	"candle": {
+		"context": {
+			"deploymentId": "archive-e2e-baseline",
+			"accountSelector": "spot:primary",
+			"exchange": "binance",
+			"symbol": "BTC/USDT",
+			"assetType": "spot",
+			"timeframe": "1m"
+		},
+		"bar": {
+			"openTimeMs": 1700000040000,
+			"open": 40000.125,
+			"high": 40010.5,
+			"low": 39990.25,
+			"close": 40005.75,
+			"volume": 12.5,
+			"quoteVolume": 500071.875
+		},
+		"isClosed": true,
+		"brokerVersion": 1700000100123,
+		"receivedTimestamp": 1700000100123
+	},
+	"stream": {
+		"deploymentId": "archive-e2e-baseline",
+		"accountSelector": "spot:primary",
+		"exchange": "binance",
+		"symbol": "BTC/USDT",
+		"assetType": "spot",
+		"streamType": "ORDERBOOK",
+		"eventTimeMs": 1700000000000,
+		"receivedTimestamp": 1700000000123,
+		"payload": {"nonce": 9001, "apiKey": "redacted-input"}
+	},
+	"ticker": {
+		"input": {
+			"deploymentId": "archive-e2e-baseline",
+			"accountSelector": "spot:primary",
+			"exchange": "binance",
+			"symbol": "BTC/USDT",
+			"assetType": "spot",
+			"receivedTimestamp": 1700000200123,
+			"payload": {
+				"symbol": "BTCUSDT",
+				"timestamp": 1700000200000,
+				"last": 40005.75,
+				"bid": 40005.5,
+				"ask": 40006,
+				"high": 40100,
+				"low": 39800,
+				"open": 39900,
+				"close": 40005.75,
+				"baseVolume": 123.45,
+				"quoteVolume": 4938021.3375,
+				"change": 105.75,
+				"percentage": 0.2650375939849624
+			}
+		},
+		"parsed": {
+			"eventTimeMs": 1700000200000,
+			"last": 40005.75,
+			"bid": 40005.5,
+			"ask": 40006,
+			"high": 40100,
+			"low": 39800,
+			"open": 39900,
+			"close": 40005.75,
+			"baseVolume": 123.45,
+			"quoteVolume": 4938021.3375,
+			"change": 105.75,
+			"percentage": 0.2650375939849624
+		}
+	},
+	"trade": {
+		"input": {
+			"deploymentId": "archive-e2e-baseline",
+			"accountSelector": "spot:primary",
+			"exchange": "binance",
+			"symbol": "BTC/USDT",
+			"assetType": "spot",
+			"receivedTimestamp": 1700000300123,
+			"payload": [{
+				"id": "trade-001",
+				"timestamp": 1700000300000,
+				"side": "buy",
+				"price": 40006.25,
+				"amount": 0.125,
+				"cost": 5000.78125,
+				"takerOrMaker": "taker"
+			}]
+		},
+		"parsed": {
+			"tradeId": "trade-001",
+			"eventTimeMs": 1700000300000,
+			"side": "buy",
+			"price": 40006.25,
+			"amount": 0.125,
+			"cost": 5000.78125,
+			"takerOrMaker": "taker"
+		}
+	},
+	"remainingRows": [
+		{
+			"table": "broker_execution.order_events",
+			"row": {
+				"source": "broker_write",
+				"deployment_id": "archive-e2e-baseline",
+				"account_selector": "spot:primary",
+				"order_author": "maker",
+				"exchange": "binance",
+				"symbol": "BTC/USDT",
+				"broker_observed_timestamp": "2023-11-14T22:20:00.123Z",
+				"event_kind": "execute_action",
+				"action": "create_order",
+				"subscription_type": "",
+				"order_id": "order-001",
+				"client_order_id": "client-001",
+				"idempotency_id": "idem-001",
+				"maker_action_id": "maker-001",
+				"market_metadata_hash": "metadata-hash-001",
+				"status": "closed",
+				"side": "buy",
+				"order_type": "limit",
+				"requested_quantity": 0.125,
+				"requested_notional": 5000.78125,
+				"executed_base_quantity": 0.125,
+				"executed_quote_quantity": 5000.78125,
+				"average_execution_price": 40006.25,
+				"filled_amount": 0.125,
+				"remaining_amount": 0,
+				"fee_amount": 5.00078125,
+				"fee_currency": "USDT",
+				"fee_rate": 0.001,
+				"exchange_timestamp": "2023-11-14T22:20:00.000Z",
+				"error_type": "",
+				"error_message": "",
+				"payload_json": "{\"id\":\"order-001\",\"status\":\"closed\"}"
+			}
+		},
+		{
+			"table": "broker_execution.market_metadata_snapshots",
+			"row": {
+				"source": "broker_write",
+				"deployment_id": "archive-e2e-baseline",
+				"account_selector": "spot:primary",
+				"exchange": "binance",
+				"symbol": "BTC/USDT",
+				"broker_observed_timestamp": "2023-11-14T22:19:59.999Z",
+				"client_order_id": "client-001",
+				"order_id": "order-001",
+				"maker_action_id": "maker-001",
+				"idempotency_id": "idem-001",
+				"market_metadata_hash": "metadata-hash-001",
+				"snapshot_json": "{\"bestBid\":40005.5,\"bestAsk\":40006}"
+			}
+		},
+		{
+			"table": "broker_execution.transfer_events",
+			"row": {
+				"broker_observed_timestamp": "2023-11-14T22:21:00.123Z",
+				"source": "broker_write",
+				"deployment_id": "archive-e2e-baseline",
+				"schema_version": "1",
+				"account_selector": "spot:primary",
+				"exchange": "binance",
+				"symbol": "USDT",
+				"event_kind": "withdrawal",
+				"lifecycle_action": "submitted",
+				"status": "pending",
+				"asset_symbol": "USDT",
+				"amount": "100.25",
+				"address": "0x0000000000000000000000000000000000000001",
+				"network": "ethereum",
+				"external_id": "withdrawal-001",
+				"client_withdrawal_id": "client-withdrawal-001",
+				"txid": "",
+				"result_index": 0,
+				"fee_amount": "0.25",
+				"fee_currency": "USDT",
+				"exchange_timestamp": null,
+				"error_summary": "",
+				"payload_json": "{\"id\":\"withdrawal-001\",\"status\":\"pending\"}"
+			}
+		},
+		{
+			"table": "broker_execution.fill_events",
+			"row": {
+				"broker_observed_timestamp": "2023-11-14T22:20:01.123Z",
+				"source": "broker_write",
+				"deployment_id": "archive-e2e-baseline",
+				"schema_version": "1",
+				"account_selector": "spot:primary",
+				"exchange": "binance",
+				"symbol": "BTC/USDT",
+				"event_kind": "trade_history_fill",
+				"order_id": "order-001",
+				"client_order_id": "client-001",
+				"fill_id": "fill-001",
+				"fill_index": 0,
+				"side": "buy",
+				"order_type": "limit",
+				"price": "40006.25",
+				"base_quantity": "0.125",
+				"quote_quantity": "5000.78125",
+				"fee_amount": "5.00078125",
+				"fee_currency": "USDT",
+				"fee_rate": "0.001",
+				"exchange_timestamp": "2023-11-14T22:20:01.000Z",
+				"payload_json": "{\"id\":\"fill-001\",\"order\":\"order-001\"}"
+			}
+		},
+		{
+			"table": "broker_account.balance_snapshots",
+			"row": {
+				"broker_observed_timestamp": "2023-11-14T22:22:00.123Z",
+				"exchange_timestamp": null,
+				"source": "broker_write",
+				"deployment_id": "archive-e2e-baseline",
+				"schema_version": "1",
+				"exchange": "binance",
+				"account_selector": "spot:primary",
+				"balance_scope": "spot",
+				"observation_id": "balance-001",
+				"reported_assets": ["BTC", "USDT"],
+				"asset_entry_assets": ["BTC", "USDT"],
+				"free_balances": {"BTC": "1.25", "USDT": "1000.5"},
+				"used_balances": {"BTC": "0.25", "USDT": "10"},
+				"total_balances": {"BTC": "1.5", "USDT": "1010.5"},
+				"aggregate_free_map_present": 1,
+				"aggregate_used_map_present": 1,
+				"aggregate_total_map_present": 1,
+				"precision_basis": "ccxt_normalized_number"
+			}
+		},
+		{
+			"table": "strategy_data.policy_evaluation_events",
+			"row": {"event_time_ms": 1700000500000, "emitted_at_ms": 1700000500010, "source": "hb_runtime", "deployment_id": "archive-e2e-baseline", "schema_version": "1", "controller_id": "controller-001", "controller_type": "layer12_live", "connector_name": "fiet_cex", "exchange": "binance", "trading_pair": "BTC-USDT", "market_id": "btc-usdt", "run_id": "run-001", "seq": 1, "policy_epoch": "42", "fidelity": "hb_runtime_policy_clock", "lag_ms": 10, "fallback_reason": "", "source_cursor": "block:123:log:4", "decision_kind": "dex_lead", "payload_json": "{\"mid_price\":\"40005.75\"}"}
+		},
+		{
+			"table": "strategy_data.strategy_policy_snapshots",
+			"row": {"event_time_ms": 1700000501000, "emitted_at_ms": 1700000501010, "source": "hb_runtime", "deployment_id": "archive-e2e-baseline", "schema_version": "1", "controller_id": "controller-001", "controller_type": "layer12_live", "connector_name": "fiet_cex", "exchange": "binance", "trading_pair": "BTC-USDT", "market_id": "btc-usdt", "run_id": "run-001", "seq": 2, "snapshot_reason": "content_change", "policy_epoch": "42", "config_file_path": "conf/controllers/btc-usdt.yml", "source_hash": "policy-source-hash", "payload_json": "{\"lower_tick_offset\":-60,\"upper_tick_offset\":60}"}
+		},
+		{
+			"table": "strategy_data.market_identity",
+			"row": {"event_time_ms": 1700000502000, "emitted_at_ms": 1700000502010, "source": "hb_runtime", "deployment_id": "archive-e2e-baseline", "schema_version": "1", "controller_id": "controller-001", "controller_type": "layer12_live", "connector_name": "fiet_cex", "exchange": "binance", "trading_pair": "BTC-USDT", "market_id": "btc-usdt", "run_id": "run-001", "seq": 3, "snapshot_reason": "startup", "source_hash": "market-source-hash", "core_pool_id": "ethereum:pool-001", "canonical_core_pool_id": "ethereum:pool-001", "payload_json": "{\"base\":\"BTC\",\"quote\":\"USDT\"}"}
+		},
+		{
+			"table": "strategy_data.symbol_mapping",
+			"row": {"event_time_ms": 1700000503000, "emitted_at_ms": 1700000503010, "source": "hb_runtime", "deployment_id": "archive-e2e-baseline", "schema_version": "1", "controller_id": "controller-001", "controller_type": "layer12_live", "connector_name": "fiet_cex", "exchange": "binance", "trading_pair": "BTC-USDT", "market_id": "btc-usdt", "run_id": "run-001", "seq": 4, "snapshot_reason": "startup", "source_hash": "symbol-source-hash", "payload_json": "{\"broker_symbol\":\"BTC/USDT\",\"maker_pair\":\"BTC-USDT\"}"}
+		},
+		{
+			"table": "strategy_data.inventory_settlement_events",
+			"row": {"event_time_ms": 1700000504000, "emitted_at_ms": 1700000504010, "source": "hb_runtime", "deployment_id": "archive-e2e-baseline", "schema_version": "1", "controller_id": "controller-001", "controller_type": "layer12_live", "connector_name": "fiet_cex", "exchange": "binance", "trading_pair": "BTC-USDT", "market_id": "btc-usdt", "run_id": "run-001", "seq": 5, "event_kind": "reservation_release", "token": "BTC", "account": "spot:primary", "reservation_id": "reservation-001", "workflow_state": "released", "payload_json": "{\"amount\":\"0.125\",\"reason\":\"fill\"}"}
+		}
+	]
+}

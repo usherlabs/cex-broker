@@ -1,0 +1,10 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"declaration": false,
+		"emitDeclarationOnly": false,
+		"noEmit": true
+	},
+	"include": ["scripts/archive-sidecar.ts"],
+	"exclude": ["node_modules", "dist", "build"]
+}

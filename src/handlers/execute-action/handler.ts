@@ -2,7 +2,11 @@ import type { Metadata } from "@grpc/grpc-js";
 import * as grpc from "@grpc/grpc-js";
 import type { Exchange } from "@usherlabs/ccxt";
 import { authenticateRequest } from "../../helpers/auth";
-import { type BrokerPoolEntry, createBroker } from "../../helpers/broker";
+import {
+	type BrokerPoolEntry,
+	createBroker,
+	createPublicBroker,
+} from "../../helpers/broker";
 import {
 	type BrokerExecutionArchiver,
 	WithdrawalObservationTracker,
@@ -11,6 +15,7 @@ import { Action, getActionName, resolveAction } from "../../helpers/constants";
 import { selectBrokerAccountForCex } from "../../helpers/grpc/broker";
 import { log } from "../../helpers/logger";
 import type { OrderActivityTracker } from "../../helpers/order-activity-tracker";
+import { isOrderBookCallMethod } from "../../helpers/order-book";
 import type { OtelMetrics } from "../../helpers/otel";
 import { safeLogError } from "../../helpers/shared/errors";
 import {
@@ -35,6 +40,14 @@ export type ExecuteActionDeps = {
 	withdrawalObservationTracker?: WithdrawalObservationTracker;
 };
 
+function isPublicMarketDataAction(
+	action: ReturnType<typeof resolveAction>,
+	payload: Record<string, string> | undefined,
+): boolean {
+	if (action !== Action.Call) return false;
+	return isOrderBookCallMethod(payload?.method ?? payload?.functionName);
+}
+
 export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 	const {
 		policy,
@@ -48,7 +61,6 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 	} = deps;
 	const withdrawalObservationTracker =
 		deps.withdrawalObservationTracker ?? new WithdrawalObservationTracker();
-
 	return async (
 		call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>,
 		callback: grpc.sendUnaryData<ActionResponse>,
@@ -122,6 +134,21 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				brokers,
 				metadata,
 			);
+			const broker =
+				selectedBrokerAccount?.exchange ??
+				createBroker(normalizedCex, call.metadata) ??
+				(isPublicMarketDataAction(action, call.request.payload)
+					? createPublicBroker(normalizedCex)
+					: null);
+			if (!broker) {
+				return wrappedCallback(
+					{
+						code: grpc.status.UNAUTHENTICATED,
+						message: `This Exchange is not registered and No API metadata was found`,
+					},
+					null,
+				);
+			}
 
 			const verity = { proof: "" };
 			const applyVerityToBroker = (targetBroker: Exchange) => {
@@ -151,9 +178,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				cex,
 				symbol,
 				selectedBrokerAccount,
-				broker:
-					selectedBrokerAccount?.exchange ??
-					(createBroker(normalizedCex, metadata) as Exchange),
+				broker,
 				verity,
 				applyVerityToBroker,
 				useVerity,
@@ -167,20 +192,6 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 			if (action === Action.Call) {
 				const handled = await handleOrderBookCall(preludeCtx);
 				if (handled) return;
-			}
-
-			const broker =
-				selectedBrokerAccount?.exchange ??
-				createBroker(normalizedCex, metadata);
-
-			if (!broker) {
-				return wrappedCallback(
-					{
-						code: grpc.status.UNAUTHENTICATED,
-						message: `This Exchange is not registered and No API metadata was found`,
-					},
-					null,
-				);
 			}
 
 			applyVerityToBroker(broker);

@@ -24,6 +24,10 @@ A high-performance gRPC-based cryptocurrency exchange broker service that provid
 - API keys for supported exchanges (e.g., Binance, Bybit, etc.)
 - Optional: Verity prover URL for zero-knowledge proof integration
 
+## Service architecture
+
+See [SERVICES_ARCHITECTURE.md](SERVICES_ARCHITECTURE.md) for the authoritative boundaries between the full broker, operator market-data collector, archive-forwarder, research viewer, offline tools, and externally owned systems.
+
 ## 🛠️ Installation
 
 1. **Clone the repository:**
@@ -97,7 +101,14 @@ CLICKHOUSE_PORT=8123 bun run start-candle-viewer   # http://localhost:8091
 
 Dev watchers: `dev:candle-viewer`, `dev:archive-forwarder`, `dev:archive-watch` (see [research/README.md](research/README.md)).
 
+Maker `hb_runtime` delivery uses the forwarder's durable strategy-only SQLite
+acceptance boundary. See [docs/archive-forwarder-durable-acceptance.md](docs/archive-forwarder-durable-acceptance.md)
+for the wire versions, fixed quota/retention, retry ownership, health semantics,
+and required production volume.
+
 Key env vars: `CEX_BROKER_ARCHIVE_ENABLED=true`, `CEX_BROKER_ARCHIVE_FORWARDER_URL`, `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH`, and `CEX_BROKER_DEPLOYMENT_ID`. The archive is disabled for every enable value except the exact string `true`. Production durability requires the dead-letter file to reside on persistent writable storage or a mounted volume; a container-local ephemeral path is not durable.
+
+Canonical replay capture for FIET-901/FIET-903 adds deployment-owned archive roles, capture bundles, four-feed collector configuration, deterministic checksums, conflict-blocking replay views, and mandatory legacy-to-canonical table migration before canonical-only deployment. Credential resolution remains environment-loaded broker first, request metadata second, and supported public fallback last. See [docs/canonical-market-data-replay.md](docs/canonical-market-data-replay.md) for the complete deployment and cutover contract.
 
 #### Wallet-authenticated exchanges
 
@@ -725,6 +736,12 @@ Every successful `CreateOrder` response, successful `GetOrderDetails` response, 
 - Timing: exchange timestamp when present and broker observed timestamp
 
 Use metrics for aggregations and alerts. For the durable execution audit trail, the broker archives every order lifecycle event to `broker_execution.order_events` (and pre-order top-of-book to `broker_execution.market_metadata_snapshots`) through the **archive forwarder** — the same HTTP `/archive` → ClickHouse path used for `market_data.*`. Set `CEX_BROKER_ARCHIVE_ENABLED=true`, an explicit HTTP(S) `CEX_BROKER_ARCHIVE_FORWARDER_URL`, and a writable durable JSONL path in `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH`; startup fails if either required sink configuration is missing or invalid. In production, that path must be on persistent writable storage or a mounted volume rather than the container's ephemeral filesystem. Queue shedding and rows that remain undeliverable during shutdown are written to that loss journal with their original `{table,row}` payload before being discarded. Setting `CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED=true` additionally mirrors execution rows to OTel logs for observability, but OTel is never the archive sink of record. Analysts join Maker action rows to `broker_execution.order_events` using `maker_action_id`, `idempotency_id`, `client_order_id`, or the exchange `order_id`, then compare Maker propAMM execution price against `average_execution_price` and fees. Failed CreateOrder rows keep bounded exchange error detail in `error_message`; their telemetry-shaped `payload_json`, metrics, and ordinary telemetry logs remain redacted. The broker does not emit raw exchange payloads, API keys, secrets, or credentials in telemetry fields.
+
+### User-stream health archive contract
+
+`broker_stream_health.snapshots` is a dedicated, source-authoritative archive path for the configured-account user-stream registry. The publisher must emit every active stream for one registry revision in one batch; retired entries may remain as explicit lifecycle evidence. The forwarder verifies total and active counts, unique normalized stream identities, and one recomputed `batch_id` before making one ClickHouse write. It records connection state, authentication and received-event watermarks, counters, and explicit failure kinds; a quiet event-driven stream is represented by `last_received_at = NULL`, not by missing health data. Failure reasons are bounded diagnostics and are redacted before storage; state, failure kind, and traffic mode remain the machine-readable fields.
+
+The archive forwarder must be a single active deployment for this table. Replays are accepted only when the whole batch is already present with the same canonical hashes. A partial batch, a same-id different payload, or more than one existing hash for an ID is persisted to `broker_stream_health.replay_conflicts` and the candidate batch is rejected. Readers must deduplicate exact race duplicates by `(snapshot_id, payload_sha256)` and treat more than one hash for one `snapshot_id` as an integrity incident rather than selecting a winner. Neither health table has a TTL.
 
 ### Telemetry Test Harness
 

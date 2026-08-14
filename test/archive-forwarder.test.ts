@@ -10,7 +10,10 @@ import {
 	parseArchiveBatchRequest,
 } from "../services/archive-forwarder/router";
 import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
-import { isSupportedTable } from "../services/archive-forwarder/types";
+import {
+	isSupportedTable,
+	SUPPORTED_TABLES,
+} from "../services/archive-forwarder/types";
 
 describe("archive forwarder batch parsing", () => {
 	test("parseArchiveBatchRequest accepts broker_write payloads", () => {
@@ -66,10 +69,68 @@ describe("archive forwarder batch parsing", () => {
 		expect(parsed.batch.rows).toHaveLength(1);
 	});
 
+	test("rejects rows whose source disagrees with the archive envelope", () => {
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_read",
+			deployment_id: "deploy-a",
+			rows: [
+				{
+					table: "market_data.cex_trades",
+					row: { source: "broker_write", trade_id: "t-1" },
+				},
+			],
+		});
+
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) return;
+		expect(parsed.batch.rows).toHaveLength(0);
+		expect(parsed.rejectedRowCount).toBe(1);
+		expect(parsed.rejectedRowsByTable).toEqual({
+			"market_data.cex_trades": 1,
+		});
+	});
+
+	test("rejects same-batch order-book logical-key checksum conflicts", () => {
+		const common = {
+			source: "broker_read",
+			capture_bundle_id: "bundle-a",
+			exchange: "binance",
+			trading_pair: "BTC-USDT",
+			raw_capture_id: "raw-a",
+			snapshot_id: "snapshot-a",
+			schema_version: "1.0.0",
+			side: "bid",
+			level_index: 0,
+		};
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_read",
+			deployment_id: "deploy-a",
+			rows: [
+				{
+					table: "market_data.cex_order_book_levels",
+					row: { ...common, normalized_row_checksum: "a" },
+				},
+				{
+					table: "market_data.cex_order_book_levels",
+					row: { ...common, normalized_row_checksum: "b" },
+				},
+			],
+		});
+
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) return;
+		expect(parsed.batch.rows).toHaveLength(0);
+		expect(parsed.rejectedRowCount).toBe(2);
+		expect(parsed.checksumConflictsByTable).toEqual({
+			"market_data.cex_order_book_levels": 2,
+		});
+	});
+
 	test("accepts the broker execution and account balance archive tables", () => {
 		expect(isSupportedTable("broker_execution.transfer_events")).toBe(true);
 		expect(isSupportedTable("broker_execution.fill_events")).toBe(true);
 		expect(isSupportedTable("broker_account.balance_snapshots")).toBe(true);
+		expect(isSupportedTable("broker_stream_health.snapshots")).toBe(true);
 		expect(isSupportedTable("broker_account.unknown")).toBe(false);
 
 		const parsed = parseArchiveBatchRequest({
@@ -337,7 +398,156 @@ describe("archive forwarder routing", () => {
 	});
 });
 
+describe("archive forwarder retry deduplication", () => {
+	const rows = [
+		{ table: "market_data.cex_stream_events", row: { event_time_ms: 1 } },
+		{ table: "market_data.cex_ohlcv", row: { open_time_ms: 1 } },
+	];
+
+	function recordingInserter(failTable?: string) {
+		const calls: Array<{ table: string; token?: string }> = [];
+		const inserter = async (
+			table: string,
+			_rows: Record<string, unknown>[],
+			options?: { deduplicationToken?: string },
+		) => {
+			calls.push({ table, token: options?.deduplicationToken });
+			if (table === failTable) {
+				throw new Error("ClickHouse unavailable");
+			}
+		};
+		return { calls, inserter };
+	}
+
+	test("a batch retried under its original id repeats every table's token", async () => {
+		const batch = {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			batch_id: "batch-1",
+			rows,
+		};
+		// First attempt: one table lands, the sibling fails, so the sender re-posts
+		// the whole batch — the landed table included.
+		const attempt = recordingInserter("market_data.cex_ohlcv");
+		const first = await handleArchiveBatch(attempt.inserter, batch);
+		expect(first.inserted).toBe(1);
+		expect(first.failedTables).toEqual(["market_data.cex_ohlcv"]);
+
+		const retry = recordingInserter();
+		await handleArchiveBatch(retry.inserter, batch);
+
+		expect(retry.calls).toEqual(attempt.calls);
+		expect(
+			retry.calls.every((call) => /^[a-f0-9]{64}$/.test(call.token ?? "")),
+		).toBe(true);
+		// Distinct tables in one batch must not share a token, or the second
+		// insert of the batch would be discarded as a repeat of the first.
+		expect(new Set(retry.calls.map((call) => call.token)).size).toBe(2);
+	});
+
+	test("a different batch id produces different tokens for the same rows", async () => {
+		const first = recordingInserter();
+		await handleArchiveBatch(first.inserter, {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			batch_id: "batch-1",
+			rows,
+		});
+		const second = recordingInserter();
+		await handleArchiveBatch(second.inserter, {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			batch_id: "batch-2",
+			rows,
+		});
+
+		expect(second.calls.map(({ token }) => token)).not.toEqual(
+			first.calls.map(({ token }) => token),
+		);
+	});
+
+	test("a sender that claims no retry identity gets unique per-attempt tokens", async () => {
+		// Token-less inserts are not exempt from deduplication: ClickHouse dedupes
+		// token-less blocks by content hash inside the window, collapsing
+		// legitimate byte-identical deliveries. A unique token per attempt keeps
+		// every delivery physically auditable.
+		const first = recordingInserter();
+		await handleArchiveBatch(first.inserter, {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			rows,
+		});
+		expect(
+			first.calls.every((call) => /^[a-f0-9]{64}$/.test(call.token ?? "")),
+		).toBe(true);
+		expect(new Set(first.calls.map(({ token }) => token)).size).toBe(2);
+
+		const second = recordingInserter();
+		await handleArchiveBatch(second.inserter, {
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			rows,
+		});
+		expect(second.calls.map(({ token }) => token)).not.toEqual(
+			first.calls.map(({ token }) => token),
+		);
+	});
+
+	test("a blank batch id is rejected rather than silently losing deduplication", () => {
+		expect(
+			parseArchiveBatchRequest({
+				source: "broker_write",
+				deployment_id: "deploy-1",
+				batch_id: "   ",
+				rows,
+			}).ok,
+		).toBe(false);
+		expect(
+			parseArchiveBatchRequest({
+				source: "broker_write",
+				deployment_id: "deploy-1",
+				batch_id: 7,
+				rows,
+			}).ok,
+		).toBe(false);
+		const parsed = parseArchiveBatchRequest({
+			source: "broker_write",
+			deployment_id: "deploy-1",
+			batch_id: "batch-1",
+			rows,
+		});
+		expect(parsed.ok && parsed.batch.batch_id).toBe("batch-1");
+	});
+});
+
 describe("archive forwarder schema init", () => {
+	test("every market_data table the forwarder writes carries the dedup window", async () => {
+		// Without this setting on the table, the retry tokens are accepted and
+		// ignored, and a redelivered batch duplicates silently.
+		const statements: string[] = [];
+		const client = {
+			command: async ({ query }: { query: string }) => {
+				statements.push(query);
+			},
+		} as unknown as ClickHouseClient;
+
+		await ensureArchiveSchema(client);
+
+		const marketDataTables = SUPPORTED_TABLES.filter((table) =>
+			table.startsWith("market_data."),
+		);
+		for (const table of marketDataTables) {
+			const applied = statements.some(
+				(query) =>
+					query.includes(table) &&
+					/MODIFY SETTING non_replicated_deduplication_window = 1000000/.test(
+						query,
+					),
+			);
+			expect(`${table}:${applied}`).toBe(`${table}:true`);
+		}
+	});
+
 	test("ensureArchiveSchema applies every archive database from its SQL files", async () => {
 		const statements: string[] = [];
 		const client = {
@@ -358,6 +568,7 @@ describe("archive forwarder schema init", () => {
 				"market_data",
 				"broker_execution",
 				"broker_account",
+				"broker_stream_health",
 				"strategy_data",
 			]),
 		);
@@ -369,17 +580,44 @@ describe("archive forwarder schema init", () => {
 			.filter((name): name is string => Boolean(name));
 		expect(createdTables).toEqual(
 			expect.arrayContaining([
+				"market_data.cex_order_book_levels",
+				"market_data.cex_order_book_depth_summary",
+				"market_data.cex_ohlcv",
 				"broker_execution.order_events",
 				"broker_execution.market_metadata_snapshots",
 				"broker_execution.transfer_events",
 				"broker_execution.fill_events",
 				"broker_account.balance_snapshots",
+				"broker_stream_health.snapshots",
+				"broker_stream_health.replay_conflicts",
 				"strategy_data.policy_evaluation_events",
 				"strategy_data.strategy_policy_snapshots",
 				"strategy_data.market_identity",
 				"strategy_data.symbol_mapping",
 				"strategy_data.inventory_settlement_events",
 			]),
+		);
+		const marketSchema = statements.join("\n");
+		expect(marketSchema).toContain(
+			"ENGINE = ReplacingMergeTree(broker_version)",
+		);
+		expect(marketSchema).toContain(
+			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_canonical",
+		);
+		expect(marketSchema).toContain(
+			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_conflicts",
+		);
+		expect(marketSchema).toContain(
+			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_depth_summary_canonical",
+		);
+		expect(marketSchema).toContain(
+			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_depth_summary_conflicts",
+		);
+		expect(marketSchema).toContain(
+			"ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version, side, level_index)",
+		);
+		expect(marketSchema).toContain(
+			"ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS capture_bundle_id",
 		);
 
 		const balanceTable = statements.find((query) =>
@@ -400,5 +638,17 @@ describe("archive forwarder schema init", () => {
 			"ORDER BY (exchange, account_selector, balance_scope, broker_observed_timestamp, observation_id)",
 		);
 		expect(balanceTable).not.toContain("TTL");
+
+		const streamHealthTable = statements.find((query) =>
+			/CREATE TABLE IF NOT EXISTS\s+broker_stream_health\.snapshots/i.test(
+				query,
+			),
+		);
+		expect(streamHealthTable).toContain("heartbeat_at DateTime64(3, 'UTC')");
+		expect(streamHealthTable).toContain(
+			"state Enum8('connecting' = 1, 'connected' = 2, 'disconnected' = 3, 'error' = 4)",
+		);
+		expect(streamHealthTable).toContain("payload_sha256 FixedString(64)");
+		expect(streamHealthTable).not.toContain("TTL");
 	});
 });

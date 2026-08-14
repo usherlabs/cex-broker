@@ -8,12 +8,14 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LogRecord } from "@opentelemetry/api-logs";
 import type { Exchange } from "@usherlabs/ccxt";
 import { MAX_ARCHIVE_BODY_BYTES } from "../services/archive-forwarder/limits";
 import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
+import { handleDeposit } from "../src/handlers/execute-action/deposit";
 import { handleInternalTransfer } from "../src/handlers/execute-action/internal-transfer";
 import { handleOrders } from "../src/handlers/execute-action/orders";
 import { handleTreasuryCall } from "../src/handlers/execute-action/treasury-call";
@@ -30,6 +32,8 @@ import {
 	buildOrderEventArchiveRow,
 	buildSubscribeStreamArchiveRow,
 	buildTransferEventArchiveRow,
+	buildUserAssetSnapshotRow,
+	normalizeBinanceUserAssetsForArchive,
 	normalizeCcxtBalanceForArchive,
 	normalizeCcxtTradeForArchive,
 	normalizeCcxtTransactionForArchive,
@@ -45,6 +49,7 @@ import {
 	isArchiveOtelLogsEnabled,
 	isBrokerExecutionArchiveTable,
 	resolveArchiveForwarderUrlFromEnv,
+	resolveArchiveSourceFromEnv,
 	rethrowArchiveDurabilityError,
 } from "../src/helpers/broker-execution-archive/writer";
 import { Action } from "../src/helpers/constants";
@@ -81,6 +86,191 @@ function restoreEnv(key: string, original: string | undefined): void {
 		delete process.env[key];
 	} else {
 		process.env[key] = original;
+	}
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForCondition(
+	condition: () => boolean,
+	timeoutMs = 500,
+): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!condition()) {
+		if (Date.now() >= deadline) {
+			throw new Error("condition did not become true before the deadline");
+		}
+		await delay(5);
+	}
+}
+
+type RawArchiveServerMode = "stream" | "abort" | "close" | "success";
+
+type RawArchiveServer = {
+	url: string;
+	requests: Array<{ body: Record<string, unknown> }>;
+	setMode: (mode: RawArchiveServerMode) => void;
+	waitForAccepted: (count?: number) => Promise<void>;
+	waitForResponseClose: (count?: number) => Promise<void>;
+	close: () => Promise<void>;
+};
+
+function startRawArchiveServer(
+	initialMode: RawArchiveServerMode,
+): Promise<RawArchiveServer> {
+	let mode = initialMode;
+	let acceptedCount = 0;
+	let responseClosedCount = 0;
+	const requests: Array<{ body: Record<string, unknown> }> = [];
+	const acceptedWaiters: Array<{
+		count: number;
+		resolve: () => void;
+	}> = [];
+	const responseCloseWaiters: Array<{
+		count: number;
+		resolve: () => void;
+	}> = [];
+	const server = createServer((req, res) => {
+		const chunks: Buffer[] = [];
+		let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+		let abortTimer: ReturnType<typeof setTimeout> | undefined;
+		let remoteClosed = false;
+		const markResponseClosed = () => {
+			if (remoteClosed) {
+				return;
+			}
+			remoteClosed = true;
+			if (keepAliveTimer) {
+				clearInterval(keepAliveTimer);
+				keepAliveTimer = undefined;
+			}
+			if (abortTimer) {
+				clearTimeout(abortTimer);
+				abortTimer = undefined;
+			}
+			responseClosedCount += 1;
+			for (const waiter of responseCloseWaiters.splice(0)) {
+				if (responseClosedCount >= waiter.count) {
+					waiter.resolve();
+				} else {
+					responseCloseWaiters.push(waiter);
+				}
+			}
+		};
+		res.once("close", markResponseClosed);
+		req.once("close", markResponseClosed);
+		res.on("error", () => {});
+		req.on("error", () => {});
+		req.on("data", (chunk) => chunks.push(chunk as Buffer));
+		req.on("end", () => {
+			const raw = Buffer.concat(chunks).toString("utf8");
+			requests.push({
+				body: raw ? (JSON.parse(raw) as Record<string, unknown>) : {},
+			});
+			acceptedCount += 1;
+			for (const waiter of acceptedWaiters.splice(0)) {
+				if (acceptedCount >= waiter.count) {
+					waiter.resolve();
+				} else {
+					acceptedWaiters.push(waiter);
+				}
+			}
+
+			if (mode === "stream") {
+				res.writeHead(200, { "content-type": "application/json" });
+				res.write("partial");
+				keepAliveTimer = setInterval(() => {
+					if (!res.destroyed) {
+						res.write("keep-alive");
+					}
+				}, 5);
+				return;
+			}
+			if (mode === "close") {
+				req.socket?.destroy();
+				return;
+			}
+			if (mode === "abort") {
+				res.writeHead(200, { "content-type": "application/json" });
+				res.write("partial");
+				abortTimer = setTimeout(() => res.destroy(), 5);
+				return;
+			}
+			res.writeHead(200, { "content-type": "application/json" });
+			res.end("{}");
+		});
+	});
+
+	return new Promise((resolve) => {
+		server.listen(0, "127.0.0.1", () => {
+			const address = server.address();
+			const port = typeof address === "object" && address ? address.port : 0;
+			resolve({
+				url: `http://127.0.0.1:${port}/archive`,
+				requests,
+				setMode: (nextMode) => {
+					mode = nextMode;
+				},
+				waitForAccepted: (count = 1) =>
+					acceptedCount >= count
+						? Promise.resolve()
+						: new Promise((waiterResolve) => {
+								acceptedWaiters.push({ count, resolve: waiterResolve });
+							}),
+				waitForResponseClose: (count = 1) =>
+					responseClosedCount >= count
+						? Promise.resolve()
+						: new Promise((waiterResolve) => {
+								responseCloseWaiters.push({ count, resolve: waiterResolve });
+							}),
+				close: () =>
+					new Promise<void>((closeResolve) => {
+						server.closeAllConnections?.();
+						server.close(() => closeResolve());
+					}),
+			});
+		});
+	});
+}
+
+type CapturedArchiveMetric = {
+	kind: "counter" | "gauge" | "observable_gauge";
+	name: string;
+	value: number;
+	labels: Record<string, string | number>;
+};
+
+class CapturingArchiveMetrics {
+	readonly calls: CapturedArchiveMetric[] = [];
+
+	async recordCounter(
+		name: string,
+		value: number,
+		labels: Record<string, string | number>,
+	): Promise<void> {
+		this.calls.push({ kind: "counter", name, value, labels });
+	}
+
+	async recordGauge(
+		name: string,
+		value: number,
+		labels: Record<string, string | number>,
+	): Promise<void> {
+		this.calls.push({ kind: "gauge", name, value, labels });
+	}
+
+	async setObservableGauge(
+		name: string,
+		value: number,
+		labels: Record<string, string | number>,
+	): Promise<void> {
+		this.calls.push({ kind: "observable_gauge", name, value, labels });
+	}
+
+	asOtelMetrics(): OtelMetrics {
+		return this as unknown as OtelMetrics;
 	}
 }
 
@@ -282,6 +472,94 @@ describe("broker execution archive rows", () => {
 		const second = buildAccountBalanceSnapshotRow({ tags, balance });
 
 		expect(first.row.observation_id).toBe(second.row.observation_id);
+	});
+
+	test("exposes the travel-rule freeze bucket as its own column with venue-raw quantities", () => {
+		const userAssets = normalizeBinanceUserAssetsForArchive([
+			{
+				asset: "USDC",
+				free: "12.34000000",
+				locked: "0",
+				freeze: "118.50000000",
+				withdrawing: "0",
+				ipoable: "0",
+				btcValuation: "0.00000000",
+			},
+		]);
+		const row = buildUserAssetSnapshotRow({
+			tags: buildCommonArchiveTags({
+				deploymentId: "deploy-a",
+				accountSelector: "primary",
+				exchange: "binance",
+				brokerObservedTimestamp: "2026-08-12T12:00:00.000Z",
+			}),
+			userAssets,
+		});
+
+		expect(row.table).toBe("broker_account.user_asset_snapshots");
+		expect(row.row).toMatchObject({
+			broker_observed_timestamp: "2026-08-12T12:00:00.000Z",
+			source: "broker_write",
+			deployment_id: "deploy-a",
+			schema_version: "1",
+			exchange: "binance",
+			account_selector: "primary",
+			balance_scope: "user_asset",
+			reported_assets: ["USDC"],
+			incomplete_assets: [],
+			// Venue strings kept verbatim, never re-rendered through a JS number.
+			free_balances: { USDC: "12.34000000" },
+			locked_balances: { USDC: "0" },
+			freeze_balances: { USDC: "118.50000000" },
+			withdrawing_balances: { USDC: "0" },
+			precision_basis: "venue_raw_string",
+		});
+		expect(row.row.observation_id).toMatch(/^[a-f0-9]{64}$/);
+		// The endpoint carries no venue timestamp; none is invented.
+		expect(row.row).not.toHaveProperty("exchange_timestamp");
+	});
+
+	test("reports an unreadable bucket as unknown rather than as zero", () => {
+		const userAssets = normalizeBinanceUserAssetsForArchive([
+			{ asset: "USDC", free: "1", locked: "0", withdrawing: "0" },
+			{ asset: "BTC", free: "0", locked: "0", freeze: "", withdrawing: "0" },
+		]);
+
+		expect(userAssets.incompleteAssets).toEqual(["BTC", "USDC"]);
+		expect(userAssets.reportedAssets).toEqual(["BTC", "USDC"]);
+		expect(userAssets.freezeBalances).toEqual({});
+		expect(userAssets.freeBalances).toEqual({ BTC: "0", USDC: "1" });
+	});
+
+	test("fails closed on a getUserAsset response whose owned quantity cannot be accounted for", () => {
+		expect(() => normalizeBinanceUserAssetsForArchive({ assets: [] })).toThrow(
+			"binance_user_asset_malformed_response",
+		);
+		expect(() =>
+			normalizeBinanceUserAssetsForArchive([{ free: "1", freeze: "2" }]),
+		).toThrow("binance_user_asset_malformed_response");
+		expect(() =>
+			normalizeBinanceUserAssetsForArchive([
+				{ asset: "USDC", freeze: "1" },
+				{ asset: "USDC", freeze: "2" },
+			]),
+		).toThrow("binance_user_asset_malformed_response");
+	});
+
+	test("derives a stable user-asset observation id from the complete normalized observation", () => {
+		const userAssets = normalizeBinanceUserAssetsForArchive([
+			{ asset: "USDC", free: "1", locked: "0", freeze: "0", withdrawing: "0" },
+		]);
+		const tags = buildCommonArchiveTags({
+			deploymentId: "deploy-a",
+			accountSelector: "primary",
+			exchange: "binance",
+			brokerObservedTimestamp: "2026-08-12T12:00:00.000Z",
+		});
+
+		expect(
+			buildUserAssetSnapshotRow({ tags, userAssets }).row.observation_id,
+		).toBe(buildUserAssetSnapshotRow({ tags, userAssets }).row.observation_id);
 	});
 
 	test("builds order event rows tagged for broker_execution.order_events", () => {
@@ -1197,6 +1475,7 @@ describe("broker execution archiver queue", () => {
 
 		try {
 			const archiver = BrokerExecutionArchiver.create({
+				source: "broker_read",
 				forwarderUrl: server.url,
 				deadLetterPath: createDeadLetterPath(),
 				deploymentId: "test-deploy",
@@ -1217,9 +1496,16 @@ describe("broker execution archiver queue", () => {
 			expect(request?.headers["content-type"]).toBe("application/json");
 			expect(request?.headers.authorization).toBe("Bearer secret-token");
 			expect(request?.body).toMatchObject({
-				source: "broker_write",
+				source: "broker_read",
 				deployment_id: "test-deploy",
+				rows: [
+					{
+						table: "broker_execution.order_events",
+						row: { source: "broker_read", order_id: "1" },
+					},
+				],
 			});
+			expect(archiver.getSource()).toBe("broker_read");
 
 			await archiver.close();
 		} finally {
@@ -1238,6 +1524,7 @@ describe("broker execution archiver queue", () => {
 			const otelLogs = new MockOtelLogs();
 			const deadLetterPath = createDeadLetterPath();
 			const archiver = BrokerExecutionArchiver.create({
+				source: "broker_read",
 				forwarderUrl: server.url,
 				deadLetterPath,
 				otelLogs,
@@ -1264,11 +1551,12 @@ describe("broker execution archiver queue", () => {
 			expect(archiver.getQueueDepth()).toBe(2);
 			const [loss] = readDeadLetters(deadLetterPath);
 			expect(loss).toMatchObject({
+				source: "broker_read",
 				deployment_id: "test-deploy",
 				reason: "queue_shed",
 				payload: {
 					table: "broker_execution.order_events",
-					row: { source: "broker_write", order_id: "1" },
+					row: { source: "broker_read", order_id: "1" },
 				},
 			});
 			expect(new Date(String(loss?.timestamp)).toISOString()).toBe(
@@ -1467,16 +1755,20 @@ describe("broker execution archiver queue", () => {
 		}
 	});
 
-	test("keeps the queue within maxQueueSize when a failed batch is requeued after refill", async () => {
+	test("holds a failed batch outside the bounded queue and redelivers it under its original id", async () => {
 		// Gate the forwarder so a batch stays in flight while new rows refill the
-		// queue, then fail it — the classic over-cap window for the requeue path.
+		// queue, then fail it. The failed rows must survive the refill without
+		// pushing the queue past its bound, and must go back out unchanged.
 		let releasePost: () => void = () => {};
 		const postGate = new Promise<void>((resolve) => {
 			releasePost = resolve;
 		});
+		let status = 503;
 		const server = await startForwarderServer(async () => {
-			await postGate;
-			return { status: 503 };
+			if (status === 503) {
+				await postGate;
+			}
+			return { status };
 		});
 		try {
 			const archiver = BrokerExecutionArchiver.create({
@@ -1510,12 +1802,524 @@ describe("broker execution archiver queue", () => {
 			releasePost();
 			await flushPromise;
 
-			// Without bound enforcement this would be 6 (3 refill + 3 requeued).
-			expect(archiver.getQueueDepth()).toBe(3);
-			expect(archiver.getStats().shed).toBeGreaterThanOrEqual(3);
+			// The failed rows are held aside, so all six are still pending and the
+			// refill cost nothing — the old requeue shed three of them here.
+			expect(archiver.getQueueDepth()).toBe(6);
+			expect(archiver.getStats().shed).toBe(0);
+
+			// The bound still governs the queue itself: the next arrival sheds.
+			archiver.enqueue(row("7"));
+			expect(archiver.getStats().shed).toBe(1);
+
+			status = 200;
+			await archiver.flush();
+			await archiver.flush();
+			expect(archiver.getQueueDepth()).toBe(0);
+
+			// The retry re-posts the original rows under the original batch id.
+			const [firstPost, retryPost] = server.requests;
+			expect(retryPost?.body.batch_id).toBe(firstPost?.body.batch_id);
+			expect(retryPost?.body.rows).toEqual(firstPost?.body.rows);
 
 			await archiver.close();
 		} finally {
+			await server.close();
+		}
+	});
+
+	test("bounds a response that stays open despite socket activity and retries without loss", async () => {
+		const server = await startRawArchiveServer("stream");
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: server.url,
+			deadLetterPath: createDeadLetterPath(),
+			batchSize: 10,
+			flushIntervalMs: 60_000,
+			forwarderTimeoutMs: 40,
+		});
+		const row = {
+			table: "broker_execution.order_events" as const,
+			row: { order_id: "streaming-response" },
+		};
+
+		try {
+			archiver.enqueue(row);
+			let settlementCount = 0;
+			const firstFlush = archiver.flush();
+			const observedFirstFlush = firstFlush.then(
+				() => {
+					settlementCount += 1;
+				},
+				() => {
+					settlementCount += 1;
+				},
+			);
+			await server.waitForAccepted();
+			const settledBeforeDeadline = await Promise.race([
+				observedFirstFlush.then(() => true),
+				delay(160).then(() => false),
+			]);
+			expect(settledBeforeDeadline).toBe(true);
+			expect(settlementCount).toBe(1);
+			expect(
+				await Promise.race([
+					server.waitForResponseClose().then(() => true),
+					delay(160).then(() => false),
+				]),
+			).toBe(true);
+			expect(archiver.getQueueDepth()).toBe(1);
+			expect(archiver.getStats().shed).toBe(0);
+			expect(
+				archiver.getHealthSnapshot().oldest_pending_age_ms,
+			).toBeGreaterThanOrEqual(35);
+
+			server.setMode("success");
+			const retryFlush = archiver.flush();
+			expect(retryFlush).not.toBe(firstFlush);
+			await retryFlush;
+			expect(archiver.getQueueDepth()).toBe(0);
+			expect(server.requests).toHaveLength(2);
+			expect(server.requests[0]?.body.rows).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						table: row.table,
+						row: expect.objectContaining(row.row),
+					}),
+				]),
+			);
+			expect(server.requests[1]?.body.rows).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						table: row.table,
+						row: expect.objectContaining(row.row),
+					}),
+				]),
+			);
+
+			await delay(80);
+			expect(settlementCount).toBe(1);
+		} finally {
+			await server.close();
+			await archiver.close();
+		}
+	});
+
+	test("settles a response that aborts after headers and retries without loss", async () => {
+		const server = await startRawArchiveServer("abort");
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: server.url,
+			deadLetterPath: createDeadLetterPath(),
+			batchSize: 10,
+			flushIntervalMs: 60_000,
+			forwarderTimeoutMs: 100,
+		});
+		const originalSetTimeout = globalThis.setTimeout;
+		const outerDeadlineTimers: Array<ReturnType<typeof setTimeout>> = [];
+		const setTimeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(
+			(callback, delayMs, ...args) => {
+				const handle = originalSetTimeout(callback, delayMs, ...args);
+				if (delayMs === 100) {
+					outerDeadlineTimers.push(handle);
+				}
+				return handle;
+			},
+		);
+		const clearTimeoutSpy = spyOn(globalThis, "clearTimeout");
+		const row = {
+			table: "market_data.candles" as const,
+			row: { open_time_ms: 1_000 },
+		};
+
+		try {
+			archiver.enqueue(row);
+			let settlementCount = 0;
+			const firstFlush = archiver.flush();
+			const observedFirstFlush = firstFlush.then(
+				() => {
+					settlementCount += 1;
+				},
+				() => {
+					settlementCount += 1;
+				},
+			);
+			await server.waitForAccepted();
+			expect(
+				await Promise.race([
+					observedFirstFlush.then(() => true),
+					delay(160).then(() => false),
+				]),
+			).toBe(true);
+			expect(settlementCount).toBe(1);
+			expect(outerDeadlineTimers).toHaveLength(1);
+			expect(clearTimeoutSpy.mock.calls).toContainEqual([
+				outerDeadlineTimers[0],
+			]);
+			expect(
+				await Promise.race([
+					server.waitForResponseClose().then(() => true),
+					delay(160).then(() => false),
+				]),
+			).toBe(true);
+			expect(archiver.getQueueDepth()).toBe(1);
+			expect(archiver.getStats().shed).toBe(0);
+
+			server.setMode("success");
+			const retryFlush = archiver.flush();
+			expect(retryFlush).not.toBe(firstFlush);
+			await retryFlush;
+			expect(archiver.getQueueDepth()).toBe(0);
+			expect(server.requests).toHaveLength(2);
+			expect(server.requests[1]?.body.rows).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						table: row.table,
+						row: expect.objectContaining(row.row),
+					}),
+				]),
+			);
+		} finally {
+			clearTimeoutSpy.mockRestore();
+			setTimeoutSpy.mockRestore();
+			await server.close();
+			await archiver.close();
+		}
+	});
+
+	test("settles a pre-header connection close and retries without loss", async () => {
+		const server = await startRawArchiveServer("close");
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: server.url,
+			deadLetterPath: createDeadLetterPath(),
+			batchSize: 10,
+			flushIntervalMs: 60_000,
+			forwarderTimeoutMs: 100,
+		});
+		const row = {
+			table: "broker_execution.order_events" as const,
+			row: { order_id: "pre-header-close" },
+		};
+
+		try {
+			archiver.enqueue(row);
+			let settlementCount = 0;
+			const firstFlush = archiver.flush();
+			const observedFirstFlush = firstFlush.then(
+				() => {
+					settlementCount += 1;
+				},
+				() => {
+					settlementCount += 1;
+				},
+			);
+			await server.waitForAccepted();
+			expect(
+				await Promise.race([
+					observedFirstFlush.then(() => true),
+					delay(160).then(() => false),
+				]),
+			).toBe(true);
+			expect(settlementCount).toBe(1);
+			expect(
+				await Promise.race([
+					server.waitForResponseClose().then(() => true),
+					delay(160).then(() => false),
+				]),
+			).toBe(true);
+			expect(archiver.getQueueDepth()).toBe(1);
+			expect(archiver.getStats().shed).toBe(0);
+
+			server.setMode("success");
+			const retryFlush = archiver.flush();
+			expect(retryFlush).not.toBe(firstFlush);
+			await retryFlush;
+			expect(archiver.getQueueDepth()).toBe(0);
+			expect(server.requests).toHaveLength(2);
+			expect(server.requests[1]?.body.rows).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						table: row.table,
+						row: expect.objectContaining(row.row),
+					}),
+				]),
+			);
+			await delay(80);
+			expect(settlementCount).toBe(1);
+		} finally {
+			await server.close();
+			await archiver.close();
+		}
+	});
+
+	test("reports failed current health before shedding and recovers after a fresh persisted batch", async () => {
+		let status = 503;
+		const server = await startForwarderServer(() => ({ status }));
+		const metrics = new CapturingArchiveMetrics();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: server.url,
+			deadLetterPath: createDeadLetterPath(),
+			batchSize: 10,
+			flushIntervalMs: 60_000,
+			forwarderTimeoutMs: 100,
+			maxQueueSize: 2,
+			otelMetrics: metrics.asOtelMetrics(),
+		});
+
+		try {
+			archiver.enqueue({
+				table: "broker_execution.order_events",
+				row: { order_id: "failed-first" },
+			});
+			await archiver.flush();
+			const failed = archiver.getHealthSnapshot();
+			expect(failed.healthy).toBe(false);
+			expect(failed.queue_depth).toBe(1);
+			expect(failed.shed_total).toBe(0);
+			expect(typeof failed.last_failure_at).toBe("number");
+			expect(failed.last_success_at).toBeNull();
+			const healthCalls = () =>
+				metrics.calls.filter(
+					({ kind, name }) =>
+						kind === "observable_gauge" && name === "cex_archive_health",
+				);
+			const failureMetricOffset = metrics.calls.length;
+			expect(healthCalls().some(({ value }) => value === 0)).toBe(true);
+			status = 200;
+			archiver.enqueue({
+				table: "broker_execution.order_events",
+				row: { order_id: "successful-recovery" },
+			});
+			const beforeSuccessHealthCalls = metrics.calls
+				.slice(failureMetricOffset)
+				.filter(
+					({ kind, name }) =>
+						kind === "observable_gauge" && name === "cex_archive_health",
+				);
+			expect(beforeSuccessHealthCalls).not.toEqual(
+				expect.arrayContaining([expect.objectContaining({ value: 1 })]),
+			);
+			// First flush redelivers the held batch, second drains what arrived
+			// during the outage.
+			await archiver.flush();
+			await archiver.flush();
+			const recovered = archiver.getHealthSnapshot();
+			expect(recovered.healthy).toBe(true);
+			expect(recovered.queue_depth).toBe(0);
+			expect(recovered.shed_total).toBe(0);
+			expect(typeof recovered.last_success_at).toBe("number");
+			expect(recovered.sink_errors_total).toBe(1);
+			expect(recovered.sink_latency_ms).toBeGreaterThanOrEqual(0);
+			expect(healthCalls().at(-1)?.value).toBe(1);
+			for (const call of healthCalls()) {
+				expect(call.labels).toEqual({ source: "broker_write" });
+			}
+
+			const metricNames = new Set(metrics.calls.map(({ name }) => name));
+			for (const name of [
+				"cex_archive_health",
+				"cex_archive_queue_depth",
+				"cex_archive_oldest_pending_age_ms",
+				"cex_archive_shed_total",
+				"cex_archive_last_failure_at",
+				"cex_archive_last_shed_at",
+				"cex_archive_last_success_at",
+				"cex_archive_sink_latency_ms",
+				"cex_archive_sink_errors_total",
+				"cex_archive_in_flight",
+				"cex_archive_in_flight_age_ms",
+			]) {
+				expect(metricNames.has(name)).toBe(true);
+			}
+		} finally {
+			await archiver.close();
+			await server.close();
+		}
+	});
+
+	test("keeps wall timestamps truthful while event order drives recovery", async () => {
+		const wallClockMs = 1_700_000_000_000;
+		const originalDateNow = Date.now;
+		Date.now = () => wallClockMs;
+		let status = 503;
+		const server = await startForwarderServer(() => ({ status }));
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: server.url,
+			deadLetterPath: createDeadLetterPath(),
+			batchSize: 10,
+			maxQueueSize: 2,
+			flushIntervalMs: 60_000,
+			forwarderTimeoutMs: 100,
+		});
+
+		try {
+			archiver.enqueue({
+				table: "broker_execution.order_events",
+				row: { order_id: "same-ms-failure" },
+			});
+			await archiver.flush();
+			const failed = archiver.getHealthSnapshot();
+			expect(failed.healthy).toBe(false);
+			expect(failed.last_failure_at).toBe(wallClockMs);
+			expect(failed.last_success_at).toBeNull();
+			expect(failed.shed_total).toBe(0);
+
+			archiver.enqueue({
+				table: "broker_execution.order_events",
+				row: { order_id: "same-ms-retained" },
+			});
+			archiver.enqueue({
+				table: "broker_execution.order_events",
+				row: { order_id: "same-ms-retained-2" },
+			});
+			// The failed batch is held outside the queue, so saturation is reached by
+			// arrivals alone — one more enqueue is what sheds.
+			archiver.enqueue({
+				table: "broker_execution.order_events",
+				row: { order_id: "same-ms-shed" },
+			});
+			const shed = archiver.getHealthSnapshot();
+			expect(shed.healthy).toBe(false);
+			expect(shed.last_shed_at).toBe(wallClockMs);
+			expect(shed.shed_total).toBe(1);
+
+			status = 200;
+			await archiver.flush();
+			await archiver.flush();
+			const recovered = archiver.getHealthSnapshot();
+			expect(recovered.healthy).toBe(true);
+			expect(recovered.last_failure_at).toBe(wallClockMs);
+			expect(recovered.last_shed_at).toBe(wallClockMs);
+			expect(recovered.last_success_at).toBe(wallClockMs);
+			expect(recovered.shed_total).toBe(1);
+			expect(recovered.sink_errors_total).toBe(1);
+		} finally {
+			Date.now = originalDateNow;
+			await archiver.close();
+			await server.close();
+		}
+	});
+
+	test("marks saturation unhealthy before the next enqueue would shed and keeps in-flight age visible", async () => {
+		let releaseResponse: () => void = () => {};
+		const responseGate = new Promise<void>((resolve) => {
+			releaseResponse = resolve;
+		});
+		const server = await startForwarderServer(async () => {
+			await responseGate;
+			return { status: 200 };
+		});
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: server.url,
+			deadLetterPath: createDeadLetterPath(),
+			batchSize: 3,
+			maxQueueSize: 2,
+			flushIntervalMs: 60_000,
+			forwarderTimeoutMs: 200,
+		});
+
+		try {
+			for (const orderId of ["saturated-1", "saturated-2"]) {
+				archiver.enqueue({
+					table: "broker_execution.order_events",
+					row: { order_id: orderId },
+				});
+			}
+			const saturated = archiver.getHealthSnapshot();
+			expect(saturated.healthy).toBe(false);
+			expect(saturated.queue_depth).toBe(2);
+			expect(saturated.shed_total).toBe(0);
+
+			archiver.enqueue({
+				table: "broker_execution.order_events",
+				row: { order_id: "saturated-3" },
+			});
+			const shed = archiver.getHealthSnapshot();
+			expect(shed.healthy).toBe(false);
+			expect(shed.shed_total).toBe(1);
+			expect(typeof shed.last_shed_at).toBe("number");
+
+			const flushPromise = archiver.flush();
+			await waitForCondition(() => server.requests.length === 1);
+			await delay(20);
+			const inFlight = archiver.getHealthSnapshot();
+			expect(inFlight.queue_depth).toBe(0);
+			expect(inFlight.in_flight).toBe(true);
+			expect(inFlight.in_flight_age_ms).toBeGreaterThan(0);
+			expect(inFlight.oldest_pending_age_ms).toBeGreaterThan(0);
+			expect(inFlight.oldest_pending_age_ms).toBeGreaterThanOrEqual(
+				inFlight.in_flight_age_ms,
+			);
+			expect(inFlight.healthy).toBe(false);
+
+			releaseResponse();
+			await flushPromise;
+			const recovered = archiver.getHealthSnapshot();
+			expect(recovered.healthy).toBe(true);
+			expect(recovered.oldest_pending_age_ms).toBe(0);
+			expect(recovered.shed_total).toBe(1);
+			expect(recovered.last_shed_at).toBe(shed.last_shed_at);
+		} finally {
+			await archiver.close();
+			await server.close();
+		}
+	});
+
+	test("keeps a slow successful sink healthy and bounded while the queue refills", async () => {
+		let requestCount = 0;
+		let releaseFirstResponse: () => void = () => {};
+		const firstResponseGate = new Promise<void>((resolve) => {
+			releaseFirstResponse = resolve;
+		});
+		const server = await startForwarderServer(async () => {
+			requestCount += 1;
+			if (requestCount === 1) {
+				await firstResponseGate;
+			}
+			return { status: 200 };
+		});
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: server.url,
+			deadLetterPath: createDeadLetterPath(),
+			batchSize: 10,
+			maxQueueSize: 3,
+			flushIntervalMs: 60_000,
+			forwarderTimeoutMs: 200,
+		});
+
+		try {
+			for (const orderId of ["slow-1", "slow-2"]) {
+				archiver.enqueue({
+					table: "broker_execution.order_events",
+					row: { order_id: orderId },
+				});
+			}
+			const firstFlush = archiver.flush();
+			await waitForCondition(() => server.requests.length === 1);
+			await delay(20);
+			for (const orderId of ["refill-1", "refill-2"]) {
+				archiver.enqueue({
+					table: "broker_execution.order_events",
+					row: { order_id: orderId },
+				});
+			}
+			expect(archiver.getQueueDepth()).toBe(2);
+			expect(archiver.getStats().shed).toBe(0);
+
+			await delay(20);
+			releaseFirstResponse();
+			await firstFlush;
+			expect(archiver.getQueueDepth()).toBe(2);
+			expect(archiver.getStats().shed).toBe(0);
+			expect(archiver.getHealthSnapshot().healthy).toBe(true);
+			expect(archiver.getHealthSnapshot().sink_latency_ms).toBeGreaterThan(0);
+
+			const secondFlush = archiver.flush();
+			expect(secondFlush).not.toBe(firstFlush);
+			await secondFlush;
+			expect(archiver.getQueueDepth()).toBe(0);
+			expect(archiver.getStats().shed).toBe(0);
+			expect(archiver.getHealthSnapshot().healthy).toBe(true);
+			expect(server.requests).toHaveLength(2);
+		} finally {
+			await archiver.close();
 			await server.close();
 		}
 	});
@@ -1550,6 +2354,13 @@ describe("broker execution archiver queue", () => {
 });
 
 describe("broker execution archiver env", () => {
+	test("uses closed archive source configuration with broker_write compatibility default", () => {
+		expect(resolveArchiveSourceFromEnv(undefined)).toBe("broker_write");
+		expect(resolveArchiveSourceFromEnv("broker_read")).toBe("broker_read");
+		expect(() => resolveArchiveSourceFromEnv("request_inferred")).toThrow(
+			"broker_read or broker_write",
+		);
+	});
 	test("only the exact true enable flag enables archive construction", async () => {
 		const originalEnabled = process.env.CEX_BROKER_ARCHIVE_ENABLED;
 		const originalForwarderUrl = process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL;
@@ -1687,6 +2498,7 @@ describe("broker execution archiver env", () => {
 			);
 			expect(enabledCall?.[1]).toEqual({
 				enabled: true,
+				source: "broker_write",
 				otel_mirror_enabled: true,
 			});
 			const startupOutput = JSON.stringify(enabledCall);
@@ -1697,6 +2509,82 @@ describe("broker execution archiver env", () => {
 			await enabled.close();
 		} finally {
 			info.mockRestore();
+		}
+	});
+});
+
+describe("deposit observation archive", () => {
+	test("records the venue credit time when the venue reports it as an epoch integer", async () => {
+		const forwarder = await startForwarderServer();
+		const archiver = BrokerExecutionArchiver.create({
+			forwarderUrl: forwarder.url,
+			deadLetterPath: createDeadLetterPath(),
+			deploymentId: "test-deploy",
+			batchSize: 100,
+			flushIntervalMs: 60_000,
+		});
+		// Binance reports insertTime as an integer, which ccxt surfaces as
+		// `timestamp`; `datetime` is absent from this shape on purpose.
+		const insertTime = 1_784_000_000_123;
+		const broker = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [
+				{
+					txid: "0xdeposited",
+					currency: "USDC",
+					amount: 10,
+					address: "0xrecipient",
+					status: "ok",
+					timestamp: insertTime,
+					info: { status: "1", insertTime },
+				},
+			],
+		} as unknown as Exchange;
+
+		const context = {
+			call: {
+				request: {
+					payload: {
+						recipientAddress: "0xrecipient",
+						amount: "10",
+						transactionHash: "0xdeposited",
+					},
+				},
+			},
+			wrappedCallback: () => {},
+			policy: { deposit: {} },
+			brokers: {},
+			metadata: {},
+			normalizedCex: "binance",
+			cex: "binance",
+			symbol: "USDC",
+			selectedBrokerAccount: { exchange: broker, label: "primary" },
+			broker,
+			verity: { proof: "" },
+			applyVerityToBroker: () => {},
+			useVerity: false,
+			verityProverUrl: "",
+			brokerArchiver: archiver,
+		} as unknown as ExecuteActionContext;
+
+		try {
+			await handleDeposit(context);
+			await Promise.resolve();
+			await archiver.flush();
+
+			const rows = forwarder.requests.flatMap(
+				(request) => request.body.rows ?? [],
+			) as Array<{ row: Record<string, unknown> }>;
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.row).toMatchObject({
+				event_kind: "deposit",
+				lifecycle_action: "observe_deposit",
+				external_id: "0xdeposited",
+				exchange_timestamp: new Date(insertTime).toISOString(),
+			});
+		} finally {
+			await archiver.close();
+			await forwarder.close();
 		}
 	});
 });

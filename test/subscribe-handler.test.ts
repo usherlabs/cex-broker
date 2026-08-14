@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as grpc from "@grpc/grpc-js";
@@ -36,6 +36,7 @@ type MockCallState = {
 	writes: SubscribeResponse[];
 	endCount: number;
 	destroyed: boolean;
+	errors: unknown[];
 };
 
 function createSubscribeCall(
@@ -47,6 +48,7 @@ function createSubscribeCall(
 		writes: [],
 		endCount: 0,
 		destroyed: false,
+		errors: [],
 	};
 	const writeResults = [...(options.writeResults ?? [])];
 	const call = Object.assign(emitter, {
@@ -70,6 +72,7 @@ function createSubscribeCall(
 			emitter.emit("close");
 		},
 	});
+	emitter.on("error", (error) => state.errors.push(error));
 	Object.defineProperty(call, "destroyed", {
 		get: () => state.destroyed,
 	});
@@ -205,6 +208,37 @@ function createThrowingExchange(
 }
 
 describe("subscribe handler", () => {
+	test("environment credentials take precedence over request credentials", async () => {
+		const controlledWatch = createControlledWatch();
+		const exchange = {
+			watchTicker: controlledWatch.watch,
+		} as unknown as Exchange;
+		const { call, state } = createSubscribeCall({
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: SubscriptionType.TICKER,
+		});
+		call.metadata.set("api-key", "request-key-must-not-win");
+		call.metadata.set("api-secret", "request-secret-must-not-win");
+		const handler = createSubscribeHandler({
+			brokers: createPool(exchange),
+			whitelistIps: ["*"],
+		});
+
+		const handlerPromise = handler(call);
+		await waitFor(() => controlledWatch.calls.length === 1);
+		controlledWatch.resolvers[0]?.({ last: 100 });
+		await waitFor(() => state.writes.length === 1);
+		cancelSubscribeCall(call);
+		controlledWatch.resolvers[1]?.({});
+		await handlerPromise;
+
+		expect(JSON.parse(state.writes[0]?.data ?? "{}")).toMatchObject({
+			last: 100,
+		});
+		expect(controlledWatch.calls).toHaveLength(2);
+	});
+
 	test("keeps a subscription active when close fires without cancellation", async () => {
 		const controlledWatch = createControlledWatch();
 		const exchange = {
@@ -369,7 +403,7 @@ describe("subscribe handler", () => {
 		expect(state.endCount).toBe(1);
 	});
 
-	test("archives orderbook snapshot rows to the forwarder", async () => {
+	test("archives canonical orderbook rows without legacy dual-write", async () => {
 		const server = await startForwarderServer();
 		const posts = server.requests;
 		const originalInterval = process.env.CEX_BROKER_ORDERBOOK_INTERVAL_MS;
@@ -408,10 +442,10 @@ describe("subscribe handler", () => {
 				asks: [[101, 2]],
 				timestamp: 1_700_000_000_000,
 			});
-			await waitFor(() => archiver.getStats().enqueued >= 1);
+			await waitFor(() => archiver.getStats().enqueued >= 4);
 			// batchSize 1 auto-flushes on enqueue; wait for that post to reach the
 			// forwarder over the real transport rather than racing the round trip.
-			await waitFor(() => archiver.getStats().flushed >= 1);
+			await waitFor(() => archiver.getStats().flushed >= 4);
 			await waitFor(() => controlledWatch.calls.length >= 2);
 			cancelSubscribeCall(call);
 			controlledWatch.resolvers[1]?.({
@@ -435,17 +469,27 @@ describe("subscribe handler", () => {
 			);
 			expect(
 				rows.some((entry) => entry.table === "market_data.orderbook_snapshots"),
+			).toBe(false);
+			expect(
+				rows.some(
+					(entry) => entry.table === "market_data.cex_order_book_levels",
+				),
 			).toBe(true);
-			const snapshotRow = rows.find(
-				(entry) => entry.table === "market_data.orderbook_snapshots",
+			expect(
+				rows.some(
+					(entry) => entry.table === "market_data.cex_order_book_depth_summary",
+				),
+			).toBe(true);
+			const summaryRow = rows.find(
+				(entry) => entry.table === "market_data.cex_order_book_depth_summary",
 			);
-			expect(snapshotRow?.row).toMatchObject({
+			expect(summaryRow?.row).toMatchObject({
 				exchange: "binance",
-				symbol: "BTC/USDT",
+				trading_pair: "BTC-USDT",
 				best_bid: 100,
 				best_ask: 101,
-				bids_price: [100],
-				asks_price: [101],
+				bid_level_count: 1,
+				ask_level_count: 1,
 			});
 
 			await archiver.close();
@@ -464,7 +508,7 @@ describe("subscribe handler", () => {
 		}
 	});
 
-	test("archives OHLCV candle rows to the forwarder", async () => {
+	test("archives canonical OHLCV rows without legacy dual-write", async () => {
 		const server = await startForwarderServer();
 		const posts = server.requests;
 		const originalArchiveEnabled =
@@ -498,24 +542,33 @@ describe("subscribe handler", () => {
 			const handlerPromise = handler(call);
 			await waitFor(() => controlledWatch.calls.length === 1);
 			controlledWatch.resolvers[0]?.([[1_700_000_000_000, 1, 2, 0.5, 1.5, 10]]);
-			await waitFor(() => archiver.getStats().enqueued >= 1);
+			await waitFor(() => archiver.getStats().enqueued >= 2);
 			// batchSize 1 auto-flushes on enqueue; wait for that post to reach the
 			// forwarder over the real transport rather than racing the round trip.
-			await waitFor(() => archiver.getStats().flushed >= 1);
+			await waitFor(() => archiver.getStats().flushed >= 2);
 			await waitFor(() => controlledWatch.calls.length >= 2);
 			cancelSubscribeCall(call);
 			controlledWatch.resolvers[1]?.([[1_700_000_000_000, 1, 2, 0.5, 1.5, 10]]);
 			await handlerPromise;
 
 			expect(posts.length).toBeGreaterThanOrEqual(1);
-			const rows = (posts[0]?.body.rows ?? []) as Array<{
-				table: string;
-				row: Record<string, unknown>;
-			}>;
-			expect(rows.some((entry) => entry.table === "market_data.candles")).toBe(
-				true,
+			const rows = posts.flatMap(
+				(post) =>
+					(post.body.rows ?? []) as Array<{
+						table: string;
+						row: Record<string, unknown>;
+					}>,
 			);
-			expect(rows[0]?.row).toMatchObject({
+			expect(rows.some((entry) => entry.table === "market_data.candles")).toBe(
+				false,
+			);
+			expect(
+				rows.some((entry) => entry.table === "market_data.cex_ohlcv"),
+			).toBe(true);
+			const candle = rows.find(
+				(entry) => entry.table === "market_data.cex_ohlcv",
+			);
+			expect(candle?.row).toMatchObject({
 				timeframe: "1m",
 				open_time_ms: 1_700_000_000_000,
 				is_closed: 0,
@@ -528,6 +581,171 @@ describe("subscribe handler", () => {
 				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
 			} else {
 				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalArchiveEnabled;
+			}
+		}
+	});
+
+	test("archives ticker and trades with raw-to-normalized capture linkage", async () => {
+		const server = await startForwarderServer();
+		const originalEnabled = process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
+		try {
+			const tickerWatch = createControlledWatch();
+			const tradesWatch = createControlledWatch();
+			const exchange = {
+				watchTicker: tickerWatch.watch,
+				watchTrades: tradesWatch.watch,
+			} as unknown as Exchange;
+			const archiver = BrokerExecutionArchiver.create({
+				source: "broker_read",
+				forwarderUrl: server.url,
+				deadLetterPath: createDeadLetterPath(),
+				deploymentId: "read-capture-test",
+				batchSize: 1,
+				flushIntervalMs: 60_000,
+			});
+			const tickerCall = createSubscribeCall({
+				cex: "binance",
+				symbol: "BTC/USDT",
+				type: SubscriptionType.TICKER,
+			}).call;
+			const tradesCall = createSubscribeCall({
+				cex: "binance",
+				symbol: "BTC/USDT",
+				type: SubscriptionType.TRADES,
+			}).call;
+			const handler = createSubscribeHandler({
+				brokers: createPool(exchange),
+				whitelistIps: ["*"],
+				brokerArchiver: archiver,
+			});
+			const tickerPromise = handler(tickerCall);
+			const tradesPromise = handler(tradesCall);
+			await waitFor(
+				() => tickerWatch.calls.length === 1 && tradesWatch.calls.length === 1,
+			);
+			tickerWatch.resolvers[0]?.({
+				timestamp: 1_700_000_000_100,
+				last: 100.5,
+				bid: 100,
+				ask: 101,
+			});
+			tradesWatch.resolvers[0]?.([
+				{
+					id: "trade-1",
+					timestamp: 1_700_000_000_200,
+					side: "buy",
+					price: 100.25,
+					amount: 0.5,
+				},
+			]);
+			await waitFor(() => archiver.getStats().flushed >= 4);
+			await waitFor(
+				() => tickerWatch.calls.length >= 2 && tradesWatch.calls.length >= 2,
+			);
+			cancelSubscribeCall(tickerCall);
+			cancelSubscribeCall(tradesCall);
+			tickerWatch.resolvers[1]?.({});
+			tradesWatch.resolvers[1]?.([]);
+			await Promise.all([tickerPromise, tradesPromise]);
+
+			const rows = server.requests.flatMap(
+				(post) =>
+					(post.body.rows ?? []) as Array<{
+						table: string;
+						row: Record<string, unknown>;
+					}>,
+			);
+			for (const [feed, table] of [
+				["TICKER", "market_data.cex_ticker_events"],
+				["TRADES", "market_data.cex_trades"],
+			] as const) {
+				const raw = rows.find(
+					(entry) =>
+						entry.table === "market_data.cex_stream_events" &&
+						entry.row.feed === feed,
+				);
+				const normalized = rows.find((entry) => entry.table === table);
+				expect(raw?.row.source).toBe("broker_read");
+				expect(normalized?.row.raw_capture_id).toBe(raw?.row.raw_capture_id);
+				expect(normalized?.row.raw_checksum).toBe(raw?.row.raw_checksum);
+				expect(normalized?.row.normalized_row_checksum).toBeString();
+			}
+			await archiver.close();
+		} finally {
+			await server.close();
+			if (originalEnabled === undefined) {
+				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+			} else {
+				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalEnabled;
+			}
+		}
+	});
+
+	test("keeps stream delivery successful while forwarder failure is durably journaled", async () => {
+		const server = await startForwarderServer(() => ({ status: 503 }));
+		const originalEnabled = process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
+		const deadLetterPath = createDeadLetterPath();
+		try {
+			const controlledWatch = createControlledWatch();
+			const exchange = {
+				watchTicker: controlledWatch.watch,
+			} as unknown as Exchange;
+			const archiver = BrokerExecutionArchiver.create({
+				source: "broker_read",
+				forwarderUrl: server.url,
+				deadLetterPath,
+				deploymentId: "read-fault-test",
+				batchSize: 1,
+				flushIntervalMs: 60_000,
+			});
+			const { call, state } = createSubscribeCall({
+				cex: "binance",
+				symbol: "BTC/USDT",
+				type: SubscriptionType.TICKER,
+			});
+			const handler = createSubscribeHandler({
+				brokers: createPool(exchange),
+				whitelistIps: ["*"],
+				brokerArchiver: archiver,
+			});
+			const handlerPromise = handler(call);
+			await waitFor(() => controlledWatch.calls.length === 1);
+			controlledWatch.resolvers[0]?.({
+				timestamp: 1_700_000_000_100,
+				last: 100.5,
+				bid: 100,
+				ask: 101,
+			});
+			await waitFor(() => state.writes.length === 1);
+			expect(JSON.parse(state.writes[0]?.data ?? "{}")).toMatchObject({
+				last: 100.5,
+			});
+			await waitFor(() => server.requests.length >= 1);
+			cancelSubscribeCall(call);
+			controlledWatch.resolvers[1]?.({});
+			await handlerPromise;
+			await archiver.close();
+
+			const losses = readFileSync(deadLetterPath, "utf8")
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line) as Record<string, unknown>);
+			expect(losses).toHaveLength(2);
+			expect(
+				losses.every(
+					(loss) =>
+						loss.source === "broker_read" &&
+						loss.reason === "shutdown_forwarder_failure",
+				),
+			).toBe(true);
+		} finally {
+			await server.close();
+			if (originalEnabled === undefined) {
+				delete process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED;
+			} else {
+				process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = originalEnabled;
 			}
 		}
 	});

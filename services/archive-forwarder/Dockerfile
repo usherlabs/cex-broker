@@ -1,10 +1,18 @@
 # Archive forwarder: receives cex-broker archive batches over HTTP (POST /archive)
 # and writes them to ClickHouse (market_data, broker_execution, strategy_data).
-# It self-initializes the schema on boot and fail-closes if that fails.
+# It self-initializes the durable spool before listening and retries ClickHouse
+# schema initialization without giving up durable Maker admission.
 #
 # Build from the repository ROOT so the schema/ directory is in the build context:
 #   docker build -f services/archive-forwarder/Dockerfile -t cex-broker-archive-forwarder .
-FROM oven/bun:1.3
+# Pinned to an exact patch, not the floating 1.3 tag: bun <= 1.3.9 can drop the
+# terminating chunk of an empty chunked HTTP response, which hangs a ClickHouse
+# read forever. request_timeout cannot rescue it — the client implements that
+# with socket.setTimeout, which Bun's node:http client ignores. This service
+# reads and writes ClickHouse continuously, so it is the most exposed. Measured
+# at ~1% of query bursts on 1.3.9 and zero on 1.3.12 and later, so keep this at
+# 1.3.12 or above.
+FROM oven/bun:1.3.14
 
 WORKDIR /app
 
@@ -22,6 +30,8 @@ COPY src/helpers/otel.ts src/helpers/logger.ts ./src/helpers/
 COPY schema/clickhouse ./schema/clickhouse
 
 ENV ARCHIVE_FORWARDER_PORT=8090
+ENV ARCHIVE_FORWARDER_SPOOL_PATH=/var/lib/archive-forwarder/spool.sqlite
+VOLUME ["/var/lib/archive-forwarder"]
 EXPOSE 8090
 
 CMD ["bun", "run", "services/archive-forwarder/index.ts"]

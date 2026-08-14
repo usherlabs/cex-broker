@@ -1,0 +1,171 @@
+{
+  "schemaVersion": "cex-maker-post-merge-conformance/v1",
+  "status": "accepted",
+  "completedAt": "2026-08-04T11:36:08Z",
+  "commits": {
+    "cexBaseline": "7a83de5f29a08f42d81f64a75a83bc9318dce94a",
+    "cexArchiveImplementation": "3398066ae2c396a9a9e0220f88715ac22b6d8694",
+    "cexDevelopMerge": "526e0413bcb2aff12803f6da9720ba75d6759d1d",
+    "makerDevelopMerge": "ca67fc3dbc42032bdf3da613708208e1b3217f5f",
+    "makerConformanceImplementation": "fab2b6bacc4522ba5445aa14eac1afcc6b8d9918",
+    "makerOrderAuthorSmokeFix": "e51e419abd34f4c09ff112a2fba34cdd1ba1caf2"
+  },
+  "versions": {
+    "cexBaselinePackage": "0.2.38",
+    "clickhouse": "24.8.14.39",
+    "bun": "1.3.12",
+    "python": "Python 3.14.3",
+    "marketSchema": "1.0.0",
+    "strategySchema": "2",
+    "checksum": "sha256-canonical-json-v1"
+  },
+  "sharedContract": {
+    "makerBranch": "develop",
+    "makerCheckoutClean": true,
+    "cexCheckoutClean": true,
+    "makerPr1067Ancestor": true,
+    "makerPr1067FixtureSha256": "784f647e048052a6c3382309b1a86abfbe08bc162363ead9fc88eaa1ba3d50c9",
+    "wireContractTestsPassed": true,
+    "marketTables": [
+      "market_data.cex_stream_events",
+      "market_data.cex_ticker_events",
+      "market_data.cex_trades",
+      "market_data.cex_ohlcv",
+      "market_data.cex_order_book_levels",
+      "market_data.cex_order_book_depth_summary"
+    ],
+    "strategyTables": [
+      "strategy_data.policy_evaluation_events",
+      "strategy_data.strategy_policy_snapshots",
+      "strategy_data.market_identity",
+      "strategy_data.symbol_mapping",
+      "strategy_data.inventory_settlement_events"
+    ]
+  },
+  "profiles": {
+    "nativeReplay": {
+      "runId": "archive-closeout-final-20260804T1136Z-native-replay",
+      "status": "passed",
+      "runtime": "native_emulation_materializer",
+      "source": "maker_replay",
+      "strategyPath": "synchronous_direct_200",
+      "httpStatus": 200,
+      "acceptedStrategyRows": 5,
+      "brokerBoundaryObserved": false,
+      "spoolQueuedBefore": 0,
+      "spoolQueuedAfter": 0,
+      "marketCounts": {
+        "market_data.cex_stream_events": 5,
+        "market_data.cex_ticker_events": 1,
+        "market_data.cex_trades": 1,
+        "market_data.cex_ohlcv": 2,
+        "market_data.cex_order_book_levels": 4,
+        "market_data.cex_order_book_depth_summary": 1
+      },
+      "strategyCounts": {
+        "strategy_data.policy_evaluation_events": 1,
+        "strategy_data.strategy_policy_snapshots": 1,
+        "strategy_data.market_identity": 1,
+        "strategy_data.symbol_mapping": 1,
+        "strategy_data.inventory_settlement_events": 1
+      },
+      "parquet": {
+        "ownership": "FIET-907-compatible direct ClickHouse exporter",
+        "sourceMode": "vendor_archive_normalized",
+        "exportedLevels": 4,
+        "exportedSummaries": 1,
+        "consumedLevels": 4,
+        "consumedSummaries": 1,
+        "exportLevelsSha256": "35cd68e444ec443eb312c8d50f927e0499c9bd5200ba3d8042292b6b5cf588e0",
+        "exportSummarySha256": "215b7c7ccebf8378a7796cbd6f84ee66c6afdb5a8c55e707dc90b514e637a542",
+        "makerLevelsSha256": "c89524d9b7ed5cc06263997c363f8b2321adadcc18cc47a0d8355f579ff885c3",
+        "makerSummarySha256": "b4b0478cb0ad3991d2784e9f0c87b7b350ad0805345409c74b00fe8c6dc2ff4c",
+        "makerMetadataSha256": "3c7582264f1e1b63a62635b8c14d679acdb2173695a1e15ff24c556a8a2364bd"
+      },
+      "artifactHashes": {
+        "verificationSha256": "bb57e06daf10a0aacad73f0c7e55b1a78628f8ea64f1fe2186a36b2eb90b1d21",
+        "makerResultSha256": "633e6a5c064963089f7bfa5d9c79e29183c11ea41bacaf3c20dfa9596f9c5ebf",
+        "manifestSha256": "e6f09845fedb1b396808ce969738987883f71f6dbd3204ca42a290201a45175e",
+        "verificationInputStateSha256": "a4761c290030db494f711a867043eda99026a1d83681c09a7cba123d206ab402"
+      }
+    },
+    "productionCompatible": {
+      "runId": "archive-closeout-final-20260804T1136Z-production-compatible",
+      "status": "passed",
+      "runtime": "hummingbot_v2.13_layer12_live",
+      "source": "hb_runtime",
+      "strategyPath": "durable_spool_202",
+      "httpStatus": 202,
+      "acceptedStrategyRows": 5,
+      "brokerBoundaryObserved": true,
+      "ordersDisarmed": true,
+      "externalOrderBookSubscriptions": 2,
+      "orderBookSnapshotCalls": 1,
+      "spoolQueuedBefore": 0,
+      "spoolQueuedAfter": 0,
+      "spoolHealthy": true,
+      "spoolTerminalWork": 0,
+      "marketCounts": {
+        "market_data.cex_stream_events": 5,
+        "market_data.cex_ticker_events": 1,
+        "market_data.cex_trades": 1,
+        "market_data.cex_ohlcv": 2,
+        "market_data.cex_order_book_levels": 4,
+        "market_data.cex_order_book_depth_summary": 1
+      },
+      "strategyCounts": {
+        "strategy_data.policy_evaluation_events": 1,
+        "strategy_data.strategy_policy_snapshots": 1,
+        "strategy_data.market_identity": 1,
+        "strategy_data.symbol_mapping": 1,
+        "strategy_data.inventory_settlement_events": 1
+      },
+      "brokerObservation": {
+        "connector": "fiet_cex",
+        "dataSourceClass": "FietCexOrderBookDataSource",
+        "layer12Boundary": "layer12_live_reference_depth",
+        "layer12ControllerClass": "Layer12LiveController",
+        "bidLevels": 2,
+        "askLevels": 2
+      },
+      "artifactHashes": {
+        "verificationSha256": "dd5549c929d93d5ba1dd8fa961789af38ce25e9709107fb733ba00d6ae5dbf98",
+        "makerResultSha256": "090ba7eb1bc3d6bfef6e2db71fefd8979903897266260bfc627990aaa1be1612",
+        "manifestSha256": "3ab3a640c3700903a72d7232a8463ea2cc991616bcb5dabbfbca595f62be091e",
+        "verificationInputStateSha256": "0df0b653765779e33c13c711e89f6e8463111b80b34fbd429896150696126f8d",
+        "hummingbotGateSha256": "27e56d1d30365fd82eecb08b7b469f208df00e878003342b5fff33f29ed4bc80",
+        "externalBrokerObservationSha256": "dd6775c3677af3a733b49e2fa0774f71283cb1485e1dd77dd853c3b08c022cde"
+      }
+    }
+  },
+  "teardown": {
+    "producerAccessRemoved": true,
+    "sqliteSpoolsRemoved": true,
+    "runOwnedContainersRemaining": 0,
+    "runOwnedProcessesRemaining": 0,
+    "secretBearingArtifactsRetained": false
+  },
+  "upgradeAcceptance": {
+    "evidenceSha256": "1793bb107534635a5a960a22c1e15a85cac216a21037089fdad8c352cf9fa1ff",
+    "migrationConfirmedTwice": true,
+    "canonicalRows": 6,
+    "parityMismatches": 0,
+    "conflicts": 0,
+    "controlImmutable": true,
+    "upgradedProducerCanonicalOnly": true
+  },
+  "references": {
+    "cexGiteaPull": "https://git.aos.usher.so/ao/cex-broker/pulls/5",
+    "makerGiteaConformancePull": "https://git.aos.usher.so/ao/fiet-maker/pulls/39",
+    "makerGiteaSmokeFixPull": "https://git.aos.usher.so/ao/fiet-maker/pulls/40",
+    "makerGithubPr1067": "https://github.com/usherlabs/fiet-maker/pull/1067",
+    "fiet901": "https://linear.app/usherlabs/issue/FIET-901/read-broker-cex-market-data-into-clickhouse",
+    "fiet903": "https://linear.app/usherlabs/issue/FIET-903/canonical-cex-order-book-depth-tables-for-strategy-runtime-replay",
+    "fiet907": "https://linear.app/usherlabs/issue/FIET-907/clickhouse-backtest-fixture-materializers-and-coveragereplay-bundles"
+  },
+  "productionSoak": {
+    "performed": false,
+    "claimed": false,
+    "requiredForThisChange": false
+  }
+}

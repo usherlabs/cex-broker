@@ -104,6 +104,74 @@ describe("archive forwarder telemetry", () => {
 		expect(gauges).toHaveLength(0);
 	});
 
+	test("records bounded maker replay success and insertion-failure counters", async () => {
+		const success = createCapturingTelemetry();
+		const replayBody = {
+			source: "maker_replay",
+			deployment_id: "replay-a",
+			rows: [
+				{
+					table: "strategy_data.policy_evaluation_events",
+					row: {
+						source: "maker_replay",
+						deployment_id: "replay-a",
+						schema_version: "1",
+					},
+				},
+			],
+		};
+		const successResponse = await handleArchiveRequest(
+			new Request("http://localhost/archive", {
+				method: "POST",
+				body: JSON.stringify(replayBody),
+			}),
+			{ inserter: async () => {}, telemetry: success.telemetry },
+		);
+		expect(successResponse.status).toBe(200);
+		expect(success.counters).toEqual(
+			expect.arrayContaining([
+				{
+					name: ARCHIVE_FORWARDER_METRICS.strategyReplayBatchesInserted,
+					value: 1,
+					labels: {},
+				},
+				{
+					name: ARCHIVE_FORWARDER_METRICS.strategyReplayRowsInserted,
+					value: 1,
+					labels: {},
+				},
+			]),
+		);
+
+		const failure = createCapturingTelemetry();
+		const failureResponse = await handleArchiveRequest(
+			new Request("http://localhost/archive", {
+				method: "POST",
+				body: JSON.stringify(replayBody),
+			}),
+			{
+				inserter: async () => {
+					throw new Error("network unavailable");
+				},
+				telemetry: failure.telemetry,
+			},
+		);
+		expect(failureResponse.status).toBe(500);
+		expect(failure.counters).toContainEqual({
+			name: ARCHIVE_FORWARDER_METRICS.strategyReplayInsertionFailures,
+			value: 1,
+			labels: {},
+		});
+		expect(
+			failure.counters.some(({ name }) =>
+				[
+					ARCHIVE_FORWARDER_METRICS.strategyBatchesAdmitted,
+					ARCHIVE_FORWARDER_METRICS.strategyRowsAdmitted,
+				].includes(name),
+			),
+		).toBe(false);
+	});
+
 	test("records every rejected row by table, including malformed rows", async () => {
 		const { telemetry, counters } = createCapturingTelemetry();
 		let insertCalled = false;
@@ -194,6 +262,44 @@ describe("archive forwarder telemetry", () => {
 		expect(gauges).toHaveLength(0);
 	});
 
+	test("records same-batch checksum conflicts with bounded source/feed labels", async () => {
+		const { telemetry, counters } = createCapturingTelemetry();
+		const common = {
+			source: "broker_write",
+			capture_bundle_id: "bundle-a",
+			exchange: "binance",
+			trading_pair: "BTC-USDT",
+			raw_capture_id: "raw-a",
+			snapshot_id: "snapshot-a",
+			schema_version: "1.0.0",
+			side: "bid",
+			level_index: 0,
+		};
+		const response = await handleArchiveRequest(
+			archiveRequest([
+				{
+					table: "market_data.cex_order_book_levels",
+					row: { ...common, normalized_row_checksum: "a" },
+				},
+				{
+					table: "market_data.cex_order_book_levels",
+					row: { ...common, normalized_row_checksum: "b" },
+				},
+			]),
+			{ inserter: async () => {}, telemetry },
+		);
+		expect(response.status).toBe(400);
+		expect(counters).toContainEqual({
+			name: ARCHIVE_FORWARDER_METRICS.checksumConflicts,
+			value: 2,
+			labels: {
+				source: "broker_write",
+				feed: "ORDERBOOK",
+				table: "market_data.cex_order_book_levels",
+			},
+		});
+	});
+
 	test("keeps a successful request independent of throwing telemetry", async () => {
 		const throwingRecorder: ArchiveMetricsRecorder = {
 			recordCounter: async () => {
@@ -234,5 +340,52 @@ describe("archive forwarder telemetry", () => {
 		);
 
 		expect(response.status).toBe(200);
+	});
+
+	test("records durable strategy admission and spool state with bounded labels", () => {
+		const { telemetry, counters, gauges } = createCapturingTelemetry();
+		telemetry.recordStrategyAdmission(3);
+		telemetry.recordStrategyAdmissionRejected("attacker-controlled-reason");
+		telemetry.recordStrategyRetry(
+			"strategy_data.policy_evaluation_events",
+			"connection",
+		);
+		telemetry.recordStrategySpoolStats({
+			queuedBatches: 2,
+			queuedWork: 3,
+			terminalWork: 1,
+			expiredWork: 4,
+			accountedBytes: 100,
+			oldestAgeMs: 5_000,
+			lastErrorClass: "connection",
+		});
+
+		expect(counters).toEqual(
+			expect.arrayContaining([
+				{
+					name: ARCHIVE_FORWARDER_METRICS.strategyBatchesAdmitted,
+					value: 1,
+					labels: {},
+				},
+				{
+					name: ARCHIVE_FORWARDER_METRICS.strategyRowsAdmitted,
+					value: 3,
+					labels: {},
+				},
+				{
+					name: ARCHIVE_FORWARDER_METRICS.strategyAdmissionsRejected,
+					value: 1,
+					labels: { reason: "other" },
+				},
+			]),
+		);
+		expect(gauges.map((entry) => entry.name)).toEqual(
+			expect.arrayContaining([
+				ARCHIVE_FORWARDER_METRICS.strategySpoolPendingBatches,
+				ARCHIVE_FORWARDER_METRICS.strategySpoolPendingWork,
+				ARCHIVE_FORWARDER_METRICS.strategySpoolBytes,
+				ARCHIVE_FORWARDER_METRICS.strategySpoolOldestAge,
+			]),
+		);
 	});
 });

@@ -6,6 +6,13 @@ export type ArchiveRow = {
 export type ArchiveBatchRequest = {
 	source: string;
 	deployment_id: string;
+	/**
+	 * Retry identity of this batch: the same rows re-posted after a failure carry
+	 * the same id, so the forwarder can make the re-insert a no-op. Transport
+	 * metadata — it never reaches a row, and a sender that cannot keep an id
+	 * stable across its retries must omit it rather than send a fresh one.
+	 */
+	batch_id?: string;
 	rows: ArchiveRow[];
 };
 
@@ -23,11 +30,16 @@ export const SUPPORTED_TABLES = [
 	"market_data.cex_stream_events",
 	"market_data.cex_ticker_events",
 	"market_data.cex_trades",
+	"market_data.cex_ohlcv",
+	"market_data.cex_order_book_levels",
+	"market_data.cex_order_book_depth_summary",
 	"broker_execution.order_events",
 	"broker_execution.market_metadata_snapshots",
 	"broker_execution.transfer_events",
 	"broker_execution.fill_events",
 	"broker_account.balance_snapshots",
+	"broker_account.user_asset_snapshots",
+	"broker_stream_health.snapshots",
 	"strategy_data.policy_evaluation_events",
 	"strategy_data.strategy_policy_snapshots",
 	"strategy_data.market_identity",

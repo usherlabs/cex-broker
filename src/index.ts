@@ -11,6 +11,7 @@ import {
 	TravelRuleDepositReconciler,
 } from "./helpers";
 import { AccountBalanceArchivePoller } from "./helpers/account-balance-archive-poller";
+import { BalanceUpdateArchiveConsumer } from "./helpers/balance-update-archive-consumer";
 import {
 	type BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
@@ -19,6 +20,11 @@ import {
 import { DepositArchivePoller } from "./helpers/deposit-archive-poller";
 import { FillArchivePoller } from "./helpers/fill-archive-poller";
 import { log } from "./helpers/logger";
+import {
+	assertMarketCaptureArchiveStartable,
+	resolveMarketCaptureArchiveState,
+} from "./helpers/market-data-archive/capture-context";
+import { isMarketArchiveEnabled } from "./helpers/market-data-archive/orderbook-sampler";
 import { OrderActivityTracker } from "./helpers/order-activity-tracker";
 import {
 	createOtelLogsFromEnv,
@@ -27,6 +33,12 @@ import {
 	OtelLogs,
 	OtelMetrics,
 } from "./helpers/otel";
+import {
+	StreamHealthPublisher,
+	streamHealthPublisherConfigFromEnv,
+} from "./helpers/stream-health-publisher";
+import { UserAssetArchivePoller } from "./helpers/user-asset-archive-poller";
+import { UserDataStreamSupervisor } from "./helpers/user-data-stream-supervisor";
 import { getServer } from "./server";
 import {
 	type BrokerCredentials,
@@ -67,6 +79,9 @@ export default class CEXBroker {
 	private fillArchivePoller?: FillArchivePoller;
 	private depositArchivePoller?: DepositArchivePoller;
 	private accountBalanceArchivePoller?: AccountBalanceArchivePoller;
+	private userAssetArchivePoller?: UserAssetArchivePoller;
+	private balanceUpdateArchiveConsumer?: BalanceUpdateArchiveConsumer;
+	private userDataStreamSupervisor?: UserDataStreamSupervisor;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -246,7 +261,6 @@ export default class CEXBroker {
 			this.otelLogs,
 			this.otelMetrics,
 		);
-
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
 			...((config ?? { whitelistIps: [] }).whitelistIps ?? []),
@@ -300,8 +314,20 @@ export default class CEXBroker {
 			await this.accountBalanceArchivePoller.stop();
 			this.accountBalanceArchivePoller = undefined;
 		}
+		if (this.userAssetArchivePoller) {
+			await this.userAssetArchivePoller.stop();
+			this.userAssetArchivePoller = undefined;
+		}
+		if (this.balanceUpdateArchiveConsumer) {
+			await this.balanceUpdateArchiveConsumer.stop();
+			this.balanceUpdateArchiveConsumer = undefined;
+		}
 		if (this.server) {
 			await this.server.forceShutdown();
+		}
+		if (this.userDataStreamSupervisor) {
+			await this.userDataStreamSupervisor.close();
+			this.userDataStreamSupervisor = undefined;
 		}
 		if (this.brokerArchiver) {
 			await this.brokerArchiver.close();
@@ -318,6 +344,14 @@ export default class CEXBroker {
 	 * Starts the broker, applying policies then running appropriate tasks.
 	 */
 	public async run(): Promise<CEXBroker> {
+		const marketArchiveState = resolveMarketCaptureArchiveState({
+			archiveEnabled: this.brokerArchiver?.isEnabled() ?? false,
+			marketArchiveEnabled: isMarketArchiveEnabled(),
+			environment: process.env.CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT,
+			deploymentId: this.brokerArchiver?.getDeploymentId(),
+			captureBundleId: process.env.CEX_BROKER_CAPTURE_BUNDLE_ID,
+		});
+		assertMarketCaptureArchiveStartable(marketArchiveState);
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
@@ -339,11 +373,32 @@ export default class CEXBroker {
 			await this.accountBalanceArchivePoller.stop();
 			this.accountBalanceArchivePoller = undefined;
 		}
+		if (this.userAssetArchivePoller) {
+			await this.userAssetArchivePoller.stop();
+			this.userAssetArchivePoller = undefined;
+		}
+		if (this.balanceUpdateArchiveConsumer) {
+			await this.balanceUpdateArchiveConsumer.stop();
+			this.balanceUpdateArchiveConsumer = undefined;
+		}
 		log.info(`Running CEXBroker at ${new Date().toISOString()}`);
 
 		// Initialize OTel metrics if enabled
 		if (this.otelMetrics?.isOtelEnabled()) {
 			await this.otelMetrics.initialize();
+		}
+		if (
+			!this.userDataStreamSupervisor &&
+			Object.keys(this.brokers).length > 0
+		) {
+			const publisher = new StreamHealthPublisher(
+				streamHealthPublisherConfigFromEnv(),
+			);
+			this.userDataStreamSupervisor = new UserDataStreamSupervisor({
+				brokers: this.brokers,
+				publisher,
+			});
+			this.userDataStreamSupervisor.start();
 		}
 
 		this.server = getServer(
@@ -356,6 +411,8 @@ export default class CEXBroker {
 			this.brokerArchiver,
 			this.orderActivityTracker,
 			this.withdrawalObservationTracker,
+			undefined,
+			this.userDataStreamSupervisor,
 		);
 
 		this.server.bindAsync(
@@ -398,6 +455,15 @@ export default class CEXBroker {
 				metrics: this.otelMetrics,
 			});
 			this.depositArchivePoller.start();
+
+			if (this.userDataStreamSupervisor) {
+				this.balanceUpdateArchiveConsumer = new BalanceUpdateArchiveConsumer({
+					brokers: this.brokers,
+					archiver: this.brokerArchiver,
+					userDataStreamSupervisor: this.userDataStreamSupervisor,
+				});
+				this.balanceUpdateArchiveConsumer.start();
+			}
 		}
 
 		if (this.brokerArchiver?.canPersistAccountBalanceSnapshots()) {
@@ -409,6 +475,16 @@ export default class CEXBroker {
 				metrics: this.otelMetrics,
 			});
 			this.accountBalanceArchivePoller.start();
+
+			// Same durability gate and cadence family, separate poller: the sapi
+			// user-asset read is the only source for travel-rule-frozen funds, and
+			// must not share a failure with the spot balance snapshot.
+			this.userAssetArchivePoller = new UserAssetArchivePoller({
+				brokers: this.brokers,
+				archiver: this.brokerArchiver,
+				metrics: this.otelMetrics,
+			});
+			this.userAssetArchivePoller.start();
 		}
 		return this;
 	}

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import { OhlcvCollector } from "../services/ohlcv-collector/collector";
+import {
+	MarketDataCollector,
+	OhlcvStreamStaleError,
+} from "../services/ohlcv-collector/collector";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "../src/proto-package-definition";
 
 type SubscribeRequest = {
@@ -94,7 +97,64 @@ class CapturingMetrics {
 	}
 }
 
-describe("OHLCV collector supervision", () => {
+describe("market-data collector supervision", () => {
+	test("opens independent supervisors for all four market feeds", async () => {
+		const requests: SubscribeRequest[] = [];
+		const { server, port } = await startSubscribeServer((call) => {
+			requests.push(call.request);
+			call.write({
+				data: JSON.stringify({ ok: true }),
+				timestamp: Date.now(),
+				symbol: call.request.symbol,
+				type: call.request.type,
+			});
+		});
+		const abort = new AbortController();
+		const collector = new MarketDataCollector({
+			brokerUrl: `127.0.0.1:${port}`,
+			subscriptions: [
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "ORDERBOOK",
+					depthLimit: 25,
+				},
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TICKER" },
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TRADES" },
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+					bootstrapLimit: 100,
+				},
+			],
+		});
+		const runPromise = collector.run(abort.signal);
+
+		try {
+			await waitFor(() => requests.length === 4);
+			expect(requests).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "ORDERBOOK",
+						options: { depthLimit: "25" },
+					}),
+					expect.objectContaining({ type: "TICKER", options: {} }),
+					expect.objectContaining({ type: "TRADES", options: {} }),
+					expect.objectContaining({
+						type: "OHLCV",
+						options: { timeframe: "1m", bootstrapLimit: "100" },
+					}),
+				]),
+			);
+		} finally {
+			abort.abort();
+			await runPromise;
+			server.forceShutdown();
+		}
+	});
+
 	test.each([
 		{ terminal: "error" as const },
 		{ terminal: "end" as const },
@@ -116,10 +176,15 @@ describe("OHLCV collector supervision", () => {
 		});
 		const metrics = new CapturingMetrics();
 		const abort = new AbortController();
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
 			subscriptions: [
-				{ exchange: "binance", symbol: "BTC/USDT", timeframe: "1m" },
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+				},
 			],
 			metrics,
 			retry: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
@@ -154,6 +219,7 @@ describe("OHLCV collector supervision", () => {
 				value: 1,
 				labels: {
 					exchange: "binance",
+					feed: "OHLCV",
 					symbol: "BTC/USDT",
 					timeframe: "1m",
 				},
@@ -163,6 +229,7 @@ describe("OHLCV collector supervision", () => {
 				value: 1,
 				labels: {
 					exchange: "binance",
+					feed: "OHLCV",
 					symbol: "BTC/USDT",
 					timeframe: "1m",
 				},
@@ -193,11 +260,21 @@ describe("OHLCV collector supervision", () => {
 			}
 		});
 		const abort = new AbortController();
-		const collector = new OhlcvCollector({
+		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
 			subscriptions: [
-				{ exchange: "binance", symbol: "BTC/USDT", timeframe: "1m" },
-				{ exchange: "binance", symbol: "ETH/USDT", timeframe: "1m" },
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+				},
+				{
+					exchange: "binance",
+					symbol: "ETH/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+				},
 			],
 			retry: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
 		});
@@ -218,5 +295,142 @@ describe("OHLCV collector supervision", () => {
 			await runPromise;
 			server.forceShutdown();
 		}
+	});
+
+	test("fails the run when an OHLCV stream goes silent past the cadence deadline", async () => {
+		const { server, port } = await startSubscribeServer((call) => {
+			// One bar, then silence: the upstream-dead case (WS death without a
+			// close event) — the stream stays open but never delivers again.
+			writeBar(call);
+		});
+		const metrics = new CapturingMetrics();
+		const abort = new AbortController();
+		const collector = new MarketDataCollector({
+			brokerUrl: `127.0.0.1:${port}`,
+			subscriptions: [
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+				},
+			],
+			metrics,
+			ohlcvStaleDeadlineMs: 50,
+		});
+
+		try {
+			await expect(collector.run(abort.signal)).rejects.toBeInstanceOf(
+				OhlcvStreamStaleError,
+			);
+			expect(metrics.counters).toContainEqual({
+				name: "cex_ohlcv_collector_stale_streams_total",
+				value: 1,
+				labels: {
+					exchange: "binance",
+					feed: "OHLCV",
+					symbol: "BTC/USDT",
+					timeframe: "1m",
+				},
+			});
+		} finally {
+			abort.abort();
+			server.forceShutdown();
+		}
+	});
+
+	test("frames arriving within the deadline keep the OHLCV stream alive", async () => {
+		let stopWriting = false;
+		const { server, port } = await startSubscribeServer((call) => {
+			const interval = setInterval(() => {
+				if (stopWriting || call.cancelled) {
+					clearInterval(interval);
+					return;
+				}
+				writeBar(call);
+			}, 10);
+			call.once("cancelled", () => clearInterval(interval));
+		});
+		const metrics = new CapturingMetrics();
+		const abort = new AbortController();
+		const collector = new MarketDataCollector({
+			brokerUrl: `127.0.0.1:${port}`,
+			subscriptions: [
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "OHLCV",
+					timeframe: "1m",
+				},
+			],
+			metrics,
+			ohlcvStaleDeadlineMs: 250,
+		});
+		const runPromise = collector.run(abort.signal);
+
+		try {
+			await waitFor(
+				() =>
+					metrics.counters.filter(
+						(counter) =>
+							counter.name === "cex_ohlcv_collector_bars_received_total",
+					).length >= 10,
+			);
+			expect(
+				collector.getHealthSnapshot()["binance:BTC/USDT:OHLCV"]?.state,
+			).toBe("healthy");
+		} finally {
+			stopWriting = true;
+			abort.abort();
+			await runPromise;
+			server.forceShutdown();
+		}
+	});
+
+	test("a silent event-driven feed stays subscribed through OHLCV-length silence", async () => {
+		// TRADES has no guaranteed cadence: a quiet market is legitimate silence,
+		// so the message-gap deadline must not apply to it.
+		let subscribed = false;
+		const { server, port } = await startSubscribeServer(() => {
+			subscribed = true;
+		});
+		const abort = new AbortController();
+		const collector = new MarketDataCollector({
+			brokerUrl: `127.0.0.1:${port}`,
+			subscriptions: [
+				{ exchange: "binance", symbol: "BTC/USDT", feed: "TRADES" },
+			],
+			ohlcvStaleDeadlineMs: 10,
+		});
+		const runPromise = collector.run(abort.signal);
+
+		try {
+			await waitFor(() => subscribed);
+			await Bun.sleep(100);
+			expect(
+				collector.getHealthSnapshot()["binance:BTC/USDT:TRADES"]?.state,
+			).toBe("connecting");
+		} finally {
+			abort.abort();
+			await runPromise;
+			server.forceShutdown();
+		}
+	});
+
+	test("rejects an unparseable OHLCV timeframe at construction", () => {
+		expect(
+			() =>
+				new MarketDataCollector({
+					brokerUrl: "127.0.0.1:1",
+					subscriptions: [
+						{
+							exchange: "binance",
+							symbol: "BTC/USDT",
+							feed: "OHLCV",
+							timeframe: "one-minute",
+						},
+					],
+				}),
+		).toThrow('Unsupported OHLCV timeframe "one-minute"');
 	});
 });

@@ -1,11 +1,12 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import path from "path";
+import { clickHouseRequestDeadline } from "./clickhouse-deadline";
 
 function stripSqlComments(sql: string): string {
 	return sql.replace(/--[^\n]*/g, "");
 }
 
-function splitSqlStatements(sql: string): string[] {
+export function splitSqlStatements(sql: string): string[] {
 	const cleaned = stripSqlComments(sql);
 	const statements: string[] = [];
 	let depth = 0;
@@ -53,26 +54,30 @@ function isIdempotentSchemaError(error: unknown): boolean {
 // Every archive database owned by the forwarder. Each file self-creates its
 // database and tables idempotently; the forwarder fail-closes if any cannot be
 // applied (see index.ts).
-const ARCHIVE_SCHEMA_FILES = [
+export const ARCHIVE_SCHEMA_FILES = [
 	"market_data.sql",
 	"broker_execution.sql",
 	"broker_account.sql",
+	"broker_stream_health.sql",
 	"strategy_data.sql",
 ] as const;
+
+export function archiveSchemaFilePath(fileName: string): string {
+	return path.resolve(import.meta.dir, "../../schema/clickhouse", fileName);
+}
 
 async function applySchemaFile(
 	client: ClickHouseClient,
 	fileName: string,
 ): Promise<void> {
-	const schemaPath = path.resolve(
-		import.meta.dir,
-		"../../schema/clickhouse",
-		fileName,
-	);
+	const schemaPath = archiveSchemaFilePath(fileName);
 	const sql = await Bun.file(schemaPath).text();
 	for (const statement of splitSqlStatements(sql)) {
 		try {
-			await client.command({ query: statement });
+			await client.command({
+				query: statement,
+				abort_signal: clickHouseRequestDeadline(),
+			});
 		} catch (error) {
 			if (isIdempotentSchemaError(error)) {
 				continue;

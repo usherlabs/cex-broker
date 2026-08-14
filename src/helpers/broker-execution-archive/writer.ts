@@ -1,11 +1,21 @@
+import { randomUUID } from "node:crypto";
 import { closeSync, fsyncSync, openSync, writeSync } from "node:fs";
-import { request as httpRequest } from "node:http";
+import {
+	type ClientRequest,
+	request as httpRequest,
+	type IncomingMessage,
+} from "node:http";
 import { request as httpsRequest } from "node:https";
 import { SeverityNumber } from "@opentelemetry/api-logs";
 import { log } from "../logger";
 import type { OtelLogs, OtelMetrics } from "../otel";
 import { REDACTED_ERROR_MESSAGE } from "../shared/errors";
-import type { BrokerArchiveRow, BrokerArchiveTable } from "./types";
+import {
+	BROKER_WRITE_SOURCE,
+	type BrokerArchiveRow,
+	type BrokerArchiveSource,
+	type BrokerArchiveTable,
+} from "./types";
 
 const BROKER_EXECUTION_ARCHIVE_TABLES = new Set<BrokerArchiveTable>([
 	"broker_execution.order_events",
@@ -21,6 +31,7 @@ export function isBrokerExecutionArchiveTable(
 }
 
 export type BrokerExecutionArchiverOptions = {
+	source?: BrokerArchiveSource;
 	deploymentId?: string;
 	otelLogs?: OtelLogs;
 	otelMetrics?: OtelMetrics;
@@ -52,20 +63,83 @@ type ArchiverStats = {
 	forwarderFailures: number;
 };
 
+export type BrokerExecutionArchiveHealthSnapshot = {
+	healthy: boolean;
+	queue_depth: number;
+	oldest_pending_age_ms: number;
+	shed_total: number;
+	last_failure_at: number | null;
+	last_shed_at: number | null;
+	last_success_at: number | null;
+	sink_latency_ms: number | null;
+	sink_errors_total: number;
+	in_flight: boolean;
+	in_flight_age_ms: number;
+};
+
 const DEFAULT_MAX_QUEUE_SIZE = 10_000;
 const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_FLUSH_INTERVAL_MS = 1_000;
 const DEFAULT_FORWARDER_TIMEOUT_MS = 3_000;
 const SHED_WARN_INTERVAL_MS = 60_000;
+// A pinned batch is retried verbatim, so a batch the forwarder rejects for its
+// own content (an unknown table after a version skew, say) would otherwise pin
+// the archive plane behind it forever. Give up after this many attempts and
+// journal it, the same terms every other undeliverable row gets.
+const MAX_PINNED_BATCH_ATTEMPTS = 10;
 
-type ArchiveLossReason = "queue_shed" | "shutdown_forwarder_failure";
+type ArchiveLossReason =
+	| "queue_shed"
+	| "shutdown_forwarder_failure"
+	| "retry_exhausted";
 
 type ArchiveLossRecord = {
 	timestamp: string;
+	source: BrokerArchiveSource;
 	deployment_id: string;
 	reason: ArchiveLossReason;
 	payload: BrokerArchiveRow;
 };
+
+type QueuedArchiveRow = BrokerArchiveRow;
+
+/**
+ * A batch the forwarder did not accept, held aside instead of being pushed back
+ * into the queue. The retry must re-post byte-identical rows under the same
+ * `batchId`: that pair is what lets the forwarder recognise the re-post and skip
+ * the tables that already landed before a sibling table failed. Rows mixed back
+ * into the queue could not offer that — new arrivals and the oldest-first shed
+ * both reshape the next batch.
+ */
+type PinnedRetryBatch = {
+	batchId: string;
+	rows: QueuedArchiveRow[];
+	attempts: number;
+};
+
+const MARKET_FEEDS = new Set(["ORDERBOOK", "TICKER", "TRADES", "OHLCV"]);
+
+function archiveFeed(row: BrokerArchiveRow): string {
+	const declared = row.row.feed ?? row.row.stream_type;
+	if (typeof declared === "string" && MARKET_FEEDS.has(declared)) {
+		return declared;
+	}
+	if (
+		row.table === "market_data.orderbook_snapshots" ||
+		row.table.startsWith("market_data.cex_order_book_")
+	) {
+		return "ORDERBOOK";
+	}
+	if (
+		row.table === "market_data.candles" ||
+		row.table === "market_data.cex_ohlcv"
+	) {
+		return "OHLCV";
+	}
+	if (row.table === "market_data.cex_ticker_events") return "TICKER";
+	if (row.table === "market_data.cex_trades") return "TRADES";
+	return "NON_MARKET";
+}
 
 export function isArchiveOtelLogsEnabled(): boolean {
 	return process.env.CEX_BROKER_ARCHIVE_OTEL_LOGS_ENABLED === "true";
@@ -75,7 +149,20 @@ export function resolveArchiveForwarderUrlFromEnv(): string | undefined {
 	return process.env.CEX_BROKER_ARCHIVE_FORWARDER_URL?.trim() || undefined;
 }
 
+export function resolveArchiveSourceFromEnv(
+	value = process.env.CEX_BROKER_ARCHIVE_SOURCE,
+): BrokerArchiveSource {
+	const source = value?.trim() || BROKER_WRITE_SOURCE;
+	if (source !== "broker_read" && source !== "broker_write") {
+		throw new Error(
+			"CEX_BROKER_ARCHIVE_SOURCE must be broker_read or broker_write",
+		);
+	}
+	return source;
+}
+
 export class BrokerExecutionArchiver {
+	private readonly source: BrokerArchiveSource;
 	private readonly deploymentId: string;
 	private readonly otelLogs?: OtelLogs;
 	private readonly otelMetrics?: OtelMetrics;
@@ -86,22 +173,36 @@ export class BrokerExecutionArchiver {
 	private readonly batchSize: number;
 	private readonly flushIntervalMs: number;
 	private readonly forwarderTimeoutMs: number;
-	private readonly queue: BrokerArchiveRow[] = [];
+	private readonly queue: QueuedArchiveRow[] = [];
+	private readonly enqueueTimes = new WeakMap<QueuedArchiveRow, number>();
 	private readonly stats: ArchiverStats = {
 		enqueued: 0,
 		shed: 0,
 		flushed: 0,
 		forwarderFailures: 0,
 	};
+	private pendingRetry: PinnedRetryBatch | null = null;
 	private flushTimer: ReturnType<typeof setInterval> | null = null;
 	private flushInFlight: Promise<void> | null = null;
+	private inFlightBatch: QueuedArchiveRow[] | null = null;
+	private inFlightStartedAtMs: number | null = null;
+	private lastFailureAtMs: number | null = null;
+	private lastShedAtMs: number | null = null;
+	private lastSuccessAtMs: number | null = null;
+	private lastFailureEventSequence: number | null = null;
+	private lastShedEventSequence: number | null = null;
+	private lastSuccessEventSequence: number | null = null;
+	private lastSinkLatencyMs: number | null = null;
+	private healthEventSequence = 0;
 	private lastShedWarnAtMs = 0;
+	private closing = false;
 	private closed = false;
 	private readonly enabled: boolean;
 	private readonly forwarderAuthToken?: string;
 
 	private constructor(options: {
 		enabled: boolean;
+		source?: BrokerArchiveSource;
 		deploymentId?: string;
 		otelLogs?: OtelLogs;
 		otelMetrics?: OtelMetrics;
@@ -112,6 +213,7 @@ export class BrokerExecutionArchiver {
 		flushIntervalMs?: number;
 		forwarderTimeoutMs?: number;
 	}) {
+		this.source = options.source ?? BROKER_WRITE_SOURCE;
 		this.deploymentId =
 			options.deploymentId?.trim() ||
 			process.env.CEX_BROKER_DEPLOYMENT_ID?.trim() ||
@@ -152,11 +254,13 @@ export class BrokerExecutionArchiver {
 
 		try {
 			this.flushTimer = setInterval(() => {
+				this.emitArchiveHealthMetrics();
 				void this.flush();
 			}, this.flushIntervalMs);
 			this.flushTimer.unref?.();
 			log.info("Broker execution archive enabled", {
 				enabled: true,
+				source: this.source,
 				otel_mirror_enabled: Boolean(this.otelLogs?.isOtelEnabled()),
 			});
 		} catch (error) {
@@ -179,8 +283,12 @@ export class BrokerExecutionArchiver {
 		return this.deploymentId;
 	}
 
+	getSource(): BrokerArchiveSource {
+		return this.source;
+	}
+
 	isEnabled(): boolean {
-		return this.enabled && !this.closed;
+		return this.enabled && !this.closing && !this.closed;
 	}
 
 	canPersistMarketMetadataSnapshot(): boolean {
@@ -195,15 +303,30 @@ export class BrokerExecutionArchiver {
 		if (!this.enabled || this.closed) {
 			return;
 		}
+		// Archive role is deployment identity. Stamp it at the durability boundary
+		// so no request metadata or legacy row-builder default can contradict the
+		// immutable envelope source.
+		const archiveRow: BrokerArchiveRow = {
+			table: row.table,
+			row: { ...row.row, source: this.source },
+		};
 		if (this.queue.length >= this.maxQueueSize) {
-			const shedRow = this.queue[0];
-			if (shedRow) {
-				this.appendLossRecords([shedRow], "queue_shed");
+			const shedEntry = this.queue[0];
+			if (shedEntry) {
+				this.appendLossRecords([shedEntry], "queue_shed");
 				this.queue.shift();
 			}
 			this.stats.shed += 1;
+			this.recordHealthEvent("shed");
 			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
-				table: shedRow?.table ?? "unknown",
+				table: shedEntry?.table ?? "unknown",
+				source: this.source,
+				feed: shedEntry ? archiveFeed(shedEntry) : "NON_MARKET",
+			});
+			void this.recordArchiveMetric("cex_archive_queue_saturated_rows_total", {
+				table: shedEntry?.table ?? "unknown",
+				source: this.source,
+				feed: shedEntry ? archiveFeed(shedEntry) : "NON_MARKET",
 			});
 			// The durable journal is authoritative; this rate-limited warning makes
 			// sustained queue pressure visible without becoming another loss sink.
@@ -212,16 +335,20 @@ export class BrokerExecutionArchiver {
 				log.warn("Archive queue full: shedding oldest rows", {
 					shed_total: this.stats.shed,
 					queue_max: this.maxQueueSize,
-					table: shedRow?.table ?? "unknown",
+					table: shedEntry?.table ?? "unknown",
 				});
 				this.lastShedWarnAtMs = now;
 			}
 		}
-		this.queue.push(row);
+		this.enqueueTimes.set(archiveRow, Date.now());
+		this.queue.push(archiveRow);
 		this.stats.enqueued += 1;
 		void this.recordArchiveMetric("cex_archive_rows_enqueued_total", {
-			table: row.table,
+			table: archiveRow.table,
+			source: this.source,
+			feed: archiveFeed(archiveRow),
 		});
+		this.emitArchiveHealthMetrics();
 		if (this.queue.length >= this.batchSize) {
 			void this.flush();
 		}
@@ -232,7 +359,11 @@ export class BrokerExecutionArchiver {
 	}
 
 	async flush(): Promise<void> {
-		if (!this.enabled || this.closed || this.queue.length === 0) {
+		if (
+			!this.enabled ||
+			this.closed ||
+			(this.queue.length === 0 && this.pendingRetry === null)
+		) {
 			return;
 		}
 		if (this.flushInFlight) {
@@ -240,32 +371,54 @@ export class BrokerExecutionArchiver {
 		}
 		// flushBatch resolves a boolean the callers read directly; the in-flight
 		// handle only needs completion, so discard it to keep this a Promise<void>.
+		const inFlightState: { promise?: Promise<void> } = {};
 		const inFlight = this.flushBatch()
 			.then(() => undefined)
 			.finally(() => {
+				if (this.flushInFlight !== inFlightState.promise) {
+					return;
+				}
 				this.flushInFlight = null;
+				if (
+					!this.closed &&
+					!this.closing &&
+					this.enabled &&
+					this.queue.length >= this.batchSize
+				) {
+					queueMicrotask(() => void this.flush());
+				}
 			});
+		inFlightState.promise = inFlight;
 		this.flushInFlight = inFlight;
 		return inFlight;
 	}
 
 	async close(): Promise<void> {
+		this.closing = true;
 		if (this.flushTimer) {
 			clearInterval(this.flushTimer);
 			this.flushTimer = null;
 		}
 		let closeError: unknown;
 		try {
-			while (this.queue.length > 0 || this.flushInFlight) {
+			while (
+				this.pendingRetry !== null ||
+				this.queue.length > 0 ||
+				this.flushInFlight
+			) {
 				if (this.flushInFlight) {
 					await this.flushInFlight;
 					continue;
 				}
-				const depthBefore = this.queue.length;
-				const flushed = await this.flushBatch();
-				if (!flushed && this.queue.length >= depthBefore && depthBefore > 0) {
-					const undelivered = [...this.queue];
+				// No retry loop at shutdown: one failed attempt and everything still
+				// held — pinned batch first, then the queue — goes to the journal.
+				if (!(await this.flushBatch())) {
+					const undelivered = [
+						...(this.pendingRetry?.rows ?? []),
+						...this.queue,
+					];
 					this.appendLossRecords(undelivered, "shutdown_forwarder_failure");
+					this.pendingRetry = null;
 					this.queue.length = 0;
 					break;
 				}
@@ -290,8 +443,158 @@ export class BrokerExecutionArchiver {
 		return { ...this.stats };
 	}
 
+	// Pinned rows are undelivered too, so they count as depth even though they sit
+	// outside the queue and outside its bound.
 	getQueueDepth(): number {
-		return this.queue.length;
+		return this.queue.length + (this.pendingRetry?.rows.length ?? 0);
+	}
+
+	getHealthSnapshot(): Readonly<BrokerExecutionArchiveHealthSnapshot> {
+		const now = Date.now();
+		const oldestPendingAtMs = this.oldestPendingEnqueueAtMs();
+		const oldestPendingAgeMs =
+			oldestPendingAtMs === null ? 0 : Math.max(0, now - oldestPendingAtMs);
+		const inFlightAgeMs =
+			this.inFlightStartedAtMs === null
+				? 0
+				: Math.max(0, now - this.inFlightStartedAtMs);
+		const lastUnhealthyEventSequence = Math.max(
+			this.lastFailureEventSequence ?? Number.NEGATIVE_INFINITY,
+			this.lastShedEventSequence ?? Number.NEGATIVE_INFINITY,
+		);
+		const recoveredFromEvents =
+			lastUnhealthyEventSequence === Number.NEGATIVE_INFINITY ||
+			(this.lastSuccessEventSequence !== null &&
+				this.lastSuccessEventSequence > lastUnhealthyEventSequence);
+		const healthy =
+			this.enabled &&
+			!this.closing &&
+			!this.closed &&
+			this.queue.length < this.maxQueueSize &&
+			oldestPendingAgeMs <= this.forwarderTimeoutMs &&
+			inFlightAgeMs <= this.forwarderTimeoutMs &&
+			recoveredFromEvents;
+
+		return {
+			healthy,
+			// Reported depth includes pinned rows; the saturation check above stays
+			// on the queue proper, which is the only part the bound governs.
+			queue_depth: this.getQueueDepth(),
+			oldest_pending_age_ms: oldestPendingAgeMs,
+			shed_total: this.stats.shed,
+			last_failure_at: this.lastFailureAtMs,
+			last_shed_at: this.lastShedAtMs,
+			last_success_at: this.lastSuccessAtMs,
+			sink_latency_ms: this.lastSinkLatencyMs,
+			sink_errors_total: this.stats.forwarderFailures,
+			in_flight: this.inFlightBatch !== null,
+			in_flight_age_ms: inFlightAgeMs,
+		};
+	}
+
+	private oldestPendingEnqueueAtMs(): number | null {
+		let oldest: number | null = null;
+		for (const entry of this.pendingRetry?.rows ?? []) {
+			const enqueuedAtMs = this.enqueueTimes.get(entry);
+			if (enqueuedAtMs === undefined) {
+				continue;
+			}
+			oldest = oldest === null ? enqueuedAtMs : Math.min(oldest, enqueuedAtMs);
+		}
+		for (const entry of this.queue) {
+			const enqueuedAtMs = this.enqueueTimes.get(entry);
+			if (enqueuedAtMs === undefined) {
+				continue;
+			}
+			oldest = oldest === null ? enqueuedAtMs : Math.min(oldest, enqueuedAtMs);
+		}
+		for (const entry of this.inFlightBatch ?? []) {
+			const enqueuedAtMs = this.enqueueTimes.get(entry);
+			if (enqueuedAtMs === undefined) {
+				continue;
+			}
+			oldest = oldest === null ? enqueuedAtMs : Math.min(oldest, enqueuedAtMs);
+		}
+		return oldest;
+	}
+
+	private recordHealthEvent(event: "failure" | "shed" | "success"): void {
+		const eventSequence = ++this.healthEventSequence;
+		const eventTimestampMs = Date.now();
+		switch (event) {
+			case "failure":
+				this.lastFailureAtMs = eventTimestampMs;
+				this.lastFailureEventSequence = eventSequence;
+				return;
+			case "shed":
+				this.lastShedAtMs = eventTimestampMs;
+				this.lastShedEventSequence = eventSequence;
+				return;
+			case "success":
+				this.lastSuccessAtMs = eventTimestampMs;
+				this.lastSuccessEventSequence = eventSequence;
+				return;
+		}
+	}
+
+	private emitArchiveHealthMetrics(): void {
+		const snapshot = this.getHealthSnapshot();
+		const labels = { source: this.source };
+		void this.recordArchiveObservableGauge(
+			"cex_archive_health",
+			snapshot.healthy ? 1 : 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_queue_depth",
+			snapshot.queue_depth,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_oldest_pending_age_ms",
+			snapshot.oldest_pending_age_ms,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_shed_total",
+			snapshot.shed_total,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_last_failure_at",
+			snapshot.last_failure_at ?? 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_last_shed_at",
+			snapshot.last_shed_at ?? 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_last_success_at",
+			snapshot.last_success_at ?? 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_sink_latency_ms",
+			snapshot.sink_latency_ms ?? 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_sink_errors_total",
+			snapshot.sink_errors_total,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_in_flight",
+			snapshot.in_flight ? 1 : 0,
+			labels,
+		);
+		void this.recordArchiveGauge(
+			"cex_archive_in_flight_age_ms",
+			snapshot.in_flight_age_ms,
+			labels,
+		);
 	}
 
 	private closeLossJournal(): void {
@@ -311,24 +614,6 @@ export class BrokerExecutionArchiver {
 		}
 	}
 
-	// Drop oldest rows until the queue is within maxQueueSize, counting each into
-	// the shed stat/metric. Mirrors the enqueue-time shed policy for the requeue
-	// path, which can otherwise push the queue past the bound during an outage.
-	private enforceQueueBound(): void {
-		while (this.queue.length > this.maxQueueSize) {
-			const dropped = this.queue[0];
-			if (!dropped) {
-				return;
-			}
-			this.appendLossRecords([dropped], "queue_shed");
-			this.queue.shift();
-			this.stats.shed += 1;
-			void this.recordArchiveMetric("cex_archive_rows_shed_total", {
-				table: dropped?.table ?? "unknown",
-			});
-		}
-	}
-
 	private appendLossRecords(
 		rows: readonly BrokerArchiveRow[],
 		reason: ArchiveLossReason,
@@ -344,6 +629,7 @@ export class BrokerExecutionArchiver {
 		const timestamp = new Date().toISOString();
 		const records: ArchiveLossRecord[] = rows.map((payload) => ({
 			timestamp,
+			source: this.source,
 			deployment_id: this.deploymentId,
 			reason,
 			payload,
@@ -357,6 +643,28 @@ export class BrokerExecutionArchiver {
 				throw new Error(`wrote ${written} of ${bytes.length} bytes`);
 			}
 			fsyncSync(this.deadLetterFd);
+			const byFeedAndTable = new Map<
+				string,
+				{ row: BrokerArchiveRow; count: number }
+			>();
+			for (const row of rows) {
+				const key = `${row.table}\u0000${archiveFeed(row)}`;
+				const grouped = byFeedAndTable.get(key) ?? { row, count: 0 };
+				grouped.count += 1;
+				byFeedAndTable.set(key, grouped);
+			}
+			for (const { row, count } of byFeedAndTable.values()) {
+				void this.recordArchiveMetric(
+					"cex_archive_rows_journaled_total",
+					{
+						table: row.table,
+						source: this.source,
+						feed: archiveFeed(row),
+						reason,
+					},
+					count,
+				);
+			}
 		} catch (error) {
 			throw new BrokerExecutionArchiveDurabilityError(
 				`Broker execution archive failed to durably record ${reason}; affected row(s) were retained`,
@@ -366,10 +674,16 @@ export class BrokerExecutionArchiver {
 	}
 
 	private async flushBatch(): Promise<boolean> {
-		const batch = this.queue.splice(0, this.batchSize);
+		// A pinned batch goes back out before anything newer, unchanged and under
+		// its original id, so the forwarder sees a retry rather than a new batch.
+		const pinned = this.pendingRetry;
+		const batch = pinned ? pinned.rows : this.queue.splice(0, this.batchSize);
 		if (batch.length === 0) {
 			return true;
 		}
+		const batchId = pinned?.batchId ?? randomUUID();
+		this.inFlightBatch = batch;
+		this.inFlightStartedAtMs = Date.now();
 
 		// Secondary observability mirror: execution rows (not market_data.*, which
 		// has no OTel schema) are echoed to OTel logs when
@@ -385,18 +699,34 @@ export class BrokerExecutionArchiver {
 
 		// The forwarder is the durable sink for every archive table it supports
 		// (market_data.*, broker_execution.*, broker_account.*, strategy_data.*).
-		// Requeue the whole batch on failure so nothing is silently dropped while a
+		// Pin the whole batch on failure so nothing is silently dropped while a
 		// forwarder is set.
 		if (this.forwarderUrl) {
 			try {
-				await this.postToForwarder(batch);
+				await this.postToForwarder(batch, batchId);
 			} catch (error) {
 				this.stats.forwarderFailures += 1;
-				// Re-apply the oldest-shed bound: the batch was spliced out before the
-				// post, so new rows may have refilled the queue while it was in flight.
-				// Pushing it back can exceed maxQueueSize by up to batchSize, so trim.
-				this.queue.push(...batch);
-				this.enforceQueueBound();
+				this.recordHealthEvent("failure");
+				this.lastSinkLatencyMs = Math.max(
+					0,
+					Date.now() - (this.inFlightStartedAtMs ?? Date.now()),
+				);
+				const attempts = (pinned?.attempts ?? 0) + 1;
+				try {
+					if (attempts >= MAX_PINNED_BATCH_ATTEMPTS) {
+						this.pendingRetry = null;
+						this.appendLossRecords(batch, "retry_exhausted");
+						log.warn("Broker execution archive gave up on a batch", {
+							attempts,
+							rows: batch.length,
+						});
+					} else {
+						this.pendingRetry = { batchId, rows: batch, attempts };
+					}
+				} finally {
+					this.clearInFlightBatch(batch);
+					this.emitArchiveHealthMetrics();
+				}
 				void this.recordArchiveMetric("cex_archive_forwarder_failures_total", {
 					count: batch.length,
 				});
@@ -405,24 +735,51 @@ export class BrokerExecutionArchiver {
 			}
 		}
 
+		this.pendingRetry = null;
 		this.stats.flushed += batch.length;
+		this.recordHealthEvent("success");
+		this.lastSinkLatencyMs = Math.max(
+			0,
+			Date.now() - (this.inFlightStartedAtMs ?? Date.now()),
+		);
+		this.clearInFlightBatch(batch);
 		this.recordFlushHealth(batch);
+		this.emitArchiveHealthMetrics();
 		return true;
+	}
+
+	private clearInFlightBatch(batch: QueuedArchiveRow[]): void {
+		if (this.inFlightBatch !== batch) {
+			return;
+		}
+		this.inFlightBatch = null;
+		this.inFlightStartedAtMs = null;
 	}
 
 	// Self-health emitted only on a successful forwarder post:
 	// a per-table rows-flushed counter to compare against enqueued, and a
 	// last-flush-success gauge (unix seconds) whose staleness is the "archive plane
 	// stuck" signal. Fire-and-forget so metrics never gate flushing.
-	private recordFlushHealth(batch: BrokerArchiveRow[]): void {
-		const countByTable = new Map<string, number>();
+	private recordFlushHealth(batch: readonly QueuedArchiveRow[]): void {
+		const countByTable = new Map<
+			string,
+			{ row: BrokerArchiveRow; count: number }
+		>();
 		for (const entry of batch) {
-			countByTable.set(entry.table, (countByTable.get(entry.table) ?? 0) + 1);
+			const row = entry;
+			const key = `${row.table}\u0000${archiveFeed(row)}`;
+			const grouped = countByTable.get(key) ?? { row, count: 0 };
+			grouped.count += 1;
+			countByTable.set(key, grouped);
 		}
-		for (const [table, count] of countByTable) {
+		for (const { row, count } of countByTable.values()) {
 			void this.recordArchiveMetric(
 				"cex_archive_rows_flushed_total",
-				{ table },
+				{
+					table: row.table,
+					source: this.source,
+					feed: archiveFeed(row),
+				},
 				count,
 			);
 		}
@@ -447,9 +804,22 @@ export class BrokerExecutionArchiver {
 	private async recordArchiveGauge(
 		metricName: string,
 		value: number,
+		labels: Record<string, string | number> = {},
 	): Promise<void> {
 		try {
-			await this.otelMetrics?.recordGauge(metricName, value, {});
+			await this.otelMetrics?.recordGauge(metricName, value, labels);
+		} catch {
+			// Archive metrics must not affect flushing.
+		}
+	}
+
+	private async recordArchiveObservableGauge(
+		metricName: string,
+		value: number,
+		labels: Record<string, string | number>,
+	): Promise<void> {
+		try {
+			await this.otelMetrics?.setObservableGauge(metricName, value, labels);
 		} catch {
 			// Archive metrics must not affect flushing.
 		}
@@ -478,13 +848,17 @@ export class BrokerExecutionArchiver {
 	// archive plane. node's request stays on the transport proven to work in the
 	// enclave. Same failure class and mitigation as resolveOnChainSender in
 	// travel-rule-deposit-reconciler.ts.
-	private postToForwarder(batch: BrokerArchiveRow[]): Promise<void> {
+	private postToForwarder(
+		batch: BrokerArchiveRow[],
+		batchId: string,
+	): Promise<void> {
 		if (!this.forwarderUrl || batch.length === 0) {
 			return Promise.resolve();
 		}
 		const body = JSON.stringify({
-			source: "broker_write",
+			source: this.source,
 			deployment_id: this.deploymentId,
+			batch_id: batchId,
 			rows: batch,
 		});
 		const url = new URL(this.forwarderUrl);
@@ -497,38 +871,181 @@ export class BrokerExecutionArchiver {
 			headers.authorization = `Bearer ${this.forwarderAuthToken}`;
 		}
 		return new Promise<void>((resolve, reject) => {
-			const req = doRequest(
-				url,
-				{
-					method: "POST",
-					headers,
-					// Bound the request: a hung forwarder would otherwise stall the flush
-					// loop (flushes are serialized behind flushInFlight) indefinitely.
-					timeout: this.forwarderTimeoutMs,
-				},
-				(res) => {
-					// Drain the body so the socket can be released/reused.
-					res.on("data", () => {});
-					res.on("end", () => {
-						const status = res.statusCode ?? 0;
-						if (status < 200 || status >= 300) {
-							reject(
+			let req: ClientRequest | undefined;
+			let response: IncomingMessage | undefined;
+			let settled = false;
+			let requestClosed = false;
+			let requestCloseFailureScheduled = false;
+			let responseClosed = false;
+			let responseEnded = false;
+			let outerTimer: ReturnType<typeof setTimeout> | undefined;
+
+			function cleanupRequestListeners(): void {
+				req?.removeListener("error", onRequestError);
+				req?.removeListener("timeout", onRequestTimeout);
+				req?.removeListener("close", onRequestClose);
+			}
+
+			function cleanupResponseListeners(): void {
+				response?.removeListener("data", onResponseData);
+				response?.removeListener("end", onResponseEnd);
+				response?.removeListener("aborted", onResponseAborted);
+				response?.removeListener("error", onResponseError);
+				response?.removeListener("close", onResponseClose);
+			}
+
+			function onRequestClose(): void {
+				requestClosed = true;
+				// Bun can emit ClientRequest.close after the request body finishes and
+				// before response end, but a close with no response at all is a terminal
+				// pre-header transport failure. Defer one microtask so a response callback
+				// already queued for the same turn wins without masking a real close.
+				if (!settled && !response && !requestCloseFailureScheduled) {
+					requestCloseFailureScheduled = true;
+					queueMicrotask(() => {
+						if (!settled && !response) {
+							settle(
 								new Error(
-									`Archive forwarder returned ${status} ${res.statusMessage ?? ""}`,
+									"Archive forwarder request closed before response headers",
 								),
+								false,
+								true,
 							);
-							return;
 						}
-						resolve();
 					});
-				},
-			);
-			req.on("error", reject);
-			req.on("timeout", () => {
-				req.destroy(new Error("Archive forwarder request timed out"));
-			});
-			req.write(body);
-			req.end();
+				}
+				if (settled) {
+					cleanupRequestListeners();
+				}
+			}
+
+			function onRequestError(error: Error): void {
+				if (!settled) {
+					settle(error, true);
+				} else {
+					cleanupRequestListeners();
+				}
+			}
+
+			function onRequestTimeout(): void {
+				settle(new Error("Archive forwarder socket timed out"), true);
+			}
+
+			function onResponseData(): void {}
+
+			function onResponseEnd(): void {
+				responseEnded = true;
+				if (!response?.complete) {
+					settle(new Error("Archive forwarder response was incomplete"), true);
+					return;
+				}
+				const status = response.statusCode ?? 0;
+				if (status < 200 || status >= 300) {
+					settle(
+						new Error(
+							`Archive forwarder returned ${status} ${response.statusMessage ?? ""}`,
+						),
+						false,
+					);
+					return;
+				}
+				settle(undefined, false);
+			}
+
+			function onResponseAborted(): void {
+				settle(new Error("Archive forwarder response was aborted"), true);
+			}
+
+			function onResponseError(error: Error): void {
+				if (!settled) {
+					settle(error, true);
+				}
+			}
+
+			function onResponseClose(): void {
+				responseClosed = true;
+				if (!settled && !responseEnded) {
+					settle(
+						new Error("Archive forwarder response closed before completion"),
+						true,
+					);
+					return;
+				}
+				cleanupResponseListeners();
+			}
+
+			function settle(
+				error: Error | undefined,
+				destroyRequest: boolean,
+				retainClosedRequestError = false,
+			): void {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				if (outerTimer) {
+					clearTimeout(outerTimer);
+					outerTimer = undefined;
+				}
+				response?.removeListener("data", onResponseData);
+				response?.removeListener("end", onResponseEnd);
+				response?.removeListener("aborted", onResponseAborted);
+				if (responseClosed) {
+					cleanupResponseListeners();
+				}
+				// Keep the request error listener until close when destruction is
+				// requested. ClientRequest can emit its destroy error asynchronously.
+				if (destroyRequest && req && !requestClosed) {
+					req.destroy(error);
+				} else if (retainClosedRequestError && req && requestClosed) {
+					// The close event already happened; retain only the guarded error
+					// listener so a late transport error cannot become unhandled.
+					req.removeListener("timeout", onRequestTimeout);
+					req.removeListener("close", onRequestClose);
+				} else if (!req || requestClosed) {
+					cleanupRequestListeners();
+				}
+				if (error) {
+					reject(error);
+				} else {
+					resolve();
+				}
+			}
+
+			// ClientRequest.timeout only observes socket inactivity. This outer timer
+			// covers lookup, connection, request write, response headers/body, and end.
+			outerTimer = setTimeout(() => {
+				settle(new Error("Archive forwarder request deadline exceeded"), true);
+			}, this.forwarderTimeoutMs);
+
+			try {
+				req = doRequest(
+					url,
+					{
+						method: "POST",
+						headers,
+						timeout: this.forwarderTimeoutMs,
+					},
+					(nextResponse) => {
+						response = nextResponse;
+						response.on("data", onResponseData);
+						response.on("end", onResponseEnd);
+						response.on("aborted", onResponseAborted);
+						response.on("error", onResponseError);
+						response.on("close", onResponseClose);
+						if (settled) {
+							response.resume();
+						}
+					},
+				);
+				req.on("error", onRequestError);
+				req.on("timeout", onRequestTimeout);
+				req.on("close", onRequestClose);
+				req.write(body);
+				req.end();
+			} catch (error) {
+				settle(error instanceof Error ? error : new Error(String(error)), true);
+			}
 		});
 	}
 }
@@ -580,6 +1097,7 @@ export function createBrokerExecutionArchiverFromEnv(
 	const forwarderUrl = resolveArchiveForwarderUrlFromEnv();
 	const archiveOtelLogs = isArchiveOtelLogsEnabled() ? otelLogs : undefined;
 	return BrokerExecutionArchiver.create({
+		source: resolveArchiveSourceFromEnv(),
 		otelLogs: archiveOtelLogs,
 		otelMetrics,
 		forwarderUrl: forwarderUrl ?? "",

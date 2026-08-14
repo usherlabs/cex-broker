@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Buffer } from "node:buffer";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import type { Exchange } from "@usherlabs/ccxt";
@@ -8,7 +11,11 @@ import {
 	setBinanceUserDataWebSocketFactoryForTests,
 } from "../src/helpers/binance-user-data-stream";
 import type { BrokerPoolEntry } from "../src/helpers/broker";
+import type { BrokerExecutionArchiver } from "../src/helpers/broker-execution-archive";
+import type { BrokerArchiveRow } from "../src/helpers/broker-execution-archive/types";
 import { SubscriptionType } from "../src/helpers/constants";
+import { StreamHealthPublisher } from "../src/helpers/stream-health-publisher";
+import { UserDataStreamSupervisor } from "../src/helpers/user-data-stream-supervisor";
 import { PROTO_LOADER_OPTIONS } from "../src/proto-loader-options";
 import { getServer } from "../src/server";
 import type { PolicyConfig } from "../src/types";
@@ -42,6 +49,7 @@ const testPolicy: PolicyConfig = {
 	deposit: {},
 	order: { rule: { markets: [], limits: [] } },
 };
+let configuredSubscriptionCount = 0;
 
 class FakeWebSocket {
 	static instances: FakeWebSocket[] = [];
@@ -120,12 +128,21 @@ class FakeWebSocket {
 	}
 }
 
-function createBinanceExchange(apiKey: string, secret: string) {
+function createBinanceExchange(
+	apiKey: string,
+	secret: string,
+	options: { balance?: unknown } = {},
+) {
 	const calls = {
 		watchBalance: 0,
 		watchOrders: 0,
 		loadMarkets: 0,
+		market: [] as string[],
+		fetchBalance: [] as Array<{ type: string }>,
+		parseWsOrder: [] as Array<Record<string, unknown>>,
+		safeBalance: [] as Array<Record<string, unknown>>,
 	};
+	const marketsById = new Map<string, { id: string; symbol: string }>();
 	const exchange = {
 		apiKey,
 		secret,
@@ -141,10 +158,83 @@ function createBinanceExchange(apiKey: string, secret: string) {
 		loadMarkets: async () => {
 			calls.loadMarkets += 1;
 		},
-		market: (symbol: string) => ({
-			id: symbol.replace("/", "").toUpperCase(),
-			symbol,
-		}),
+		market: (symbol: string) => {
+			calls.market.push(symbol);
+			const market = {
+				id: symbol.replace("/", "").toUpperCase(),
+				symbol,
+			};
+			marketsById.set(market.id, market);
+			return market;
+		},
+		fetchBalance: async (params: { type: string }) => {
+			calls.fetchBalance.push(params);
+			if (params.type !== "spot") {
+				throw new Error(`unexpected balance type: ${params.type}`);
+			}
+			return (
+				options.balance ?? {
+					free: { BTC: 3 },
+					total: { BTC: 4 },
+				}
+			);
+		},
+		parseWsOrder: (event: Record<string, unknown>) => {
+			calls.parseWsOrder.push(event);
+			if (event.e !== "executionReport") {
+				throw new Error(`unexpected order event: ${String(event.e)}`);
+			}
+			const market = marketsById.get(String(event.s));
+			if (!market) {
+				throw new Error(`market was not loaded: ${String(event.s)}`);
+			}
+			const amount = Number(event.q);
+			const filled = Number(event.z);
+			const cost = Number(event.Z);
+			const average = filled > 0 ? cost / filled : undefined;
+			const orderPrice = Number(event.p);
+			const commission = Number(event.n);
+			return {
+				id: String(event.i),
+				clientOrderId: String(event.c),
+				status:
+					event.X === "FILLED"
+						? "closed"
+						: event.X === "CANCELED"
+							? "canceled"
+							: "open",
+				symbol: market.symbol,
+				amount,
+				filled,
+				price: orderPrice > 0 ? orderPrice : average,
+				timestamp: Number(event.O ?? event.T),
+				...(commission > 0 && {
+					fee: { cost: commission, currency: String(event.N) },
+					fees: [{ cost: commission, currency: String(event.N) }],
+				}),
+			};
+		},
+		safeBalance: (balance: Record<string, unknown>) => {
+			calls.safeBalance.push(balance);
+			const result: Record<string, unknown> = {
+				...balance,
+				free: {},
+				used: {},
+				total: {},
+			};
+			for (const [asset, value] of Object.entries(balance)) {
+				if (["info", "timestamp", "datetime"].includes(asset)) continue;
+				const account = value as { free: string; used: string };
+				const free = Number(account.free);
+				const used = Number(account.used);
+				const normalized = { free, used, total: free + used };
+				result[asset] = normalized;
+				(result.free as Record<string, number>)[asset] = free;
+				(result.used as Record<string, number>)[asset] = used;
+				(result.total as Record<string, number>)[asset] = normalized.total;
+			}
+			return result;
+		},
 		watchBalance: async () => {
 			calls.watchBalance += 1;
 			throw new Error("legacy watchBalance should not be called");
@@ -155,6 +245,17 @@ function createBinanceExchange(apiKey: string, secret: string) {
 		},
 	} as unknown as Exchange;
 	return { exchange, calls };
+}
+
+function createRecordingArchiver() {
+	const rows: BrokerArchiveRow[] = [];
+	const archiver = {
+		isEnabled: () => true,
+		getDeploymentId: () => "test-deployment",
+		getSource: () => "broker_read" as const,
+		enqueue: (row: BrokerArchiveRow) => rows.push(row),
+	} as unknown as BrokerExecutionArchiver;
+	return { archiver, rows };
 }
 
 function createBinancePool(
@@ -188,15 +289,39 @@ function bindServer(server: grpc.Server) {
 	});
 }
 
-async function waitForSocket(): Promise<FakeWebSocket> {
-	for (let attempt = 0; attempt < 20; attempt += 1) {
-		const socket = FakeWebSocket.instances.at(-1);
-		if (socket?.sent.length) {
-			return socket;
-		}
-		await new Promise((resolve) => setTimeout(resolve, 0));
+async function waitForSocket(apiKey?: string): Promise<FakeWebSocket> {
+	let socket: FakeWebSocket | undefined;
+	await waitFor(() => {
+		socket = apiKey
+			? FakeWebSocket.instances.find((candidate) => {
+					const request = JSON.parse(candidate.sent[0] ?? "{}") as {
+						params?: { apiKey?: string };
+					};
+					return request.params?.apiKey === apiKey;
+				})
+			: FakeWebSocket.instances.at(-1);
+		return Boolean(
+			socket?.sent.length && (!apiKey || configuredSubscriptionCount > 0),
+		);
+	});
+	if (!socket) throw new Error("Fake Binance WebSocket was not opened");
+	return socket;
+}
+
+async function waitFor(
+	condition: () => boolean,
+	{
+		timeoutMs = 2_000,
+		intervalMs = 10,
+	}: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (condition()) return;
+		await new Promise((resolve) => setTimeout(resolve, intervalMs));
 	}
-	throw new Error("Fake Binance WebSocket was not opened");
+	if (condition()) return;
+	throw new Error(`Timed out waiting for test condition after ${timeoutMs}ms`);
 }
 
 function subscribeOnce(
@@ -224,23 +349,20 @@ function subscribeOnce(
 	});
 }
 
-function getSubscribeError(response: { data: string }): string {
-	const payload = JSON.parse(response.data) as { error?: unknown };
-	expect(typeof payload.error).toBe("string");
-	return payload.error as string;
-}
-
 describe("Binance Subscribe user-data streams", () => {
 	const originalWebSocket = globalThis.WebSocket;
 	let resetWebSocketFactory: (() => void) | undefined;
 	let server: grpc.Server | undefined;
 	let client: InstanceType<typeof grpcObj.cex_broker.cex_service> | undefined;
+	let supervisor: UserDataStreamSupervisor | undefined;
+	let supervisorStateDirectory: string | undefined;
 
 	beforeEach(() => {
 		resetWebSocketFactory = setBinanceUserDataWebSocketFactoryForTests(
 			(url) => new FakeWebSocket(url),
 		);
 		(globalThis as { WebSocket?: typeof WebSocket }).WebSocket = undefined;
+		configuredSubscriptionCount = 0;
 	});
 
 	afterEach(async () => {
@@ -252,20 +374,53 @@ describe("Binance Subscribe user-data streams", () => {
 		if (server) {
 			await server.forceShutdown();
 		}
+		await supervisor?.close();
+		if (supervisorStateDirectory) {
+			rmSync(supervisorStateDirectory, { recursive: true, force: true });
+		}
 		server = undefined;
 		client = undefined;
+		supervisor = undefined;
+		supervisorStateDirectory = undefined;
+		configuredSubscriptionCount = 0;
 	});
 
 	async function startClient(
 		primaryExchange: Exchange,
 		secondaryExchange: Exchange,
+		brokerArchiver?: BrokerExecutionArchiver,
 	) {
+		const brokers = createBinancePool(primaryExchange, secondaryExchange);
+		supervisorStateDirectory = mkdtempSync(
+			join(tmpdir(), "cex-broker-user-data-supervisor-"),
+		);
+		supervisor = new UserDataStreamSupervisor({
+			brokers,
+			publisher: new StreamHealthPublisher({
+				deploymentId: "test-deployment",
+				statePath: join(supervisorStateDirectory, "state.json"),
+				forwarderUrl: "http://127.0.0.1:1/archive",
+				post: async () => {},
+			}),
+		});
+		const subscribe = supervisor.subscribe.bind(supervisor);
+		supervisor.subscribe = (options) => {
+			configuredSubscriptionCount += 1;
+			return subscribe(options);
+		};
+		supervisor.start();
 		server = getServer(
 			testPolicy,
-			createBinancePool(primaryExchange, secondaryExchange),
+			brokers,
 			["*"],
 			false,
 			"",
+			undefined,
+			brokerArchiver,
+			undefined,
+			undefined,
+			undefined,
+			supervisor,
 		);
 		const port = await bindServer(server);
 		client = new grpcObj.cex_broker.cex_service(
@@ -381,79 +536,233 @@ describe("Binance Subscribe user-data streams", () => {
 		}
 	});
 
-	test("streams Binance BALANCE frames through WebSocket API user-data subscription", async () => {
+	test("normalizes outboundAccountPosition as a canonical balance snapshot and archives the raw event", async () => {
 		expect(globalThis.WebSocket).toBeUndefined();
 		const primary = createBinanceExchange("primary-key", "primary-secret");
 		const secondary = createBinanceExchange(
 			"secondary-key",
 			"secondary-secret",
 		);
-		server = getServer(
-			testPolicy,
-			createBinancePool(primary.exchange, secondary.exchange),
-			["*"],
-			false,
-			"",
-		);
-		const port = await bindServer(server);
-		client = new grpcObj.cex_broker.cex_service(
-			`127.0.0.1:${port}`,
-			grpc.credentials.createInsecure(),
+		const archive = createRecordingArchiver();
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
+			archive.archiver,
 		);
 
-		const responsePromise = subscribeOnce(client, {
+		const responsePromise = subscribeOnce(subscribeClient, {
 			cex: "BINANCE",
 			symbol: "BTC/USDT",
 			type: SubscriptionType.BALANCE,
 		});
-		const socket = await waitForSocket();
+		const socket = await waitForSocket("primary-key");
 		const subscribeRequest = JSON.parse(socket.sent[0] ?? "{}") as {
 			method?: string;
 			params?: { apiKey?: string };
 		};
-		socket.emitEvent({
+		const rawEvent = {
 			e: "outboundAccountPosition",
 			E: 1_564_031_571_105,
-			B: [{ a: "BTC", f: "1.0", l: "0.2" }],
-		});
+			B: [
+				{ a: "BTC", f: "1.0", l: "0.2" },
+				{ a: "USDT", f: "25.5", l: "4.5" },
+			],
+		};
+		socket.emitEvent(rawEvent);
 
 		const response = await responsePromise;
 		expect(subscribeRequest.method).toBe("userDataStream.subscribe.signature");
 		expect(subscribeRequest.params?.apiKey).toBe("primary-key");
-		expect(JSON.parse(response.data)).toMatchObject({
-			subscriptionId: 0,
-			event: { e: "outboundAccountPosition" },
+		expect(JSON.parse(response.data)).toEqual({
+			info: rawEvent,
+			timestamp: rawEvent.E,
+			datetime: new Date(rawEvent.E).toISOString(),
+			BTC: { free: 1, used: 0.2, total: 1.2 },
+			USDT: { free: 25.5, used: 4.5, total: 30 },
+			free: { BTC: 1, USDT: 25.5 },
+			used: { BTC: 0.2, USDT: 4.5 },
+			total: { BTC: 1.2, USDT: 30 },
 		});
 		expect(response.symbol).toBe("BTC/USDT");
 		expect(response.type).toBe("BALANCE");
+		expect(primary.calls.safeBalance).toEqual([
+			{
+				info: rawEvent,
+				timestamp: rawEvent.E,
+				datetime: new Date(rawEvent.E).toISOString(),
+				BTC: { free: "1.0", used: "0.2" },
+				USDT: { free: "25.5", used: "4.5" },
+			},
+		]);
+		expect(primary.calls.fetchBalance).toEqual([]);
 		expect(primary.calls.watchBalance).toBe(0);
 		expect(primary.calls.watchOrders).toBe(0);
+
+		await waitFor(() => archive.rows.length >= 2);
+		expect(archive.rows).toHaveLength(2);
+		for (const table of [
+			"broker_execution.order_events",
+			"market_data.cex_stream_events",
+		]) {
+			expect(
+				archive.rows
+					.filter((row) => row.table === table)
+					.map((row) => JSON.parse(String(row.row.payload_json))),
+			).toEqual([rawEvent]);
+		}
 	});
 
-	test("streams Binance ORDERS frames for the selected secondary account", async () => {
+	test("fans configured balance and order subscribers out from one account socket", async () => {
+		const primary = createBinanceExchange("primary-key", "primary-secret");
+		const secondary = createBinanceExchange(
+			"secondary-key",
+			"secondary-secret",
+		);
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
+		);
+		const balance = subscribeOnce(subscribeClient, {
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: SubscriptionType.BALANCE,
+		});
+		const orders = subscribeOnce(subscribeClient, {
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: SubscriptionType.ORDERS,
+		});
+		const socket = await waitForSocket("primary-key");
+		expect(
+			FakeWebSocket.instances.filter((candidate) => {
+				const request = JSON.parse(candidate.sent[0] ?? "{}") as {
+					params?: { apiKey?: string };
+				};
+				return request.params?.apiKey === "primary-key";
+			}),
+		).toHaveLength(1);
+		socket.emitEvent({
+			e: "outboundAccountPosition",
+			E: 1_700_000_000_000,
+			B: [{ a: "BTC", f: "1", l: "0" }],
+		});
+		expect((await balance).type).toBe("BALANCE");
+		socket.emitEvent({
+			e: "executionReport",
+			E: 1_700_000_000_001,
+			s: "BTCUSDT",
+			i: 1,
+			c: "client-1",
+			X: "NEW",
+			q: "1",
+			z: "0",
+			p: "100",
+			Z: "0",
+			O: 1_700_000_000_000,
+			T: 1_700_000_000_001,
+			t: -1,
+			n: "0",
+			N: null,
+		});
+		expect((await orders).type).toBe("ORDERS");
+	});
+
+	test("refreshes the authoritative primary balance for balanceUpdate", async () => {
+		const authoritativeBalance = {
+			free: { BTC: 2.5, USDT: 10 },
+			total: { BTC: 3, USDT: 12 },
+		};
+		const primary = createBinanceExchange("primary-key", "primary-secret", {
+			balance: authoritativeBalance,
+		});
+		const secondary = createBinanceExchange(
+			"secondary-key",
+			"secondary-secret",
+		);
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
+		);
+		const responsePromise = subscribeOnce(subscribeClient, {
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: SubscriptionType.BALANCE,
+		});
+
+		const socket = await waitForSocket("primary-key");
+		socket.emitEvent({
+			e: "balanceUpdate",
+			E: 1_700_000_000_000,
+			a: "BTC",
+			d: "0.5",
+			T: 1_700_000_000_001,
+		});
+
+		expect(JSON.parse((await responsePromise).data)).toEqual(
+			authoritativeBalance,
+		);
+		expect(primary.calls.fetchBalance).toEqual([{ type: "spot" }]);
+		expect(secondary.calls.fetchBalance).toEqual([]);
+		expect(primary.calls.safeBalance).toEqual([]);
+	});
+
+	test("refreshes externalLockUpdate through the selected secondary account", async () => {
+		const secondaryBalance = {
+			free: { BTC: 7 },
+			total: { BTC: 8 },
+		};
+		const primary = createBinanceExchange("primary-key", "primary-secret");
+		const secondary = createBinanceExchange(
+			"secondary-key",
+			"secondary-secret",
+			{ balance: secondaryBalance },
+		);
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
+		);
+		const metadata = new grpc.Metadata();
+		metadata.set("use-secondary-key", "1");
+		const responsePromise = subscribeOnce(
+			subscribeClient,
+			{
+				cex: "binance",
+				symbol: "BTC/USDT",
+				type: SubscriptionType.BALANCE,
+			},
+			metadata,
+		);
+
+		const socket = await waitForSocket("secondary-key");
+		socket.emitEvent({
+			e: "externalLockUpdate",
+			E: 1_700_000_000_010,
+			a: "BTC",
+			d: "1.0",
+			T: 1_700_000_000_011,
+		});
+
+		expect(JSON.parse((await responsePromise).data)).toEqual(secondaryBalance);
+		expect(primary.calls.fetchBalance).toEqual([]);
+		expect(secondary.calls.fetchBalance).toEqual([{ type: "spot" }]);
+	});
+
+	test("normalizes executionReport for the selected account and requested market", async () => {
 		expect(globalThis.WebSocket).toBeUndefined();
 		const primary = createBinanceExchange("primary-key", "primary-secret");
 		const secondary = createBinanceExchange(
 			"secondary-key",
 			"secondary-secret",
 		);
-		server = getServer(
-			testPolicy,
-			createBinancePool(primary.exchange, secondary.exchange),
-			["*"],
-			false,
-			"",
-		);
-		const port = await bindServer(server);
-		client = new grpcObj.cex_broker.cex_service(
-			`127.0.0.1:${port}`,
-			grpc.credentials.createInsecure(),
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
 		);
 		const metadata = new grpc.Metadata();
 		metadata.set("use-secondary-key", "1");
 
 		const responsePromise = subscribeOnce(
-			client,
+			subscribeClient,
 			{
 				cex: "binance",
 				symbol: "BTC/USDT",
@@ -461,7 +770,7 @@ describe("Binance Subscribe user-data streams", () => {
 			},
 			metadata,
 		);
-		const socket = await waitForSocket();
+		const socket = await waitForSocket("secondary-key");
 		const subscribeRequest = JSON.parse(socket.sent[0] ?? "{}") as {
 			method?: string;
 			params?: { apiKey?: string };
@@ -472,27 +781,120 @@ describe("Binance Subscribe user-data streams", () => {
 			s: "ETHUSDT",
 			i: 1,
 		});
-		socket.emitEvent({
+		const rawEvent = {
 			e: "executionReport",
 			E: 1_499_405_658_659,
 			s: "BTCUSDT",
 			i: 2,
-		});
+			c: "client-2",
+			X: "FILLED",
+			q: "2.0",
+			z: "2.0",
+			p: "0",
+			Z: "202.5",
+			O: 1_499_405_658_600,
+			T: 1_499_405_658_659,
+			t: 77,
+			n: "0.01",
+			N: "BNB",
+		};
+		socket.emitEvent(rawEvent);
 
 		const response = await responsePromise;
 		expect(subscribeRequest.method).toBe("userDataStream.subscribe.signature");
 		expect(subscribeRequest.params?.apiKey).toBe("secondary-key");
-		expect(JSON.parse(response.data)).toMatchObject({
-			subscriptionId: 0,
-			event: { e: "executionReport", s: "BTCUSDT", i: 2 },
+		expect(JSON.parse(response.data)).toEqual({
+			id: "2",
+			clientOrderId: "client-2",
+			status: "closed",
+			symbol: "BTC/USDT",
+			amount: 2,
+			filled: 2,
+			price: 101.25,
+			timestamp: 1_499_405_658_600,
+			tradeId: "77",
 		});
 		expect(response.type).toBe("ORDERS");
 		expect(primary.calls.watchOrders).toBe(0);
 		expect(secondary.calls.watchOrders).toBe(0);
 		expect(secondary.calls.loadMarkets).toBe(1);
+		expect(secondary.calls.market).toEqual(["BTC/USDT"]);
+		expect(secondary.calls.parseWsOrder).toEqual([rawEvent]);
 	});
 
-	test("surfaces ws error event diagnostics without leaking signed params", async () => {
+	test("archives listStatus without emitting it and continues to the next executionReport", async () => {
+		const primary = createBinanceExchange("primary-key", "primary-secret");
+		const secondary = createBinanceExchange(
+			"secondary-key",
+			"secondary-secret",
+		);
+		const archive = createRecordingArchiver();
+		const subscribeClient = await startClient(
+			primary.exchange,
+			secondary.exchange,
+			archive.archiver,
+		);
+		const responsePromise = subscribeOnce(subscribeClient, {
+			cex: "binance",
+			symbol: "BTC/USDT",
+			type: SubscriptionType.ORDERS,
+		});
+		const socket = await waitForSocket("primary-key");
+		const listStatus = {
+			e: "listStatus",
+			E: 1_700_000_000_100,
+			s: "BTCUSDT",
+			g: 42,
+			l: "EXEC_STARTED",
+			L: "EXECUTING",
+		};
+		const executionReport = {
+			e: "executionReport",
+			E: 1_700_000_000_101,
+			s: "BTCUSDT",
+			i: 9,
+			c: "client-9",
+			X: "NEW",
+			q: "1",
+			z: "0",
+			p: "100",
+			Z: "0",
+			O: 1_700_000_000_090,
+			T: 1_700_000_000_101,
+			t: -1,
+			n: "0",
+			N: null,
+		};
+		socket.emitEvent(listStatus);
+		socket.emitEvent(executionReport);
+
+		expect(JSON.parse((await responsePromise).data)).toEqual({
+			id: "9",
+			clientOrderId: "client-9",
+			status: "open",
+			symbol: "BTC/USDT",
+			amount: 1,
+			filled: 0,
+			price: 100,
+			timestamp: 1_700_000_000_090,
+		});
+		expect(primary.calls.parseWsOrder).toEqual([executionReport]);
+
+		await waitFor(() => archive.rows.length >= 4);
+		expect(archive.rows).toHaveLength(4);
+		for (const table of [
+			"broker_execution.order_events",
+			"market_data.cex_stream_events",
+		]) {
+			expect(
+				archive.rows
+					.filter((row) => row.table === table)
+					.map((row) => JSON.parse(String(row.row.payload_json))),
+			).toEqual([listStatus, executionReport]);
+		}
+	});
+
+	test("keeps configured subscribers registered across a ws error", async () => {
 		expect(globalThis.WebSocket).toBeUndefined();
 		const primary = createBinanceExchange("primary-key", "primary-secret");
 		const secondary = createBinanceExchange(
@@ -504,12 +906,13 @@ describe("Binance Subscribe user-data streams", () => {
 			secondary.exchange,
 		);
 
-		const responsePromise = subscribeOnce(subscribeClient, {
+		const stream = subscribeClient.Subscribe({
 			cex: "binance",
 			symbol: "BTC/USDT",
 			type: SubscriptionType.BALANCE,
 		});
-		const socket = await waitForSocket();
+		stream.on("error", () => {});
+		const socket = await waitForSocket("primary-key");
 		socket.emitError({
 			error: new Error(
 				"proxy refused event.error apiKey=primary-key secret=primary-secret signature=deadbeef",
@@ -517,19 +920,14 @@ describe("Binance Subscribe user-data streams", () => {
 			message: "fallback transport message",
 		});
 
-		const error = getSubscribeError(await responsePromise);
-		expect(error).toContain(
-			"Binance user-data WebSocket error: proxy refused event.error",
-		);
-		expect(error).toContain("apiKey=[redacted]");
-		expect(error).toContain("secret=[redacted]");
-		expect(error).toContain("signature=[redacted]");
-		expect(error).not.toContain("primary-key");
-		expect(error).not.toContain("primary-secret");
-		expect(error).not.toContain("deadbeef");
+		await waitFor(() => FakeWebSocket.instances.length >= 3);
+		expect(
+			FakeWebSocket.instances.filter((candidate) => candidate.closed),
+		).toHaveLength(1);
+		stream.cancel();
 	});
 
-	test("surfaces ws error message diagnostics without leaking secrets", async () => {
+	test("keeps configured subscribers registered across an error message", async () => {
 		expect(globalThis.WebSocket).toBeUndefined();
 		const primary = createBinanceExchange("primary-key", "primary-secret");
 		const secondary = createBinanceExchange(
@@ -541,30 +939,23 @@ describe("Binance Subscribe user-data streams", () => {
 			secondary.exchange,
 		);
 
-		const responsePromise = subscribeOnce(subscribeClient, {
+		const stream = subscribeClient.Subscribe({
 			cex: "binance",
 			symbol: "BTC/USDT",
 			type: SubscriptionType.BALANCE,
 		});
-		const socket = await waitForSocket();
+		stream.on("error", () => {});
+		const socket = await waitForSocket("primary-key");
 		socket.emitError({
 			message:
 				"transport refused event.message apiKey=primary-key secret=primary-secret signature=feedface",
 		});
 
-		const error = getSubscribeError(await responsePromise);
-		expect(error).toContain(
-			"Binance user-data WebSocket error: transport refused event.message",
-		);
-		expect(error).toContain("apiKey=[redacted]");
-		expect(error).toContain("secret=[redacted]");
-		expect(error).toContain("signature=[redacted]");
-		expect(error).not.toContain("primary-key");
-		expect(error).not.toContain("primary-secret");
-		expect(error).not.toContain("feedface");
+		await waitFor(() => FakeWebSocket.instances.length >= 3);
+		stream.cancel();
 	});
 
-	test("surfaces abnormal ws close code and reason without leaking secrets", async () => {
+	test("keeps configured subscribers registered across a remote close", async () => {
 		expect(globalThis.WebSocket).toBeUndefined();
 		const primary = createBinanceExchange("primary-key", "primary-secret");
 		const secondary = createBinanceExchange(
@@ -576,12 +967,13 @@ describe("Binance Subscribe user-data streams", () => {
 			secondary.exchange,
 		);
 
-		const responsePromise = subscribeOnce(subscribeClient, {
+		const stream = subscribeClient.Subscribe({
 			cex: "binance",
 			symbol: "BTC/USDT",
 			type: SubscriptionType.BALANCE,
 		});
-		const socket = await waitForSocket();
+		stream.on("error", () => {});
+		const socket = await waitForSocket("primary-key");
 		socket.emitClose(
 			1011,
 			Buffer.from(
@@ -589,15 +981,7 @@ describe("Binance Subscribe user-data streams", () => {
 			),
 		);
 
-		const error = getSubscribeError(await responsePromise);
-		expect(error).toContain("Binance user-data WebSocket closed unexpectedly");
-		expect(error).toContain("code=1011");
-		expect(error).toContain("reason=upstream closed");
-		expect(error).toContain("apiKey=[redacted]");
-		expect(error).toContain("secret=[redacted]");
-		expect(error).toContain("signature=[redacted]");
-		expect(error).not.toContain("primary-key");
-		expect(error).not.toContain("primary-secret");
-		expect(error).not.toContain("abc123");
+		await waitFor(() => FakeWebSocket.instances.length >= 3);
+		stream.cancel();
 	});
 });

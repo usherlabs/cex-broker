@@ -1,0 +1,64 @@
+{
+	"fixture_version": "1",
+	"schema_version": "1.0.0",
+	"checksum_algorithm": "sha256-canonical-json-v1",
+	"context": {
+		"source": "broker_read",
+		"deploymentId": "fixture-collector-eu-1",
+		"captureBundleId": "fixture-bundle-2026-08-03",
+		"exchange": "binance",
+		"symbol": "BTC/USDT",
+		"assetType": "spot",
+		"provider": "ccxt:binance",
+		"schemaVersion": "1.0.0",
+		"checksumAlgorithm": "sha256-canonical-json-v1",
+		"provenanceComplete": true
+	},
+	"stream": {
+		"feed": "ORDERBOOK",
+		"sourceMode": "broker_current_snapshot_v1",
+		"payload": { "bids": [[100, 1]], "asks": [[101, 2]], "timestamp": 1700000000000 },
+		"eventTimeMs": 1700000000000,
+		"receivedTimeMs": 1700000000010,
+		"expected": { "raw_capture_id": "448292b1e054b7ad576b56e06129fca37cdbad9bede03061d01148e94d9bfdea", "raw_checksum": "8bcac32d02d0f86948c0533e9a1b8fffa33597c306bd6b81ced4e54c6d7e5cc0", "normalized_row_checksum": "e3e9be16f9fd1f7d08f891a555c647a9cb635de17074fde84208b3f114cb000b" }
+	},
+	"ticker": {
+		"feed": "TICKER",
+		"sourceMode": "broker_live_stream_v1",
+		"payload": { "symbol": "BTC/USDT", "last": 100.5, "bid": 100, "ask": 101, "timestamp": 1700000000100 },
+		"eventTimeMs": 1700000000100,
+		"receivedTimeMs": 1700000000110,
+		"normalized": { "eventTimeMs": 1700000000100, "last": 100.5, "bid": 100, "ask": 101 },
+		"expected": { "raw_capture_id": "ccbcc74e6aeb65af676f85f9834d8ce86869de49f77d1e1fcb839430d9b48747", "raw_checksum": "cc4815a23f75ab5ee4e09cad3dc02cf0008839e816d8970e6d85b4c53406b5e2", "normalized_row_checksum": "0cf0c19624fdc61c2380403160dec5095b3f924d5a8172e398814ca2db74d78c" }
+	},
+	"trade": {
+		"feed": "TRADES",
+		"sourceMode": "broker_live_stream_v1",
+		"payload": [{ "id": "trade-42", "timestamp": 1700000000200, "side": "buy", "price": 100.25, "amount": 0.5, "cost": 50.125, "takerOrMaker": "taker" }],
+		"eventTimeMs": 1700000000200,
+		"receivedTimeMs": 1700000000210,
+		"normalized": { "tradeId": "trade-42", "eventTimeMs": 1700000000200, "side": "buy", "price": 100.25, "amount": 0.5, "cost": 50.125, "takerOrMaker": "taker" },
+		"expected": { "raw_capture_id": "fcafa03d10a308ed8a71fd103300cd069766f18283e65aaa4a677eebb882d565", "raw_checksum": "775321781aa4768105277b75fe04ef2d37ac801223072ce99c3cb12352c3696d", "normalized_row_checksum": "20bc45261dcfe562256bab2e42c95dd0b243d9305e1f818d2aa87c520ba12b91" }
+	},
+	"ohlcv": {
+		"feed": "OHLCV",
+		"sourceMode": "broker_bootstrap_fetch_v1",
+		"timeframe": "1m",
+		"payload": [[1700000000000, 100, 102, 99, 101, 12.5]],
+		"eventTimeMs": 1700000000000,
+		"receivedTimeMs": 1700000000300,
+		"bar": { "openTimeMs": 1700000000000, "open": 100, "high": 102, "low": 99, "close": 101, "volume": 12.5 },
+		"isClosed": true,
+		"brokerVersion": 1700000000300,
+		"expected": { "raw_capture_id": "3990f5b88f23c4e582165f24f399930d41385c12b0bef7259a0dfd46dfc165bf", "raw_checksum": "494b1c82f7fc9aabe3fb0d1019e407ccf87f3a2af506d0d0e35b44e769569b39", "normalized_row_checksum": "56800943ab52f21998124edf504517f9f598140e5ac10831bee8109daa27269b" }
+	},
+	"orderbook": {
+		"feed": "ORDERBOOK",
+		"sourceMode": "broker_live_sampling_v1",
+		"payload": { "bids": [[100, 1], [99, 2]], "asks": [[101, 3], [102, 4]], "timestamp": 1700000000400, "sequence": 42 },
+		"eventTimeMs": 1700000000400,
+		"receivedTimeMs": 1700000000410,
+		"depthLimit": 2,
+		"expected": { "raw_capture_id": "e423d4c8e6de3a468d5a5ab3799b07c3445cbaed8be3d0287cc0b2754f6bb7bc", "raw_checksum": "c85fed94343df96134a0e380ab4ba75ae121bbbb414e85e9df748be1340eb842", "snapshot_id": "e3e33c00fde1f3d27bc19bcbf21a09377408fdbdb26755ae2f9164ae90d41730", "level_normalized_row_checksum": "67d06b8cdd5e1d66fa2d1cab679060af4c9ca8df8deb8f652f3b2d077cfebce6", "summary_normalized_row_checksum": "8d2d30f59e855a05b155cf02793cb27cd28108cfd1edb9d9ae9bfb2eb1b23bad" }
+	}
+}

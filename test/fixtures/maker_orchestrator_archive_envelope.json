@@ -1,0 +1,35 @@
+{
+  "source": "maker_orchestrator",
+  "deployment_id": "maker-deployment",
+  "rows": [
+    {
+      "table": "strategy_data.inventory_settlement_events",
+      "row": {
+        "source": "maker_orchestrator",
+        "deployment_id": "maker-deployment",
+        "schema_version": "2",
+        "producer_id": "maker_orchestrator:maker-deployment:orchestrator",
+        "producer_run_id": "run-1",
+        "controller_id": "orchestrator",
+        "controller_type": "maker_orchestrator",
+        "connector_name": "",
+        "exchange": "",
+        "trading_pair": "",
+        "market_id": "pool-1",
+        "run_id": "run-1",
+        "seq": 1,
+        "stream_name": "maker_runtime_state",
+        "stream_seq": 1,
+        "archive_event_id": "run-1:maker_runtime_state:1",
+        "event_time_ms": 1719999999997,
+        "emitted_at_ms": 1720000000000,
+        "event_kind": "orchestrator_retained_state",
+        "token": "ARB",
+        "account": "wallet",
+        "reservation_id": "reservation-1",
+        "workflow_state": "published",
+        "payload_json": "{\"pool_id\":\"pool-1\"}"
+      }
+    }
+  ]
+}
