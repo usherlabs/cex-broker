@@ -160,6 +160,30 @@ describe("archive loss replay", () => {
 		}
 	});
 
+	test("a legacy record without record_version receives fresh identity", async () => {
+		const { journal, ledger } = testPaths();
+		const legacy = lossRecord("legacy");
+		delete legacy.record_version;
+		delete legacy.batch_id;
+		delete legacy.batch_row_index;
+		delete legacy.batch_row_count;
+		writeJournal(journal, [legacy]);
+		const forwarder = await startForwarderServer();
+		try {
+			const result = await runArchiveLossReplay({
+				journal,
+				ledger,
+				forwarderUrl: forwarder.url,
+			});
+			expect(result.exitCode).toBe(0);
+			expect(String(forwarder.requests[0]?.body.batch_id)).toStartWith(
+				"replay-v1-",
+			);
+		} finally {
+			await forwarder.close();
+		}
+	});
+
 	test("retry exhaustion replays the complete batch under its original identity", async () => {
 		const { journal, ledger } = testPaths();
 		const original = await produceRetryExhaustedJournal(journal);
@@ -266,6 +290,16 @@ describe("archive loss replay", () => {
 				"outcome",
 			]);
 			expect(ledgerRecords[1]?.status).toBe("blocked_unsupported_table");
+
+			const second = await runArchiveLossReplay({
+				journal,
+				ledger,
+				forwarderUrl: forwarder.url,
+			});
+			expect(second.exitCode).toBe(1);
+			expect(second.summary.entries.skipped_by_ledger).toBe(1);
+			expect(second.summary.entries.blocked_unsupported_table).toBe(1);
+			expect(forwarder.requests).toHaveLength(0);
 		} finally {
 			await forwarder.close();
 		}

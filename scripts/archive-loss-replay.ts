@@ -600,9 +600,13 @@ export async function runArchiveLossReplay(
 			for (const entry of batch.entries) increment(summary, entry, "pending");
 			continue;
 		}
-		if (terminalLedger.has(batch.batchId)) {
+		const terminalStatus = terminalLedger.get(batch.batchId);
+		if (terminalStatus) {
 			summary.batches.skipped_by_ledger += 1;
+			summary.batches[terminalStatus] += 1;
 			summary.entries.skipped_by_ledger += batch.entries.length;
+			for (const entry of batch.entries)
+				increment(summary, entry, terminalStatus);
 			continue;
 		}
 		const unsupported = [
@@ -681,8 +685,7 @@ export async function runArchiveLossReplay(
 		!options.dryRun &&
 		summary.entries.accepted +
 			summary.entries.blocked_unsupported_table +
-			summary.entries.blocked_conflict +
-			summary.entries.skipped_by_ledger ===
+			summary.entries.blocked_conflict ===
 			summary.entries.total;
 	if (options.archive) {
 		if (!everyEntryTerminal || summary.lines.unparseable.length > 0) {
@@ -725,6 +728,24 @@ export function printArchiveLossReplayReport(
 	console.log(
 		`Entries: accepted=${summary.entries.accepted}, blocked_unsupported_table=${summary.entries.blocked_unsupported_table}, blocked_conflict=${summary.entries.blocked_conflict}, failed_transient=${summary.entries.failed_transient}, unparseable=${summary.entries.unparseable}, pending=${summary.entries.pending}`,
 	);
+	console.log(
+		`Batch outcomes: accepted=${summary.batches.accepted}, blocked_unsupported_table=${summary.batches.blocked_unsupported_table}, blocked_conflict=${summary.batches.blocked_conflict}, failed_transient=${summary.batches.failed_transient}, pending=${summary.batches.pending}`,
+	);
+	for (const line of summary.lines.unparseable) {
+		console.error(`Unparseable journal line ${line.line}: ${line.reason}`);
+	}
+	console.log("By reason:");
+	for (const [reason, counts] of Object.entries(summary.by_reason)) {
+		console.log(
+			`  ${reason}: accepted=${counts.accepted}, blocked_unsupported_table=${counts.blocked_unsupported_table}, blocked_conflict=${counts.blocked_conflict}, failed_transient=${counts.failed_transient}, unparseable=${counts.unparseable}`,
+		);
+	}
+	console.log("By table:");
+	for (const [table, counts] of Object.entries(summary.by_table)) {
+		console.log(
+			`  ${table}: accepted=${counts.accepted}, blocked_unsupported_table=${counts.blocked_unsupported_table}, blocked_conflict=${counts.blocked_conflict}, failed_transient=${counts.failed_transient}, unparseable=${counts.unparseable}`,
+		);
+	}
 	for (const warning of summary.warnings) console.warn(`Warning: ${warning}`);
 	for (const error of summary.errors) console.error(`Error: ${error}`);
 	console.log(ACCEPTED_MEANING);
