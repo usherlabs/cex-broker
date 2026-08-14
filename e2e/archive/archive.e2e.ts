@@ -416,8 +416,8 @@ describe("archive failure isolation and accounting", () => {
 				"batch_row_index",
 				"deployment_id",
 				"payload",
-				"record_version",
 				"reason",
+				"record_version",
 				"source",
 				"timestamp",
 			]);
