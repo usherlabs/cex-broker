@@ -47,7 +47,7 @@ curl http://localhost:8090/health
 Or run the forwarder on the host (schema is applied on startup):
 
 ```bash
-CLICKHOUSE_PORT=8123 bun run start-archive-forwarder
+CLICKHOUSE_URL=http://localhost:8123 bun run start-archive-forwarder
 ```
 
 ### 2. Broker with archive enabled
@@ -128,12 +128,13 @@ Broker hot reload (separate from research): `bun run start-broker-server`.
 
 Production deployments must place `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH` on persistent writable storage or a mounted volume. A container-local ephemeral file is not a durable loss journal.
 
-### ClickHouse clients (viewer, Python, forwarder)
+### ClickHouse clients
 
 | Variable | Default |
 |----------|---------|
+| `CLICKHOUSE_URL` | `http://localhost:8123` for the archive forwarder |
 | `CLICKHOUSE_HOST` | `localhost` |
-| `CLICKHOUSE_PORT` | `8123` (forwarder) / set per tool |
+| `CLICKHOUSE_PORT` | Set per viewer or Python tool |
 | `CLICKHOUSE_DATABASE` | `market_data` |
 
 ### Candle viewer

@@ -52,7 +52,7 @@ Or run manually:
 
 ```bash
 clickhouse-client --multiquery < schema/clickhouse/market_data.sql
-CLICKHOUSE_PORT=8123 bun run start-archive-forwarder
+CLICKHOUSE_URL=http://localhost:8123 bun run start-archive-forwarder
 ```
 
 Health check:
@@ -64,7 +64,7 @@ curl http://localhost:8090/health
 Dev watcher (restarts on schema/forwarder changes):
 
 ```bash
-CLICKHOUSE_PORT=8123 bun run dev:archive-forwarder
+CLICKHOUSE_URL=http://localhost:8123 bun run dev:archive-forwarder
 ```
 
 ## 2. Start cex-broker with archive enabled

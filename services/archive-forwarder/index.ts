@@ -14,7 +14,7 @@ import { StrategySpoolWorker } from "./strategy-worker";
 
 const config = loadForwarderConfig();
 const clickhouse = createClient({
-	url: `http://${config.clickhouse.host}:${config.clickhouse.port}`,
+	url: config.clickhouse.url,
 	username: config.clickhouse.username,
 	password: config.clickhouse.password,
 	database: config.clickhouse.database,
@@ -117,7 +117,7 @@ console.log(
 	`Archive forwarder listening on http://0.0.0.0:${server.port}/archive`,
 );
 console.log(
-	`ClickHouse target: ${config.clickhouse.host}:${config.clickhouse.port}/${config.clickhouse.database}`,
+	`ClickHouse target: ${new URL(config.clickhouse.url).origin}/${config.clickhouse.database}`,
 );
 console.log(`Strategy archive spool: ${config.spoolPath}`);
 
