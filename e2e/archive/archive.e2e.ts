@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +27,7 @@ import {
 import { ClickHouseLocalHarness } from "../../test/e2e/archive/support/clickhouse-local-harness";
 import {
 	comparableReplayPolicy,
+	runAndWriteCexOrderBookCoalescingProofA,
 	runOrderBookClickHouseReplayGate,
 	runOrderBookEquivalenceGate,
 } from "../../test/e2e/archive/support/orderbook-equivalence";
@@ -360,6 +362,39 @@ describe("real four-feed archive lifecycle", () => {
 });
 
 describe("ORDERBOOK conservative versus coalesced verification gate", () => {
+	test("publishes deterministic Binance and MEXC CEX Proof A", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "cex-proof-a-"));
+		const path = join(directory, "cex-orderbook-coalescing-evidence.json");
+		try {
+			const artifact = await runAndWriteCexOrderBookCoalescingProofA(path);
+			const bytes = await readFile(path);
+			const evidence = JSON.parse(bytes.toString("utf8"));
+			expect(artifact).toEqual({
+				path,
+				sha256: createHash("sha256").update(bytes).digest("hex"),
+			});
+			expect(bytes.at(-1)).toBe(0x0a);
+			expect(evidence).toMatchObject({
+				schemaVersion: "cex-orderbook-coalescing-evidence/v1",
+				policyDepth: 100,
+				archiveDepth: 100,
+				bandsBps: [50],
+			});
+			expect(evidence.cases.map(({ venue }: { venue: string }) => venue)).toEqual([
+				"binance",
+				"mexc",
+			]);
+			expect(
+				evidence.cases.every(
+					({ observations }: { observations: unknown[] }) =>
+						observations.length >= 5,
+				),
+			).toBe(true);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
 	test.each(["binance", "mexc"] as const)(
 		"proves %s logical, archive, and immediate-hedgeability equivalence",
 		async (venue) => {
@@ -379,6 +414,17 @@ describe("ORDERBOOK conservative versus coalesced verification gate", () => {
 			);
 			expect(result.conservative.policy).toEqual(result.coalesced.policy);
 			expect(result.coalesced.policy).toHaveLength(result.minimumFrames);
+			expect(result.minimumFrames).toBeGreaterThanOrEqual(5);
+			const policyVisiblePayloads = result.coalesced.logical.explicit as Array<{
+				bids: number[][];
+				asks: number[][];
+			}>;
+			expect(
+				new Set(policyVisiblePayloads.map(({ bids }) => JSON.stringify(bids.map((level) => level[1])))).size,
+			).toBe(result.minimumFrames);
+			expect(
+				new Set(policyVisiblePayloads.map(({ asks }) => JSON.stringify(asks.map((level) => level[1])))).size,
+			).toBe(result.minimumFrames);
 			expect(result.coalesced.policy.every(({ covered }) => covered)).toBe(true);
 			expect(
 				result.coalesced.shallowArchivePolicy.every(({ covered }) => !covered),

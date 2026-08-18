@@ -90,6 +90,7 @@ export type PublicMarketDataFeedSupervisorOptions = {
 	resolveOrderBookProfile?: (
 		input: OrderBookAcquisitionProfileInput,
 	) => OrderBookAcquisitionProfile;
+	enabledOrderBookProfileIds?: ReadonlySet<string>;
 	observer?: PublicMarketDataFeedObserver;
 };
 
@@ -666,6 +667,7 @@ export class PublicMarketDataFeedSupervisor {
 						exchange: exchangeName,
 						requestedDepth: input.depthLimit,
 						archiveDepth,
+						enabledProfileIds: this.options.enabledOrderBookProfileIds,
 					})
 				: undefined;
 		const timeframe =

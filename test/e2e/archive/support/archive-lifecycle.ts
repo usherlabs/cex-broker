@@ -68,6 +68,7 @@ const DEPLOYMENT_ID = "archive-e2e-baseline";
 const CAPTURE_BUNDLE_ID = "archive-e2e-four-feed-v1";
 const AUTH_TOKEN = "archive-e2e-local-token";
 const EXPECTED_ENQUEUED = 18;
+const CONTROLLED_ORDER_BOOK_PROFILE_IDS = new Set(["binance:l2-diff:500"]);
 const BASELINE_INPUT_PATH = new URL(
 	"../fixtures/archive-baseline-input-v1.json",
 	import.meta.url,
@@ -543,6 +544,7 @@ async function createComposedContext(
 		publicFeedSupervisor = new PublicMarketDataFeedSupervisor({
 			brokers,
 			brokerArchiver: archiver,
+			enabledOrderBookProfileIds: CONTROLLED_ORDER_BOOK_PROFILE_IDS,
 		});
 		server = getServer(
 			PUBLIC_ONLY_POLICY,
@@ -961,6 +963,7 @@ export async function startProductionBrokerCollectorTopology(options: {
 		brokers,
 		brokerArchiver: archiver,
 		observer: publicFeedProbe,
+		enabledOrderBookProfileIds: CONTROLLED_ORDER_BOOK_PROFILE_IDS,
 	});
 	const server = getServer(
 		PUBLIC_ONLY_POLICY,
@@ -1191,6 +1194,7 @@ export async function runProductionServerArchiveCapture(options: {
 		publicFeedSupervisor = new PublicMarketDataFeedSupervisor({
 			brokers,
 			brokerArchiver: archiver,
+			enabledOrderBookProfileIds: CONTROLLED_ORDER_BOOK_PROFILE_IDS,
 		});
 		server = getServer(
 			PUBLIC_ONLY_POLICY,

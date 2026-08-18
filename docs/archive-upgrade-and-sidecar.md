@@ -68,7 +68,10 @@ client and owns no credentials or ClickHouse connection.
 
 The sidecar does not fabricate or submit Maker strategy rows. Before readiness,
 the manifest publishes the loopback `brokerUrl`, `producerAccessPath`,
-`makerResultPath`, and `referenceExportPath`. The producer-access file is mode
+`makerResultPath`, `referenceExportPath`, and the run-owned
+`cexEvidencePath`. The latter is freshly generated deterministic CEX Proof A
+(`cex-orderbook-coalescing-evidence/v1`) for Binance and MEXC. The
+producer-access file is mode
 0600, contains the ephemeral loopback producer bearer, is consumed only by the
 external Maker job, and is deleted by `down`; its contents never enter retained
 evidence. For native replay, readiness also writes the conflict-checked,
@@ -83,19 +86,26 @@ verification.
   the Layer 12 reference-depth snapshot path through the normal broker action
   surface, submits all five strategy tables through its `ArchiveEmitter` as
   `hb_runtime`, and reports observed HTTP 202 plus eventual spool drainage. Its
-  Maker-authored result must also include
-  `fiet-maker-immediate-hedgeability/v1` evidence for the Binance or MEXC
-  acquisition profile: policy/archive depth alignment, two logical deliveries
-  on one physical worker/archive owner, live-versus-rehydrated and
-  conservative-versus-coalesced L2 band equality, and equal envelope liquidity
-  cap, selected width ticks, and rebalance decision. L3 identity must be
-  reported as unnecessary for this displayed-liquidity cap.
+  Maker-authored result must provide
+  `profileEvidence.immediateHedgeability` as a
+  `fiet-maker-immediate-hedgeability-attachment/v1` descriptor. Its run-owned
+  file is Maker Proof B (`fiet-maker-immediate-hedgeability/v2`) with exactly
+  one Binance and MEXC case, four isolated Layer 12 streams per evaluation,
+  policy/evaluation hashes, and `sourceCexEvidence.sha256` equal to the exact
+  current Proof A file. Maker Proof B owns cap, width, authored position,
+  limiting-side, and rebalance equivalence. It must not copy logical delivery,
+  physical watch/archive, broker payload equality, or canonical archive
+  equality fields.
 
 `verify` reads the Maker-owned result, binds it to the manifest, requires the
-exact producer id `<source>:<deployment>:cex-sidecar-conformance`, checks the
-profile-specific broker and acknowledgement claims, and then queries all market
-and strategy tables. A result created by the CEX supervisor or another producer
-cannot qualify.
+exact producer id `<source>:<deployment>:cex-sidecar-conformance`, resolves the
+Proof B attachment without allowing path traversal or symlink escape,
+recomputes its hash, validates the v2 policy evidence, and binds it to freshly
+recomputed canonical Proof A bytes. It separately derives CEX-local Proof C,
+then queries all market and strategy tables. A stale/synthetic Proof A binding,
+copied CEX-owned field, result created by the CEX supervisor, or another
+producer cannot qualify. Passing Proof A/B/C does not activate a candidate;
+that is reserved for `activate-binance-mexc-coalesced-orderbook-profiles`.
 
 The manifest and verification JSON use a closed field allowlist. They record
 run/profile identity, immutable CEX/Maker commits, the reviewed archive

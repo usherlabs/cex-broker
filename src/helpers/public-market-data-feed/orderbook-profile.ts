@@ -15,6 +15,7 @@ export type OrderBookAcquisitionProfileInput = {
 	exchange: string;
 	requestedDepth: number | undefined;
 	archiveDepth: number;
+	enabledProfileIds?: ReadonlySet<string>;
 };
 
 export function resolveConservativeOrderBookAcquisitionProfile(
@@ -42,12 +43,14 @@ export function resolveOrderBookAcquisitionProfile(
 ): OrderBookAcquisitionProfile {
 	const exchange = input.exchange.trim().toLowerCase();
 	const requiredDepth = Math.max(input.requestedDepth ?? 0, input.archiveDepth);
+	const candidateProfileId = `${exchange}:l2-diff:${VERIFIED_PROFILE_DEPTH}`;
 	if (
 		VERIFIED_COALESCING_EXCHANGES.has(exchange) &&
+		input.enabledProfileIds?.has(candidateProfileId) === true &&
 		requiredDepth <= VERIFIED_PROFILE_DEPTH
 	) {
 		return {
-			id: `${exchange}:l2-diff:${VERIFIED_PROFILE_DEPTH}`,
+			id: candidateProfileId,
 			upstreamLimit: VERIFIED_PROFILE_DEPTH,
 			guaranteedRetainedDepth: VERIFIED_PROFILE_DEPTH,
 			coalescingSupported: true,

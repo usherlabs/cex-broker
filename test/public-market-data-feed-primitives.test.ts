@@ -109,10 +109,12 @@ describe("public feed canonical identity", () => {
 	});
 
 	test("uses acquisition profile rather than raw subscriber depth", () => {
+		const enabledProfileIds = new Set(["binance:l2-diff:500"]);
 		const profile = resolveOrderBookAcquisitionProfile({
 			exchange: "binance",
 			requestedDepth: 25,
 			archiveDepth: 100,
+			enabledProfileIds,
 		});
 		const first = buildPublicFeedKey({
 			exchange: "binance",
@@ -130,6 +132,7 @@ describe("public feed canonical identity", () => {
 				exchange: "binance",
 				requestedDepth: undefined,
 				archiveDepth: 100,
+				enabledProfileIds,
 			}).id,
 		});
 		expect(second).toBe(first);
@@ -140,7 +143,33 @@ describe("ORDERBOOK acquisition profiles", () => {
 	test.each([
 		"binance",
 		"mexc",
-	])("coalesces compatible explicit and omitted %s depths", (exchange) => {
+	])("coalesces compatible explicit and omitted %s depths only when enabled", (exchange) => {
+		const enabledProfileIds = new Set([`${exchange}:l2-diff:500`]);
+		const explicit = resolveOrderBookAcquisitionProfile({
+			exchange,
+			requestedDepth: 100,
+			archiveDepth: 100,
+			enabledProfileIds,
+		});
+		const omitted = resolveOrderBookAcquisitionProfile({
+			exchange,
+			requestedDepth: undefined,
+			archiveDepth: 100,
+			enabledProfileIds,
+		});
+		expect(explicit).toEqual(omitted);
+		expect(explicit).toMatchObject({
+			id: `${exchange}:l2-diff:500`,
+			upstreamLimit: 500,
+			guaranteedRetainedDepth: 500,
+			coalescingSupported: true,
+		});
+	});
+
+	test.each([
+		"binance",
+		"mexc",
+	])("keeps the %s candidate disabled by default", (exchange) => {
 		const explicit = resolveOrderBookAcquisitionProfile({
 			exchange,
 			requestedDepth: 100,
@@ -151,13 +180,39 @@ describe("ORDERBOOK acquisition profiles", () => {
 			requestedDepth: undefined,
 			archiveDepth: 100,
 		});
-		expect(explicit).toEqual(omitted);
+
 		expect(explicit).toMatchObject({
-			id: `${exchange}:l2-diff:500`,
-			upstreamLimit: 500,
-			guaranteedRetainedDepth: 500,
-			coalescingSupported: true,
+			id: `${exchange}:conservative:limit:100`,
+			coalescingSupported: false,
 		});
+		expect(omitted).toMatchObject({
+			id: `${exchange}:conservative:default`,
+			coalescingSupported: false,
+		});
+	});
+
+	test("does not infer candidate activation from evidence environment values", () => {
+		const previous = process.env.CEX_ORDERBOOK_COALESCING_EVIDENCE_PATH;
+		process.env.CEX_ORDERBOOK_COALESCING_EVIDENCE_PATH =
+			"/tmp/cex-orderbook-coalescing-evidence.json";
+		try {
+			expect(
+				resolveOrderBookAcquisitionProfile({
+					exchange: "binance",
+					requestedDepth: 100,
+					archiveDepth: 100,
+				}),
+			).toMatchObject({
+				id: "binance:conservative:limit:100",
+				coalescingSupported: false,
+			});
+		} finally {
+			if (previous === undefined) {
+				delete process.env.CEX_ORDERBOOK_COALESCING_EVIDENCE_PATH;
+			} else {
+				process.env.CEX_ORDERBOOK_COALESCING_EVIDENCE_PATH = previous;
+			}
+		}
 	});
 
 	test("falls back to exact and omitted conservative identities", () => {

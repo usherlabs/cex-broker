@@ -137,6 +137,7 @@ describe("PublicMarketDataFeedSupervisor", () => {
 		const supervisor = new PublicMarketDataFeedSupervisor({
 			brokers: pool(controlled.exchange),
 			archiveSink: archive.sink,
+			enabledOrderBookProfileIds: new Set(["binance:l2-diff:500"]),
 		});
 		const shallow = await supervisor.subscribe({
 			exchange: " Binance ",
