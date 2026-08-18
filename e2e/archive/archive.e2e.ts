@@ -24,6 +24,11 @@ import {
 	runTerminalFailureLifecycle,
 } from "../../test/e2e/archive/support/archive-lifecycle";
 import { ClickHouseLocalHarness } from "../../test/e2e/archive/support/clickhouse-local-harness";
+import {
+	comparableReplayPolicy,
+	runOrderBookClickHouseReplayGate,
+	runOrderBookEquivalenceGate,
+} from "../../test/e2e/archive/support/orderbook-equivalence";
 
 const harnesses: ClickHouseLocalHarness[] = [];
 const endpoints: ArchiveForwarderEndpoint[] = [];
@@ -352,6 +357,64 @@ describe("real four-feed archive lifecycle", () => {
 		expect(result.crossBatchConflictRows).toBe(1);
 		expect(result.crossBatchCanonicalRows).toBe(0);
 	});
+});
+
+describe("ORDERBOOK conservative versus coalesced verification gate", () => {
+	test.each(["binance", "mexc"] as const)(
+		"proves %s logical, archive, and immediate-hedgeability equivalence",
+		async (venue) => {
+			const result = await runOrderBookEquivalenceGate(venue);
+			const canonicalArchive = (snapshots: typeof result.conservative.uniqueArchiveSnapshots) =>
+				snapshots.map(({ bids, asks, timestamp, exchange, symbol }) => ({
+					bids,
+					asks,
+					timestamp,
+					exchange,
+					symbol,
+				}));
+
+			expect(result.conservative.logical).toEqual(result.coalesced.logical);
+			expect(canonicalArchive(result.conservative.uniqueArchiveSnapshots)).toEqual(
+				canonicalArchive(result.coalesced.uniqueArchiveSnapshots),
+			);
+			expect(result.conservative.policy).toEqual(result.coalesced.policy);
+			expect(result.coalesced.policy).toHaveLength(result.minimumFrames);
+			expect(result.coalesced.policy.every(({ covered }) => covered)).toBe(true);
+			expect(
+				result.coalesced.shallowArchivePolicy.every(({ covered }) => !covered),
+			).toBe(true);
+			expect(result.coalesced.observationDurationMs).toBeGreaterThanOrEqual(
+				result.minimumDurationMs,
+			);
+			expect(result.coalesced.physicalWorkers).toBe(1);
+			expect(result.conservative.physicalWorkers).toBe(2);
+			expect(result.coalesced.physicalFrames).toBe(result.minimumFrames);
+			expect(result.conservative.physicalFrames).toBe(
+				result.minimumFrames * 2,
+			);
+			expect(result.coalesced.archiveDecisions).toBe(result.minimumFrames);
+			expect(result.conservative.archiveDecisions).toBe(
+				result.minimumFrames * 2,
+			);
+		},
+	);
+
+	test.each(["binance", "mexc"] as const)(
+		"rehydrates sufficient %s L2 policy inputs from ClickHouse and rejects depth 25",
+		async (venue) => {
+			const result = await runOrderBookClickHouseReplayGate(venue);
+			expect(result.archiveDepth).toBeGreaterThanOrEqual(result.policyDepth);
+			expect(result.rehydrated.map(comparableReplayPolicy)).toEqual(
+				result.live.map(comparableReplayPolicy),
+			);
+			expect(result.rehydrated.every(({ covered }) => covered)).toBe(true);
+			expect(result.shallowArchiveDepth).toBe(25);
+			expect(result.shallowRehydrated).toHaveLength(result.live.length);
+			expect(
+				result.shallowRehydrated.every(({ covered }) => !covered),
+			).toBe(true);
+		},
+	);
 });
 
 describe("archive failure isolation and accounting", () => {

@@ -17,7 +17,14 @@ The service architecture SHALL distinguish long-running services from examples, 
 #### Scenario: Reader inspects ORDERBOOK depth handling
 - **WHEN** a reader compares compatible and incompatible ORDERBOOK requests
 - **THEN** the document MUST show subscriber depth as a projection after venue acquisition-profile resolution rather than a universal physical key rule
-- **AND** it MUST show conservative separate workers for unverified venues and coalesced profiles for verified Binance/MEXC behavior
+- **AND** it MUST show conservative separate workers for absent or inactive candidates, explicitly enabled candidate profiles for controlled Binance/MEXC evidence, and an empty production enabled-profile set pending a later activation change
+
+#### Scenario: Reader inspects cross-repository verification ownership
+- **WHEN** a reader follows the Binance/MEXC coalescing verification gate
+- **THEN** the document MUST assign broker payload/archive equality, band coverage, replay sufficiency, the 25-level negative, reduced physical work, and Proof A publication to CEX Broker
+- **AND** it MUST assign real Layer 12 policy evaluation and hash-bound Proof B production to the separate FIET Maker workstream
+- **AND** it MUST assign broker topology, collector/Maker overlap, durable spool drainage, and ClickHouse delivery to CEX-owned Proof C
+- **AND** it MUST state that production activation is a later CEX change rather than an automatic consequence of any artifact being present
 
 #### Scenario: Reader inspects ClickHouse clients
 - **WHEN** a reader follows archive or research data flows

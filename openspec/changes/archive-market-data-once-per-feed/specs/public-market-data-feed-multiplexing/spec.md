@@ -12,14 +12,32 @@ The broker SHALL identify a public market-data worker by exchange normalized wit
 - **WHEN** subscriptions differ by normalized exchange, resolved symbol, market type, or feed type, ORDERBOOK subscriptions resolve to incompatible acquisition profiles, or OHLCV subscriptions differ by resolved timeframe
 - **THEN** the broker MUST create separate canonical feed workers
 
-#### Scenario: Raw depths map to one physical profile
-- **WHEN** two ORDERBOOK requests have different raw limits but a verified venue resolver maps both to one acquisition profile that covers their requested and archive depths
+#### Scenario: Raw depths map to one enabled physical profile
+- **WHEN** two ORDERBOOK requests have different raw limits but an explicitly enabled venue candidate maps both to one acquisition profile that covers their requested and archive depths
 - **THEN** the raw limits MUST remain subscriber projection metadata and MUST NOT split the worker key
 
-#### Scenario: Unknown venue uses conservative depth identity
-- **WHEN** an ORDERBOOK request targets a venue without a verified coalescing resolver
+#### Scenario: Unknown or inactive venue uses conservative depth identity
+- **WHEN** an ORDERBOOK request targets a venue without a candidate coalescing resolver or whose candidate profile is not explicitly enabled
 - **THEN** the fallback profile MUST include the explicit requested depth or an omitted-depth sentinel
-- **AND** the broker MUST preserve separate physical workers until equivalence is verified for that venue
+- **AND** the broker MUST preserve separate physical workers until a later activation change explicitly enables that venue profile
+
+### Requirement: Candidate acquisition profiles are activated fail-closed
+The Binance and MEXC coalescing resolvers SHALL be available as candidate profiles for controlled evidence compositions, but the production enabled-profile set in this change MUST be empty. Candidate enablement MUST be supplied explicitly to the resolver/supervisor composition and MUST NOT be inferred from venue name, available resolver code, environment artifact paths, or passing evidence files. Production activation SHALL be owned by a separate CEX change that pins accepted CEX Proof A and Maker Proof B hashes.
+
+#### Scenario: Ordinary runtime resolves Binance or MEXC
+- **WHEN** the runtime has no explicit controlled-test enabled-profile override
+- **THEN** Binance and MEXC ORDERBOOK requests MUST resolve through conservative explicit/default profiles
+- **AND** their candidate profile IDs MUST NOT become active merely because their resolver implementation exists
+
+#### Scenario: Controlled verification enables a candidate
+- **WHEN** an E2E or production-compatible sidecar composition explicitly enables `binance:l2-diff:500` or `mexc:l2-diff:500`
+- **THEN** compatible depths MAY share that candidate profile for evidence generation
+- **AND** the override MUST remain scoped to the controlled composition and MUST NOT mutate a process-global or persisted production default
+
+#### Scenario: Evidence passes before activation
+- **WHEN** Proof A, hash-bound Maker Proof B, and CEX-local Proof C all pass
+- **THEN** this change MUST continue using the empty production enabled-profile set
+- **AND** only the later `activate-binance-mexc-coalesced-orderbook-profiles` change MAY pin those evidence hashes and change the production default
 
 ### Requirement: Public feed broker selection has stable precedence
 For a canonical public feed, the broker SHALL use the configured primary exchange instance when available, then a request-credential exchange only when no configured deployment exchange exists, then a credentialless public exchange. Secondary account selection MUST NOT change public feed identity or select a secondary exchange instance.

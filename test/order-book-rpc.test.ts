@@ -625,7 +625,7 @@ describe("order-book RPC compatibility", () => {
 		});
 		expect(typeof payload.receivedTimestamp).toBe("number");
 		expect(Number(response.timestamp)).toBe(payload.receivedTimestamp);
-		expect(calls.watchOrderBook[0]).toEqual(["BTC/USDT", 1]);
+		expect(calls.watchOrderBook[0]).toEqual(["BTC/USDT", 500]);
 	});
 
 	test("resolves explicit NO_ACTION subscription type to ORDERBOOK", async () => {
@@ -654,7 +654,7 @@ describe("order-book RPC compatibility", () => {
 			[201, 3],
 			[202, 4],
 		]);
-		expect(calls.watchOrderBook[0]).toEqual(["BTC/USDT"]);
+		expect(calls.watchOrderBook[0]).toEqual(["BTC/USDT", 500]);
 	});
 
 	test("resolves out-of-range subscription type to ORDERBOOK", async () => {
@@ -679,7 +679,7 @@ describe("order-book RPC compatibility", () => {
 			[200, 1],
 			[199, 2],
 		]);
-		expect(calls.watchOrderBook[0]).toEqual(["BTC/USDT"]);
+		expect(calls.watchOrderBook[0]).toEqual(["BTC/USDT", 500]);
 	});
 
 	test("publishes explicit orderbook stream error when watchOrderBook rejects", async () => {

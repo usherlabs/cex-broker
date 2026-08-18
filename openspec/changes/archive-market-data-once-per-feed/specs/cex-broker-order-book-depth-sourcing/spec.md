@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Live ORDERBOOK stream remains backward compatible
-The broker SHALL preserve existing `Subscribe(ORDERBOOK)` response behavior while allowing enriched order-book metadata for Maker live envelope compatibility. ORDERBOOK is a normalized price-aggregated L2 feed used to measure displayed base quantity that can be immediately sold into bids or bought from asks inside a configured price band; true L3/order-by-order identity and queue position are outside its scope. The broker MUST resolve each subscriber request to a venue-specific physical acquisition profile, share compatible profiles, conservatively isolate unverified profiles, and project each retained base snapshot to the subscriber's requested `depthLimit` or legacy `limit`.
+The broker SHALL preserve existing `Subscribe(ORDERBOOK)` response behavior while allowing enriched order-book metadata for Maker live envelope compatibility. ORDERBOOK is a normalized price-aggregated L2 feed used to measure displayed base quantity that can be immediately sold into bids or bought from asks inside a configured price band; true L3/order-by-order identity and queue position are outside its scope. The broker MUST resolve each subscriber request to a venue-specific physical acquisition profile, share explicitly enabled compatible candidates, conservatively isolate absent or inactive candidates, and project each retained base snapshot to the subscriber's requested `depthLimit` or legacy `limit`.
 
 #### Scenario: L2 levels support immediate hedgeability calculation
 - **WHEN** FIET Maker evaluates immediate sell capacity inside band B
@@ -29,20 +29,25 @@ The broker SHALL preserve existing `Subscribe(ORDERBOOK)` response behavior whil
 - **AND** the explicit-depth response MUST contain at most N bids and N asks while the omitted-depth response MUST retain every level present in the profile snapshot
 - **AND** the explicit response MUST report `depthLimit: N` while the omitted response MUST report the actual retained snapshot depth
 
-#### Scenario: Binance depths resolve to a coalesced profile
-- **WHEN** Binance ORDERBOOK subscribers request depths that one verified public L2 acquisition profile can satisfy, including the configured archive depth
+#### Scenario: Enabled Binance candidate depths resolve to a coalesced profile
+- **WHEN** a controlled composition explicitly enables the Binance candidate and ORDERBOOK subscribers request depths that its public L2 acquisition profile can satisfy, including the configured archive depth
 - **THEN** the Binance resolver MUST map them to the same stable profile and MUST NOT pass their arbitrary raw projection limits as distinct physical channel identities
 - **AND** one retained base snapshot MUST serve their independent top-N projections
 
-#### Scenario: MEXC depths resolve to a coalesced profile
-- **WHEN** MEXC ORDERBOOK subscribers request depths that one verified public L2 acquisition profile can satisfy, including the configured archive depth
+#### Scenario: Enabled MEXC candidate depths resolve to a coalesced profile
+- **WHEN** a controlled composition explicitly enables the MEXC candidate and ORDERBOOK subscribers request depths that its public L2 acquisition profile can satisfy, including the configured archive depth
 - **THEN** the MEXC resolver MUST map them to the same stable profile and MUST NOT create depth-specific physical workers for limits that do not select distinct MEXC watch channels
 - **AND** one retained base snapshot MUST serve their independent top-N projections
 
-#### Scenario: Venue has no verified coalescing resolver
-- **WHEN** an ORDERBOOK request targets a venue without a verified acquisition-profile resolver
+#### Scenario: Venue candidate is absent or inactive
+- **WHEN** an ORDERBOOK request targets a venue without a candidate resolver or whose candidate is not in the explicitly supplied enabled-profile set
 - **THEN** an explicit requested depth and an omitted-depth request MUST resolve to conservative distinct profile identities and preserve the existing upstream limit/default call behavior
 - **AND** the broker MUST NOT claim that those requests share an equivalent physical feed
+
+#### Scenario: Production candidate set is empty
+- **WHEN** the broker runtime uses this change's ordinary production configuration without a test or controlled-sidecar candidate override
+- **THEN** the enabled-profile set MUST be empty and Binance and MEXC requests MUST use conservative depth identities
+- **AND** passing or locating an evidence artifact at runtime MUST NOT implicitly enable a candidate
 
 #### Scenario: Existing profile cannot satisfy a later deeper request
 - **WHEN** a later subscriber requires more retained depth than an active acquisition profile guarantees
@@ -57,7 +62,7 @@ The broker SHALL preserve existing `Subscribe(ORDERBOOK)` response behavior whil
 #### Scenario: Retained levels stop inside a required band
 - **WHEN** the farthest retained bid or ask remains inside a required band and the provider does not prove exhaustion
 - **THEN** the calculated displayed depth MUST be classified as an incomplete conservative lower bound
-- **AND** the Binance/MEXC exact policy-equivalence gate MUST fail with band, side, boundary price, farthest retained price, and retained level count diagnostics
+- **AND** CEX Proof A replay sufficiency MUST fail with band, side, boundary price, farthest retained price, and retained level count diagnostics before any exact Maker-policy claim is consumed
 
 #### Scenario: Legacy limit alias is supplied
 - **WHEN** a client supplies legacy `limit = N` instead of `depthLimit`

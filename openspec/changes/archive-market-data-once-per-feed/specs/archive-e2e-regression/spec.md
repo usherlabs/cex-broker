@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: All four public feeds traverse the complete integrated archive lifecycle
-The archive E2E suite SHALL drive deterministic ORDERBOOK, TICKER, TRADES, and OHLCV frames through a controlled fake `Exchange`, the normal broker gRPC server and Subscribe handler, the production multi-feed gRPC Subscribe client implemented by `MarketDataCollector`, the production archive writer and `node:http` transport, the production HTTP forwarder handler and router, and the ClickHouse Local adapter. It SHALL overlap independent logical clients with collector feeds to prove broker-owned physical sharing and single archive ownership. It SHALL also compare conservative depth-isolated and Binance/MEXC profile-coalesced collection over the same bounded deterministic observation window as a required verification gate for logical payloads, L2 immediate-hedgeability bands, archive replay inputs, and downstream FIET Maker position-policy outcomes. `OhlcvCollector` MUST remain a compatibility value alias rather than the canonical E2E type. A research watcher, fake gRPC service, arbitrary sleep-only comparison, or path bypassing the production HTTP handler SHALL NOT satisfy this requirement.
+The archive E2E suite SHALL drive deterministic ORDERBOOK, TICKER, TRADES, and OHLCV frames through a controlled fake `Exchange`, the normal broker gRPC server and Subscribe handler, the production multi-feed gRPC Subscribe client implemented by `MarketDataCollector`, the production archive writer and `node:http` transport, the production HTTP forwarder handler and router, and the ClickHouse Local adapter. It SHALL overlap independent logical clients with collector feeds to prove broker-owned physical sharing and single archive ownership. It SHALL also compare conservative depth-isolated and explicitly candidate-enabled Binance/MEXC profile-coalesced collection over the same bounded deterministic observation window and publish CEX-owned Proof A for logical payloads, L2 immediate-hedgeability input coverage, archive replay inputs, and reduced physical work. It MUST NOT implement or invoke FIET Maker policy logic. `OhlcvCollector` MUST remain a compatibility value alias rather than the canonical E2E type. A research watcher, fake gRPC service, arbitrary sleep-only comparison, or path bypassing the production HTTP handler SHALL NOT satisfy this requirement.
 
 #### Scenario: Deterministic archive configuration is provisioned
 - **WHEN** the lifecycle harness prepares to start before releasing any fake-exchange frame
@@ -36,6 +36,11 @@ The archive E2E suite SHALL drive deterministic ORDERBOOK, TICKER, TRADES, and O
 - **AND** it MUST compare canonicalized unique archive rows after removing deployment/run identity and MUST find the same market-data outcomes
 - **AND** it MUST separately prove that the coalesced composition used fewer physical watch iterations and archive offers without producing an additional canonical event
 
+#### Scenario: Policy-visible tape exercises depth changes
+- **WHEN** Proof A runs the conservative and candidate compositions for either venue
+- **THEN** the common ordered tape MUST contain at least five observations at policy-visible depth 100 with material bid and ask quantity changes while preserving required price-band coverage
+- **AND** a tape that only shifts prices while leaving depth quantities constant MUST NOT satisfy the cross-repository verification input contract
+
 #### Scenario: Acquisition profiles cover every Maker measurement band
 - **WHEN** the comparison configures Maker policy depth P and candidate bands including the immediate sell-into-bids and buy-from-asks band used to cap DEX liquidity
 - **THEN** every conservative and coalesced snapshot MUST prove bid and ask coverage through each band boundary or explicit visible-book exhaustion
@@ -48,20 +53,24 @@ The archive E2E suite SHALL drive deterministic ORDERBOOK, TICKER, TRADES, and O
 - **AND** rehydrated mid price, per-band bid and ask displayed depth, limiting side, and coverage verdict MUST equal the corresponding live snapshot inputs
 - **AND** a negative fixture using the ordinary 25-level archive cap against a policy requiring deeper evidence MUST fail replay sufficiency rather than pass by row presence alone
 
-#### Scenario: Downstream Maker policy outcomes remain equivalent
-- **WHEN** live reference snapshots and independently rehydrated conservative/coalesced archive inputs from the same event tapes are evaluated through FIET Maker's shared position-policy and hedge-envelope implementation
-- **THEN** both models MUST produce identical selected band depths, limiting side, envelope liquidity cap, selected width ticks, and rebalance decision at every policy evaluation barrier
-- **AND** live-versus-rehydrated results MUST also agree within each composition
-- **AND** the gate MUST fail when payload/archive equality masks any downstream policy-output difference
+#### Scenario: CEX Proof A is published deterministically
+- **WHEN** the Binance and MEXC CEX comparisons complete
+- **THEN** the gate MUST publish one UTF-8 JSON evidence file whose top level contains `schemaVersion: cex-orderbook-coalescing-evidence/v1`, `policyDepth: 100`, `archiveDepth`, `bandsBps`, and ordered `cases[]`
+- **AND** `cases[]` MUST contain exactly one Binance and one MEXC item with `venue`, `profileId: <venue>:l2-diff:500`, ordered `observations[]`, `cexVerdicts`, and `insufficientReplayCase`
+- **AND** observations MUST contain conservative/coalesced live and rehydrated policy-visible snapshots, coverage/exhaustion evidence, and snapshot hashes; `cexVerdicts` MUST cover logical payload equality, canonical archive equality, live/replay input equality, band coverage, and reduced physical work; and `insufficientReplayCase` MUST carry the separate 25-level diagnostics
+- **AND** the existing `canonicalSerialize` representation followed by exactly one LF byte MUST define the whole-file SHA-256 bytes; the evidence MUST omit a self-hash and nondeterministic path, host, deployment, run, and wall-clock metadata
+- **AND** CEX Broker MUST export policy-visible input facts only and MUST NOT calculate Maker envelope caps, authored positions, widths, or rebalance decisions
 
 #### Scenario: Binance resolver passes the equivalence gate
 - **WHEN** the candidate composition enables the Binance acquisition-profile resolver for compatible explicit and omitted depths
-- **THEN** the collector comparison MUST satisfy logical/archive equality, Maker band coverage, archive replay sufficiency, and downstream policy equivalence before Binance coalescing is enabled by default
+- **THEN** the collector comparison MUST satisfy logical/archive equality, band coverage, archive replay sufficiency, and reduced physical work in the Binance Proof A case
+- **AND** passing this CEX-owned case MUST NOT enable Binance coalescing by default in this change
 - **AND** the gate MUST fail on a missing, reordered, changed, or additional logical/canonical market event
 
 #### Scenario: MEXC resolver passes the equivalence gate
 - **WHEN** the candidate composition enables the MEXC acquisition-profile resolver for compatible explicit and omitted depths
-- **THEN** the collector comparison MUST satisfy logical/archive equality, Maker band coverage, archive replay sufficiency, and downstream policy equivalence before MEXC coalescing is enabled by default
+- **THEN** the collector comparison MUST satisfy logical/archive equality, band coverage, archive replay sufficiency, and reduced physical work in the MEXC Proof A case
+- **AND** passing this CEX-owned case MUST NOT enable MEXC coalescing by default in this change
 - **AND** the gate MUST fail on a missing, reordered, changed, or additional logical/canonical market event
 
 #### Scenario: Core broker has no archive configuration

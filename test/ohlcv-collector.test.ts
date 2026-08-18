@@ -98,6 +98,47 @@ class CapturingMetrics {
 }
 
 describe("market-data collector supervision", () => {
+	test("exposes accepted logical frames to the equivalence observer in order", async () => {
+		const payloads = [
+			JSON.stringify({ sequence: 1 }),
+			JSON.stringify({ sequence: 2 }),
+		];
+		const { server, port } = await startSubscribeServer((call) => {
+			for (const data of payloads) {
+				call.write({
+					data,
+					timestamp: Date.now(),
+					symbol: call.request.symbol,
+					type: call.request.type,
+				});
+			}
+		});
+		const observed: string[] = [];
+		const abort = new AbortController();
+		const collector = new MarketDataCollector({
+			brokerUrl: `127.0.0.1:${port}`,
+			subscriptions: [
+				{
+					exchange: "binance",
+					symbol: "BTC/USDT",
+					feed: "ORDERBOOK",
+					depthLimit: 25,
+				},
+			],
+			onFrame: (_subscription, response) => observed.push(response.data),
+		});
+		const runPromise = collector.run(abort.signal);
+
+		try {
+			await waitFor(() => observed.length === 2);
+			expect(observed).toEqual(payloads);
+		} finally {
+			abort.abort();
+			await runPromise;
+			server.forceShutdown();
+		}
+	});
+
 	test("opens independent supervisors for all four market feeds", async () => {
 		const requests: SubscribeRequest[] = [];
 		const { server, port } = await startSubscribeServer((call) => {

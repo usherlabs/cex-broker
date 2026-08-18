@@ -82,7 +82,14 @@ verification.
   an external gRPC ORDERBOOK subscription distinct from the collector, invokes
   the Layer 12 reference-depth snapshot path through the normal broker action
   surface, submits all five strategy tables through its `ArchiveEmitter` as
-  `hb_runtime`, and reports observed HTTP 202 plus eventual spool drainage.
+  `hb_runtime`, and reports observed HTTP 202 plus eventual spool drainage. Its
+  Maker-authored result must also include
+  `fiet-maker-immediate-hedgeability/v1` evidence for the Binance or MEXC
+  acquisition profile: policy/archive depth alignment, two logical deliveries
+  on one physical worker/archive owner, live-versus-rehydrated and
+  conservative-versus-coalesced L2 band equality, and equal envelope liquidity
+  cap, selected width ticks, and rebalance decision. L3 identity must be
+  reported as unnecessary for this displayed-liquidity cap.
 
 `verify` reads the Maker-owned result, binds it to the manifest, requires the
 exact producer id `<source>:<deployment>:cex-sidecar-conformance`, checks the

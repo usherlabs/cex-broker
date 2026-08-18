@@ -105,6 +105,9 @@ type SidecarState = {
 		collectorSubscriptionCalls: Record<string, number>;
 		totalSubscriptionCalls: Record<string, number>;
 		externalSubscriptionCalls: Record<string, number>;
+		physicalWorkers: Record<string, number>;
+		physicalFrames: Record<string, number>;
+		archiveDecisions: Record<string, number>;
 		orderBookSnapshotCalls: number;
 	};
 	referenceExport?: Record<string, unknown>;
@@ -555,6 +558,53 @@ export function validateMakerSidecarResult(value: unknown): MakerSidecarResult {
 				"Production-compatible evidence lacks the real Layer12 broker path",
 			);
 		}
+		const immediate = profileEvidence.immediateHedgeability as
+			| Record<string, unknown>
+			| undefined;
+		const venue = immediate?.venue;
+		const shared = immediate?.sharedObservation as
+			| Record<string, unknown>
+			| undefined;
+		const liveReplay = immediate?.liveVsRehydrated as
+			| Record<string, unknown>
+			| undefined;
+		const compositions = immediate?.conservativeVsCoalesced as
+			| Record<string, unknown>
+			| undefined;
+		const positionPolicy = immediate?.positionPolicy as
+			| Record<string, unknown>
+			| undefined;
+		const bands = immediate?.bandsBps;
+		if (
+			immediate?.schemaVersion !== "fiet-maker-immediate-hedgeability/v1" ||
+			immediate.status !== "passed" ||
+			(venue !== "binance" && venue !== "mexc") ||
+			immediate.profileId !== `${String(venue)}:l2-diff:500` ||
+			!Number.isSafeInteger(immediate.policyDepth) ||
+			Number(immediate.policyDepth) < 1 ||
+			!Number.isSafeInteger(immediate.archiveDepth) ||
+			Number(immediate.archiveDepth) < Number(immediate.policyDepth) ||
+			!Array.isArray(bands) ||
+			bands.length === 0 ||
+			bands.some((band) => !Number.isFinite(band) || Number(band) <= 0) ||
+			immediate.l3Required !== false ||
+			shared?.logicalDeliveries !== 2 ||
+			shared.physicalWatches !== 1 ||
+			shared.archiveDecisions !== 1 ||
+			liveReplay?.midEqual !== true ||
+			liveReplay.bandDepthsEqual !== true ||
+			liveReplay.limitingSideEqual !== true ||
+			compositions?.logicalPayloadsEqual !== true ||
+			compositions.canonicalArchiveEqual !== true ||
+			compositions.bandDepthsEqual !== true ||
+			positionPolicy?.envelopeLiquidityCapEqual !== true ||
+			positionPolicy.selectedWidthTicksEqual !== true ||
+			positionPolicy.rebalanceDecisionEqual !== true
+		) {
+			throw new SidecarUsageError(
+				"Production-compatible evidence lacks shared L2 immediate-hedgeability equivalence",
+			);
+		}
 	} else {
 		const consumer = profileEvidence.consumer as
 			| Record<string, unknown>
@@ -953,7 +1003,8 @@ async function verify(
 					Number(
 						state.brokerObservations?.externalSubscriptionCalls.ORDERBOOK ?? 0,
 					) >= 1 &&
-					Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) >= 1
+					Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) >= 1 &&
+					Number(state.brokerObservations?.archiveDecisions.ORDERBOOK ?? 0) >= 1
 				) {
 					break;
 				}
@@ -963,10 +1014,17 @@ async function verify(
 				Number(
 					state.brokerObservations?.externalSubscriptionCalls.ORDERBOOK ?? 0,
 				) < 1 ||
-				Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) < 1
+				Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) < 1 ||
+				Number(
+					state.brokerObservations?.totalSubscriptionCalls.ORDERBOOK ?? 0,
+				) < 2 ||
+				Number(state.brokerObservations?.physicalWorkers.ORDERBOOK ?? 0) !==
+					1 ||
+				Number(state.brokerObservations?.physicalFrames.ORDERBOOK ?? 0) !==
+					Number(state.brokerObservations?.archiveDecisions.ORDERBOOK ?? -1)
 			) {
 				throw new Error(
-					"Production-compatible Maker Layer12 broker observations were not recorded",
+					"Production-compatible Maker Layer12 shared-feed observations were not recorded",
 				);
 			}
 		}

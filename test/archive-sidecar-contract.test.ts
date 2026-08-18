@@ -21,6 +21,36 @@ const makerCheckout = {
 		"784f647e048052a6c3382309b1a86abfbe08bc162363ead9fc88eaa1ba3d50c9",
 	wireContractTests: { exitCode: 0 },
 };
+const immediateHedgeability = {
+	schemaVersion: "fiet-maker-immediate-hedgeability/v1",
+	status: "passed",
+	venue: "binance",
+	profileId: "binance:l2-diff:500",
+	policyDepth: 100,
+	archiveDepth: 100,
+	bandsBps: [50],
+	l3Required: false,
+	sharedObservation: {
+		logicalDeliveries: 2,
+		physicalWatches: 1,
+		archiveDecisions: 1,
+	},
+	liveVsRehydrated: {
+		midEqual: true,
+		bandDepthsEqual: true,
+		limitingSideEqual: true,
+	},
+	conservativeVsCoalesced: {
+		logicalPayloadsEqual: true,
+		canonicalArchiveEqual: true,
+		bandDepthsEqual: true,
+	},
+	positionPolicy: {
+		envelopeLiquidityCapEqual: true,
+		selectedWidthTicksEqual: true,
+		rebalanceDecisionEqual: true,
+	},
+};
 
 describe("archive sidecar command contract", () => {
 	test("parses the closed non-interactive operation and flag surface", () => {
@@ -203,6 +233,7 @@ describe("archive sidecar command contract", () => {
 			profileEvidence: {
 				brokerBoundaryObserved: true,
 				makerCheckout,
+				immediateHedgeability,
 				brokerObservation: {
 					schemaVersion: "fiet-hummingbot-external-sidecar-broker/v1",
 					status: "passed",
@@ -213,6 +244,15 @@ describe("archive sidecar command contract", () => {
 			artifactHashes: {},
 		};
 		expect(() => validateMakerSidecarResult(result)).not.toThrow();
+		expect(() =>
+			validateMakerSidecarResult({
+				...result,
+				profileEvidence: {
+					...result.profileEvidence,
+					immediateHedgeability: undefined,
+				},
+			}),
+		).toThrow(SidecarUsageError);
 		expect(() =>
 			validateMakerSidecarResult({
 				...result,

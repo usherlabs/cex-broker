@@ -164,16 +164,18 @@ async function expectBackpressureWaitsForDrain({
 	controlledWatch.resolvers[0]?.(firstValue);
 	await waitFor(() => state.writes.length === 1);
 
-	await nextTick();
-	expect(controlledWatch.calls).toHaveLength(1);
+	await waitFor(() => controlledWatch.calls.length === 2);
+	controlledWatch.resolvers[1]?.(secondValue);
+	await waitFor(() => controlledWatch.calls.length === 3);
+	expect(state.writes).toHaveLength(1);
 
 	call.emit("drain");
-	await waitFor(() => controlledWatch.calls.length === 2);
+	await waitFor(() => state.writes.length === 2);
 	cancelSubscribeCall(call);
-	controlledWatch.resolvers[1]?.(secondValue);
+	controlledWatch.resolvers[2]?.(secondValue);
 	await handlerPromise;
 
-	expect(state.writes).toHaveLength(1);
+	expect(state.writes).toHaveLength(2);
 }
 
 function createPool(
@@ -283,7 +285,7 @@ describe("subscribe handler", () => {
 		method: "watchOrderBook" | "watchTrades";
 		firstValue: unknown;
 		secondValue: unknown;
-	}>)("waits for drain before consuming another $method event after write backpressure", async ({
+	}>)("keeps the shared $method watch moving while one RPC waits for drain", async ({
 		type,
 		method,
 		firstValue,
