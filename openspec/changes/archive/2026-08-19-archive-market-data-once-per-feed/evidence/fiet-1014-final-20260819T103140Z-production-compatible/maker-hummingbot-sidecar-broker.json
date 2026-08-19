@@ -1,0 +1,21 @@
+{
+  "askLevels": 2,
+  "bidLevels": 2,
+  "boundary": "external_sidecar_broker",
+  "brokerUrl": "127.0.0.1:44201",
+  "connector": "fiet_cex",
+  "dataSourceClass": "FietCexOrderBookDataSource",
+  "exchange": "binance",
+  "layer12BestAsk": "40001.25",
+  "layer12BestBid": "40000.125",
+  "layer12Boundary": "layer12_live_reference_depth",
+  "layer12ControllerClass": "Layer12LiveController",
+  "layer12ControllerId": "layer12-live-production-example",
+  "layer12DepthBandsBps": [
+    10,
+    50
+  ],
+  "schemaVersion": "fiet-hummingbot-external-sidecar-broker/v1",
+  "status": "passed",
+  "tradingPair": "BTC-USDT"
+}

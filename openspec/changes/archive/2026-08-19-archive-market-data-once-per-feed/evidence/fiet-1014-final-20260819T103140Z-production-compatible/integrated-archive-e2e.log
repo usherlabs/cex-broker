@@ -1,0 +1,567 @@
+$ bun test --max-concurrency 1 --timeout 120000 ./e2e/archive/archive.e2e.ts
+bun test v1.3.12 (700fc117)
+
+e2e/archive/archive.e2e.ts:
+(pass) ClickHouse Local archive E2E runtime > removed archive and credential configuration remains absent [109.00ms]
+(pass) ClickHouse Local archive E2E runtime > executes production schema in unique persistent serialized paths and cleans up [15572.13ms]
+(pass) ClickHouse Local archive E2E runtime > archives and queries exact baseline projections for every pre-canonical table [10697.09ms]
+Rejected 1/1 archive row(s) from broker_read; tables: market_data.candles
+(pass) ClickHouse Local archive E2E runtime > rejects source disagreement and unsupported baseline inventory before insertion [3748.03ms]
+(pass) ClickHouse Local archive E2E runtime > distinct broker execution batch tokens preserve byte-identical deliveries [3601.03ms]
+Archive insert failed for strategy_data.policy_evaluation_events: 235 | 			),
+236 | 		).toEqual([{ count: 1 }]);
+237 | 
+238 | 		const failing = await startArchiveForwarderEndpoint({
+239 | 			inserter: async () => {
+240 | 				throw new Error("scripted replay insertion failure");
+                    ^
+error: scripted replay insertion failure
+      at inserter (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/e2e/archive/archive.e2e.ts:240:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Failed 1 archive row(s) from maker_replay: strategy_data.policy_evaluation_events
+(pass) ClickHouse Local archive E2E runtime > maker_replay inserts synchronously and leaves the runtime spool unchanged [3713.03ms]
+(pass) ClickHouse Local archive E2E runtime > runtime spool survives restart and retries only the failed table [5070.04ms]
+[37m2026-08-19 10:30:26.927[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Broker execution archive enabled {
+  enabled: [33mtrue[39m,
+  source: [32m'broker_read'[39m,
+  otel_mirror_enabled: [33mfalse[39m
+} {}
+[37m2026-08-19 10:30:26.950[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:26.954[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'TICKER'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:26.955[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'TRADES'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:26.955[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'OHLCV'[39m,
+  timeframe: [32m'1m'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:26.982[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:26.984[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m3[39m
+} {}
+[37m2026-08-19 10:30:26.984[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m2[39m
+} {}
+[37m2026-08-19 10:30:26.993[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m4[39m
+} {}
+(pass) real four-feed archive lifecycle > broker_read canonical-only writer verifies provenance, checksums, and views [10468.09ms]
+Rejected 2/3 archive row(s) from broker_read; tables: market_data.cex_order_book_levels
+Rejected 2/3 archive row(s) from broker_read; tables: market_data.cex_order_book_depth_summary
+(pass) real four-feed archive lifecycle > order-book duplicate and conflict behavior remains physically auditable [8026.07ms]
+[37m2026-08-19 10:30:41.421[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:41.433[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:41.435[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:41.461[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:41.469[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:41.470[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:46.053[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:46.059[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:46.059[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:46.075[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:46.081[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:46.081[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+(pass) ORDERBOOK conservative versus coalesced verification gate > publishes deterministic Binance and MEXC CEX Proof A [9136.08ms]
+[37m2026-08-19 10:30:50.552[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.562[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.563[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.572[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.582[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.583[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+(pass) ORDERBOOK conservative versus coalesced verification gate > proves binance logical, archive, and immediate-hedgeability equivalence [41.00ms]
+[37m2026-08-19 10:30:50.590[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.600[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.601[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.609[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.619[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:30:50.619[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'mexc'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+(pass) ORDERBOOK conservative versus coalesced verification gate > proves mexc logical, archive, and immediate-hedgeability equivalence [36.00ms]
+(pass) ORDERBOOK conservative versus coalesced verification gate > rehydrates sufficient binance L2 policy inputs from ClickHouse and rejects depth 25 [4777.04ms]
+(pass) ORDERBOOK conservative versus coalesced verification gate > rehydrates sufficient mexc L2 policy inputs from ClickHouse and rejects depth 25 [4492.04ms]
+[37m2026-08-19 10:31:03.213[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Broker execution archive enabled {
+  enabled: [33mtrue[39m,
+  source: [32m'broker_read'[39m,
+  otel_mirror_enabled: [33mfalse[39m
+} {}
+[37m2026-08-19 10:31:03.216[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:03.217[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'TICKER'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:03.217[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'TRADES'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:03.218[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'OHLCV'[39m,
+  timeframe: [32m'1m'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:03.223[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:31:03.224[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m3[39m
+} {}
+[37m2026-08-19 10:31:03.224[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m2[39m
+} {}
+[37m2026-08-19 10:31:03.227[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m4[39m
+} {}
+(pass) archive failure isolation and accounting > a blocked sink does not block later collector frames or close streams [19521.17ms]
+[37m2026-08-19 10:31:22.709[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Broker execution archive enabled {
+  enabled: [33mtrue[39m,
+  source: [32m'broker_read'[39m,
+  otel_mirror_enabled: [33mfalse[39m
+} {}
+[37m2026-08-19 10:31:22.713[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:22.714[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'TICKER'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:22.714[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'TRADES'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:22.715[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'OHLCV'[39m,
+  timeframe: [32m'1m'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:22.721[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:31:22.722[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m3[39m
+} {}
+[37m2026-08-19 10:31:22.722[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m2[39m
+} {}
+[37m2026-08-19 10:31:22.724[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m4[39m
+} {}
+Archive insert failed for market_data.cex_stream_events: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 1
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_order_book_levels: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 2
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_order_book_depth_summary: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 3
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_ohlcv: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 4
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_ticker_events: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 5
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_trades: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 6
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Failed 18 archive row(s) from broker_read: market_data.cex_stream_events, market_data.cex_order_book_levels, market_data.cex_order_book_depth_summary, market_data.cex_ohlcv, market_data.cex_ticker_events, market_data.cex_trades
+[37m2026-08-19 10:31:22.737[39m[0m[0m	[33m[1mWARN[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Broker execution archive forwarder failed {
+  error: Error: Archive forwarder returned 500 Internal Server Error
+      at onResponseEnd [90m(/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/[39msrc/helpers/broker-execution-archive/writer.ts:945:11[90m)[39m
+  [90m    at emit (node:events:92:22)[39m
+      at endReadableNT (internal:streams/readable:865:50)
+      at processTicksAndRejections (native:7:39)
+} {}
+(pass) archive failure isolation and accounting > a recoverable forwarder failure retries and stores every emitted row [9234.08ms]
+[37m2026-08-19 10:31:31.790[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Broker execution archive enabled {
+  enabled: [33mtrue[39m,
+  source: [32m'broker_read'[39m,
+  otel_mirror_enabled: [33mfalse[39m
+} {}
+[37m2026-08-19 10:31:31.793[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'ORDERBOOK'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:31.793[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'TICKER'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:31.793[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'TRADES'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:31.793[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Market-data collector subscription opened {
+  exchange: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  feed: [32m'OHLCV'[39m,
+  timeframe: [32m'1m'[39m,
+  subscription_attempt: [33m1[39m
+} {}
+[37m2026-08-19 10:31:31.797[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m1[39m
+} {}
+[37m2026-08-19 10:31:31.798[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m3[39m
+} {}
+[37m2026-08-19 10:31:31.798[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m2[39m
+} {}
+[37m2026-08-19 10:31:31.799[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Request - Subscribe: {
+  cex: [32m'binance'[39m,
+  symbol: [32m'BTC/USDT'[39m,
+  type: [33m4[39m
+} {}
+Archive insert failed for market_data.cex_stream_events: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 1
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_order_book_levels: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 2
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_order_book_depth_summary: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 3
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_ohlcv: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 4
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_ticker_events: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 5
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Archive insert failed for market_data.cex_trades: 34 | 	return {
+35 | 		inserter: async (table, rows) => {
+36 | 			attempts += 1;
+37 | 			requestStarted.resolve();
+38 | 			if (attempts <= failuresBeforeSuccess) {
+39 | 				throw new Error(
+                   ^
+error: scripted ClickHouse Local insertion failure 6
+      at <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/controlled-inserter.ts:39:15)
+      at insertArchiveRows (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/insert.ts:60:10)
+      at async handleArchiveBatch (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/router.ts:210:23)
+      at async handleArchiveRequest (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/services/archive-forwarder/request.ts:221:24)
+      at async <anonymous> (/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/test/e2e/archive/support/archive-forwarder-endpoint.ts:65:28)
+
+Failed 18 archive row(s) from broker_read: market_data.cex_stream_events, market_data.cex_order_book_levels, market_data.cex_order_book_depth_summary, market_data.cex_ohlcv, market_data.cex_ticker_events, market_data.cex_trades
+[37m2026-08-19 10:31:31.814[39m[0m[0m	[33m[1mWARN[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Broker execution archive forwarder failed {
+  error: Error: Archive forwarder returned 500 Internal Server Error
+      at onResponseEnd [90m(/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/[39msrc/helpers/broker-execution-archive/writer.ts:945:11[90m)[39m
+  [90m    at emit (node:events:92:22)[39m
+      at endReadableNT (internal:streams/readable:865:50)
+      at processTicksAndRejections (native:7:39)
+} {}
+(pass) archive failure isolation and accounting > persistent failure journals each undelivered row exactly once [4198.04ms]
+[37m2026-08-19 10:31:32.853[39m[0m[0m	[34m[1mINFO[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Broker execution archive enabled {
+  enabled: [33mtrue[39m,
+  source: [32m'broker_read'[39m,
+  otel_mirror_enabled: [33mfalse[39m
+} {}
+[37m2026-08-19 10:31:32.862[39m[0m[0m	[33m[1mWARN[22m[39m[0m[0m	[37m/node_modules/loglayer/dist/index.js:935[39m[0m[0m[1m[37m[39m[22m[0m[0m	Archive queue full: shedding oldest rows {
+  shed_total: [33m1[39m,
+  queue_max: [33m1[39m,
+  table: [32m'market_data.cex_trades'[39m
+} {}
+(pass) archive failure isolation and accounting > queue shedding records the exact oldest payload with the closed loss shape [20.00ms]
+
+ 18 pass
+ 0 fail
+ 120 expect() calls
+Ran 18 tests across 1 file. [113.24s]
