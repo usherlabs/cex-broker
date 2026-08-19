@@ -30,20 +30,24 @@ export type CanonicalOrderBookRows = {
 
 function parseSequence(
 	value: NormalizedOrderBookSnapshot["sequence"],
-): number | undefined {
+): number | string | undefined {
 	if (value === undefined) return undefined;
-	const parsed =
-		typeof value === "number"
-			? value
-			: typeof value === "string" && /^\d+$/.test(value)
-				? Number(value)
-				: Number.NaN;
-	if (!Number.isSafeInteger(parsed) || parsed < 0) {
+	if (typeof value === "number") {
+		if (Number.isSafeInteger(value) && value >= 0) return value;
 		throw new OrderBookValidationError(
 			"sequence must be a non-negative integer",
 		);
 	}
-	return parsed;
+	if (typeof value !== "string" || !/^\d+$/.test(value)) {
+		throw new OrderBookValidationError(
+			"sequence must be a non-negative integer",
+		);
+	}
+	const parsed = BigInt(value);
+	if (parsed > 18_446_744_073_709_551_615n) {
+		throw new OrderBookValidationError("sequence exceeds UInt64");
+	}
+	return parsed.toString(10);
 }
 
 function validateSide(
@@ -112,7 +116,7 @@ function commonEvidenceFields(
 	rawCapture: RawCapture,
 	input: {
 		snapshotId: string;
-		sequence?: number;
+		sequence?: number | string;
 		depthLimit: number;
 		eventTimeMs: number;
 		receivedTimeMs: number;

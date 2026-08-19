@@ -21,6 +21,8 @@ The full broker is the only repository service that owns CEX connections and CEX
 
 The archive-forwarder centralizes trusted ClickHouse writes behind HTTP. It is not a universal ClickHouse proxy: viewers, replay materializers, validators, and externally owned metrics consumers may read ClickHouse directly.
 
+The market-data vendor backfill package is a bounded worker library, not a daemon or broker RPC. An authorized caller invokes it for one closed scope/window. It may read qualified and candidate ClickHouse views, fetch an explicitly enabled historical-vendor profile, and submit deterministic candidate and promotion batches to the archive-forwarder. It never starts the broker, owns a live CEX subscription, or writes ClickHouse directly.
+
 ## Repository-owned services
 
 ### Full CEX Broker
@@ -76,6 +78,8 @@ ORDERBOOK physical identity is venue-resolved. Binance and MEXC have candidate d
 The following repository components are not production services:
 
 - `examples/archive-watch-subscribe.ts` is an interactive/local subscription example, not the managed continuous collector.
+- `@usherlabs/cex-broker/market-data-vendor-backfill` is a server-independent bounded worker package. CEX Broker owns its request/result contracts, provider profiles, canonicalization, semantic promotion, archive reader, and deterministic producer retry. The archive-forwarder remains the only ClickHouse writer; its live-strategy SQLite spool is not reused by this bounded producer.
+- `scripts/market-data-vendor-backfill-conformance.ts` is an explicit opt-in licensed-provider probe. It enables one pinned profile for one bounded object and emits only object identities, counts, and hashes; it does not retain decoded provider rows or credentials.
 - `scripts/migrate-legacy-market-data-to-canonical.ts`, replay validators, and Parquet exporters are bounded operator tools that access ClickHouse directly.
 - `scripts/archive-upgrade-acceptance.ts` is the one-time Server 24.8 A/B acceptance harness for the canonical upgrade. It creates isolated A and B databases from the committed `develop` fixture, leaves A immutable, upgrades B with the production schema/migration path, and is not a recurring CI service.
 - `scripts/archive-sidecar.ts` and its supervisor form a bounded cross-repository test composition. They assemble Server 24.8, the production archive-forwarder, a normal deterministic gRPC broker, and an independent collector for FIET Maker conformance; they do not add a production broker startup mode.
@@ -83,6 +87,8 @@ The following repository components are not production services:
 - `schema/`, handlers, helpers, generated protobuf modules, and test fixtures are libraries or assets embedded in the services above.
 
 CEX venues, ClickHouse, OpenTelemetry infrastructure, and Verity are external dependencies. FIET Maker/Hummingbot runtimes, `fiet-observer`, and other archive or metrics producers are owned by their respective repositories. Their direct ClickHouse reads or supported archive-forwarder writes do not make them CEX Broker services.
+
+The cross-repository backfill release boundary has three owners. CEX Broker publishes the unused library package and promotion contract. Fiet TEE pins that package and owns the file/CLI, Vault/secret resolution, dependency wiring, and executable packaging. Fiet Maker independently requeries replay-qualified views after promotion and binds the CEX receipt, query evidence, loader output, and final policy artifact hashes. A CEX promotion alone does not establish Maker economics quotability.
 
 ## Deployment profiles
 

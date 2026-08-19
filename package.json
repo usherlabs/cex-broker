@@ -13,6 +13,16 @@
 	"license": "MIT",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		},
+		"./market-data-vendor-backfill": {
+			"import": "./dist/market-data-vendor-backfill.js",
+			"types": "./dist/market-data-vendor-backfill.d.ts"
+		}
+	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.16",
 		"@types/bun": "latest",
@@ -21,7 +31,8 @@
 		"bun-types": "latest",
 		"cpx": "^1.5.0",
 		"dotenv": "^17.2.0",
-		"husky": "^9.1.7"
+		"husky": "^9.1.7",
+		"hyparquet-writer": "0.16.6"
 	},
 	"files": [
 		"dist"
@@ -57,6 +68,7 @@
 		"archive:proof-a": "bun run scripts/archive-orderbook-coalescing-evidence.ts",
 		"archive:loss:replay": "bun run scripts/archive-loss-replay.ts",
 		"test:smoke:archive": "bun run scripts/archive-live-smoke.ts",
+		"test:conformance:market-data-vendor-backfill": "bun run scripts/market-data-vendor-backfill-conformance.ts",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint",
 		"lint:fix": "bunx biome lint --write",
@@ -87,6 +99,8 @@
 		"@usherlabs/ccxt": "^0.0.14",
 		"@usherlabs/verity-client": "^0.1.1",
 		"commander": "^14.0.0",
+		"fzstd": "0.1.1",
+		"hyparquet": "1.28.2",
 		"joi": "^17.13.3",
 		"loglayer": "^9.1.0",
 		"protobufjs": "^7.4.0",

@@ -32,6 +32,14 @@ await Bun.build({
 	],
 });
 
+await Bun.build({
+	entrypoints: ["./src/market-data-vendor-backfill.ts"],
+	outdir: "./dist",
+	target: "node",
+	external: ["zod"],
+	sourcemap: "external",
+});
+
 // Copy descriptor alongside dist output for runtime import
 await Bun.spawn({ cmd: ["mkdir", "-p", "./dist/proto"] }).exited;
 await Bun.write(

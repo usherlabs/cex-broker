@@ -11,7 +11,10 @@ import { createClickHouseInserter } from "../services/archive-forwarder/insert";
 import { handleArchiveBatch } from "../services/archive-forwarder/router";
 import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
 import { buildCanonicalOrderBookRows } from "../src/helpers/market-data-archive/canonical-orderbook";
-import { createRawCapture } from "../src/helpers/market-data-archive/capture-contract";
+import {
+	createRawCapture,
+	sha256Canonical,
+} from "../src/helpers/market-data-archive/capture-contract";
 import { buildLegacyOhlcvMigrationRow } from "../src/helpers/market-data-archive/legacy-migration";
 import {
 	buildCanonicalCexStreamEventRow,
@@ -20,6 +23,22 @@ import {
 	buildCanonicalTradeRow,
 } from "../src/helpers/market-data-archive/rows";
 import type { MarketCaptureContext } from "../src/helpers/market-data-archive/types";
+import {
+	createClickHouseArchiveQueryClient,
+	QualifiedOrderBookArchiveReader,
+} from "../src/helpers/market-data-vendor-backfill/archive-reader";
+import {
+	BACKFILL_PROMOTION_SCHEMA_VERSION,
+	BACKFILL_REQUEST_SCHEMA_VERSION,
+	createBackfillIdempotencyKey,
+	EXTERNAL_BACKFILL_SOURCE,
+	HISTORICAL_VENDOR_SOURCE_MODE,
+	VENDOR_DATASET_RAW_CAPTURE_SCOPE,
+} from "../src/helpers/market-data-vendor-backfill/contracts";
+import {
+	finalizePromotionReceipt,
+	promotionReceiptToArchiveRow,
+} from "../src/helpers/market-data-vendor-backfill/promotion";
 
 const CLICKHOUSE_URL =
 	process.env.CLICKHOUSE_TEST_URL?.trim() ||
@@ -109,6 +128,7 @@ async function cleanupTestRows(): Promise<void> {
 		"cex_trades",
 		"cex_order_book_levels",
 		"cex_order_book_depth_summary",
+		"cex_order_book_capture_promotions",
 		"cex_ohlcv",
 	]) {
 		await activeClient.command({
@@ -117,6 +137,16 @@ async function cleanupTestRows(): Promise<void> {
 		});
 		await activeClient.command({ query: `OPTIMIZE TABLE ${table} FINAL` });
 	}
+	await activeClient.command({
+		query: `
+			ALTER TABLE cex_order_book_capture_promotions
+			DELETE WHERE startsWith(request_id, {request_prefix:String})
+		`,
+		query_params: { request_prefix: TEST_DEPLOYMENT },
+	});
+	await activeClient.command({
+		query: "OPTIMIZE TABLE cex_order_book_capture_promotions FINAL",
+	});
 	await activeClient.command({
 		query: `
 			ALTER TABLE candles
@@ -208,10 +238,243 @@ describe("ClickHouse market_data schema integration", () => {
 		expect(await tableEngine("candles_closed")).toBe("View");
 		expect(await tableEngine("cex_order_book_levels")).toBe("MergeTree");
 		expect(await tableEngine("cex_order_book_depth_summary")).toBe("MergeTree");
+		expect(await tableEngine("cex_order_book_capture_promotions")).toBe(
+			"MergeTree",
+		);
 		expect(await tableEngine("cex_order_book_levels_canonical")).toBe("View");
 		expect(await tableEngine("cex_order_book_levels_conflicts")).toBe("View");
+		expect(await tableEngine("cex_order_book_levels_replay_qualified")).toBe(
+			"View",
+		);
+		expect(
+			await tableEngine("cex_order_book_depth_summary_replay_qualified"),
+		).toBe("View");
 		expect(await tableEngine("cex_ohlcv")).toBe("ReplacingMergeTree");
 		expect(await tableEngine("cex_ohlcv_closed")).toBe("View");
+	});
+
+	test("external history remains physical and becomes replay-qualified only after an exact promotion", async () => {
+		if (!clickhouseAvailable || !client) return;
+		const sourceTimeMs = Date.UTC(2025, 6, 1, 10, 30);
+		const captureBundleId = sha256Canonical({
+			testDeployment: TEST_DEPLOYMENT,
+		});
+		const context: MarketCaptureContext = {
+			source: EXTERNAL_BACKFILL_SOURCE,
+			deploymentId: TEST_DEPLOYMENT,
+			captureBundleId,
+			exchange: "binance",
+			symbol: "TEST/EXTERNAL",
+			tradingPair: "TEST-EXTERNAL",
+			sourceSymbol: "TESTEXTERNAL",
+			assetType: "spot",
+			feed: "ORDERBOOK",
+			provider: "cryptohftdata",
+			sourceMode: HISTORICAL_VENDOR_SOURCE_MODE,
+			schemaVersion: "1.0.0",
+			checksumAlgorithm: "sha256-canonical-json-v1",
+			provenanceComplete: true,
+		};
+		const canonical = buildCanonicalOrderBookRows({
+			context,
+			rawCapture: {
+				rawCaptureId: "c".repeat(64),
+				rawCaptureScope: VENDOR_DATASET_RAW_CAPTURE_SCOPE,
+				rawChecksum: "d".repeat(64),
+				redactedPayload: {
+					dataset_object_identity:
+						"binance_spot/2025-07-01/10/TESTEXTERNAL_orderbook.parquet.zst",
+					dataset_object_checksum: "d".repeat(64),
+				},
+				eventTimeMs: sourceTimeMs,
+				receivedTimeMs: sourceTimeMs + 10,
+				checksumAlgorithm: "sha256-canonical-json-v1",
+			},
+			depthLimit: 1,
+			constructionMode: "sampled_top_n_snapshot",
+			snapshot: {
+				bids: [[100, 1]],
+				asks: [[101, 2]],
+				timestamp: sourceTimeMs,
+				receivedTimestamp: sourceTimeMs + 10,
+				exchange: "binance",
+				symbol: "TEST/EXTERNAL",
+				depthLimit: 1,
+				sequence: "9007199254740993",
+			},
+		});
+		const candidateRows = [...canonical.levels, canonical.summary];
+		const candidateInsert = await handleArchiveBatch(
+			createClickHouseInserter(client),
+			{
+				source: EXTERNAL_BACKFILL_SOURCE,
+				deployment_id: TEST_DEPLOYMENT,
+				batch_id: "candidate-integration",
+				rows: candidateRows,
+			},
+		);
+		expect(candidateInsert).toMatchObject({
+			inserted: candidateRows.length,
+			failed: 0,
+		});
+		await client.command({
+			query: "OPTIMIZE TABLE cex_order_book_levels FINAL",
+		});
+		await client.command({
+			query: "OPTIMIZE TABLE cex_order_book_depth_summary FINAL",
+		});
+
+		const counts = async () => {
+			const result = await requireClient().query({
+				query: `
+					SELECT
+						(SELECT count() FROM cex_order_book_levels
+						 WHERE capture_bundle_id = {bundle:String}) AS physical_levels,
+						(SELECT count() FROM cex_order_book_levels_replay_qualified
+						 WHERE capture_bundle_id = {bundle:String}) AS qualified_levels,
+						(SELECT count() FROM cex_order_book_depth_summary_replay_qualified
+						 WHERE capture_bundle_id = {bundle:String}) AS qualified_summaries
+				`,
+				query_params: { bundle: captureBundleId },
+				format: "JSONEachRow",
+			});
+			return (await result.json()) as Array<Record<string, string>>;
+		};
+		expect(await counts()).toEqual([
+			{
+				physical_levels: "2",
+				qualified_levels: "0",
+				qualified_summaries: "0",
+			},
+		]);
+
+		const promotion = (depth: number) =>
+			promotionReceiptToArchiveRow(
+				finalizePromotionReceipt(
+					{
+						schemaVersion: BACKFILL_PROMOTION_SCHEMA_VERSION,
+						requestId: `${TEST_DEPLOYMENT}-depth-${depth}`,
+						idempotencyKey: "e".repeat(64),
+						status: "passing",
+						source: EXTERNAL_BACKFILL_SOURCE,
+						provider: "cryptohftdata",
+						adapterVersion: "cryptohftdata-orderbook/v1",
+						captureBundleId,
+						exchange: "binance",
+						tradingPair: "TEST-EXTERNAL",
+						marketType: "spot",
+						feed: "ORDERBOOK",
+						startTimeMs: sourceTimeMs - 1,
+						endTimeMs: sourceTimeMs + 1,
+						depth,
+						constructionMode: "sampled_top_n_snapshot",
+						canonicalSchemaVersion: "1.0.0",
+						checksumAlgorithm: "sha256-canonical-json-v1",
+						vendorSemanticDigest: "1".repeat(64),
+						canonicalSemanticDigest: "2".repeat(64),
+						prefixDigest: "3".repeat(64),
+						suffixDigest: "4".repeat(64),
+						seamVerified: true,
+						coverageVerified: true,
+						datasetObjects: [
+							{
+								identity:
+									"binance_spot/2025-07-01/10/TESTEXTERNAL_orderbook.parquet.zst",
+								checksum: "d".repeat(64),
+								bytes: 10,
+								rows: 2,
+							},
+						],
+					},
+					sourceTimeMs + depth,
+				),
+			);
+
+		for (const depth of [2, 1]) {
+			const row = promotion(depth);
+			const inserted = await handleArchiveBatch(
+				createClickHouseInserter(client),
+				{
+					source: EXTERNAL_BACKFILL_SOURCE,
+					deployment_id: TEST_DEPLOYMENT,
+					batch_id: `promotion-integration-${depth}`,
+					rows: [row],
+				},
+			);
+			expect(inserted.failed).toBe(0);
+			expect((await counts())[0]).toMatchObject({
+				physical_levels: "2",
+				qualified_levels: depth === 1 ? "2" : "0",
+				qualified_summaries: depth === 1 ? "1" : "0",
+			});
+		}
+		const requestBusiness = {
+			schemaVersion: BACKFILL_REQUEST_SCHEMA_VERSION,
+			requestId: `${TEST_DEPLOYMENT}-reader`,
+			providerPolicy: {
+				provider: "cryptohftdata" as const,
+				allowedAdapterVersions: ["cryptohftdata-orderbook/v1"],
+			},
+			scope: {
+				exchange: "binance",
+				tradingPair: "TEST-EXTERNAL",
+				sourceSymbol: "TESTEXTERNAL",
+				marketType: "spot" as const,
+				feed: "ORDERBOOK" as const,
+			},
+			window: { startTimeMs: sourceTimeMs - 1, endTimeMs: sourceTimeMs + 1 },
+			depth: 1,
+			constructionMode: "sampled_top_n_snapshot" as const,
+			requiredClockTargetsMs: [sourceTimeMs],
+			maxPriorAsOfLagMs: 1,
+			sourcePolicy: "authoritative_window" as const,
+			budgets: {
+				maxFiles: 1,
+				maxBytes: 1,
+				maxRows: 1,
+				maxDurationMs: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+			expectedProduct: {
+				packageName: "@usherlabs/cex-broker" as const,
+				canonicalSchemaVersion: "1.0.0",
+				checksumAlgorithm: "sha256-canonical-json-v1" as const,
+			},
+		};
+		const qualifiedCoverage = await new QualifiedOrderBookArchiveReader(
+			createClickHouseArchiveQueryClient({
+				url: CLICKHOUSE_URL,
+				username: CLICKHOUSE_USERNAME,
+				password: CLICKHOUSE_PASSWORD,
+			}),
+		).coverage({
+			...requestBusiness,
+			idempotencyKey: createBackfillIdempotencyKey(requestBusiness),
+		});
+		expect(qualifiedCoverage.complete).toBe(true);
+
+		const outputDirectory = await mkdtemp(
+			join(tmpdir(), "cex-broker-external-parquet-test-"),
+		);
+		try {
+			const exported = await exportCanonicalOrderBookParquet({
+				clickhouseUrl: CLICKHOUSE_URL,
+				username: CLICKHOUSE_USERNAME,
+				password: CLICKHOUSE_PASSWORD,
+				outputDirectory,
+				captureBundleIds: [captureBundleId],
+				exchange: "binance",
+				tradingPair: "TEST-EXTERNAL",
+				startTimeMs: sourceTimeMs - 1,
+				endTimeMs: sourceTimeMs + 1,
+			});
+			expect(exported).toMatchObject({ levelRows: 2, summaryRows: 1 });
+			expect(exported.promotionReceiptIds).toEqual([
+				promotion(1).row.receipt_id as string,
+			]);
+		} finally {
+			await rm(outputDirectory, { recursive: true, force: true });
+		}
 	});
 
 	test("canonical views deduplicate agreement, expose conflicts, and accept incomplete legacy provenance", async () => {

@@ -26,6 +26,9 @@ export function createMarketCaptureContext(input: {
 	accountSelector?: string;
 	environment?: CaptureEnvironment;
 }): MarketCaptureContext {
+	if (input.source !== "broker_read" && input.source !== "broker_write") {
+		throw new Error("Unsupported broker archive source");
+	}
 	const environment = input.environment ?? "development";
 	const deploymentId = input.deploymentId.trim();
 	if (!deploymentId) throw new Error("deployment_id must not be empty");

@@ -323,6 +323,7 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(source_time_ms))
 ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version, side, level_index)
 TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
+    DELETE WHERE source != 'external_backfill'
 SETTINGS allow_nullable_key = 1, non_replicated_deduplication_window = 1000000;
 
 CREATE TABLE IF NOT EXISTS market_data.cex_order_book_depth_summary
@@ -371,6 +372,7 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(source_time_ms))
 ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version)
 TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
+    DELETE WHERE source != 'external_backfill'
 SETTINGS allow_nullable_key = 1, non_replicated_deduplication_window = 1000000;
 
 CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_conflicts AS
@@ -440,6 +442,112 @@ AND evidence.snapshot_id = consistent.snapshot_id
 AND evidence.schema_version = consistent.schema_version
 AND evidence.normalized_row_checksum = consistent.agreed_checksum;
 
+-- A passing row is the last-write commit marker for one content-addressed
+-- external capture. Candidate rows remain auditable in the physical/canonical
+-- tables, but replay readers cannot see them through the qualified views below
+-- until this exact scope is present.
+CREATE TABLE IF NOT EXISTS market_data.cex_order_book_capture_promotions
+(
+    source LowCardinality(String),
+    deployment_id LowCardinality(String),
+    receipt_schema_version LowCardinality(String),
+    receipt_id String,
+    request_id String,
+    idempotency_key String,
+    status LowCardinality(String),
+    capture_bundle_id String,
+    provider LowCardinality(String),
+    adapter_version LowCardinality(String),
+    exchange LowCardinality(String),
+    trading_pair LowCardinality(String),
+    asset_type LowCardinality(String),
+    feed LowCardinality(String),
+    window_start_ms UInt64,
+    window_end_ms UInt64,
+    depth_limit UInt16,
+    construction_mode LowCardinality(String),
+    schema_version LowCardinality(String),
+    checksum_algorithm LowCardinality(String),
+    vendor_semantic_digest String,
+    canonical_semantic_digest String,
+    prefix_digest String,
+    suffix_digest String,
+    seam_verified UInt8,
+    coverage_verified UInt8,
+    dataset_objects_json String,
+    verification_time_ms UInt64
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(verification_time_ms))
+ORDER BY (capture_bundle_id, exchange, trading_pair, window_start_ms, window_end_ms, depth_limit, construction_mode, schema_version, receipt_id)
+SETTINGS non_replicated_deduplication_window = 1000000;
+
+CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_replay_qualified AS
+SELECT canonical.*
+FROM market_data.cex_order_book_levels_canonical AS canonical
+WHERE canonical.source IN ('broker_read', 'broker_write')
+UNION ALL
+SELECT canonical.*
+FROM market_data.cex_order_book_levels_canonical AS canonical
+INNER JOIN
+(
+    SELECT DISTINCT
+        capture_bundle_id, exchange, trading_pair, asset_type, feed,
+        provider, window_start_ms, window_end_ms, depth_limit,
+        construction_mode, schema_version, checksum_algorithm
+    FROM market_data.cex_order_book_capture_promotions
+    WHERE source = 'external_backfill'
+      AND status = 'passing'
+      AND seam_verified = 1
+      AND coverage_verified = 1
+) AS promotion
+ON canonical.capture_bundle_id = promotion.capture_bundle_id
+AND canonical.exchange = promotion.exchange
+AND canonical.trading_pair = promotion.trading_pair
+AND canonical.asset_type = promotion.asset_type
+AND canonical.feed = promotion.feed
+AND canonical.provider = promotion.provider
+AND canonical.depth_limit = promotion.depth_limit
+AND canonical.construction_mode = promotion.construction_mode
+AND canonical.schema_version = promotion.schema_version
+AND canonical.checksum_algorithm = promotion.checksum_algorithm
+WHERE canonical.source = 'external_backfill'
+  AND canonical.source_time_ms >= promotion.window_start_ms
+  AND canonical.source_time_ms < promotion.window_end_ms;
+
+CREATE VIEW IF NOT EXISTS market_data.cex_order_book_depth_summary_replay_qualified AS
+SELECT canonical.*
+FROM market_data.cex_order_book_depth_summary_canonical AS canonical
+WHERE canonical.source IN ('broker_read', 'broker_write')
+UNION ALL
+SELECT canonical.*
+FROM market_data.cex_order_book_depth_summary_canonical AS canonical
+INNER JOIN
+(
+    SELECT DISTINCT
+        capture_bundle_id, exchange, trading_pair, asset_type, feed,
+        provider, window_start_ms, window_end_ms, depth_limit,
+        construction_mode, schema_version, checksum_algorithm
+    FROM market_data.cex_order_book_capture_promotions
+    WHERE source = 'external_backfill'
+      AND status = 'passing'
+      AND seam_verified = 1
+      AND coverage_verified = 1
+) AS promotion
+ON canonical.capture_bundle_id = promotion.capture_bundle_id
+AND canonical.exchange = promotion.exchange
+AND canonical.trading_pair = promotion.trading_pair
+AND canonical.asset_type = promotion.asset_type
+AND canonical.feed = promotion.feed
+AND canonical.provider = promotion.provider
+AND canonical.depth_limit = promotion.depth_limit
+AND canonical.construction_mode = promotion.construction_mode
+AND canonical.schema_version = promotion.schema_version
+AND canonical.checksum_algorithm = promotion.checksum_algorithm
+WHERE canonical.source = 'external_backfill'
+  AND canonical.source_time_ms >= promotion.window_start_ms
+  AND canonical.source_time_ms < promotion.window_end_ms;
+
 CREATE TABLE IF NOT EXISTS market_data.cex_ohlcv
 (
     source LowCardinality(String),
@@ -503,5 +611,17 @@ ALTER TABLE market_data.cex_order_book_levels
     MODIFY SETTING non_replicated_deduplication_window = 1000000;
 ALTER TABLE market_data.cex_order_book_depth_summary
     MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
 ALTER TABLE market_data.cex_ohlcv
     MODIFY SETTING non_replicated_deduplication_window = 1000000;
+
+-- Existing installations were created with an unconditional live-capture TTL.
+-- Preserve that policy for broker-origin rows while retaining historical
+-- external candidates long enough for verification and later replay.
+ALTER TABLE market_data.cex_order_book_levels
+    MODIFY TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
+        DELETE WHERE source != 'external_backfill';
+ALTER TABLE market_data.cex_order_book_depth_summary
+    MODIFY TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
+        DELETE WHERE source != 'external_backfill';

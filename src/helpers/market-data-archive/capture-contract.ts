@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { redactStreamPayload } from "../broker-execution-archive/redact";
-import type { BrokerArchiveSource } from "../broker-execution-archive/types";
 import type {
 	MarketCaptureContext,
 	RawCapture,
@@ -11,6 +10,10 @@ export const MARKET_CAPTURE_SCHEMA_VERSION = "1.0.0" as const;
 export const CHECKSUM_ALGORITHM = "sha256-canonical-json-v1" as const;
 
 export const ARCHIVE_SOURCES = ["broker_read", "broker_write"] as const;
+export const MARKET_ARCHIVE_SOURCES = [
+	...ARCHIVE_SOURCES,
+	"external_backfill",
+] as const;
 export const CAPTURE_FEEDS = [
 	"ORDERBOOK",
 	"TICKER",
@@ -25,6 +28,7 @@ export const SOURCE_MODES = [
 	"external_ccxt_fallback_v1",
 	"external_hummingbot_fallback_v1",
 	"legacy_migration_v1",
+	"historical_vendor_orderbook_v1",
 ] as const;
 export const CONSTRUCTION_MODES = [
 	"sampled_top_n_snapshot",
@@ -39,6 +43,7 @@ export const RAW_CAPTURE_SCOPES = [
 	"ccxt_normalized_object",
 	"broker_visible_payload",
 	"exchange_wire_frame",
+	"vendor_normalized_dataset_file",
 ] as const;
 
 export type CaptureFeed = (typeof CAPTURE_FEEDS)[number];
@@ -169,7 +174,7 @@ export function normalizeTimestampMs(value: unknown, field: string): number {
 }
 
 function assertCaptureContext(context: MarketCaptureContext): void {
-	if (!(ARCHIVE_SOURCES as readonly string[]).includes(context.source)) {
+	if (!(MARKET_ARCHIVE_SOURCES as readonly string[]).includes(context.source)) {
 		throw new Error(`Unsupported archive source: ${context.source}`);
 	}
 	if (!(CAPTURE_FEEDS as readonly string[]).includes(context.feed)) {
@@ -237,13 +242,14 @@ export function captureCoreFields(
 ): Record<string, unknown> {
 	assertCaptureContext(context);
 	return {
-		source: context.source satisfies BrokerArchiveSource,
+		source: context.source,
 		deployment_id: context.deploymentId,
 		capture_bundle_id: context.captureBundleId,
 		exchange: context.exchange.trim().toLowerCase(),
 		symbol: context.symbol.trim(),
-		trading_pair: context.symbol.trim().replace("/", "-"),
-		source_symbol: context.symbol.trim(),
+		trading_pair:
+			context.tradingPair?.trim() || context.symbol.trim().replace("/", "-"),
+		source_symbol: context.sourceSymbol?.trim() || context.symbol.trim(),
 		asset_type: context.assetType,
 		feed: context.feed,
 		provider: context.provider,

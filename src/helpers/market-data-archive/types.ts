@@ -5,6 +5,8 @@ import type {
 import type { BrokerMarketType } from "../market-type";
 import type { NormalizedOrderBookSnapshot } from "../order-book";
 
+export type MarketArchiveSource = BrokerArchiveSource | "external_backfill";
+
 export type MarketArchiveTable =
 	| "market_data.orderbook_snapshots"
 	| "market_data.candles"
@@ -57,14 +59,16 @@ export type CaptureSourceMode =
 	| "broker_bootstrap_fetch_v1"
 	| "external_ccxt_fallback_v1"
 	| "external_hummingbot_fallback_v1"
-	| "legacy_migration_v1";
+	| "legacy_migration_v1"
+	| "historical_vendor_orderbook_v1";
 export type RawCaptureScope =
 	| "ccxt_normalized_object"
 	| "broker_visible_payload"
-	| "exchange_wire_frame";
+	| "exchange_wire_frame"
+	| "vendor_normalized_dataset_file";
 
-export type MarketCaptureContext = MarketArchiveContext & {
-	source: BrokerArchiveSource;
+export type MarketCaptureContext = Omit<MarketArchiveContext, "source"> & {
+	source: MarketArchiveSource;
 	captureBundleId: string;
 	feed: CaptureFeed;
 	provider: string;
@@ -72,6 +76,8 @@ export type MarketCaptureContext = MarketArchiveContext & {
 	schemaVersion: string;
 	checksumAlgorithm: string;
 	provenanceComplete: boolean;
+	tradingPair?: string;
+	sourceSymbol?: string;
 };
 
 export type RawCapture = {

@@ -33,6 +33,7 @@ export const SUPPORTED_TABLES = [
 	"market_data.cex_ohlcv",
 	"market_data.cex_order_book_levels",
 	"market_data.cex_order_book_depth_summary",
+	"market_data.cex_order_book_capture_promotions",
 	"broker_execution.order_events",
 	"broker_execution.market_metadata_snapshots",
 	"broker_execution.transfer_events",
