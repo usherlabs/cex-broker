@@ -1,0 +1,1321 @@
+{
+  "artifactHashes": {
+    "policyConfig": {
+      "path": "maker-cex-orderbook-policy-config.json",
+      "sha256": "f3deacb076a55dbefdf4ed63657df1e8730628a7d7d80a4b4f62cd06b8df0edf"
+    }
+  },
+  "cases": [
+    {
+      "diagnosticHashes": {
+        "caseSha256": "4fd0c64be4344d699b278aec926ad906b00d2844b0ea6234619279cdbe26115a"
+      },
+      "equivalenceVerdicts": {
+        "conservativeVsCoalesced": true,
+        "liveVsRehydrated": true
+      },
+      "evaluations": [
+        {
+          "currentTick": 0,
+          "diagnosticHashes": {
+            "evaluationSha256": "c02aee124260de16190067af35eb469929d39d0b3de43d60806af55f1776d5d7"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 0,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 199.5,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 149.5,
+              "diagnosticSha256": "437b8de12cd7ba1cd3657e66f2634634562951f51f578a504abaae87c9697614",
+              "envelopeLiquidityCap": 1214.71057824675,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "fresh_start",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "011a4863e6ee723fb1b518ce3d705d79db7f6b7ff04719ad247a4e811a7556ff",
+              "snapshotTimestampMs": 1700000000000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              "writeStatus": "updated"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 199.5,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 149.5,
+              "diagnosticSha256": "437b8de12cd7ba1cd3657e66f2634634562951f51f578a504abaae87c9697614",
+              "envelopeLiquidityCap": 1214.71057824675,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "fresh_start",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "011a4863e6ee723fb1b518ce3d705d79db7f6b7ff04719ad247a4e811a7556ff",
+              "snapshotTimestampMs": 1700000000000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              "writeStatus": "updated"
+            },
+            "conservativeLive": {
+              "askDepth": 199.5,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 149.5,
+              "diagnosticSha256": "437b8de12cd7ba1cd3657e66f2634634562951f51f578a504abaae87c9697614",
+              "envelopeLiquidityCap": 1214.71057824675,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "fresh_start",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "011a4863e6ee723fb1b518ce3d705d79db7f6b7ff04719ad247a4e811a7556ff",
+              "snapshotTimestampMs": 1700000000000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              "writeStatus": "updated"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 199.5,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 149.5,
+              "diagnosticSha256": "437b8de12cd7ba1cd3657e66f2634634562951f51f578a504abaae87c9697614",
+              "envelopeLiquidityCap": 1214.71057824675,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "fresh_start",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "011a4863e6ee723fb1b518ce3d705d79db7f6b7ff04719ad247a4e811a7556ff",
+              "snapshotTimestampMs": 1700000000000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              "writeStatus": "updated"
+            }
+          }
+        },
+        {
+          "currentTick": 0,
+          "diagnosticHashes": {
+            "evaluationSha256": "7ac294b77f5124526b216a58eb9aac13aea6939e96c8ce9b9aba871d2c682238"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 1,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 205.485,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 155.48,
+              "diagnosticSha256": "6ef0b628537bb4194f924794cebbd63cdbbdb8bcd0352d7a737cc45ef49e1d0d",
+              "envelopeLiquidityCap": 1262.6678567489998,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "retained_inside_guard_band",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "a7788945db57af9bbf540928083307b921656a3e2f12551b7c613d4d109741f2",
+              "snapshotTimestampMs": 1700000001000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 205.485,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 155.48,
+              "diagnosticSha256": "6ef0b628537bb4194f924794cebbd63cdbbdb8bcd0352d7a737cc45ef49e1d0d",
+              "envelopeLiquidityCap": 1262.6678567489998,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "retained_inside_guard_band",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "a7788945db57af9bbf540928083307b921656a3e2f12551b7c613d4d109741f2",
+              "snapshotTimestampMs": 1700000001000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeLive": {
+              "askDepth": 205.485,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 155.48,
+              "diagnosticSha256": "6ef0b628537bb4194f924794cebbd63cdbbdb8bcd0352d7a737cc45ef49e1d0d",
+              "envelopeLiquidityCap": 1262.6678567489998,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "retained_inside_guard_band",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "a7788945db57af9bbf540928083307b921656a3e2f12551b7c613d4d109741f2",
+              "snapshotTimestampMs": 1700000001000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 205.485,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 155.48,
+              "diagnosticSha256": "6ef0b628537bb4194f924794cebbd63cdbbdb8bcd0352d7a737cc45ef49e1d0d",
+              "envelopeLiquidityCap": 1262.6678567489998,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "retained_inside_guard_band",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "a7788945db57af9bbf540928083307b921656a3e2f12551b7c613d4d109741f2",
+              "snapshotTimestampMs": 1700000001000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            }
+          }
+        },
+        {
+          "currentTick": 100,
+          "diagnosticHashes": {
+            "evaluationSha256": "edc1b7fc90dca2547adc1bc2713e69aca3c8e044d19ee00016cfc1305f0c325d"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 2,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 249.375,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 209.3,
+              "diagnosticSha256": "c5010c2c43da5ba4cfac40b52055c402dde104d4e31cd4c414c3bcae53e4957e",
+              "envelopeLiquidityCap": 1698.89684615625,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "upper_threshold_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "082a510a824b54c2be3522cbf71de7fd337f14be21bb6492a1b6bb7977ac7f71",
+              "snapshotTimestampMs": 1700000002000,
+              "stateDigests": {
+                "nextStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 249.375,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 209.3,
+              "diagnosticSha256": "c5010c2c43da5ba4cfac40b52055c402dde104d4e31cd4c414c3bcae53e4957e",
+              "envelopeLiquidityCap": 1698.89684615625,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "upper_threshold_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "082a510a824b54c2be3522cbf71de7fd337f14be21bb6492a1b6bb7977ac7f71",
+              "snapshotTimestampMs": 1700000002000,
+              "stateDigests": {
+                "nextStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeLive": {
+              "askDepth": 249.375,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 209.3,
+              "diagnosticSha256": "c5010c2c43da5ba4cfac40b52055c402dde104d4e31cd4c414c3bcae53e4957e",
+              "envelopeLiquidityCap": 1698.89684615625,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "upper_threshold_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "082a510a824b54c2be3522cbf71de7fd337f14be21bb6492a1b6bb7977ac7f71",
+              "snapshotTimestampMs": 1700000002000,
+              "stateDigests": {
+                "nextStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 249.375,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 209.3,
+              "diagnosticSha256": "c5010c2c43da5ba4cfac40b52055c402dde104d4e31cd4c414c3bcae53e4957e",
+              "envelopeLiquidityCap": 1698.89684615625,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "upper_threshold_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "082a510a824b54c2be3522cbf71de7fd337f14be21bb6492a1b6bb7977ac7f71",
+              "snapshotTimestampMs": 1700000002000,
+              "stateDigests": {
+                "nextStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            }
+          }
+        },
+        {
+          "currentTick": 100,
+          "diagnosticHashes": {
+            "evaluationSha256": "f9cb862580bc34b41e3d0dbef31b502e929bd56336ca754699dd8e35e9e62334"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 3,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 143.64,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 101.66,
+              "diagnosticSha256": "1b670706f85873d36ca3fd0c725bef72f72c1f82d77141e6dbe1d8acf634318d",
+              "envelopeLiquidityCap": 824.76703090275,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "depth_hysteresis_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "e257a0a81c537dabbc34195f69d7aea26874225bc15519946e6567c7f802773b",
+              "snapshotTimestampMs": 1700000003000,
+              "stateDigests": {
+                "nextStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e",
+                "priorStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815"
+              },
+              "writeStatus": "unchanged"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 143.64,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 101.66,
+              "diagnosticSha256": "1b670706f85873d36ca3fd0c725bef72f72c1f82d77141e6dbe1d8acf634318d",
+              "envelopeLiquidityCap": 824.76703090275,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "depth_hysteresis_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "e257a0a81c537dabbc34195f69d7aea26874225bc15519946e6567c7f802773b",
+              "snapshotTimestampMs": 1700000003000,
+              "stateDigests": {
+                "nextStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e",
+                "priorStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeLive": {
+              "askDepth": 143.64,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 101.66,
+              "diagnosticSha256": "1b670706f85873d36ca3fd0c725bef72f72c1f82d77141e6dbe1d8acf634318d",
+              "envelopeLiquidityCap": 824.76703090275,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "depth_hysteresis_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "e257a0a81c537dabbc34195f69d7aea26874225bc15519946e6567c7f802773b",
+              "snapshotTimestampMs": 1700000003000,
+              "stateDigests": {
+                "nextStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e",
+                "priorStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 143.64,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 101.66,
+              "diagnosticSha256": "1b670706f85873d36ca3fd0c725bef72f72c1f82d77141e6dbe1d8acf634318d",
+              "envelopeLiquidityCap": 824.76703090275,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "depth_hysteresis_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "e257a0a81c537dabbc34195f69d7aea26874225bc15519946e6567c7f802773b",
+              "snapshotTimestampMs": 1700000003000,
+              "stateDigests": {
+                "nextStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e",
+                "priorStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815"
+              },
+              "writeStatus": "unchanged"
+            }
+          }
+        },
+        {
+          "currentTick": 100,
+          "diagnosticHashes": {
+            "evaluationSha256": "b61e0ef08f292e3a4a8b2268c62730c61188acea053d0987e306b43e2d86cb1e"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 4,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 31.509,
+              "authoredPosition": {
+                "lower_tick_offset": -70,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 20
+              },
+              "bidDepth": 26.01,
+              "diagnosticSha256": "00e30d806314ce3eb57fe9d027dfb28463c2c0c45f9b24f1bd92dc5cd422325c",
+              "envelopeLiquidityCap": 563.143365876,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "envelope_cap_breached",
+              "selectedDepthBandBps": 90,
+              "selectedWidthTicks": 90,
+              "snapshotSha256": "8f6b5d0adf28da61b27ad6dfad8865f6641b7d4e64fb5517f869da7258eb242e",
+              "snapshotTimestampMs": 1700000004000,
+              "stateDigests": {
+                "nextStateSha256": "c0fa7b3ec1d9a56369e70d77eb604a499e9b84a2ff0bf79142a2f1a4ed55844c",
+                "priorStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e"
+              },
+              "writeStatus": "updated"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 31.509,
+              "authoredPosition": {
+                "lower_tick_offset": -70,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 20
+              },
+              "bidDepth": 26.01,
+              "diagnosticSha256": "00e30d806314ce3eb57fe9d027dfb28463c2c0c45f9b24f1bd92dc5cd422325c",
+              "envelopeLiquidityCap": 563.143365876,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "envelope_cap_breached",
+              "selectedDepthBandBps": 90,
+              "selectedWidthTicks": 90,
+              "snapshotSha256": "8f6b5d0adf28da61b27ad6dfad8865f6641b7d4e64fb5517f869da7258eb242e",
+              "snapshotTimestampMs": 1700000004000,
+              "stateDigests": {
+                "nextStateSha256": "c0fa7b3ec1d9a56369e70d77eb604a499e9b84a2ff0bf79142a2f1a4ed55844c",
+                "priorStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e"
+              },
+              "writeStatus": "updated"
+            },
+            "conservativeLive": {
+              "askDepth": 31.509,
+              "authoredPosition": {
+                "lower_tick_offset": -70,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 20
+              },
+              "bidDepth": 26.01,
+              "diagnosticSha256": "00e30d806314ce3eb57fe9d027dfb28463c2c0c45f9b24f1bd92dc5cd422325c",
+              "envelopeLiquidityCap": 563.143365876,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "envelope_cap_breached",
+              "selectedDepthBandBps": 90,
+              "selectedWidthTicks": 90,
+              "snapshotSha256": "8f6b5d0adf28da61b27ad6dfad8865f6641b7d4e64fb5517f869da7258eb242e",
+              "snapshotTimestampMs": 1700000004000,
+              "stateDigests": {
+                "nextStateSha256": "c0fa7b3ec1d9a56369e70d77eb604a499e9b84a2ff0bf79142a2f1a4ed55844c",
+                "priorStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e"
+              },
+              "writeStatus": "updated"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 31.509,
+              "authoredPosition": {
+                "lower_tick_offset": -70,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 20
+              },
+              "bidDepth": 26.01,
+              "diagnosticSha256": "00e30d806314ce3eb57fe9d027dfb28463c2c0c45f9b24f1bd92dc5cd422325c",
+              "envelopeLiquidityCap": 563.143365876,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "envelope_cap_breached",
+              "selectedDepthBandBps": 90,
+              "selectedWidthTicks": 90,
+              "snapshotSha256": "8f6b5d0adf28da61b27ad6dfad8865f6641b7d4e64fb5517f869da7258eb242e",
+              "snapshotTimestampMs": 1700000004000,
+              "stateDigests": {
+                "nextStateSha256": "c0fa7b3ec1d9a56369e70d77eb604a499e9b84a2ff0bf79142a2f1a4ed55844c",
+                "priorStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e"
+              },
+              "writeStatus": "updated"
+            }
+          }
+        }
+      ],
+      "isolationEvidence": {
+        "allControllersClosed": true,
+        "distinctBrokerCursors": true,
+        "distinctClocks": true,
+        "distinctControllers": true,
+        "distinctPolicyStores": true,
+        "fetchCounts": {
+          "coalescedLive": 5,
+          "coalescedRehydrated": 5,
+          "conservativeLive": 5,
+          "conservativeRehydrated": 5
+        }
+      },
+      "profileId": "binance:l2-diff:500",
+      "venue": "binance"
+    },
+    {
+      "diagnosticHashes": {
+        "caseSha256": "2768283bc162c860f5a4baff025d4839a8f20d8871ba63f48c5b36d3ec48d732"
+      },
+      "equivalenceVerdicts": {
+        "conservativeVsCoalesced": true,
+        "liveVsRehydrated": true
+      },
+      "evaluations": [
+        {
+          "currentTick": 0,
+          "diagnosticHashes": {
+            "evaluationSha256": "838522e0a1ed86253a8bdfebbba05c5b237efc2ae57d5a6b0e412ba7f5d99a3f"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 0,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 199.5,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 149.5,
+              "diagnosticSha256": "eb4a2179ac6c1c244efb8b6e4a885618b1d7cef9065b4e3a1da7eda74a242d14",
+              "envelopeLiquidityCap": 1214.71057824675,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "fresh_start",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "f872e4641caa2cdf56e12ce9f49952f272ec369ec1f9d8d6eed5d33ad1a3e5e4",
+              "snapshotTimestampMs": 1700000000000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              "writeStatus": "updated"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 199.5,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 149.5,
+              "diagnosticSha256": "eb4a2179ac6c1c244efb8b6e4a885618b1d7cef9065b4e3a1da7eda74a242d14",
+              "envelopeLiquidityCap": 1214.71057824675,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "fresh_start",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "f872e4641caa2cdf56e12ce9f49952f272ec369ec1f9d8d6eed5d33ad1a3e5e4",
+              "snapshotTimestampMs": 1700000000000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              "writeStatus": "updated"
+            },
+            "conservativeLive": {
+              "askDepth": 199.5,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 149.5,
+              "diagnosticSha256": "eb4a2179ac6c1c244efb8b6e4a885618b1d7cef9065b4e3a1da7eda74a242d14",
+              "envelopeLiquidityCap": 1214.71057824675,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "fresh_start",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "f872e4641caa2cdf56e12ce9f49952f272ec369ec1f9d8d6eed5d33ad1a3e5e4",
+              "snapshotTimestampMs": 1700000000000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              "writeStatus": "updated"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 199.5,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 149.5,
+              "diagnosticSha256": "eb4a2179ac6c1c244efb8b6e4a885618b1d7cef9065b4e3a1da7eda74a242d14",
+              "envelopeLiquidityCap": 1214.71057824675,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "fresh_start",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "f872e4641caa2cdf56e12ce9f49952f272ec369ec1f9d8d6eed5d33ad1a3e5e4",
+              "snapshotTimestampMs": 1700000000000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+              },
+              "writeStatus": "updated"
+            }
+          }
+        },
+        {
+          "currentTick": 0,
+          "diagnosticHashes": {
+            "evaluationSha256": "c9451ddb247a1280175706b9c518b49b83d5ceda5da83ba908bfee33021a5909"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 1,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 205.485,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 155.48,
+              "diagnosticSha256": "070e58e046e9c3f1c33c2318fa33c35dd3977ca45545fec96081f459d5f71b28",
+              "envelopeLiquidityCap": 1262.6678567489998,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "retained_inside_guard_band",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "68ae8814fc288025e87f0e1f42357b2638a3489633d6dd55a442efbf6b504e5c",
+              "snapshotTimestampMs": 1700000001000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 205.485,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 155.48,
+              "diagnosticSha256": "070e58e046e9c3f1c33c2318fa33c35dd3977ca45545fec96081f459d5f71b28",
+              "envelopeLiquidityCap": 1262.6678567489998,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "retained_inside_guard_band",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "68ae8814fc288025e87f0e1f42357b2638a3489633d6dd55a442efbf6b504e5c",
+              "snapshotTimestampMs": 1700000001000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeLive": {
+              "askDepth": 205.485,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 155.48,
+              "diagnosticSha256": "070e58e046e9c3f1c33c2318fa33c35dd3977ca45545fec96081f459d5f71b28",
+              "envelopeLiquidityCap": 1262.6678567489998,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "retained_inside_guard_band",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "68ae8814fc288025e87f0e1f42357b2638a3489633d6dd55a442efbf6b504e5c",
+              "snapshotTimestampMs": 1700000001000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 205.485,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 155.48,
+              "diagnosticSha256": "070e58e046e9c3f1c33c2318fa33c35dd3977ca45545fec96081f459d5f71b28",
+              "envelopeLiquidityCap": 1262.6678567489998,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "retained_inside_guard_band",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "68ae8814fc288025e87f0e1f42357b2638a3489633d6dd55a442efbf6b504e5c",
+              "snapshotTimestampMs": 1700000001000,
+              "stateDigests": {
+                "nextStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            }
+          }
+        },
+        {
+          "currentTick": 100,
+          "diagnosticHashes": {
+            "evaluationSha256": "d498c4ea6fe1c97b4de7d34b4cf74a4a66b0b561134cdec3e8b0bafa0e2f8323"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 2,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 249.375,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 209.3,
+              "diagnosticSha256": "637e86c7185980439ef0f951b74c04219f8ce41c8886f2277acf097044534082",
+              "envelopeLiquidityCap": 1698.89684615625,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "upper_threshold_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "08c8b4de43908f15427e7128a2d320d4a691192c76fc4620fc3270c19d95d9a1",
+              "snapshotTimestampMs": 1700000002000,
+              "stateDigests": {
+                "nextStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 249.375,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 209.3,
+              "diagnosticSha256": "637e86c7185980439ef0f951b74c04219f8ce41c8886f2277acf097044534082",
+              "envelopeLiquidityCap": 1698.89684615625,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "upper_threshold_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "08c8b4de43908f15427e7128a2d320d4a691192c76fc4620fc3270c19d95d9a1",
+              "snapshotTimestampMs": 1700000002000,
+              "stateDigests": {
+                "nextStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeLive": {
+              "askDepth": 249.375,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 209.3,
+              "diagnosticSha256": "637e86c7185980439ef0f951b74c04219f8ce41c8886f2277acf097044534082",
+              "envelopeLiquidityCap": 1698.89684615625,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "upper_threshold_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "08c8b4de43908f15427e7128a2d320d4a691192c76fc4620fc3270c19d95d9a1",
+              "snapshotTimestampMs": 1700000002000,
+              "stateDigests": {
+                "nextStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 249.375,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 209.3,
+              "diagnosticSha256": "637e86c7185980439ef0f951b74c04219f8ce41c8886f2277acf097044534082",
+              "envelopeLiquidityCap": 1698.89684615625,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "upper_threshold_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "08c8b4de43908f15427e7128a2d320d4a691192c76fc4620fc3270c19d95d9a1",
+              "snapshotTimestampMs": 1700000002000,
+              "stateDigests": {
+                "nextStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815",
+                "priorStateSha256": "a4f9d4b595f015d9824f53e668caaf1707cad49e6f68ffad20e38e19e7112d32"
+              },
+              "writeStatus": "unchanged"
+            }
+          }
+        },
+        {
+          "currentTick": 100,
+          "diagnosticHashes": {
+            "evaluationSha256": "fab29f614e3e4288e584e06a5a02ca90582c7627f45408105faf7ab552aae6eb"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 3,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 143.64,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 101.66,
+              "diagnosticSha256": "779879ef9d15a7a96fc8abf61f8f4e27263e4bd83e698a37b61d4a4f9e221e48",
+              "envelopeLiquidityCap": 824.76703090275,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "depth_hysteresis_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "032756753a75727ad40fe13c792f70086b5df70c085c4af1d02132ced7c6119c",
+              "snapshotTimestampMs": 1700000003000,
+              "stateDigests": {
+                "nextStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e",
+                "priorStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815"
+              },
+              "writeStatus": "unchanged"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 143.64,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 101.66,
+              "diagnosticSha256": "779879ef9d15a7a96fc8abf61f8f4e27263e4bd83e698a37b61d4a4f9e221e48",
+              "envelopeLiquidityCap": 824.76703090275,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "depth_hysteresis_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "032756753a75727ad40fe13c792f70086b5df70c085c4af1d02132ced7c6119c",
+              "snapshotTimestampMs": 1700000003000,
+              "stateDigests": {
+                "nextStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e",
+                "priorStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeLive": {
+              "askDepth": 143.64,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 101.66,
+              "diagnosticSha256": "779879ef9d15a7a96fc8abf61f8f4e27263e4bd83e698a37b61d4a4f9e221e48",
+              "envelopeLiquidityCap": 824.76703090275,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "depth_hysteresis_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "032756753a75727ad40fe13c792f70086b5df70c085c4af1d02132ced7c6119c",
+              "snapshotTimestampMs": 1700000003000,
+              "stateDigests": {
+                "nextStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e",
+                "priorStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815"
+              },
+              "writeStatus": "unchanged"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 143.64,
+              "authoredPosition": {
+                "lower_tick_offset": -120,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 120
+              },
+              "bidDepth": 101.66,
+              "diagnosticSha256": "779879ef9d15a7a96fc8abf61f8f4e27263e4bd83e698a37b61d4a4f9e221e48",
+              "envelopeLiquidityCap": 824.76703090275,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "depth_hysteresis_crossed",
+              "selectedDepthBandBps": 240,
+              "selectedWidthTicks": 240,
+              "snapshotSha256": "032756753a75727ad40fe13c792f70086b5df70c085c4af1d02132ced7c6119c",
+              "snapshotTimestampMs": 1700000003000,
+              "stateDigests": {
+                "nextStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e",
+                "priorStateSha256": "8c23074e1dd34d6d6cdc78d4613cc1e8c747a2d223bd869b58329f34bd5af815"
+              },
+              "writeStatus": "unchanged"
+            }
+          }
+        },
+        {
+          "currentTick": 100,
+          "diagnosticHashes": {
+            "evaluationSha256": "ee5b3a8b0faed6e13d31aa54ca3e9082298ea1317a2d4d9b3659d4cbdc331743"
+          },
+          "equivalenceVerdicts": {
+            "conservativeVsCoalesced": true,
+            "liveVsRehydrated": true
+          },
+          "index": 4,
+          "streams": {
+            "coalescedLive": {
+              "askDepth": 31.509,
+              "authoredPosition": {
+                "lower_tick_offset": -70,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 20
+              },
+              "bidDepth": 26.01,
+              "diagnosticSha256": "552fd1d8ab54c60a2392da35dd4641693ec01f8addd152f12b04da88ad00fdd4",
+              "envelopeLiquidityCap": 563.143365876,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "envelope_cap_breached",
+              "selectedDepthBandBps": 90,
+              "selectedWidthTicks": 90,
+              "snapshotSha256": "d956a617a6b4c185bdd496b53607a62fe33e891d6ef9fe42a2a21c5f2ad899a9",
+              "snapshotTimestampMs": 1700000004000,
+              "stateDigests": {
+                "nextStateSha256": "c0fa7b3ec1d9a56369e70d77eb604a499e9b84a2ff0bf79142a2f1a4ed55844c",
+                "priorStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e"
+              },
+              "writeStatus": "updated"
+            },
+            "coalescedRehydrated": {
+              "askDepth": 31.509,
+              "authoredPosition": {
+                "lower_tick_offset": -70,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 20
+              },
+              "bidDepth": 26.01,
+              "diagnosticSha256": "552fd1d8ab54c60a2392da35dd4641693ec01f8addd152f12b04da88ad00fdd4",
+              "envelopeLiquidityCap": 563.143365876,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "envelope_cap_breached",
+              "selectedDepthBandBps": 90,
+              "selectedWidthTicks": 90,
+              "snapshotSha256": "d956a617a6b4c185bdd496b53607a62fe33e891d6ef9fe42a2a21c5f2ad899a9",
+              "snapshotTimestampMs": 1700000004000,
+              "stateDigests": {
+                "nextStateSha256": "c0fa7b3ec1d9a56369e70d77eb604a499e9b84a2ff0bf79142a2f1a4ed55844c",
+                "priorStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e"
+              },
+              "writeStatus": "updated"
+            },
+            "conservativeLive": {
+              "askDepth": 31.509,
+              "authoredPosition": {
+                "lower_tick_offset": -70,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 20
+              },
+              "bidDepth": 26.01,
+              "diagnosticSha256": "552fd1d8ab54c60a2392da35dd4641693ec01f8addd152f12b04da88ad00fdd4",
+              "envelopeLiquidityCap": 563.143365876,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "envelope_cap_breached",
+              "selectedDepthBandBps": 90,
+              "selectedWidthTicks": 90,
+              "snapshotSha256": "d956a617a6b4c185bdd496b53607a62fe33e891d6ef9fe42a2a21c5f2ad899a9",
+              "snapshotTimestampMs": 1700000004000,
+              "stateDigests": {
+                "nextStateSha256": "c0fa7b3ec1d9a56369e70d77eb604a499e9b84a2ff0bf79142a2f1a4ed55844c",
+                "priorStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e"
+              },
+              "writeStatus": "updated"
+            },
+            "conservativeRehydrated": {
+              "askDepth": 31.509,
+              "authoredPosition": {
+                "lower_tick_offset": -70,
+                "rebalance_threshold": 20,
+                "type": "OffsetFromCurrent",
+                "upper_tick_offset": 20
+              },
+              "bidDepth": 26.01,
+              "diagnosticSha256": "552fd1d8ab54c60a2392da35dd4641693ec01f8addd152f12b04da88ad00fdd4",
+              "envelopeLiquidityCap": 563.143365876,
+              "limitingSide": "bid",
+              "positionRebalanceReason": "envelope_cap_breached",
+              "selectedDepthBandBps": 90,
+              "selectedWidthTicks": 90,
+              "snapshotSha256": "d956a617a6b4c185bdd496b53607a62fe33e891d6ef9fe42a2a21c5f2ad899a9",
+              "snapshotTimestampMs": 1700000004000,
+              "stateDigests": {
+                "nextStateSha256": "c0fa7b3ec1d9a56369e70d77eb604a499e9b84a2ff0bf79142a2f1a4ed55844c",
+                "priorStateSha256": "02015120f9d0accc550f802b00fd13dbba3b0a800c4081e31912fa07b8b0121e"
+              },
+              "writeStatus": "updated"
+            }
+          }
+        }
+      ],
+      "isolationEvidence": {
+        "allControllersClosed": true,
+        "distinctBrokerCursors": true,
+        "distinctClocks": true,
+        "distinctControllers": true,
+        "distinctPolicyStores": true,
+        "fetchCounts": {
+          "coalescedLive": 5,
+          "coalescedRehydrated": 5,
+          "conservativeLive": 5,
+          "conservativeRehydrated": 5
+        }
+      },
+      "profileId": "mexc:l2-diff:500",
+      "venue": "mexc"
+    }
+  ],
+  "negativeControls": [
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "0859d3877e653dd7fb73b892f9e75e7a66cee0a938204c7454f27da806773aa9",
+      "observationIndex": 0,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "binance:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "binance"
+    },
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "78b9a02bbd1ee7692dbfe3a241818e3004bbe71a00af410ababcf5a524d1f3a6",
+      "observationIndex": 1,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "binance:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "binance"
+    },
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "a0e5e8f1e39e3aeb0c9a0270cfe05b5e2bf6a26e79df454e1ace6d9c6a31ea75",
+      "observationIndex": 2,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "binance:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "binance"
+    },
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "8dad49b37a101b92bea75f43189eb0c2a834fdc4f2506ef14a8ccf94b0e4b7a1",
+      "observationIndex": 3,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "binance:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "binance"
+    },
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "89e5049b86b0f3fe283c2c83bed7983c88323b92ba9f1136805e2396f9a9fda9",
+      "observationIndex": 4,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "binance:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "binance"
+    },
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "44af0c2863f8d815ffc895e6f820e4a9a7bbeffb3d850e110f1ebc9181d0568f",
+      "observationIndex": 0,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "mexc:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "mexc"
+    },
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "16fa79c0a7b781fec28190600fc56028ff847da59b27b425e69dcfe0bfd13596",
+      "observationIndex": 1,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "mexc:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "mexc"
+    },
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "e29f90c74fce73e38f16e4bd023d868924ca3684477aaa6f97d37a2a99ba104e",
+      "observationIndex": 2,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "mexc:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "mexc"
+    },
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "5b0eb5b784bf652f58bdad8458ddef54f17f90c8898b9feccf4b35063d0f532d",
+      "observationIndex": 3,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "mexc:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "mexc"
+    },
+    {
+      "archiveDepth": 25,
+      "diagnosticSha256": "1d4d7a665a4418766ad7e5d1303d6a8f3ad22f17a053dacf921aa92ddf66f65b",
+      "observationIndex": 4,
+      "policyDepth": 100,
+      "policyEvaluationOccurred": false,
+      "profileId": "mexc:l2-diff:500",
+      "reasonCode": "insufficient_non_exhausted_band_coverage",
+      "selectedWidthTicks": null,
+      "uncoveredBands": [
+        {
+          "bandBps": 50,
+          "sides": [
+            "ask",
+            "bid"
+          ]
+        }
+      ],
+      "venue": "mexc"
+    }
+  ],
+  "policyConfigSha256": "f3deacb076a55dbefdf4ed63657df1e8730628a7d7d80a4b4f62cd06b8df0edf",
+  "schemaVersion": "fiet-maker-immediate-hedgeability/v2",
+  "sourceCexEvidence": {
+    "schemaVersion": "cex-orderbook-coalescing-evidence/v1",
+    "sha256": "aee0c8c5795fd12401d3eff1c5cc0f59ffe8f2559cde6ba4432578bf22dccba0"
+  },
+  "status": "passed"
+}

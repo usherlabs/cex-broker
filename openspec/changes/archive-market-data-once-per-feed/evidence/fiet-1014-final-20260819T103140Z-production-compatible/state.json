@@ -1,0 +1,78 @@
+{
+  "ready": false,
+  "brokerPort": 44201,
+  "feedsReady": [
+    "ORDERBOOK",
+    "TICKER",
+    "TRADES",
+    "OHLCV"
+  ],
+  "marketCapture": {
+    "emittedRows": 18,
+    "feedsObserved": [
+      "ORDERBOOK",
+      "TICKER",
+      "TRADES",
+      "OHLCV"
+    ],
+    "sourceWindow": {
+      "startTimeMs": 1787135466978,
+      "endTimeMs": 1787135766979
+    }
+  },
+  "forwarderHealth": {
+    "status": "ok",
+    "clickhouse": true,
+    "durableAdmission": true,
+    "spool": {
+      "healthy": true,
+      "queuedBatches": 0,
+      "queuedWork": 0,
+      "terminalWork": 0,
+      "expiredWork": 0,
+      "accountedBytes": 0,
+      "oldestAgeMs": 0,
+      "lastErrorClass": "none"
+    }
+  },
+  "brokerObservations": {
+    "collectorSubscriptionCalls": {
+      "ORDERBOOK": 1,
+      "TICKER": 1,
+      "TRADES": 1,
+      "OHLCV": 1
+    },
+    "totalSubscriptionCalls": {
+      "ORDERBOOK": 2,
+      "TICKER": 1,
+      "TRADES": 1,
+      "OHLCV": 1
+    },
+    "externalSubscriptionCalls": {
+      "ORDERBOOK": 1,
+      "TICKER": 0,
+      "TRADES": 0,
+      "OHLCV": 0
+    },
+    "physicalWorkers": {
+      "ORDERBOOK": 1,
+      "TICKER": 1,
+      "TRADES": 1,
+      "OHLCV": 1
+    },
+    "physicalFrames": {
+      "ORDERBOOK": 2,
+      "TICKER": 1,
+      "TRADES": 1,
+      "OHLCV": 2
+    },
+    "archiveDecisions": {
+      "ORDERBOOK": 2,
+      "TICKER": 1,
+      "TRADES": 1,
+      "OHLCV": 3
+    },
+    "orderBookSnapshotCalls": 1
+  },
+  "stopped": true
+}

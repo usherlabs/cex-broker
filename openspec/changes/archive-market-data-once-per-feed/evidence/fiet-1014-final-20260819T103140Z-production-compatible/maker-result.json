@@ -1,0 +1,112 @@
+{
+  "artifactHashes": {
+    "hummingbotBroker": {
+      "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-hummingbot-sidecar-broker.json",
+      "sha256": "01d477740b5da815f784b469571b8fef0bd793e9e65c85c90a9882e97e1af6f9"
+    },
+    "hummingbotGate": {
+      "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-hummingbot-layer12-gate.log",
+      "sha256": "6566837a250f43ddec4888c2b2cd3c763c475873ff7c7ed209cc6586ed583f88"
+    },
+    "immediateHedgeability": {
+      "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-immediate-hedgeability-v2.json",
+      "sha256": "cf0bdcd5fb46576e09394189ab8a0997f095f595553412eaeee32bca486a3007"
+    },
+    "immediateHedgeabilityPolicyConfig": {
+      "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-cex-orderbook-policy-config.json",
+      "sha256": "f3deacb076a55dbefdf4ed63657df1e8730628a7d7d80a4b4f62cd06b8df0edf"
+    }
+  },
+  "candidateSha": "da1dd5282e899448b82bca858bbe2d6d824f167e",
+  "delivery": {
+    "acceptedRows": 5,
+    "httpStatus": 202,
+    "spoolQueuedAfter": 0,
+    "spoolQueuedBefore": 0
+  },
+  "deploymentId": "sidecar-fiet-1014-final-20260819T103140Z-production-compatible",
+  "makerSha": "be91c208662daf46fa6767b133b08fe317f39809",
+  "producerId": "hb_runtime:sidecar-fiet-1014-final-20260819T103140Z-production-compatible:cex-sidecar-conformance",
+  "producerRunId": "fiet-1014-final-20260819T103140Z-production-compatible",
+  "profile": "production_compatible",
+  "profileEvidence": {
+    "brokerBoundaryObserved": true,
+    "brokerObservation": {
+      "askLevels": 2,
+      "bidLevels": 2,
+      "boundary": "external_sidecar_broker",
+      "brokerUrl": "127.0.0.1:44201",
+      "connector": "fiet_cex",
+      "dataSourceClass": "FietCexOrderBookDataSource",
+      "exchange": "binance",
+      "layer12BestAsk": "40001.25",
+      "layer12BestBid": "40000.125",
+      "layer12Boundary": "layer12_live_reference_depth",
+      "layer12ControllerClass": "Layer12LiveController",
+      "layer12ControllerId": "layer12-live-production-example",
+      "layer12DepthBandsBps": [
+        10,
+        50
+      ],
+      "schemaVersion": "fiet-hummingbot-external-sidecar-broker/v1",
+      "status": "passed",
+      "tradingPair": "BTC-USDT"
+    },
+    "controllerName": "layer12_live",
+    "gateCommand": [
+      "bash",
+      "/home/azureuser/ao-repos/fiet-maker-develop/scripts/sandbox/run-hummingbot-v2.13-compatibility-gate.sh",
+      "--controller-config-path",
+      "/home/azureuser/ao-repos/fiet-maker-develop/periphery/hb-connector/config/hummingbot/layer12_live.yml",
+      "--external-broker-url",
+      "127.0.0.1:44201",
+      "--external-broker-evidence-path",
+      "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-hummingbot-sidecar-broker.json"
+    ],
+    "immediateHedgeability": {
+      "path": "maker-immediate-hedgeability-v2.json",
+      "schemaVersion": "fiet-maker-immediate-hedgeability-attachment/v1",
+      "sha256": "cf0bdcd5fb46576e09394189ab8a0997f095f595553412eaeee32bca486a3007"
+    },
+    "makerCheckout": {
+      "branch": "develop",
+      "clean": true,
+      "fixtureSha256": "5c9fd679a5a05ebce5f5158f4cc376360f24a34d9a07edeee43e94e564db3ee7",
+      "originDevelopSha": "be91c208662daf46fa6767b133b08fe317f39809",
+      "pr1067Ancestor": true,
+      "sha": "be91c208662daf46fa6767b133b08fe317f39809",
+      "wireContractTests": {
+        "command": [
+          "uv",
+          "run",
+          "--project",
+          "packages/hb-maker-shared",
+          "pytest",
+          "-q",
+          "packages/hb-maker-shared/tests/test_archive_forwarder_contract.py",
+          "packages/hb-maker-shared/tests/test_archive_emitter.py",
+          "packages/hb-maker-shared/tests/test_strategy_archive_replay.py"
+        ],
+        "exitCode": 0,
+        "tests": [
+          "packages/hb-maker-shared/tests/test_archive_forwarder_contract.py",
+          "packages/hb-maker-shared/tests/test_archive_emitter.py",
+          "packages/hb-maker-shared/tests/test_strategy_archive_replay.py"
+        ]
+      }
+    },
+    "ordersDisarmed": true,
+    "runtime": "hummingbot_v2.13_layer12_live"
+  },
+  "runId": "fiet-1014-final-20260819T103140Z-production-compatible",
+  "schemaVersion": "fiet-maker-cex-sidecar-conformance/v1",
+  "source": "hb_runtime",
+  "status": "passed",
+  "tableRows": {
+    "strategy_data.inventory_settlement_events": 1,
+    "strategy_data.market_identity": 1,
+    "strategy_data.policy_evaluation_events": 1,
+    "strategy_data.strategy_policy_snapshots": 1,
+    "strategy_data.symbol_mapping": 1
+  }
+}
