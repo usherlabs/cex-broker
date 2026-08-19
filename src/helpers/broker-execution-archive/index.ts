@@ -7,6 +7,12 @@ export {
 	captureMarketMetadataSnapshotInBackground,
 } from "./capture";
 export {
+	DeadLetterJournalExportError,
+	type DeadLetterJournalExportResult,
+	exportDeadLetterJournal,
+	exportDeadLetterJournalFromEnv,
+} from "./journal-export";
+export {
 	hashMarketMetadata,
 	redactErrorForArchive,
 	redactSecretLiterals,
