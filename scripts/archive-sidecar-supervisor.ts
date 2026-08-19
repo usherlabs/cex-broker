@@ -180,8 +180,7 @@ async function main(): Promise<void> {
 				ARCHIVE_FORWARDER_PORT: url.port,
 				ARCHIVE_FORWARDER_TOKEN: secret,
 				ARCHIVE_FORWARDER_SPOOL_PATH: manifest.spoolPath,
-				CLICKHOUSE_HOST: new URL(manifest.clickhouseUrl).hostname,
-				CLICKHOUSE_PORT: new URL(manifest.clickhouseUrl).port,
+				CLICKHOUSE_URL: manifest.clickhouseUrl,
 				CLICKHOUSE_USER: "default",
 				CLICKHOUSE_PASSWORD: secret,
 				// Schema statements create and address fully qualified databases. Connecting
