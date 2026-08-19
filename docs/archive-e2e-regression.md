@@ -79,6 +79,28 @@ The suite also contains a permanent source-surface regression check. It fails
 if removed write-mode, credential-policy, credential-profile, attestation, or
 smoke-secret controls return to executable code, workflows, or operator docs.
 
+## FIET-1014 CEX Proof A
+
+The ORDERBOOK gate uses the production `MarketDataCollector` and the same
+five-observation depth-100 tape for conservative and explicitly candidate-enabled
+Binance/MEXC compositions. Bid and ask quantities change materially across the
+tape. The gate compares ordered logical payloads, canonical archive outcomes,
+price-band coverage, ClickHouse-rehydrated inputs, and physical work, while a
+separate 25-level case must fail replay sufficiency. It exports CEX input facts
+only; Layer 12 policy outputs belong to FIET Maker Proof B.
+
+Generate the deterministic pack with:
+
+```sh
+bun run archive:proof-a -- /absolute/path/cex-orderbook-coalescing-evidence.json
+```
+
+The file is `canonicalSerialize` UTF-8 JSON followed by exactly one LF. SHA-256
+is computed over the complete file bytes; the document has no self-hash or
+run/host/path/time metadata. The active change includes a generated sample for
+the Maker handshake. Candidate profiles remain disabled in ordinary runtime
+configuration regardless of whether this evidence file exists.
+
 ## Canonical-upgrade baseline and A/B acceptance
 
 The immutable canonical-upgrade baseline derived from the authoritative

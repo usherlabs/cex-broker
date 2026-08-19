@@ -2,14 +2,26 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:net";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve, sep } from "node:path";
 import { createClient } from "@clickhouse/client";
 import {
 	CHECKSUM_ALGORITHM,
 	MARKET_CAPTURE_SCHEMA_VERSION,
 } from "../src/helpers/market-data-archive/capture-contract";
+import {
+	serializeCexOrderBookCoalescingEvidence,
+	validateCexOrderBookCoalescingEvidence,
+} from "../src/helpers/public-market-data-feed";
+import { runAndWriteCexOrderBookCoalescingProofA } from "../test/e2e/archive/support/orderbook-equivalence";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "..");
 const BASELINE_SHA = "7a83de5f29a08f42d81f64a75a83bc9318dce94a";
@@ -67,6 +79,7 @@ export type SidecarManifest = {
 	producerAccessPath: string;
 	makerResultPath: string;
 	referenceExportPath: string;
+	cexEvidencePath: string;
 	containerName: string;
 	clickhouseUrl: string;
 	forwarderUrl: string;
@@ -105,6 +118,9 @@ type SidecarState = {
 		collectorSubscriptionCalls: Record<string, number>;
 		totalSubscriptionCalls: Record<string, number>;
 		externalSubscriptionCalls: Record<string, number>;
+		physicalWorkers: Record<string, number>;
+		physicalFrames: Record<string, number>;
+		archiveDecisions: Record<string, number>;
 		orderBookSnapshotCalls: number;
 	};
 	referenceExport?: Record<string, unknown>;
@@ -153,6 +169,7 @@ const MANIFEST_KEYS = new Set([
 	"producerAccessPath",
 	"makerResultPath",
 	"referenceExportPath",
+	"cexEvidencePath",
 	"containerName",
 	"clickhouseUrl",
 	"forwarderUrl",
@@ -333,6 +350,7 @@ export function validateSidecarManifest(value: unknown): SidecarManifest {
 		"producerAccessPath",
 		"makerResultPath",
 		"referenceExportPath",
+		"cexEvidencePath",
 	]) {
 		if (!isAbsolute(requiredString(record, key)))
 			throw new SidecarUsageError(`${key} must be absolute`);
@@ -353,6 +371,7 @@ export function validateSidecarManifest(value: unknown): SidecarManifest {
 		producerAccessPath: "producer-access.json",
 		makerResultPath: "maker-result.json",
 		referenceExportPath: "reference-export.json",
+		cexEvidencePath: "cex-orderbook-coalescing-evidence.json",
 	};
 	for (const [key, filename] of Object.entries(ownedPaths)) {
 		if (requiredString(record, key) !== join(artifactsDir, filename)) {
@@ -436,7 +455,306 @@ export function validateSidecarManifest(value: unknown): SidecarManifest {
 	return record as SidecarManifest;
 }
 
-export function validateMakerSidecarResult(value: unknown): MakerSidecarResult {
+const FORBIDDEN_MAKER_PROOF_B_FIELDS = new Set([
+	"sharedObservation",
+	"logicalDeliveries",
+	"physicalWatches",
+	"archiveDecisions",
+	"logicalPayloadsEqual",
+	"canonicalArchiveEqual",
+]);
+
+type MakerProofBundleContext = {
+	artifactsDir: string;
+	cexEvidencePath: string;
+};
+
+function assertNoForbiddenMakerProofFields(
+	value: unknown,
+	path = "Maker Proof B",
+): void {
+	if (!value || typeof value !== "object") return;
+	if (Array.isArray(value)) {
+		for (let index = 0; index < value.length; index += 1) {
+			assertNoForbiddenMakerProofFields(value[index], `${path}[${index}]`);
+		}
+		return;
+	}
+	for (const [key, nested] of Object.entries(
+		value as Record<string, unknown>,
+	)) {
+		if (FORBIDDEN_MAKER_PROOF_B_FIELDS.has(key)) {
+			throw new SidecarUsageError(
+				`Maker Proof B contains forbidden CEX-owned field ${path}.${key}`,
+			);
+		}
+		assertNoForbiddenMakerProofFields(nested, `${path}.${key}`);
+	}
+}
+
+function hasSha256(value: unknown): boolean {
+	if (typeof value === "string") return /^[0-9a-f]{64}$/.test(value);
+	if (!value || typeof value !== "object") return false;
+	return Object.values(value as Record<string, unknown>).some(hasSha256);
+}
+
+function validateMakerEvaluationOutput(value: unknown, label: string): void {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		throw new SidecarUsageError(`${label} must be an object`);
+	}
+	const output = value as Record<string, unknown>;
+	for (const key of ["bidDepth", "askDepth", "envelopeLiquidityCap"] as const) {
+		if (!Number.isFinite(output[key]) || Number(output[key]) < 0) {
+			throw new SidecarUsageError(`${label}.${key} is invalid`);
+		}
+	}
+	if (
+		output.limitingSide !== "bid" &&
+		output.limitingSide !== "ask" &&
+		output.limitingSide !== "balanced"
+	) {
+		throw new SidecarUsageError(`${label}.limitingSide is invalid`);
+	}
+	if (
+		!Number.isSafeInteger(output.selectedWidthTicks) ||
+		Number(output.selectedWidthTicks) < 1 ||
+		!output.authoredPosition ||
+		typeof output.authoredPosition !== "object" ||
+		typeof output.positionRebalanceReason !== "string" ||
+		!output.positionRebalanceReason
+	) {
+		throw new SidecarUsageError(`${label} lacks Layer 12 policy outputs`);
+	}
+}
+
+function validateMakerProofB(
+	value: unknown,
+	expectedCexSha256: string,
+): Record<string, unknown> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		throw new SidecarUsageError("Maker Proof B must be an object");
+	}
+	assertNoForbiddenMakerProofFields(value);
+	const proof = value as Record<string, unknown>;
+	if (
+		proof.schemaVersion !== "fiet-maker-immediate-hedgeability/v2" ||
+		proof.status !== "passed"
+	) {
+		throw new SidecarUsageError("Maker Proof B did not pass the v2 schema");
+	}
+	const source = proof.sourceCexEvidence as Record<string, unknown> | undefined;
+	if (
+		source?.schemaVersion !== "cex-orderbook-coalescing-evidence/v1" ||
+		source.sha256 !== expectedCexSha256
+	) {
+		throw new SidecarUsageError(
+			"Maker Proof B is not bound to the current CEX Proof A",
+		);
+	}
+	if (
+		typeof proof.policyConfigSha256 !== "string" ||
+		!/^[0-9a-f]{64}$/.test(proof.policyConfigSha256) ||
+		!hasSha256(proof.artifactHashes)
+	) {
+		throw new SidecarUsageError(
+			"Maker Proof B lacks policy or artifact hash evidence",
+		);
+	}
+	if (!Array.isArray(proof.cases) || proof.cases.length !== 2) {
+		throw new SidecarUsageError(
+			"Maker Proof B must contain exactly one Binance and MEXC case",
+		);
+	}
+	const venues = new Set<string>();
+	for (const [caseIndex, caseValue] of proof.cases.entries()) {
+		if (
+			!caseValue ||
+			typeof caseValue !== "object" ||
+			Array.isArray(caseValue)
+		) {
+			throw new SidecarUsageError(`Maker Proof B case ${caseIndex} is invalid`);
+		}
+		const proofCase = caseValue as Record<string, unknown>;
+		const venue = proofCase.venue;
+		if (
+			(venue !== "binance" && venue !== "mexc") ||
+			venues.has(venue) ||
+			proofCase.profileId !== `${venue}:l2-diff:500`
+		) {
+			throw new SidecarUsageError(
+				"Maker Proof B venue/profile cases are invalid or duplicated",
+			);
+		}
+		venues.add(venue);
+		if (
+			!Array.isArray(proofCase.evaluations) ||
+			proofCase.evaluations.length < 1 ||
+			!hasSha256(proofCase.diagnosticHashes)
+		) {
+			throw new SidecarUsageError(
+				`Maker Proof B ${venue} case lacks evaluation/hash evidence`,
+			);
+		}
+		const caseVerdicts = proofCase.equivalenceVerdicts as
+			| Record<string, unknown>
+			| undefined;
+		if (
+			caseVerdicts?.liveVsRehydrated !== true ||
+			caseVerdicts.conservativeVsCoalesced !== true
+		) {
+			throw new SidecarUsageError(
+				`Maker Proof B ${venue} equivalence verdict did not pass`,
+			);
+		}
+		for (let index = 0; index < proofCase.evaluations.length; index += 1) {
+			const evaluation = proofCase.evaluations[index] as
+				| Record<string, unknown>
+				| undefined;
+			const streams = evaluation?.streams as
+				| Record<string, unknown>
+				| undefined;
+			if (
+				evaluation?.index !== index ||
+				!streams ||
+				Object.keys(streams).sort().join(",") !==
+					[
+						"conservativeLive",
+						"conservativeRehydrated",
+						"coalescedLive",
+						"coalescedRehydrated",
+					]
+						.sort()
+						.join(",") ||
+				!hasSha256(evaluation.diagnosticHashes)
+			) {
+				throw new SidecarUsageError(
+					`Maker Proof B ${venue} evaluation ${index} is incomplete`,
+				);
+			}
+			const verdicts = evaluation.equivalenceVerdicts as
+				| Record<string, unknown>
+				| undefined;
+			if (
+				verdicts?.liveVsRehydrated !== true ||
+				verdicts.conservativeVsCoalesced !== true
+			) {
+				throw new SidecarUsageError(
+					`Maker Proof B ${venue} evaluation ${index} did not pass`,
+				);
+			}
+			for (const [stream, output] of Object.entries(streams)) {
+				validateMakerEvaluationOutput(
+					output,
+					`Maker Proof B ${venue} evaluation ${index}.${stream}`,
+				);
+			}
+		}
+	}
+	if (!venues.has("binance") || !venues.has("mexc")) {
+		throw new SidecarUsageError(
+			"Maker Proof B must contain exactly one Binance and MEXC case",
+		);
+	}
+	return proof;
+}
+
+async function resolveRunOwnedAttachment(
+	path: string,
+	artifactsDir: string,
+): Promise<string> {
+	const root = resolve(artifactsDir);
+	const candidate = resolve(root, path);
+	if (candidate === root || !candidate.startsWith(`${root}${sep}`)) {
+		throw new SidecarUsageError(
+			"Maker Proof B attachment path is not run-owned",
+		);
+	}
+	const [realRoot, realCandidate] = await Promise.all([
+		realpath(root),
+		realpath(candidate),
+	]);
+	if (
+		realCandidate === realRoot ||
+		!realCandidate.startsWith(`${realRoot}${sep}`)
+	) {
+		throw new SidecarUsageError(
+			"Maker Proof B attachment path is not run-owned",
+		);
+	}
+	return realCandidate;
+}
+
+async function validateMakerProofBundle(
+	descriptorValue: unknown,
+	context: MakerProofBundleContext,
+): Promise<{
+	proofASha256: string;
+	proofBSha256: string;
+	proofBPath: string;
+	proofA: Record<string, unknown>;
+	proofB: Record<string, unknown>;
+}> {
+	if (
+		!descriptorValue ||
+		typeof descriptorValue !== "object" ||
+		Array.isArray(descriptorValue)
+	) {
+		throw new SidecarUsageError(
+			"Maker Proof B attachment descriptor is absent",
+		);
+	}
+	const descriptor = descriptorValue as Record<string, unknown>;
+	if (
+		Object.keys(descriptor).sort().join(",") !==
+			["schemaVersion", "path", "sha256"].sort().join(",") ||
+		descriptor.schemaVersion !==
+			"fiet-maker-immediate-hedgeability-attachment/v1" ||
+		typeof descriptor.path !== "string" ||
+		typeof descriptor.sha256 !== "string" ||
+		!/^[0-9a-f]{64}$/.test(descriptor.sha256)
+	) {
+		throw new SidecarUsageError(
+			"Maker Proof B attachment descriptor is invalid",
+		);
+	}
+	const proofBPath = await resolveRunOwnedAttachment(
+		descriptor.path,
+		context.artifactsDir,
+	);
+	const proofBBytes = await readFile(proofBPath);
+	const proofBSha256 = createHash("sha256").update(proofBBytes).digest("hex");
+	if (proofBSha256 !== descriptor.sha256) {
+		throw new SidecarUsageError("Maker Proof B attachment SHA-256 is invalid");
+	}
+	const cexBytes = await readFile(context.cexEvidencePath);
+	const cexEvidence = validateCexOrderBookCoalescingEvidence(
+		JSON.parse(cexBytes.toString("utf8")),
+	);
+	if (
+		!Buffer.from(serializeCexOrderBookCoalescingEvidence(cexEvidence)).equals(
+			cexBytes,
+		)
+	) {
+		throw new SidecarUsageError("Current CEX Proof A bytes are not canonical");
+	}
+	const proofASha256 = createHash("sha256").update(cexBytes).digest("hex");
+	const proofB = validateMakerProofB(
+		JSON.parse(proofBBytes.toString("utf8")),
+		proofASha256,
+	);
+	return {
+		proofASha256,
+		proofBSha256,
+		proofBPath,
+		proofA: cexEvidence as unknown as Record<string, unknown>,
+		proofB,
+	};
+}
+
+export async function validateMakerSidecarResult(
+	value: unknown,
+	context?: MakerProofBundleContext,
+): Promise<MakerSidecarResult> {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
 		throw new SidecarUsageError("Maker result must be an object");
 	}
@@ -514,6 +832,11 @@ export function validateMakerSidecarResult(value: unknown): MakerSidecarResult {
 	) {
 		throw new SidecarUsageError("Native replay must not use the durable spool");
 	}
+	if (profile === "production_compatible" && delivery.spoolQueuedAfter !== 0) {
+		throw new SidecarUsageError(
+			"Production-compatible Maker result does not prove spool drainage",
+		);
+	}
 	const tableRows = result.tableRows as Record<string, unknown> | undefined;
 	if (
 		!tableRows ||
@@ -555,6 +878,15 @@ export function validateMakerSidecarResult(value: unknown): MakerSidecarResult {
 				"Production-compatible evidence lacks the real Layer12 broker path",
 			);
 		}
+		if (!context) {
+			throw new SidecarUsageError(
+				"Production-compatible verification requires current CEX Proof A context",
+			);
+		}
+		await validateMakerProofBundle(
+			profileEvidence.immediateHedgeability,
+			context,
+		);
 	} else {
 		const consumer = profileEvidence.consumer as
 			| Record<string, unknown>
@@ -751,6 +1083,11 @@ async function up(invocation: UpInvocation): Promise<SidecarManifest> {
 		if (error instanceof SidecarUsageError) throw error;
 	}
 	await mkdir(artifactsDir, { recursive: true, mode: 0o700 });
+	const cexEvidencePath = join(
+		artifactsDir,
+		"cex-orderbook-coalescing-evidence.json",
+	);
+	await runAndWriteCexOrderBookCoalescingProofA(cexEvidencePath);
 	const safeId = invocation.runId
 		.replaceAll(/[^A-Za-z0-9_.-]/g, "-")
 		.slice(0, 50);
@@ -822,6 +1159,7 @@ async function up(invocation: UpInvocation): Promise<SidecarManifest> {
 			producerAccessPath: ephemeralPaths.producerAccessPath,
 			makerResultPath: join(artifactsDir, "maker-result.json"),
 			referenceExportPath: join(artifactsDir, "reference-export.json"),
+			cexEvidencePath,
 			containerName,
 			clickhouseUrl: `http://127.0.0.1:${port}`,
 			forwarderUrl: `http://127.0.0.1:${forwarderPort}/archive`,
@@ -900,9 +1238,27 @@ async function verify(
 	});
 	let result: Record<string, unknown>;
 	try {
-		const makerResult = validateMakerSidecarResult(
-			JSON.parse(await readFile(manifest.makerResultPath, "utf8")),
-		);
+		const makerResultValue = JSON.parse(
+			await readFile(manifest.makerResultPath, "utf8"),
+		) as Record<string, unknown>;
+		const proofBundle =
+			manifest.profile === "production_compatible"
+				? await validateMakerProofBundle(
+						(
+							makerResultValue.profileEvidence as
+								| Record<string, unknown>
+								| undefined
+						)?.immediateHedgeability,
+						{
+							artifactsDir: manifest.artifactsDir,
+							cexEvidencePath: manifest.cexEvidencePath,
+						},
+					)
+				: undefined;
+		const makerResult = await validateMakerSidecarResult(makerResultValue, {
+			artifactsDir: manifest.artifactsDir,
+			cexEvidencePath: manifest.cexEvidencePath,
+		});
 		if (
 			makerResult.runId !== manifest.runId ||
 			makerResult.profile !== manifest.profile ||
@@ -953,7 +1309,8 @@ async function verify(
 					Number(
 						state.brokerObservations?.externalSubscriptionCalls.ORDERBOOK ?? 0,
 					) >= 1 &&
-					Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) >= 1
+					Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) >= 1 &&
+					Number(state.brokerObservations?.archiveDecisions.ORDERBOOK ?? 0) >= 1
 				) {
 					break;
 				}
@@ -963,10 +1320,17 @@ async function verify(
 				Number(
 					state.brokerObservations?.externalSubscriptionCalls.ORDERBOOK ?? 0,
 				) < 1 ||
-				Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) < 1
+				Number(state.brokerObservations?.orderBookSnapshotCalls ?? 0) < 1 ||
+				Number(
+					state.brokerObservations?.totalSubscriptionCalls.ORDERBOOK ?? 0,
+				) < 2 ||
+				Number(state.brokerObservations?.physicalWorkers.ORDERBOOK ?? 0) !==
+					1 ||
+				Number(state.brokerObservations?.physicalFrames.ORDERBOOK ?? 0) !==
+					Number(state.brokerObservations?.archiveDecisions.ORDERBOOK ?? -1)
 			) {
 				throw new Error(
-					"Production-compatible Maker Layer12 broker observations were not recorded",
+					"Production-compatible Maker Layer12 shared-feed observations were not recorded",
 				);
 			}
 		}
@@ -1026,7 +1390,58 @@ async function verify(
 				path: manifest.makerResultPath,
 				sha256: await sha256File(manifest.makerResultPath),
 			},
+			...(proofBundle
+				? {
+						cexProofA: {
+							path: manifest.cexEvidencePath,
+							sha256: proofBundle.proofASha256,
+						},
+						makerProofB: {
+							path: proofBundle.proofBPath,
+							sha256: proofBundle.proofBSha256,
+						},
+					}
+				: {}),
 		};
+		const proofC =
+			manifest.profile === "production_compatible"
+				? {
+						schemaVersion: "cex-maker-sidecar-proof-c/v1",
+						status: "passed",
+						venue: "binance",
+						profileId: "binance:l2-diff:500",
+						logicalSubscriptions: {
+							collector: Number(
+								state.brokerObservations?.collectorSubscriptionCalls
+									.ORDERBOOK ?? 0,
+							),
+							maker: Number(
+								state.brokerObservations?.externalSubscriptionCalls.ORDERBOOK ??
+									0,
+							),
+							total: Number(
+								state.brokerObservations?.totalSubscriptionCalls.ORDERBOOK ?? 0,
+							),
+						},
+						physical: {
+							workers: Number(
+								state.brokerObservations?.physicalWorkers.ORDERBOOK ?? 0,
+							),
+							frames: Number(
+								state.brokerObservations?.physicalFrames.ORDERBOOK ?? 0,
+							),
+							archiveDecisions: Number(
+								state.brokerObservations?.archiveDecisions.ORDERBOOK ?? 0,
+							),
+						},
+						durableDelivery: {
+							httpStatus: makerResult.delivery.httpStatus,
+							spoolQueuedAfter: makerResult.delivery.spoolQueuedAfter,
+							marketCounts,
+							strategyCounts,
+						},
+					}
+				: undefined;
 		result = {
 			schemaVersion: "cex-archive-sidecar-verification/v1",
 			status: "passed",
@@ -1066,6 +1481,23 @@ async function verify(
 				makerResult,
 				brokerObservations: state.brokerObservations,
 				exportArtifacts,
+				...(proofBundle && proofC
+					? {
+							proofs: {
+								proofA: {
+									schemaVersion: proofBundle.proofA.schemaVersion,
+									sha256: proofBundle.proofASha256,
+									status: "passed",
+								},
+								proofB: {
+									schemaVersion: proofBundle.proofB.schemaVersion,
+									sha256: proofBundle.proofBSha256,
+									status: "passed",
+								},
+								proofC,
+							},
+						}
+					: {}),
 			},
 			artifactHashes: evidenceArtifactHashes,
 			commands: manifest.commands,

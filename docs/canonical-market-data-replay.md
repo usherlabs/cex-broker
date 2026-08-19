@@ -52,6 +52,8 @@ Run it with `bun run start-market-data-collector`. The collector starts no loopb
 
 Each entry has an independent reconnect supervisor and health state. OHLCV retains bootstrap/catch-up and stamps `broker_bootstrap_fetch_v1` separately from live capture. ORDERBOOK, TICKER, and TRADES record unrecoverable gaps after reconnect rather than synthesize missing events.
 
+The collector is the coverage/liveness subscriber, not the owner of a duplicate-prevention rule. A broker runtime owns canonical public workers and archives an accepted physical observation once before fanout. ORDERBOOK depth is first resolved to a venue acquisition profile and then projected per subscriber. Binance/MEXC 500-level profiles are candidates only: the production enabled-profile set is empty, controlled verification enables them explicitly, and evidence artifacts cannot toggle runtime behavior. Replay intended for Maker must configure archive depth at least to the policy depth (100 in the FIET-1014 gate) and still prove that retained bid/ask boundaries cross every required price band; the ordinary depth 25 is not sufficient merely because rows exist.
+
 An external CCXT or Hummingbot fallback is an optional out-of-band producer of the shared capture contract, not a broker-collector implementation. It must declare its provider, versioned fallback source mode, reason, configured exchange, and configured pair. Cross-venue or cross-pair substitution is rejected.
 
 ## Capture and integrity contract

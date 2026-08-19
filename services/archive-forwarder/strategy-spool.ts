@@ -354,10 +354,12 @@ export class StrategyArchiveSpool {
 	}
 
 	public expire(): number {
-		const transaction = this.database.transaction(() =>
-			this.deleteExpired(this.now()),
-		);
-		return transaction.immediate();
+		let expired = 0;
+		const transaction = this.database.transaction(() => {
+			expired = this.deleteExpired(this.now());
+		});
+		transaction.immediate();
+		return expired;
 	}
 
 	public stats(): StrategySpoolStats {

@@ -16,6 +16,12 @@ import {
 	createRawCapture,
 	sha256Canonical,
 } from "../../../../src/helpers/market-data-archive/capture-contract";
+import {
+	type PublicFeedObservation,
+	type PublicMarketDataFeedObserver,
+	PublicMarketDataFeedSupervisor,
+	type PublicMarketDataSubscription,
+} from "../../../../src/helpers/public-market-data-feed";
 import { getServer } from "../../../../src/server";
 import type { PolicyConfig } from "../../../../src/types";
 import {
@@ -61,7 +67,8 @@ type FailureKind = "blocked" | "recoverable" | "terminal";
 const DEPLOYMENT_ID = "archive-e2e-baseline";
 const CAPTURE_BUNDLE_ID = "archive-e2e-four-feed-v1";
 const AUTH_TOKEN = "archive-e2e-local-token";
-const EXPECTED_ENQUEUED = 15;
+const EXPECTED_ENQUEUED = 18;
+const CONTROLLED_ORDER_BOOK_PROFILE_IDS = new Set(["binance:l2-diff:500"]);
 const BASELINE_INPUT_PATH = new URL(
 	"../fixtures/archive-baseline-input-v1.json",
 	import.meta.url,
@@ -85,7 +92,7 @@ const SUBSCRIPTIONS: MarketDataSubscription[] = [
 		symbol: "BTC/USDT",
 		feed: "OHLCV",
 		timeframe: "1m",
-		bootstrapLimit: 0,
+		bootstrapLimit: 100,
 	},
 ];
 const ARCHIVE_ENV_KEYS = [
@@ -123,7 +130,6 @@ function withDeadline<T>(
 
 class FeedQueue {
 	private calls = 0;
-	private replayBudget = 0;
 	private closed = false;
 	private hasLastValue = false;
 	private lastValue: unknown;
@@ -146,10 +152,6 @@ class FeedQueue {
 			if (this.calls >= waiter.count) waiter.barrier.resolve();
 			else this.callWaiters.push(waiter);
 		}
-		if (this.replayBudget > 0 && this.hasLastValue) {
-			this.replayBudget -= 1;
-			return Promise.resolve(this.lastValue);
-		}
 		return new Promise((resolve, reject) => {
 			this.pending.push({ resolve, reject });
 		});
@@ -162,10 +164,15 @@ class FeedQueue {
 		return barrier.promise;
 	}
 
-	public armReplay(count = 1): void {
+	public releaseLatest(): void {
 		if (!this.hasLastValue)
-			throw new Error("feed replay armed before a captured value exists");
-		this.replayBudget = Math.max(this.replayBudget, count);
+			throw new Error("feed latest value released before capture");
+		const waiter = this.pending.shift();
+		if (!waiter)
+			throw new Error(
+				"feed latest value released before the next watch started",
+			);
+		waiter.resolve(this.lastValue);
 	}
 
 	public callCount(): number {
@@ -203,7 +210,7 @@ class ControlledExchange {
 		PUBLIC_FEEDS.map((feed) => [feed, new FeedQueue()] as const),
 	);
 	private orderBookSnapshotCalls = 0;
-	public readonly has = { fetchOHLCV: false, fetchOrderBook: true };
+	public readonly has = { fetchOHLCV: true, fetchOrderBook: true };
 	public readonly watchOrderBook = this.feed("ORDERBOOK").watch;
 	public readonly watchTicker = this.feed("TICKER").watch;
 	public readonly watchTrades = this.feed("TRADES").watch;
@@ -217,8 +224,8 @@ class ControlledExchange {
 		this.feed(feed).release(value);
 	}
 
-	public armExternalReplay(): void {
-		for (const feed of this.feeds.values()) feed.armReplay();
+	public releaseLatest(feed: PublicFeed): void {
+		this.feed(feed).releaseLatest();
 	}
 
 	public callCounts(): Record<PublicFeed, number> {
@@ -242,6 +249,10 @@ class ControlledExchange {
 		return orderBook.latest();
 	};
 
+	public fetchOHLCV = async (): Promise<unknown> => [
+		[1_699_999_980_000, 39_990, 40_000, 39_980, 39_995, 10, 399_950],
+	];
+
 	public orderBookSnapshotCallCount(): number {
 		return this.orderBookSnapshotCalls;
 	}
@@ -254,6 +265,63 @@ class ControlledExchange {
 		const queue = this.feeds.get(feed);
 		if (!queue) throw new Error(`Unknown controlled feed ${feed}`);
 		return queue;
+	}
+}
+
+class PublicFeedProbe implements PublicMarketDataFeedObserver {
+	private readonly attached = new Map<PublicFeed, number>();
+	private readonly workers = new Map<PublicFeed, number>();
+	private readonly physicalFrames = new Map<PublicFeed, number>();
+	private readonly archiveDecisions = new Map<PublicFeed, number>();
+	private readonly sharedAttachActions = new Map<PublicFeed, () => void>();
+
+	public workerStarted = (observation: PublicFeedObservation): void => {
+		this.increment(this.workers, observation.feed);
+	};
+
+	public subscriberAttached = (observation: PublicFeedObservation): void => {
+		this.increment(this.attached, observation.feed);
+		if (observation.subscriberCount < 2) return;
+		const action = this.sharedAttachActions.get(observation.feed);
+		if (!action) return;
+		this.sharedAttachActions.delete(observation.feed);
+		queueMicrotask(action);
+	};
+
+	public physicalFrame = (observation: PublicFeedObservation): void => {
+		this.increment(this.physicalFrames, observation.feed);
+	};
+
+	public archiveDecision = (observation: PublicFeedObservation): void => {
+		this.increment(this.archiveDecisions, observation.feed);
+	};
+
+	public releaseOnSharedAttach(feed: PublicFeed, action: () => void): void {
+		this.sharedAttachActions.set(feed, action);
+	}
+
+	public counts(): {
+		attached: Record<PublicFeed, number>;
+		workers: Record<PublicFeed, number>;
+		physicalFrames: Record<PublicFeed, number>;
+		archiveDecisions: Record<PublicFeed, number>;
+	} {
+		return {
+			attached: this.record(this.attached),
+			workers: this.record(this.workers),
+			physicalFrames: this.record(this.physicalFrames),
+			archiveDecisions: this.record(this.archiveDecisions),
+		};
+	}
+
+	private increment(target: Map<PublicFeed, number>, feed: PublicFeed): void {
+		target.set(feed, (target.get(feed) ?? 0) + 1);
+	}
+
+	private record(source: Map<PublicFeed, number>): Record<PublicFeed, number> {
+		return Object.fromEntries(
+			PUBLIC_FEEDS.map((feed) => [feed, source.get(feed) ?? 0]),
+		) as Record<PublicFeed, number>;
 	}
 }
 
@@ -383,6 +451,8 @@ type ComposedContext = {
 	exchange: ControlledExchange;
 	server: Server;
 	brokerLifecycle: SubscribeBrokerLifecycle;
+	publicFeedSupervisor: PublicMarketDataFeedSupervisor;
+	zeroBootstrapSubscription: PublicMarketDataSubscription;
 	input: BaselineInput;
 	deadLetterPath: string;
 	inserterController?: InserterController;
@@ -413,6 +483,7 @@ async function createComposedContext(
 	let endpoint: ArchiveForwarderEndpoint | undefined;
 	let archiver: BrokerExecutionArchiver | undefined;
 	let server: Server | undefined;
+	let publicFeedSupervisor: PublicMarketDataFeedSupervisor | undefined;
 	try {
 		await harness.initialize();
 		let inserter = harness.inserter;
@@ -470,6 +541,11 @@ async function createComposedContext(
 				secondaryBrokers: [],
 			},
 		} as unknown as Record<string, BrokerPoolEntry>;
+		publicFeedSupervisor = new PublicMarketDataFeedSupervisor({
+			brokers,
+			brokerArchiver: archiver,
+			enabledOrderBookProfileIds: CONTROLLED_ORDER_BOOK_PROFILE_IDS,
+		});
 		server = getServer(
 			PUBLIC_ONLY_POLICY,
 			brokers,
@@ -481,8 +557,18 @@ async function createComposedContext(
 			undefined,
 			undefined,
 			brokerLifecycle,
+			undefined,
+			publicFeedSupervisor,
 		);
 		const port = await bindServer(server);
+		const zeroBootstrapSubscription = await publicFeedSupervisor.subscribe({
+			exchange: "binance",
+			symbol: "BTC/USDT",
+			marketType: "spot",
+			feed: "OHLCV",
+			timeframe: "1m",
+			bootstrapLimit: 0,
+		});
 		const collectorObserver = new CollectorObserver();
 		const collector = new MarketDataCollector({
 			brokerUrl: `127.0.0.1:${port}`,
@@ -505,6 +591,8 @@ async function createComposedContext(
 			exchange,
 			server,
 			brokerLifecycle,
+			publicFeedSupervisor,
+			zeroBootstrapSubscription,
 			input,
 			deadLetterPath,
 			inserterController,
@@ -526,6 +614,7 @@ async function createComposedContext(
 		return context;
 	} catch (error) {
 		server?.forceShutdown();
+		await publicFeedSupervisor?.close().catch(() => {});
 		if (archiver) await archiver.close().catch(() => {});
 		if (endpoint) await endpoint.close().catch(() => {});
 		await harness.cleanup();
@@ -616,7 +705,7 @@ async function assertRecoverableStorage(
 			);
 		}
 	}
-	if (replacementWinners.size !== 2) {
+	if (replacementWinners.size !== 3) {
 		throw new Error(
 			"Recoverable retry produced unexpected OHLCV replacement keys",
 		);
@@ -712,7 +801,7 @@ async function releaseLifecycleFrames(
 	>,
 ): Promise<void> {
 	const { input } = context;
-	let enqueued = 0;
+	let enqueued = 2;
 	enqueued += 6;
 	await releaseFrame(
 		context,
@@ -741,7 +830,7 @@ async function releaseLifecycleFrames(
 		enqueued,
 	);
 	const firstBar = input.candle.bar;
-	enqueued += 2;
+	enqueued += 3;
 	await releaseFrame(
 		context,
 		"OHLCV",
@@ -757,7 +846,7 @@ async function releaseLifecycleFrames(
 			],
 		],
 		firstBar.openTimeMs + 123,
-		1,
+		2,
 		enqueued,
 	);
 	await withDeadline(
@@ -780,7 +869,7 @@ async function releaseLifecycleFrames(
 			],
 		],
 		input.candle.receivedTimestamp,
-		2,
+		3,
 		enqueued,
 	);
 	if (enqueued !== EXPECTED_ENQUEUED) {
@@ -806,6 +895,9 @@ export type ProductionBrokerCollectorTopology = {
 		collectorSubscriptionCalls: Record<PublicFeed, number>;
 		totalSubscriptionCalls: Record<PublicFeed, number>;
 		externalSubscriptionCalls: Record<PublicFeed, number>;
+		physicalWorkers: Record<PublicFeed, number>;
+		physicalFrames: Record<PublicFeed, number>;
+		archiveDecisions: Record<PublicFeed, number>;
 		orderBookSnapshotCalls: number;
 	};
 	close: () => Promise<void>;
@@ -828,6 +920,7 @@ export async function startProductionBrokerCollectorTopology(options: {
 	const brokerLifecycle = new SubscribeBrokerLifecycle();
 	const archiveObserver = new ArchiveObserver();
 	const collectorObserver = new CollectorObserver();
+	const publicFeedProbe = new PublicFeedProbe();
 	const exchange = new ControlledExchange();
 	let closed = false;
 	let collectorSubscriptionCalls = Object.fromEntries(
@@ -866,6 +959,12 @@ export async function startProductionBrokerCollectorTopology(options: {
 			secondaryBrokers: [],
 		},
 	} as unknown as Record<string, BrokerPoolEntry>;
+	const publicFeedSupervisor = new PublicMarketDataFeedSupervisor({
+		brokers,
+		brokerArchiver: archiver,
+		observer: publicFeedProbe,
+		enabledOrderBookProfileIds: CONTROLLED_ORDER_BOOK_PROFILE_IDS,
+	});
 	const server = getServer(
 		PUBLIC_ONLY_POLICY,
 		brokers,
@@ -877,6 +976,8 @@ export async function startProductionBrokerCollectorTopology(options: {
 		undefined,
 		undefined,
 		brokerLifecycle,
+		undefined,
+		publicFeedSupervisor,
 	);
 	let collectorRun: Promise<void> | undefined;
 	try {
@@ -894,6 +995,7 @@ export async function startProductionBrokerCollectorTopology(options: {
 			),
 			"sidecar broker subscriptions",
 		);
+		collectorSubscriptionCalls = publicFeedProbe.counts().attached;
 		const input = (await Bun.file(BASELINE_INPUT_PATH).json()) as BaselineInput;
 		const offset = options.timeOffsetMs ?? 0;
 		if (offset !== 0) {
@@ -932,8 +1034,11 @@ export async function startProductionBrokerCollectorTopology(options: {
 					archiveObserver.waitForFlushed(EXPECTED_ENQUEUED),
 					"sidecar archive flush",
 				);
-				collectorSubscriptionCalls = exchange.callCounts();
-				exchange.armExternalReplay();
+				for (const feed of PUBLIC_FEEDS) {
+					publicFeedProbe.releaseOnSharedAttach(feed, () =>
+						exchange.releaseLatest(feed),
+					);
+				}
 				return {
 					emittedRows: EXPECTED_ENQUEUED,
 					feedsObserved: PUBLIC_FEEDS.filter((feed) =>
@@ -969,7 +1074,8 @@ export async function startProductionBrokerCollectorTopology(options: {
 				};
 			},
 			brokerObservations: () => {
-				const totalSubscriptionCalls = exchange.callCounts();
+				const probeCounts = publicFeedProbe.counts();
+				const totalSubscriptionCalls = probeCounts.attached;
 				const externalSubscriptionCalls = Object.fromEntries(
 					PUBLIC_FEEDS.map((feed) => [
 						feed,
@@ -983,6 +1089,9 @@ export async function startProductionBrokerCollectorTopology(options: {
 					collectorSubscriptionCalls: { ...collectorSubscriptionCalls },
 					totalSubscriptionCalls,
 					externalSubscriptionCalls,
+					physicalWorkers: probeCounts.workers,
+					physicalFrames: probeCounts.physicalFrames,
+					archiveDecisions: probeCounts.archiveDecisions,
 					orderBookSnapshotCalls: exchange.orderBookSnapshotCallCount(),
 				};
 			},
@@ -997,6 +1106,7 @@ export async function startProductionBrokerCollectorTopology(options: {
 					);
 				}
 				server.forceShutdown();
+				await publicFeedSupervisor.close().catch(() => {});
 				await brokerLifecycle.closeAll().catch(() => {});
 				await archiver.close();
 				environment.restore();
@@ -1007,6 +1117,7 @@ export async function startProductionBrokerCollectorTopology(options: {
 		collectorAbort.abort();
 		await exchange.close();
 		server.forceShutdown();
+		await publicFeedSupervisor.close().catch(() => {});
 		await brokerLifecycle.closeAll().catch(() => {});
 		await archiver.close().catch(() => {});
 		environment.restore();
@@ -1034,6 +1145,7 @@ export async function runProductionServerArchiveCapture(options: {
 	let collectorRun: Promise<void> | undefined;
 	let server: Server | undefined;
 	let exchange: ControlledExchange | undefined;
+	let publicFeedSupervisor: PublicMarketDataFeedSupervisor | undefined;
 	const collectorAbort = new AbortController();
 	const brokerLifecycle = new SubscribeBrokerLifecycle();
 	try {
@@ -1079,6 +1191,11 @@ export async function runProductionServerArchiveCapture(options: {
 				secondaryBrokers: [],
 			},
 		} as unknown as Record<string, BrokerPoolEntry>;
+		publicFeedSupervisor = new PublicMarketDataFeedSupervisor({
+			brokers,
+			brokerArchiver: archiver,
+			enabledOrderBookProfileIds: CONTROLLED_ORDER_BOOK_PROFILE_IDS,
+		});
 		server = getServer(
 			PUBLIC_ONLY_POLICY,
 			brokers,
@@ -1090,6 +1207,8 @@ export async function runProductionServerArchiveCapture(options: {
 			undefined,
 			undefined,
 			brokerLifecycle,
+			undefined,
+			publicFeedSupervisor,
 		);
 		const port = await bindServer(server);
 		const collectorObserver = new CollectorObserver();
@@ -1157,6 +1276,7 @@ export async function runProductionServerArchiveCapture(options: {
 			).catch(() => {});
 		}
 		server?.forceShutdown();
+		await publicFeedSupervisor?.close().catch(() => {});
 		await brokerLifecycle.closeAll().catch(() => {});
 		await archiver?.close().catch(() => {});
 		await endpoint?.close().catch(() => {});
@@ -1307,10 +1427,12 @@ async function closeContext(
 ): Promise<void> {
 	if (context.closed) return;
 	context.closed = true;
+	context.zeroBootstrapSubscription.close();
 	context.collectorAbort.abort();
 	await context.exchange.close();
 	await withDeadline(context.collectorRun, "collector abort").catch(() => {});
 	context.server.forceShutdown();
+	await context.publicFeedSupervisor.close().catch(() => {});
 	await context.brokerLifecycle.closeAll().catch(() => {});
 	if (closeArchiver) await context.archiver.close();
 	await context.endpoint.close();

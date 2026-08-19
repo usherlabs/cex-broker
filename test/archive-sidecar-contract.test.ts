@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,6 +22,85 @@ const makerCheckout = {
 		"784f647e048052a6c3382309b1a86abfbe08bc162363ead9fc88eaa1ba3d50c9",
 	wireContractTests: { exitCode: 0 },
 };
+const proofASamplePath = new URL(
+	"../openspec/changes/archive-market-data-once-per-feed/evidence/cex-orderbook-coalescing-evidence.sample.json",
+	import.meta.url,
+);
+
+function proofBCase(venue: "binance" | "mexc") {
+	const output = {
+		bidDepth: 10,
+		askDepth: 12,
+		limitingSide: "bid",
+		envelopeLiquidityCap: 9.75,
+		selectedWidthTicks: 120,
+		authoredPosition: { lowerOffset: -60, upperOffset: 60 },
+		positionRebalanceReason: "fresh_start",
+	};
+	return {
+		venue,
+		profileId: `${venue}:l2-diff:500`,
+		evaluations: [
+			{
+				index: 0,
+				streams: {
+					conservativeLive: output,
+					conservativeRehydrated: output,
+					coalescedLive: output,
+					coalescedRehydrated: output,
+				},
+				equivalenceVerdicts: {
+					liveVsRehydrated: true,
+					conservativeVsCoalesced: true,
+				},
+				diagnosticHashes: { input: "c".repeat(64) },
+			},
+		],
+		equivalenceVerdicts: {
+			liveVsRehydrated: true,
+			conservativeVsCoalesced: true,
+		},
+		diagnosticHashes: { evaluations: "d".repeat(64) },
+	};
+}
+
+async function writeProofBundle() {
+	const artifactsDir = await mkdtemp(join(tmpdir(), "cex-sidecar-proof-"));
+	const cexEvidencePath = join(
+		artifactsDir,
+		"cex-orderbook-coalescing-evidence.json",
+	);
+	await copyFile(proofASamplePath, cexEvidencePath);
+	const cexBytes = await readFile(cexEvidencePath);
+	const cexSha256 = createHash("sha256").update(cexBytes).digest("hex");
+	const proofBPath = join(artifactsDir, "maker-proof-b.json");
+	const proofB = {
+		schemaVersion: "fiet-maker-immediate-hedgeability/v2",
+		status: "passed",
+		sourceCexEvidence: {
+			schemaVersion: "cex-orderbook-coalescing-evidence/v1",
+			sha256: cexSha256,
+		},
+		policyConfigSha256: "e".repeat(64),
+		cases: [proofBCase("binance"), proofBCase("mexc")],
+		artifactHashes: { diagnostics: "f".repeat(64) },
+	};
+	await writeFile(proofBPath, `${JSON.stringify(proofB)}\n`);
+	const proofBSha256 = createHash("sha256")
+		.update(await readFile(proofBPath))
+		.digest("hex");
+	return {
+		artifactsDir,
+		cexEvidencePath,
+		proofBPath,
+		proofB,
+		descriptor: {
+			schemaVersion: "fiet-maker-immediate-hedgeability-attachment/v1",
+			path: proofBPath,
+			sha256: proofBSha256,
+		},
+	};
+}
 
 describe("archive sidecar command contract", () => {
 	test("parses the closed non-interactive operation and flag surface", () => {
@@ -88,6 +168,7 @@ describe("archive sidecar command contract", () => {
 			producerAccessPath: "/tmp/a/run-a/producer-access.json",
 			makerResultPath: "/tmp/a/run-a/maker-result.json",
 			referenceExportPath: "/tmp/a/run-a/reference-export.json",
+			cexEvidencePath: "/tmp/a/run-a/cex-orderbook-coalescing-evidence.json",
 			containerName: "cex-sidecar-run-a",
 			clickhouseUrl: "http://127.0.0.1:18123",
 			forwarderUrl: "http://127.0.0.1:18090/archive",
@@ -114,7 +195,7 @@ describe("archive sidecar command contract", () => {
 		).toThrow(SidecarUsageError);
 	});
 
-	test("accepts only Maker-authored results bound to the run and exact producer", () => {
+	test("accepts only Maker-authored results bound to the run and exact producer", async () => {
 		const result = {
 			schemaVersion: "fiet-maker-cex-sidecar-conformance/v1",
 			status: "passed",
@@ -151,14 +232,14 @@ describe("archive sidecar command contract", () => {
 			},
 			artifactHashes: {},
 		};
-		expect(() => validateMakerSidecarResult(result)).not.toThrow();
-		expect(() =>
+		await expect(validateMakerSidecarResult(result)).resolves.toEqual(result);
+		await expect(
 			validateMakerSidecarResult({
 				...result,
 				producerId: "fiet-maker-sidecar",
 			}),
-		).toThrow(SidecarUsageError);
-		expect(() =>
+		).rejects.toBeInstanceOf(SidecarUsageError);
+		await expect(
 			validateMakerSidecarResult({
 				...result,
 				profileEvidence: {
@@ -172,10 +253,11 @@ describe("archive sidecar command contract", () => {
 					},
 				},
 			}),
-		).toThrow(SidecarUsageError);
+		).rejects.toBeInstanceOf(SidecarUsageError);
 	});
 
-	test("requires production results to bind the real Layer12 broker path", () => {
+	test("requires production results to bind a run-owned Maker Proof B v2 to real Proof A", async () => {
+		const bundle = await writeProofBundle();
 		const result = {
 			schemaVersion: "fiet-maker-cex-sidecar-conformance/v1",
 			status: "passed",
@@ -203,6 +285,7 @@ describe("archive sidecar command contract", () => {
 			profileEvidence: {
 				brokerBoundaryObserved: true,
 				makerCheckout,
+				immediateHedgeability: bundle.descriptor,
 				brokerObservation: {
 					schemaVersion: "fiet-hummingbot-external-sidecar-broker/v1",
 					status: "passed",
@@ -212,21 +295,121 @@ describe("archive sidecar command contract", () => {
 			},
 			artifactHashes: {},
 		};
-		expect(() => validateMakerSidecarResult(result)).not.toThrow();
-		expect(() =>
-			validateMakerSidecarResult({
-				...result,
-				profileEvidence: {
-					brokerBoundaryObserved: true,
-					makerCheckout,
-					brokerObservation: {
-						schemaVersion: "fiet-hummingbot-external-sidecar-broker/v1",
-						status: "passed",
-						boundary: "external_sidecar_broker",
+		try {
+			await expect(
+				validateMakerSidecarResult(result, {
+					artifactsDir: bundle.artifactsDir,
+					cexEvidencePath: bundle.cexEvidencePath,
+				}),
+			).resolves.toEqual(result);
+			await expect(
+				validateMakerSidecarResult(
+					{
+						...result,
+						profileEvidence: {
+							...result.profileEvidence,
+							immediateHedgeability: {
+								...bundle.descriptor,
+								path: join(bundle.artifactsDir, "..", "escaped.json"),
+							},
+						},
 					},
+					{
+						artifactsDir: bundle.artifactsDir,
+						cexEvidencePath: bundle.cexEvidencePath,
+					},
+				),
+			).rejects.toThrow("run-owned");
+
+			const oneVenueProofB = {
+				...bundle.proofB,
+				cases: [proofBCase("binance")],
+			};
+			await writeFile(bundle.proofBPath, `${JSON.stringify(oneVenueProofB)}\n`);
+			const oneVenueDescriptor = {
+				...bundle.descriptor,
+				sha256: createHash("sha256")
+					.update(await readFile(bundle.proofBPath))
+					.digest("hex"),
+			};
+			await expect(
+				validateMakerSidecarResult(
+					{
+						...result,
+						profileEvidence: {
+							...result.profileEvidence,
+							immediateHedgeability: oneVenueDescriptor,
+						},
+					},
+					{
+						artifactsDir: bundle.artifactsDir,
+						cexEvidencePath: bundle.cexEvidencePath,
+					},
+				),
+			).rejects.toThrow("exactly one Binance and MEXC case");
+
+			const staleProofB = {
+				...bundle.proofB,
+				sourceCexEvidence: {
+					schemaVersion: "cex-orderbook-coalescing-evidence/v1",
+					sha256: "0".repeat(64),
 				},
-			}),
-		).toThrow(SidecarUsageError);
+			};
+			await writeFile(bundle.proofBPath, `${JSON.stringify(staleProofB)}\n`);
+			const staleDescriptor = {
+				...bundle.descriptor,
+				sha256: createHash("sha256")
+					.update(await readFile(bundle.proofBPath))
+					.digest("hex"),
+			};
+			await expect(
+				validateMakerSidecarResult(
+					{
+						...result,
+						profileEvidence: {
+							...result.profileEvidence,
+							immediateHedgeability: staleDescriptor,
+						},
+					},
+					{
+						artifactsDir: bundle.artifactsDir,
+						cexEvidencePath: bundle.cexEvidencePath,
+					},
+				),
+			).rejects.toThrow("current CEX Proof A");
+
+			const forbiddenProofB = {
+				...bundle.proofB,
+				sharedObservation: { physicalWatches: 1 },
+			};
+			await writeFile(
+				bundle.proofBPath,
+				`${JSON.stringify(forbiddenProofB)}\n`,
+			);
+			const forbiddenDescriptor = {
+				...bundle.descriptor,
+				sha256: createHash("sha256")
+					.update(await readFile(bundle.proofBPath))
+					.digest("hex"),
+			};
+			await expect(
+				validateMakerSidecarResult(
+					{
+						...result,
+						profileEvidence: {
+							...result.profileEvidence,
+							immediateHedgeability: forbiddenDescriptor,
+						},
+					},
+					{
+						artifactsDir: bundle.artifactsDir,
+						cexEvidencePath: bundle.cexEvidencePath,
+					},
+				),
+			).rejects.toThrow("forbidden CEX-owned field");
+		} finally {
+			await rm(bundle.artifactsDir, { recursive: true, force: true });
+		}
 	});
 
 	test("supervisor never fabricates Maker strategy rows", async () => {
