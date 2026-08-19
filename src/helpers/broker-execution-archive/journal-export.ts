@@ -1,0 +1,139 @@
+import { createHash } from "node:crypto";
+import {
+	closeSync,
+	existsSync,
+	fsyncSync,
+	openSync,
+	readSync,
+	renameSync,
+	writeSync,
+} from "node:fs";
+import { basename } from "node:path";
+import { log } from "../logger";
+
+const EXPORT_CHUNK_BYTES = 8 * 1024 * 1024;
+
+export class DeadLetterJournalExportError extends Error {
+	constructor(message: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "DeadLetterJournalExportError";
+	}
+}
+
+export type DeadLetterJournalExportResult =
+	| { status: "disabled" }
+	| { status: "skipped_export_exists"; exportPath: string }
+	| { status: "skipped_missing_journal"; journalPath: string }
+	| {
+			status: "exported";
+			journalPath: string;
+			exportPath: string;
+			bytes: number;
+			sha256: string;
+	  };
+
+// In SGX production the loss journal lives on a Gramine encrypted mount, so
+// its host-side bytes are MRSIGNER-sealed ciphertext no external tool can
+// read. The enclave is the only place the plaintext is visible, which makes
+// the broker itself the only possible exporter: replay
+// (scripts/archive-loss-replay.ts) runs outside and needs a plaintext copy on
+// an untrusted mount. The export is a boot-time snapshot: losses journaled
+// after startup are not in the copy and need a fresh export.
+export function exportDeadLetterJournalFromEnv(): DeadLetterJournalExportResult {
+	const exportPath =
+		process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_EXPORT_PATH?.trim();
+	if (!exportPath) {
+		return { status: "disabled" };
+	}
+	const journalPath = process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH?.trim();
+	if (!journalPath) {
+		throw new DeadLetterJournalExportError(
+			"CEX_BROKER_ARCHIVE_DEAD_LETTER_EXPORT_PATH is set but CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH is missing",
+		);
+	}
+	return exportDeadLetterJournal(journalPath, exportPath);
+}
+
+export function exportDeadLetterJournal(
+	journalPath: string,
+	exportPath: string,
+): DeadLetterJournalExportResult {
+	// One-shot: an existing target is a completed prior export the operator has
+	// not consumed yet. Overwriting it on every boot would race the replay run
+	// reading it, so a re-export requires removing the old file first.
+	if (existsSync(exportPath)) {
+		log.info("Dead-letter journal export target already exists, skipping", {
+			export_path: exportPath,
+		});
+		return { status: "skipped_export_exists", exportPath };
+	}
+	if (!existsSync(journalPath)) {
+		log.warn(
+			"Dead-letter journal export requested but no journal exists, skipping",
+			{ journal_path: journalPath },
+		);
+		return { status: "skipped_missing_journal", journalPath };
+	}
+
+	const partialPath = `${exportPath}.partial`;
+	let bytes = 0;
+	let digest: string;
+	try {
+		const hash = createHash("sha256");
+		const sourceFd = openSync(journalPath, "r");
+		try {
+			const targetFd = openSync(partialPath, "w", 0o600);
+			try {
+				const chunk = Buffer.alloc(EXPORT_CHUNK_BYTES);
+				for (;;) {
+					const read = readSync(sourceFd, chunk, 0, chunk.length, null);
+					if (read === 0) {
+						break;
+					}
+					const view = chunk.subarray(0, read);
+					hash.update(view);
+					writeSync(targetFd, view);
+					bytes += read;
+				}
+				fsyncSync(targetFd);
+			} finally {
+				closeSync(targetFd);
+			}
+		} finally {
+			closeSync(sourceFd);
+		}
+		digest = hash.digest("hex");
+		// The bare target path only ever holds a complete copy: the bytes land in
+		// .partial first and are renamed after fsync, so a crash mid-export can
+		// never be mistaken for a finished export.
+		renameSync(partialPath, exportPath);
+		const receiptFd = openSync(`${exportPath}.sha256`, "w", 0o600);
+		try {
+			writeSync(receiptFd, `${digest}  ${basename(exportPath)}\n`);
+			fsyncSync(receiptFd);
+		} finally {
+			closeSync(receiptFd);
+		}
+	} catch (error) {
+		// The operator explicitly asked for this export; a partial or unverifiable
+		// copy silently left in place would defeat its purpose, so startup fails.
+		throw new DeadLetterJournalExportError(
+			"Dead-letter journal export failed",
+			{ cause: error },
+		);
+	}
+
+	log.info("Dead-letter journal exported", {
+		journal_path: journalPath,
+		export_path: exportPath,
+		bytes,
+		sha256: digest,
+	});
+	return {
+		status: "exported",
+		journalPath,
+		exportPath,
+		bytes,
+		sha256: digest,
+	};
+}

@@ -10,6 +10,7 @@ import { SeverityNumber } from "@opentelemetry/api-logs";
 import { log } from "../logger";
 import type { OtelLogs, OtelMetrics } from "../otel";
 import { REDACTED_ERROR_MESSAGE } from "../shared/errors";
+import { exportDeadLetterJournalFromEnv } from "./journal-export";
 import {
 	type ArchiveLossReason,
 	type ArchiveLossRecord,
@@ -1090,6 +1091,10 @@ export function createBrokerExecutionArchiverFromEnv(
 	otelLogs?: OtelLogs,
 	otelMetrics?: OtelMetrics,
 ): BrokerExecutionArchiver {
+	// Before the archiver starts appending: the export is an operator-requested
+	// snapshot of the journal as it survived the previous run, and it must
+	// happen even when archiving itself is disabled.
+	exportDeadLetterJournalFromEnv();
 	if (process.env.CEX_BROKER_ARCHIVE_ENABLED !== "true") {
 		return BrokerExecutionArchiver.disabled();
 	}
