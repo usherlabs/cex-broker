@@ -31,8 +31,7 @@ services:
       - "8090:8090"
     environment:
       - ARCHIVE_FORWARDER_PORT=8090
-      - CLICKHOUSE_HOST=clickhouse
-      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_URL=http://clickhouse:8123
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD
       - CLICKHOUSE_DATABASE=market_data
