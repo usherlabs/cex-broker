@@ -91,6 +91,42 @@ CRYPTOHFTDATA_API_KEY="<injected-secret>" \
 bun run test:conformance:market-data-vendor-backfill
 ```
 
+Before declaring the profile ready, run the stronger local promotion gate. It
+starts a disposable `clickhouse/clickhouse-server:24.8`, initializes the
+production schema, submits through the real HTTP archive-forwarder, requires
+`promoted` plus qualified export, then repeats the identical request and
+requires `already_covered` with unchanged archive counts. The downloaded object
+is decoded only in memory; the temporary database and Parquet export are removed
+on completion.
+
+```bash
+MARKET_DATA_VENDOR_BACKFILL_SMOKE_ENABLED=1 \
+MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS="<approved-positive-control-start-ms>" \
+MARKET_DATA_VENDOR_BACKFILL_SMOKE_EVIDENCE_PATH=/tmp/market-data-vendor-backfill-smoke-evidence.json \
+CRYPTOHFTDATA_API_KEY="$(vault kv get -field=CRYPTOHFTDATA_API_KEY kv/secrets)" \
+bun run test:smoke:market-data-vendor-backfill
+```
+
+The evidence file is atomically replaced with mode `0600` and contains only the
+closed `market-data-vendor-backfill-local-smoke/v1` projection: source and
+runtime versions, request/capture/receipt identities, provider object identities
+and hashes, row counts, coverage/export hashes, durations, and stable outcome
+codes. It never contains credentials, bearer tokens, decoded rows, response
+bodies, or ClickHouse/forwarder secrets. GitHub's manual-only
+`Market Data Vendor Backfill Smoke` workflow runs the same command under the
+protected `market-data-vendor-backfill-smoke` environment and retains that JSON
+for 90 days. Configure the environment secret `CRYPTOHFTDATA_API_KEY` and the
+approved positive-control variable
+`MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS`; the workflow has no push,
+pull-request, or scheduled trigger.
+
+The initial local verification remains release-blocking: tested Binance Spot
+BTC-USDT objects contained updates but no snapshot reset, so the worker correctly
+returned `vendor_fetch_failed/update_before_snapshot`. Do not enable the profile
+or synthesize an initial historical book from those deltas. A passing run needs
+a licensed, vendor-confirmed object whose snapshot/update and sequence contract
+satisfies the same gate.
+
 Do not commit or publish licensed provider payloads or decoded rows. The committed fixtures are synthetic. Provider licensing and durable normalized-row retention rights remain a deployment prerequisite.
 
 Ownership stays split across repositories: CEX Broker owns acquisition, normalization, archive submission, semantic qualification, and the receipt; Fiet TEE owns the executable wrapper, secure-secret resolution, and package pin; Fiet Maker independently requeries qualified views and binds its loader/policy proof to the CEX receipt. Promotion makes rows eligible for replay but does not by itself make an economics result quotable.

@@ -217,11 +217,34 @@ cryptographic hashes. Logs and failures redact authorization headers, API keys,
 tokens, URLs with userinfo/query secrets, and response bodies that could contain
 credentials.
 
+### 11. Live-provider promotion is a protected CEX release gate
+
+The adapter-only provider conformance probe and synthetic ClickHouse tests leave
+one seam unproven: real licensed vendor bytes have not passed through
+normalization, HTTP forwarder admission, candidate verification, promotion, and
+qualified replay in one invocation. An explicit smoke therefore runs that path
+against an ephemeral `clickhouse/clickhouse-server:24.8` instance. It runs the
+same request twice and requires `promoted` followed by `already_covered` without
+additional rows or promotion evidence.
+
+The smoke is available through one local package command and a protected
+`workflow_dispatch` environment. It is never scheduled and never runs in pull
+request CI. Its API key is environment-injected, its positive-control window is
+explicit, and its persisted pass/fail evidence is a closed secret-free
+projection. This gate blocks declaring the initial provider profile ready; it
+does not block unrelated CEX Broker releases. Fiet TEE still owns packaged
+executable conformance, and Maker still owns the independent qualified-reader
+and actual-loader proof.
+
 ## Risks / Trade-offs
 
 - [Vendor schema or exchange timestamp semantics change] → Pin adapter profiles
   and schema expectations, validate every decoded column, and fail unsupported
   before promotion.
+- [A documented snapshot/update object contains updates only] → Let the live
+  gate fail `update_before_snapshot`, keep the candidate profile disabled, and
+  require a vendor-confirmed snapshot-bearing object or separately proven
+  profile. Never invent historical book state from deltas alone.
 - [Two hosts pass preflight and both download] → Accept possible duplicate
   acquisition cost in v1 while guaranteeing identical archive effects; add a
   distributed lease only if billing semantics require it.
@@ -250,8 +273,9 @@ credentials.
    before any external-backfill producer is enabled.
 3. Add the CryptoHFTData decoder/replay adapter behind a default-empty enabled
    capability set; run synthetic and opt-in provider conformance.
-4. Enable the first proven Binance profile, run an authoritative-window
-   FIET-1017 promotion against an isolated archive, and retain hash-only evidence.
+4. Run the protected live-provider smoke for the first proven Binance profile,
+   require an authoritative-window FIET-1017 promotion plus idempotent rerun
+   against an isolated Server 24.8 archive, and retain hash-only evidence.
 5. Publish an unused CEX Broker patch version containing the package subpath.
    Fiet TEE pins it and ships the separate executable; Maker pins both and runs
    its independent query/consumer gate.
@@ -264,8 +288,10 @@ credentials.
 
 ## Open Questions
 
-- Which Binance spot or futures pair/window is the first licensed FIET-1017
-  positive-control scope?
+- Which vendor-confirmed pair/window contains the snapshot reset required for
+  the first licensed FIET-1017 positive control? The tested Binance Spot
+  BTC-USDT 2025-07-01 10:00 and documented 2025-08-01 20:00 hourly objects
+  contained update rows only and therefore remain release-blocked.
 - Should production eventually require a separate archive-forwarder credential
   for promotion rows, beyond the strict row/source contract and trusted network?
 - What explicit retention duration replaces indefinite retention if internal

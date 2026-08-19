@@ -69,6 +69,7 @@
 		"archive:loss:replay": "bun run scripts/archive-loss-replay.ts",
 		"test:smoke:archive": "bun run scripts/archive-live-smoke.ts",
 		"test:conformance:market-data-vendor-backfill": "bun run scripts/market-data-vendor-backfill-conformance.ts",
+		"test:smoke:market-data-vendor-backfill": "bun run scripts/market-data-vendor-backfill-local-smoke.ts",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint",
 		"lint:fix": "bunx biome lint --write",

@@ -40,3 +40,11 @@
 - [x] 7.1 Document the bounded worker lifecycle, credential and ClickHouse authority boundaries, deterministic producer retry ownership, and CEX/Fiet TEE/Fiet Maker proof ownership.
 - [x] 7.2 Add package-subpath type/build smoke tests and an opt-in hash-only real-provider conformance harness that never persists licensed vendor payloads or secrets.
 - [x] 7.3 Validate the complete OpenSpec change and record the required downstream Fiet TEE wrapper/package pin and Maker independent post-promotion consumer proof as explicit release prerequisites.
+
+## 8. Live-provider isolated-archive verification gate
+
+- [x] 8.1 Add failing contract tests for explicit opt-in and input validation, atomic secret-free pass/fail evidence, full promotion assertions, cleanup, and manual-only workflow configuration.
+- [x] 8.2 Implement the bounded local smoke using a disposable ClickHouse Server 24.8, production schema, HTTP archive-forwarder, real CryptoHFTData adapter, qualified reader, worker core, canonical exporter, and idempotent second invocation.
+- [x] 8.3 Add the local package command, protected manual GitHub workflow, and operator documentation without adding push, pull-request, schedule, Maker, or Fiet TEE responsibilities.
+- [ ] 8.4 Execute the gate locally with the API key read from Vault, retain only hash-safe evidence, run the complete regression suite, and strictly validate the reopened change.
+  - Blocked: the Vault-backed run returned `vendor_fetch_failed/update_before_snapshot`; two tested Binance Spot BTC-USDT hourly objects contained zero snapshot rows, so no truthful promotion can be produced until a vendor-confirmed snapshot-bearing scope is available.

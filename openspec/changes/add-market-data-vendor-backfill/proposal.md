@@ -77,6 +77,10 @@ becoming replay evidence.
 - Unit, forwarder, ClickHouse 24.8, bounded fake-provider, and opt-in
   secret-backed provider conformance tests. Real licensed vendor payloads are
   not checked into the repository or published as evidence.
+- An opt-in live-provider verification gate runs the complete worker against an
+  isolated ClickHouse Server 24.8 and real HTTP archive-forwarder, then retains
+  only secret-free identities, counts, versions, statuses, and hashes. It is
+  available locally and through protected manual CI, never ordinary PR CI.
 - Follow-on Fiet TEE work pins the published package and provides atomic
   request/result file handling; Fiet Maker independently re-queries qualified
   ClickHouse output and owns its actual-loader consumer proof.

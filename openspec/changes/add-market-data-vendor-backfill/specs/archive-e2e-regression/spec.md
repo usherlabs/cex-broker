@@ -67,3 +67,27 @@ rows MUST NOT be checked into the repository.
   counts, versions, and cryptographic hashes
 - **AND** it MUST NOT publish downloaded vendor payload rows
 
+### Requirement: Live provider promotion is verified against isolated ClickHouse
+The opt-in CEX-owned gate SHALL run the complete worker with a licensed provider
+object before the initial provider profile is declared ready, using the production
+schema and HTTP forwarder, and an ephemeral ClickHouse Server 24.8 instance. The
+gate MUST remain absent from pull-request, push, and scheduled CI and MUST
+require explicit credential and positive-control window injection.
+
+#### Scenario: Live provider object is promoted and replayed idempotently
+- **WHEN** the protected gate runs one bounded supported request against an empty
+  isolated archive
+- **THEN** the first invocation MUST return `promoted`, persist one exact-scope
+  passing receipt, expose nonzero matching candidate and qualified rows, and
+  satisfy the qualified reader and canonical exporter
+- **AND** an identical second invocation MUST return `already_covered` without
+  changing row or promotion counts
+
+#### Scenario: Live gate retains secret-free evidence on every outcome
+- **WHEN** the gate succeeds or fails after startup
+- **THEN** it MUST atomically retain a versioned pass/fail record containing
+  only versions, scope, stable statuses and reasons, identities, counts,
+  durations, and cryptographic hashes
+- **AND** it MUST clean up downloaded bytes, exported files, forwarder state,
+  credentials, and the isolated archive without publishing vendor rows or
+  response bodies
