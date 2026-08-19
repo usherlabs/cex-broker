@@ -23,7 +23,7 @@ const makerCheckout = {
 	wireContractTests: { exitCode: 0 },
 };
 const proofASamplePath = new URL(
-	"../openspec/changes/archive-market-data-once-per-feed/evidence/cex-orderbook-coalescing-evidence.sample.json",
+	"../openspec/changes/archive/2026-08-19-archive-market-data-once-per-feed/evidence/cex-orderbook-coalescing-evidence.sample.json",
 	import.meta.url,
 );
 

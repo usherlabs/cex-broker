@@ -120,12 +120,17 @@ The archive plane SHALL assign each broker-visible capture a reproducible raw-ca
 - **AND** no integrity field may embed the secret value
 
 ### Requirement: The production collector supervises all required CEX feeds
-The production collector SHALL be an independent gRPC client of a separately deployed full CEX Broker and SHALL supervise configured `ORDERBOOK`, `TICKER`, `TRADES`, and `OHLCV` subscriptions independently for every strategy exchange and pair. It SHALL NOT start an embedded broker, instantiate CCXT exchanges, own CEX credentials, or own archive delivery.
+The production collector SHALL be an independent gRPC client of a separately deployed full CEX Broker and SHALL supervise configured `ORDERBOOK`, `TICKER`, `TRADES`, and `OHLCV` subscriptions independently for every strategy exchange and pair. It SHALL NOT start an embedded broker, instantiate CCXT exchanges, own CEX credentials, or own archive delivery. The collector SHALL sustain configured capture coverage and liveness, while the broker SHALL own and share each canonical physical public feed and its archive path with any matching third-party subscription.
 
 #### Scenario: Strategy capture configuration is loaded
 - **WHEN** production collection starts with strategy exchange/pair/feed configuration and an explicit broker target
 - **THEN** it MUST validate that each required feed has a supervisor and required options such as depth limit or timeframe
 - **AND** failure of one feed MUST NOT terminate supervisors for other feeds or pairs
+
+#### Scenario: Capture is intended to replay the Maker hedge envelope
+- **WHEN** deployment capture is declared as replay evidence for a Maker position policy with ORDERBOOK depth P and configured measurement bands
+- **THEN** the collector ORDERBOOK request and broker archive configuration MUST retain at least P levels unless explicit exhaustion or boundary evidence proves every band complete
+- **AND** deployment verification MUST reject a capture profile whose archived rows cannot reproduce the live per-band bid and ask depth used as the immediate-hedgeability cap
 
 #### Scenario: Broker target is missing or malformed
 - **WHEN** the independent collector starts without a valid `CEX_BROKER_URL` gRPC `host:port` target
@@ -147,10 +152,26 @@ The production collector SHALL be an independent gRPC client of a separately dep
 - **THEN** the collector MUST record an explicit gap
 - **AND** it MUST NOT synthesize missing market events
 
+#### Scenario: Matching third-party subscription is active
+- **WHEN** the collector and a third-party client subscribe to the same canonical public feed
+- **THEN** the broker MUST service both logical subscriptions from one physical exchange watcher and archive owner
+- **AND** the collector MUST remain the coverage/liveness subscriber rather than the mechanism that prevents duplicate physical capture
+
 #### Scenario: OHLCV bootstrap is supported
-- **WHEN** an OHLCV subscription starts with a configured bootstrap window
-- **THEN** the broker MUST fetch and archive available historical bars before or alongside the live stream
+- **WHEN** an OHLCV worker has no completed archive bootstrap and the first positive bootstrap request arrives, even if a zero-bootstrap client created the worker earlier
+- **THEN** the broker MUST atomically claim, fetch, and archive available historical bars before or alongside the live stream
 - **AND** bootstrap rows MUST use a source mode distinct from live stream rows
+- **AND** later subscriber bootstrap delivery for the same feed MUST NOT create additional archived bootstrap rows
+
+#### Scenario: OHLCV archive bootstrap fetch fails
+- **WHEN** the positive subscriber that owns the archive-bootstrap attempt cannot fetch history
+- **THEN** its live subscription MUST continue and the worker MUST remain available
+- **AND** a later positive collector attach or reconnect MUST be allowed to retry ownership because no bootstrap completed
+
+#### Scenario: Collector reconnects after another client kept the worker alive
+- **WHEN** a positive-bootstrap collector disconnects and reconnects while a zero-bootstrap or other logical subscriber keeps the OHLCV worker alive
+- **THEN** a previously completed archived bootstrap MUST NOT be repeated
+- **AND** if no bootstrap previously completed, the reconnecting collector MUST be allowed to claim it
 
 #### Scenario: Collector stops
 - **WHEN** the collector receives a termination signal
