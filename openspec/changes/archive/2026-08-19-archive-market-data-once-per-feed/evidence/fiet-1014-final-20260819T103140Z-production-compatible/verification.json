@@ -1,0 +1,284 @@
+{
+  "schemaVersion": "cex-archive-sidecar-verification/v1",
+  "status": "passed",
+  "runId": "fiet-1014-final-20260819T103140Z-production-compatible",
+  "profile": "production_compatible",
+  "commits": {
+    "baseline": "7a83de5f29a08f42d81f64a75a83bc9318dce94a",
+    "candidate": "da1dd5282e899448b82bca858bbe2d6d824f167e",
+    "archiveImplementation": "3398066ae2c396a9a9e0220f88715ac22b6d8694",
+    "maker": "be91c208662daf46fa6767b133b08fe317f39809"
+  },
+  "identities": {
+    "deploymentId": "sidecar-fiet-1014-final-20260819T103140Z-production-compatible",
+    "captureBundleId": "sidecar-bundle-fiet-1014-final-20260819T103140Z-production-compatible"
+  },
+  "versions": {
+    "clickhouse": "24.8.14.39",
+    "bun": "1.3.12",
+    "python": "Python 3.14.3",
+    "marketSchema": "1.0.0",
+    "checksum": "sha256-canonical-json-v1",
+    "strategySchema": "2"
+  },
+  "paths": {
+    "strategy": "durable_spool_202",
+    "parquetOwnership": "FIET-907-compatible direct ClickHouse exporter"
+  },
+  "outcomes": {
+    "readiness": true,
+    "migration": "not_applicable_sidecar_latest_schema",
+    "spool": {
+      "healthy": true,
+      "queuedBatches": 0,
+      "queuedWork": 0,
+      "terminalWork": 0,
+      "expiredWork": 0,
+      "accountedBytes": 0,
+      "oldestAgeMs": 0,
+      "lastErrorClass": "none"
+    },
+    "marketCounts": {
+      "market_data.cex_stream_events": 4,
+      "market_data.cex_ticker_events": 1,
+      "market_data.cex_trades": 1,
+      "market_data.cex_ohlcv": 3,
+      "market_data.cex_order_book_levels": 4,
+      "market_data.cex_order_book_depth_summary": 1
+    },
+    "strategyCounts": {
+      "strategy_data.policy_evaluation_events": 1,
+      "strategy_data.strategy_policy_snapshots": 1,
+      "strategy_data.market_identity": 1,
+      "strategy_data.symbol_mapping": 1,
+      "strategy_data.inventory_settlement_events": 1
+    },
+    "makerResult": {
+      "artifactHashes": {
+        "hummingbotBroker": {
+          "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-hummingbot-sidecar-broker.json",
+          "sha256": "01d477740b5da815f784b469571b8fef0bd793e9e65c85c90a9882e97e1af6f9"
+        },
+        "hummingbotGate": {
+          "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-hummingbot-layer12-gate.log",
+          "sha256": "6566837a250f43ddec4888c2b2cd3c763c475873ff7c7ed209cc6586ed583f88"
+        },
+        "immediateHedgeability": {
+          "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-immediate-hedgeability-v2.json",
+          "sha256": "cf0bdcd5fb46576e09394189ab8a0997f095f595553412eaeee32bca486a3007"
+        },
+        "immediateHedgeabilityPolicyConfig": {
+          "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-cex-orderbook-policy-config.json",
+          "sha256": "f3deacb076a55dbefdf4ed63657df1e8730628a7d7d80a4b4f62cd06b8df0edf"
+        }
+      },
+      "candidateSha": "da1dd5282e899448b82bca858bbe2d6d824f167e",
+      "delivery": {
+        "acceptedRows": 5,
+        "httpStatus": 202,
+        "spoolQueuedAfter": 0,
+        "spoolQueuedBefore": 0
+      },
+      "deploymentId": "sidecar-fiet-1014-final-20260819T103140Z-production-compatible",
+      "makerSha": "be91c208662daf46fa6767b133b08fe317f39809",
+      "producerId": "hb_runtime:sidecar-fiet-1014-final-20260819T103140Z-production-compatible:cex-sidecar-conformance",
+      "producerRunId": "fiet-1014-final-20260819T103140Z-production-compatible",
+      "profile": "production_compatible",
+      "profileEvidence": {
+        "brokerBoundaryObserved": true,
+        "brokerObservation": {
+          "askLevels": 2,
+          "bidLevels": 2,
+          "boundary": "external_sidecar_broker",
+          "brokerUrl": "127.0.0.1:44201",
+          "connector": "fiet_cex",
+          "dataSourceClass": "FietCexOrderBookDataSource",
+          "exchange": "binance",
+          "layer12BestAsk": "40001.25",
+          "layer12BestBid": "40000.125",
+          "layer12Boundary": "layer12_live_reference_depth",
+          "layer12ControllerClass": "Layer12LiveController",
+          "layer12ControllerId": "layer12-live-production-example",
+          "layer12DepthBandsBps": [
+            10,
+            50
+          ],
+          "schemaVersion": "fiet-hummingbot-external-sidecar-broker/v1",
+          "status": "passed",
+          "tradingPair": "BTC-USDT"
+        },
+        "controllerName": "layer12_live",
+        "gateCommand": [
+          "bash",
+          "/home/azureuser/ao-repos/fiet-maker-develop/scripts/sandbox/run-hummingbot-v2.13-compatibility-gate.sh",
+          "--controller-config-path",
+          "/home/azureuser/ao-repos/fiet-maker-develop/periphery/hb-connector/config/hummingbot/layer12_live.yml",
+          "--external-broker-url",
+          "127.0.0.1:44201",
+          "--external-broker-evidence-path",
+          "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-hummingbot-sidecar-broker.json"
+        ],
+        "immediateHedgeability": {
+          "path": "maker-immediate-hedgeability-v2.json",
+          "schemaVersion": "fiet-maker-immediate-hedgeability-attachment/v1",
+          "sha256": "cf0bdcd5fb46576e09394189ab8a0997f095f595553412eaeee32bca486a3007"
+        },
+        "makerCheckout": {
+          "branch": "develop",
+          "clean": true,
+          "fixtureSha256": "5c9fd679a5a05ebce5f5158f4cc376360f24a34d9a07edeee43e94e564db3ee7",
+          "originDevelopSha": "be91c208662daf46fa6767b133b08fe317f39809",
+          "pr1067Ancestor": true,
+          "sha": "be91c208662daf46fa6767b133b08fe317f39809",
+          "wireContractTests": {
+            "command": [
+              "uv",
+              "run",
+              "--project",
+              "packages/hb-maker-shared",
+              "pytest",
+              "-q",
+              "packages/hb-maker-shared/tests/test_archive_forwarder_contract.py",
+              "packages/hb-maker-shared/tests/test_archive_emitter.py",
+              "packages/hb-maker-shared/tests/test_strategy_archive_replay.py"
+            ],
+            "exitCode": 0,
+            "tests": [
+              "packages/hb-maker-shared/tests/test_archive_forwarder_contract.py",
+              "packages/hb-maker-shared/tests/test_archive_emitter.py",
+              "packages/hb-maker-shared/tests/test_strategy_archive_replay.py"
+            ]
+          }
+        },
+        "ordersDisarmed": true,
+        "runtime": "hummingbot_v2.13_layer12_live"
+      },
+      "runId": "fiet-1014-final-20260819T103140Z-production-compatible",
+      "schemaVersion": "fiet-maker-cex-sidecar-conformance/v1",
+      "source": "hb_runtime",
+      "status": "passed",
+      "tableRows": {
+        "strategy_data.inventory_settlement_events": 1,
+        "strategy_data.market_identity": 1,
+        "strategy_data.policy_evaluation_events": 1,
+        "strategy_data.strategy_policy_snapshots": 1,
+        "strategy_data.symbol_mapping": 1
+      }
+    },
+    "brokerObservations": {
+      "collectorSubscriptionCalls": {
+        "ORDERBOOK": 1,
+        "TICKER": 1,
+        "TRADES": 1,
+        "OHLCV": 1
+      },
+      "totalSubscriptionCalls": {
+        "ORDERBOOK": 2,
+        "TICKER": 1,
+        "TRADES": 1,
+        "OHLCV": 1
+      },
+      "externalSubscriptionCalls": {
+        "ORDERBOOK": 1,
+        "TICKER": 0,
+        "TRADES": 0,
+        "OHLCV": 0
+      },
+      "physicalWorkers": {
+        "ORDERBOOK": 1,
+        "TICKER": 1,
+        "TRADES": 1,
+        "OHLCV": 1
+      },
+      "physicalFrames": {
+        "ORDERBOOK": 2,
+        "TICKER": 1,
+        "TRADES": 1,
+        "OHLCV": 2
+      },
+      "archiveDecisions": {
+        "ORDERBOOK": 2,
+        "TICKER": 1,
+        "TRADES": 1,
+        "OHLCV": 3
+      },
+      "orderBookSnapshotCalls": 1
+    },
+    "exportArtifacts": {},
+    "proofs": {
+      "proofA": {
+        "schemaVersion": "cex-orderbook-coalescing-evidence/v1",
+        "sha256": "aee0c8c5795fd12401d3eff1c5cc0f59ffe8f2559cde6ba4432578bf22dccba0",
+        "status": "passed"
+      },
+      "proofB": {
+        "schemaVersion": "fiet-maker-immediate-hedgeability/v2",
+        "sha256": "cf0bdcd5fb46576e09394189ab8a0997f095f595553412eaeee32bca486a3007",
+        "status": "passed"
+      },
+      "proofC": {
+        "schemaVersion": "cex-maker-sidecar-proof-c/v1",
+        "status": "passed",
+        "venue": "binance",
+        "profileId": "binance:l2-diff:500",
+        "logicalSubscriptions": {
+          "collector": 1,
+          "maker": 1,
+          "total": 2
+        },
+        "physical": {
+          "workers": 1,
+          "frames": 2,
+          "archiveDecisions": 2
+        },
+        "durableDelivery": {
+          "httpStatus": 202,
+          "spoolQueuedAfter": 0,
+          "marketCounts": {
+            "market_data.cex_stream_events": 4,
+            "market_data.cex_ticker_events": 1,
+            "market_data.cex_trades": 1,
+            "market_data.cex_ohlcv": 3,
+            "market_data.cex_order_book_levels": 4,
+            "market_data.cex_order_book_depth_summary": 1
+          },
+          "strategyCounts": {
+            "strategy_data.policy_evaluation_events": 1,
+            "strategy_data.strategy_policy_snapshots": 1,
+            "strategy_data.market_identity": 1,
+            "strategy_data.symbol_mapping": 1,
+            "strategy_data.inventory_settlement_events": 1
+          }
+        }
+      }
+    }
+  },
+  "artifactHashes": {
+    "manifest": {
+      "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/manifest.json",
+      "sha256": "2cbeb3fa40bd1a40f158b874958310e267e56d15d4ea5e3a90e7eb88aa5471f2"
+    },
+    "verificationInputState": {
+      "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/verification-input-state.json",
+      "sha256": "96ef142577bbbcef091f227f41cdea237e4de421f6ed9f8deed3f410ba89e4be"
+    },
+    "makerResult": {
+      "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-result.json",
+      "sha256": "bcafce41e4386fc6aac718053e0666466034ecdfede1a48ee952bd29cada3206"
+    },
+    "cexProofA": {
+      "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/cex-orderbook-coalescing-evidence.json",
+      "sha256": "aee0c8c5795fd12401d3eff1c5cc0f59ffe8f2559cde6ba4432578bf22dccba0"
+    },
+    "makerProofB": {
+      "path": "/home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence/fiet-1014-final-20260819T103140Z-production-compatible/maker-immediate-hedgeability-v2.json",
+      "sha256": "cf0bdcd5fb46576e09394189ab8a0997f095f595553412eaeee32bca486a3007"
+    }
+  },
+  "commands": {
+    "up": "bun run archive:sidecar -- up",
+    "ready": "bun run archive:sidecar -- ready --manifest <path>",
+    "verify": "bun run archive:sidecar -- verify --manifest <path>",
+    "down": "bun run archive:sidecar -- down --manifest <path>"
+  }
+}

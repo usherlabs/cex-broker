@@ -19,11 +19,11 @@ const makerCheckout = {
 	originDevelopSha: "b".repeat(40),
 	pr1067Ancestor: true,
 	fixtureSha256:
-		"784f647e048052a6c3382309b1a86abfbe08bc162363ead9fc88eaa1ba3d50c9",
+		"5c9fd679a5a05ebce5f5158f4cc376360f24a34d9a07edeee43e94e564db3ee7",
 	wireContractTests: { exitCode: 0 },
 };
 const proofASamplePath = new URL(
-	"../openspec/changes/archive-market-data-once-per-feed/evidence/cex-orderbook-coalescing-evidence.sample.json",
+	"../openspec/changes/archive/2026-08-19-archive-market-data-once-per-feed/evidence/cex-orderbook-coalescing-evidence.sample.json",
 	import.meta.url,
 );
 

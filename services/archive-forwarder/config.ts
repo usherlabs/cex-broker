@@ -1,8 +1,7 @@
 import { DEFAULT_STRATEGY_SPOOL_PATH } from "./strategy-spool";
 
 export type ClickHouseConfig = {
-	host: string;
-	port: number;
+	url: string;
 	username: string;
 	password: string;
 	database: string;
@@ -80,8 +79,7 @@ export function loadForwarderConfig(): ForwarderConfig {
 			process.env.ARCHIVE_FORWARDER_SPOOL_PATH?.trim() ||
 			DEFAULT_STRATEGY_SPOOL_PATH,
 		clickhouse: {
-			host: process.env.CLICKHOUSE_HOST?.trim() || "localhost",
-			port: parsePort(process.env.CLICKHOUSE_PORT, 8123),
+			url: process.env.CLICKHOUSE_URL?.trim() || "http://localhost:8123",
 			username: process.env.CLICKHOUSE_USER?.trim() || "default",
 			password: process.env.CLICKHOUSE_PASSWORD ?? "",
 			database: process.env.CLICKHOUSE_DATABASE?.trim() || "market_data",

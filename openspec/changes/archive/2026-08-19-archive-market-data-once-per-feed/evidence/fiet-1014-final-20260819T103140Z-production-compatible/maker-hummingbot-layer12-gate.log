@@ -1,0 +1,207 @@
+==> native Hummingbot compatibility phase: connector-registration
+ok [real-hummingbot-modules]
+ok [connector-registry]
+ok [connector-config-map]
+ok [connector-import-path]
+ok [connector-instantiation-startup]
+real Hummingbot v2.13 fiet_cex registration smoke passed
+==> native Hummingbot compatibility phase: broker-backed-connector
+ok [real-hummingbot-modules]
+ok [broker-backed-connector-paths]
+real Hummingbot v2.13 fiet_cex broker-backed smoke passed
+==> native Hummingbot compatibility phase: strategy-v2-startup
+ok [project-module-log-routing]
+ok [real-hummingbot-modules]
+ok [controller-import-discovery]
+ok [controller-config-loading]
+ok [v2-with-controllers-integration]
+ok [start-v2-headless-shape]
+real Hummingbot v2.13 Fiet Strategy V2 controller smoke passed
+mocked boundaries: Maker Restate API and exchange credentials are not contacted by this load smoke
+==> native Hummingbot compatibility phase: executor-action-lifecycle
+ok [real-hummingbot-modules]
+executor terminal admission evidence: executor=FietOrderExecutor client_order_id=FIETSEHUT65963eb5fd1c74cfa77a9b2eef5 retries=0 close_type=INSUFFICIENT_BALANCE error_type=InsufficientEffectiveBalanceError error_message=insufficient_effective_balance exchange=fake-sandbox account_selector=primary ticker=ETH venue_free_balance=10000000000000000000 effective_balance=200000000000000000 active_withdrawal_amount=0 active_order_source_spend_amount=9800000000000000000 active_proceeds_claim_amount=0 confirmed_withdrawal_amount=0 confirmed_order_source_spend_amount=0 pending_deposit_amount=0 confirmed_deposit_uncredited_amount=0 broker_create_order=0
+executor-action lifecycle evidence: controller=fiet-executor-action-proof-smoke executor=FietOrderExecutor connector=fiet_cex client_order_id=FIETSEHUT65963eb8189084cfa77a9b2eef5 exchange_order_id=executor-created-broker-order-1 broker_action=CreateOrder
+executor upstream retry evidence: executor=FietOrderExecutor failed_client_order_id=FIETSEHUT65963eb8252a54cfa77a9b2eef5 retried_client_order_id=FIETSEHUT65963eb9198894cfa77a9b2eef5 retries=1
+ok [native-executor-action-lifecycle]
+real Hummingbot v2.13 executor-action lifecycle smoke passed
+mocked boundaries: Maker facts and cex-broker are deterministic in-process fakes
+excluded boundaries: StrategyPolicy writes, movement workflows, live credentials, and production venues
+native Hummingbot v2.13 compatibility gate passed
+Pinned Hummingbot v2.13 gate exercises native Strategy V2 executor-action dispatch through fiet_cex
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.hummingbot-v2.13
+#1 transferring dockerfile: 13.20kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/hummingbot/hummingbot:version-2.13.0@sha256:507d77f1a1170f5c4f17f9b37f5dba1732ab7c1ce2a57eda05ad21727b32da8f
+#2 DONE 0.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 183B done
+#3 DONE 0.0s
+
+#4 [internal] load build context
+#4 DONE 0.0s
+
+#5 [wheel-builder  1/15] FROM docker.io/hummingbot/hummingbot:version-2.13.0@sha256:507d77f1a1170f5c4f17f9b37f5dba1732ab7c1ce2a57eda05ad21727b32da8f
+#5 resolve docker.io/hummingbot/hummingbot:version-2.13.0@sha256:507d77f1a1170f5c4f17f9b37f5dba1732ab7c1ce2a57eda05ad21727b32da8f 0.1s done
+#5 DONE 0.1s
+
+#4 [internal] load build context
+#4 transferring context: 51.42kB 0.0s done
+#4 DONE 0.1s
+
+#6 [wheel-builder  8/15] COPY packages/hb-maker-shared/src hb-maker-shared/src
+#6 CACHED
+
+#7 [stage-1  9/20] COPY periphery/hb-connector/controllers/generic/layer12_live.py /tmp/fiet-hb-adapter/controllers/generic/layer12_live.py
+#7 CACHED
+
+#8 [stage-1  4/20] COPY periphery/hb-connector/constraints.hummingbot-v2.13.txt /tmp/fiet-hb-adapter/
+#8 CACHED
+
+#9 [wheel-builder 12/15] COPY strategies/controllers/src hb-maker-controllers/src
+#9 CACHED
+
+#10 [stage-1 13/20] COPY periphery/hb-connector/controllers/generic/cex_account_composition.py /tmp/fiet-hb-adapter/controllers/generic/cex_account_composition.py
+#10 CACHED
+
+#11 [wheel-builder  5/15] COPY packages/hb-layer12/pyproject.toml hb-layer12/pyproject.toml
+#11 CACHED
+
+#12 [stage-1 17/20] COPY periphery/hb-connector/config/hummingbot/cex_account_composition.yml /tmp/fiet-hb-adapter/conf/controllers/cex_account_composition.yml
+#12 CACHED
+
+#13 [wheel-builder  9/15] COPY packages/hb-maker-treasury/pyproject.toml hb-maker-treasury/pyproject.toml
+#13 CACHED
+
+#14 [wheel-builder  6/15] COPY packages/hb-layer12/src hb-layer12/src
+#14 CACHED
+
+#15 [stage-1  7/20] COPY periphery/hb-connector/controllers/generic/maker_runtime /tmp/fiet-hb-adapter/controllers/generic/maker_runtime
+#15 CACHED
+
+#16 [wheel-builder  7/15] COPY packages/hb-maker-shared/pyproject.toml hb-maker-shared/pyproject.toml
+#16 CACHED
+
+#17 [wheel-builder  3/15] COPY packages/fiet-maker-sdk/pyproject.toml fiet-maker-sdk/pyproject.toml
+#17 CACHED
+
+#18 [stage-1 15/20] COPY periphery/hb-connector/config/hummingbot/layer12_live.yml /tmp/fiet-hb-adapter/conf/controllers/layer12_live.yml
+#18 CACHED
+
+#19 [wheel-builder  2/15] WORKDIR /tmp/wheel-build
+#19 CACHED
+
+#20 [stage-1  3/20] COPY --from=wheel-builder /tmp/fiet-wheels /tmp/fiet-wheels
+#20 CACHED
+
+#21 [stage-1  5/20] COPY periphery/hb-connector/controllers/__init__.py /tmp/fiet-hb-adapter/controllers/__init__.py
+#21 CACHED
+
+#22 [stage-1 11/20] COPY periphery/hb-connector/controllers/generic/fiet_executor_action_proof.py /tmp/fiet-hb-adapter/controllers/generic/fiet_executor_action_proof.py
+#22 CACHED
+
+#23 [wheel-builder 14/15] COPY periphery/hb-connector/fiet_cex fiet-cex/fiet_cex
+#23 CACHED
+
+#24 [stage-1 14/20] COPY periphery/hb-connector/config/hummingbot/fiet_reference.yml /tmp/fiet-hb-adapter/conf/controllers/fiet_reference.yml
+#24 CACHED
+
+#25 [stage-1 18/20] COPY periphery/hb-connector/config/hummingbot/fiet_v2_with_controllers.yml /tmp/fiet-hb-adapter/conf/scripts/fiet_v2_with_controllers.yml
+#25 CACHED
+
+#26 [wheel-builder 13/15] COPY periphery/hb-connector/pyproject.toml fiet-cex/pyproject.toml
+#26 CACHED
+
+#27 [stage-1 12/20] COPY periphery/hb-connector/controllers/generic/wallet_shared_float.py /tmp/fiet-hb-adapter/controllers/generic/wallet_shared_float.py
+#27 CACHED
+
+#28 [stage-1 19/20] COPY periphery/hb-connector/config/hummingbot/fiet_v2_layer12.yml /tmp/fiet-hb-adapter/conf/scripts/fiet_v2_layer12.yml
+#28 CACHED
+
+#29 [stage-1  2/20] WORKDIR /home/hummingbot
+#29 CACHED
+
+#30 [wheel-builder  4/15] COPY packages/fiet-maker-sdk/src fiet-maker-sdk/src
+#30 CACHED
+
+#31 [wheel-builder 10/15] COPY packages/hb-maker-treasury/src hb-maker-treasury/src
+#31 CACHED
+
+#32 [stage-1  6/20] COPY periphery/hb-connector/controllers/generic/__init__.py /tmp/fiet-hb-adapter/controllers/generic/__init__.py
+#32 CACHED
+
+#33 [wheel-builder 11/15] COPY strategies/controllers/pyproject.toml hb-maker-controllers/pyproject.toml
+#33 CACHED
+
+#34 [stage-1  8/20] COPY periphery/hb-connector/controllers/generic/fiet_reference /tmp/fiet-hb-adapter/controllers/generic/fiet_reference
+#34 CACHED
+
+#35 [wheel-builder 15/15] RUN /opt/conda/envs/hummingbot/bin/python -m pip wheel --no-cache-dir --no-deps         --wheel-dir /tmp/fiet-wheels         ./fiet-maker-sdk         ./hb-layer12         ./hb-maker-shared         ./hb-maker-treasury         ./hb-maker-controllers         ./fiet-cex
+#35 CACHED
+
+#36 [stage-1 10/20] COPY periphery/hb-connector/controllers/generic/protocol_swap_enriched.py /tmp/fiet-hb-adapter/controllers/generic/protocol_swap_enriched.py
+#36 CACHED
+
+#37 [stage-1 16/20] COPY periphery/hb-connector/config/hummingbot/wallet_shared_float.yml /tmp/fiet-hb-adapter/conf/controllers/wallet_shared_float.yml
+#37 CACHED
+
+#38 [stage-1 20/20] RUN ( /opt/conda/envs/hummingbot/bin/python -m pip check > /tmp/fiet-pip-check.before 2>&1 || true ) &&     /opt/conda/envs/hummingbot/bin/python -m pip install --no-cache-dir         --constraint /tmp/fiet-hb-adapter/constraints.hummingbot-v2.13.txt         bidict==0.23.1         grpcio==1.78.0         protobuf==5.29.6         "httpx[http2]==0.24.1"         PyYAML==6.0.3         pydantic==2.12.5         pyarrow==22.0.0         ijson==3.5.1 &&     /opt/conda/envs/hummingbot/bin/python -m pip install --no-cache-dir --no-deps /tmp/fiet-wheels/*.whl &&     rm -f /home/hummingbot/controllers/__init__.py &&     rm -f /home/hummingbot/controllers/generic/__init__.py &&     rm -rf /home/hummingbot/controllers/generic/maker_runtime &&     rm -rf /home/hummingbot/controllers/generic/fiet_reference &&     rm -f /home/hummingbot/controllers/generic/layer12_live.py &&     rm -f /home/hummingbot/controllers/generic/fiet_executor_action_proof.py &&     rm -rf /home/hummingbot/hummingbot/connector/exchange/fiet_cex &&     cp /home/hummingbot/hummingbot/templates/hummingbot_logs_TEMPLATE.yml /home/hummingbot/conf/hummingbot_logs.yml &&     /opt/conda/envs/hummingbot/bin/python -m fiet_cex.hummingbot_runtime_patcher &&     cp -a /tmp/fiet-hb-adapter/controllers/__init__.py /home/hummingbot/controllers/__init__.py &&     mkdir -p /home/hummingbot/controllers/generic &&     cp -a /tmp/fiet-hb-adapter/controllers/generic/. /home/hummingbot/controllers/generic/ &&     cp -a /tmp/fiet-hb-adapter/conf/controllers/. /home/hummingbot/conf/controllers/ &&     cp -a /tmp/fiet-hb-adapter/conf/scripts/. /home/hummingbot/conf/scripts/ &&     /opt/conda/envs/hummingbot/bin/python -c "import pathlib, shutil, fiet_cex; source = pathlib.Path(fiet_cex.__file__).parent; target = pathlib.Path('/home/hummingbot/hummingbot/connector/exchange/fiet_cex'); shutil.copytree(source, target)" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib, pathlib; names = ('fiet_maker_sdk', 'hb_layer12', 'hb_maker_shared', 'hb_maker_treasury', 'hb_maker_controllers', 'fiet_cex'); paths = [pathlib.Path(importlib.import_module(name).__file__).resolve() for name in names]; assert all('site-packages' in path.parts for path in paths), paths" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib.util; assert importlib.util.find_spec('hb_maker_emulation') is None" &&     /opt/conda/envs/hummingbot/bin/python -c "import hb_maker_treasury, hb_maker_shared, hb_layer12; import hb_layer12.engine; import hb_maker_shared.archive_emitter; from hb_layer12 import Layer12MakerLadderEngine, Layer12StrategyInput" &&     /opt/conda/envs/hummingbot/bin/python -c "import fiet_maker_sdk; from fiet_maker_sdk import MakerRuntimeClient, StrategyPolicyStatus" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib; from hummingbot.client.settings import AllConnectorSettings; settings = AllConnectorSettings.create_connector_settings(); assert 'fiet_cex' in settings; module = importlib.import_module('hummingbot.connector.exchange.fiet_cex.fiet_cex_exchange'); assert hasattr(module, 'FietCexExchange')" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib, pathlib, controllers; assert pathlib.Path(controllers.__file__).samefile('/home/hummingbot/controllers/__init__.py'); generic = importlib.import_module('controllers.generic'); assert pathlib.Path(generic.__file__).samefile('/home/hummingbot/controllers/generic/__init__.py'); importlib.import_module('controllers.generic.layer12_live'); importlib.import_module('hb_maker_controllers.generic.latency_arb.layer12_maker_ladder_controller')" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib; module = importlib.import_module('controllers.generic.fiet_reference.fiet_reference'); assert hasattr(module, 'FietReferenceController'); assert hasattr(module, 'FietReferenceConfig')" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib; module = importlib.import_module('hb_maker_controllers.generic.common.position_policy'); assert hasattr(module, 'read_position_policy_from_controller_params')" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib; runtime = importlib.import_module('controllers.generic.maker_runtime'); assert hasattr(runtime, 'MakerOperatorRuntime'); module = importlib.import_module('controllers.generic.maker_runtime.maker_operator_runtime'); assert hasattr(module, 'MakerOperatorRuntime'); assert hasattr(module, 'MakerCoordinationStore'); compat = importlib.import_module('controllers.generic.fiet_reference.maker_operator_runtime'); assert issubclass(compat.MakerOperatorRuntime, module.MakerOperatorRuntime)" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib, yaml; module = importlib.import_module('controllers.generic.layer12_live'); config_class = getattr(module, 'Layer12LiveControllerConfig'); assert getattr(module, 'Layer12LiveController'); config = config_class(**yaml.safe_load(open('/home/hummingbot/conf/controllers/layer12_live.yml'))); assert config.controller_name == 'layer12_live'; script = yaml.safe_load(open('/home/hummingbot/conf/scripts/fiet_v2_layer12.yml')); assert script['controllers_config'] == ['layer12_live.yml']" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib, yaml; module = importlib.import_module('controllers.generic.wallet_shared_float'); config_class = getattr(module, 'WalletSharedFloatControllerConfig'); assert getattr(module, 'WalletSharedFloatController'); config = config_class(**yaml.safe_load(open('/home/hummingbot/conf/controllers/wallet_shared_float.yml'))); assert config.controller_name == 'wallet_shared_float'; assert config.market_id is None and config.core_pool_id is None; custody = importlib.import_module('fiet_cex.operator_support.custody_view'); assert hasattr(custody, 'CustodyView'); script = yaml.safe_load(open('/home/hummingbot/conf/scripts/fiet_v2_with_controllers.yml')); assert 'wallet_shared_float.yml' in script['controllers_config']" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib, yaml; module = importlib.import_module('controllers.generic.cex_account_composition'); config_class = getattr(module, 'CexAccountCompositionControllerConfig'); assert getattr(module, 'CexAccountCompositionController'); config = config_class(**yaml.safe_load(open('/home/hummingbot/conf/controllers/cex_account_composition.yml'))); assert config.controller_name == 'cex_account_composition'" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib; module = importlib.import_module('hb_maker_controllers.generic.latency_arb.layer12_maker_ladder_controller'); assert hasattr(module, 'Layer12MakerLadderController'); assert hasattr(module, 'Layer12MakerLadderControllerConfig')" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib; importlib.import_module('fiet_cex.operator_support.treasury_operations')" &&     /opt/conda/envs/hummingbot/bin/fiet-hb-operator-support --help > /dev/null &&     /opt/conda/envs/hummingbot/bin/python -c "from fiet_cex.generated import node_pb2, node_pb2_grpc; assert node_pb2.DESCRIPTOR.services_by_name['cex_service']; assert hasattr(node_pb2_grpc, 'cex_serviceStub')" &&     /opt/conda/envs/hummingbot/bin/python -c "import pyarrow.parquet" &&     /opt/conda/envs/hummingbot/bin/python -c "import importlib, inspect; from hummingbot.strategy_v2.controllers.controller_base import ControllerConfigBase; module = importlib.import_module('controllers.generic.fiet_reference'); config_class = next(member for _, member in inspect.getmembers(module) if inspect.isclass(member) and member is not ControllerConfigBase and issubclass(member, ControllerConfigBase)); assert config_class.__name__ == 'FietReferenceConfig'; layer12 = importlib.import_module('controllers.generic.layer12_live'); assert issubclass(layer12.Layer12LiveControllerConfig, ControllerConfigBase); proof = importlib.import_module('controllers.generic.fiet_executor_action_proof'); assert hasattr(proof, 'FietExecutorActionProofController'); assert hasattr(proof, 'FietExecutorActionProofConfig'); orchestrator = importlib.import_module('hummingbot.strategy_v2.executors.executor_orchestrator'); upstream = importlib.import_module('hummingbot.strategy_v2.executors.order_executor.order_executor').OrderExecutor; adapter = importlib.import_module('fiet_cex.fiet_order_executor').FietOrderExecutor; assert orchestrator.ExecutorOrchestrator._executor_mapping['order_executor'] is adapter; assert issubclass(adapter, upstream)" &&     ( /opt/conda/envs/hummingbot/bin/python -m pip check > /tmp/fiet-pip-check.after 2>&1 || true ) &&     diff -u /tmp/fiet-pip-check.before /tmp/fiet-pip-check.after &&     find /home/hummingbot/controllers/generic/maker_runtime /home/hummingbot/controllers/generic/fiet_reference /home/hummingbot/hummingbot/connector/exchange/fiet_cex -type d -name __pycache__ -prune -exec rm -rf {} + &&     rm -f /tmp/fiet-pip-check.before /tmp/fiet-pip-check.after &&     rm -rf /tmp/fiet-hb-adapter /tmp/fiet-wheels
+#38 CACHED
+
+#39 exporting to image
+#39 exporting layers 0.0s done
+#39 exporting manifest sha256:08ee0cfa5a377c1228056ac8ea2c23718762291a0cbc8bf8d639a391a15de23b done
+#39 exporting config sha256:813f8311b07a0f570e86e2a0e7c17b5ee62ace654310eac73819596ebe6077bc done
+#39 exporting attestation manifest sha256:204ab0852dd2490a1d24cf33ce8c274062b814953ccfd8b08fd88c6ae3d26433 0.1s done
+#39 exporting manifest list sha256:27c9c33b23dd7104261cbe47387ba175c68a7eac6084d37b77dddaba592d1eef
+#39 exporting manifest list sha256:27c9c33b23dd7104261cbe47387ba175c68a7eac6084d37b77dddaba592d1eef 0.0s done
+#39 naming to docker.io/library/fiet-hummingbot-v2.13-runtime:latest done
+#39 unpacking to docker.io/library/fiet-hummingbot-v2.13-runtime:latest 0.0s done
+#39 DONE 0.3s
+2026-08-19 10:32:15,099 - hummingbot.connector.exchange.fiet_cex.fiet_cex_exchange.FietCexExchange - ERROR - fiet_cex broker unreachable (exchange=smoke, broker=127.0.0.1:9): reachability probe failed: BrokerError(INTERNAL): failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:9: Failed to connect to remote host: connect: Connection refused (111). Consecutive failed probes: 1 over 0s. The broker has NEVER been reachable in this run: start_network() has not run, no order book or user stream data source exists, and this connector cannot produce or act on venue data. Silence from the data source namespaces is caused by this failure, not by healthy quiet.
+Traceback (most recent call last):
+  File "/opt/conda/envs/hummingbot/lib/python3.13/site-packages/fiet_cex/broker_client.py", line 439, in _call_execute_action
+    response = await asyncio.wait_for(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "/opt/conda/envs/hummingbot/lib/python3.13/asyncio/tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/opt/conda/envs/hummingbot/lib/python3.13/site-packages/grpc/aio/_call.py", line 327, in __await__
+    raise _create_rpc_error(
+    ...<2 lines>...
+    )
+grpc.aio._call.AioRpcError: <AioRpcError of RPC that terminated with:
+	status = StatusCode.UNAVAILABLE
+	details = "failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:9: Failed to connect to remote host: connect: Connection refused (111)"
+	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:9: Failed to connect to remote host: connect: Connection refused (111)"}"
+>
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/hummingbot/hummingbot/connector/exchange/fiet_cex/fiet_cex_exchange.py", line 446, in check_network
+    await self._broker.fetch_ticker(self._exchange_name, symbol)
+  File "/opt/conda/envs/hummingbot/lib/python3.13/site-packages/fiet_cex/broker_client.py", line 674, in fetch_ticker
+    return await self._execute_action(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        broker_contract.fetch_ticker_request(cex, symbol)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/conda/envs/hummingbot/lib/python3.13/site-packages/fiet_cex/broker_client.py", line 419, in _execute_action
+    response = await self._call_execute_action(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/conda/envs/hummingbot/lib/python3.13/site-packages/fiet_cex/broker_client.py", line 478, in _call_execute_action
+    raise _grpc_error_to_ioerror(exc) from exc
+fiet_cex.broker_client.BrokerUnavailableError: BrokerError(INTERNAL): failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:9: Failed to connect to remote host: connect: Connection refused (111)
+2026-08-19 10:32:25,896 - hummingbot.connector.exchange.fiet_cex.fiet_cex_exchange.FietCexExchange - WARNING - Failed to submit SELL order to Fiet_cex. Check API key and network connection.
+2026-08-19 10:32:26,926 - hummingbot.strategy_v2.executors.order_executor.order_executor - WARNING - Order stopped FIETSEHUT65963eb5fd1c74cfa77a9b2eef5 after terminal Fiet placement failure InsufficientEffectiveBalanceError: insufficient_effective_balance exchange=fake-sandbox account_selector=primary ticker=ETH venue_free_balance=10000000000000000000 effective_balance=200000000000000000 active_withdrawal_amount=0 active_order_source_spend_amount=9800000000000000000 active_proceeds_claim_amount=0 confirmed_withdrawal_amount=0 confirmed_order_source_spend_amount=0 pending_deposit_amount=0 confirmed_deposit_uncredited_amount=0
+2026-08-19 10:32:28,105 - hummingbot.connector.exchange.fiet_cex.fiet_cex_exchange.FietCexExchange - WARNING - Failed to submit SELL order to Fiet_cex. Check API key and network connection.
+2026-08-19 10:32:28,105 - hummingbot.strategy_v2.executors.order_executor.order_executor - ERROR - Order failed FIETSEHUT65963eb8252a54cfa77a9b2eef5. Retrying 0/10

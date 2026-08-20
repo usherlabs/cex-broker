@@ -60,3 +60,18 @@ describe("archive forwarder spool configuration", () => {
 		);
 	});
 });
+
+describe("archive forwarder ClickHouse configuration", () => {
+	test("uses the local HTTP endpoint by default", () => {
+		delete process.env.CLICKHOUSE_URL;
+		expect(loadForwarderConfig().clickhouse.url).toBe("http://localhost:8123");
+	});
+
+	test("preserves a managed HTTPS endpoint", () => {
+		process.env.CLICKHOUSE_URL =
+			"https://example.germanywestcentral.azure.clickhouse.cloud:8443";
+		expect(loadForwarderConfig().clickhouse.url).toBe(
+			"https://example.germanywestcentral.azure.clickhouse.cloud:8443",
+		);
+	});
+});

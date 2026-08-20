@@ -91,7 +91,13 @@ function timeframeToMs(timeframe: string): number {
 			`Unsupported OHLCV timeframe "${timeframe}"; expected <number><s|m|h|d|w|M>`,
 		);
 	}
-	return Number(match[1]) * TIMEFRAME_UNIT_MS[match[2]];
+	const amount = match[1];
+	const unit = match[2];
+	const unitMs = unit === undefined ? undefined : TIMEFRAME_UNIT_MS[unit];
+	if (amount === undefined || unitMs === undefined) {
+		throw new Error(`Unsupported OHLCV timeframe "${timeframe}"`);
+	}
+	return Number(amount) * unitMs;
 }
 
 export class OhlcvStreamStaleError extends Error {

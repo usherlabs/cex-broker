@@ -192,8 +192,12 @@ export class ClickHouseLocalHarness {
 		);
 		this.ownedProcesses.add(process);
 		if (stdin !== undefined) {
-			process.stdin.write(stdin);
-			process.stdin.end();
+			const input = process.stdin;
+			if (input === undefined || typeof input === "number") {
+				throw new Error("ClickHouse Local stdin pipe was not created");
+			}
+			input.write(stdin);
+			input.end();
 		}
 		const timeout = setTimeout(() => process.kill("SIGKILL"), 60_000);
 		try {
