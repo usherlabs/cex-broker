@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { redactStreamPayload } from "../broker-execution-archive/redact";
-import type { BrokerArchiveSource } from "../broker-execution-archive/types";
 import type {
 	MarketCaptureContext,
 	RawCapture,
@@ -11,6 +10,10 @@ export const MARKET_CAPTURE_SCHEMA_VERSION = "1.0.0" as const;
 export const CHECKSUM_ALGORITHM = "sha256-canonical-json-v1" as const;
 
 export const ARCHIVE_SOURCES = ["broker_read", "broker_write"] as const;
+export const MARKET_ARCHIVE_SOURCES = [
+	...ARCHIVE_SOURCES,
+	"external_backfill",
+] as const;
 export const CAPTURE_FEEDS = [
 	"ORDERBOOK",
 	"TICKER",
@@ -25,6 +28,8 @@ export const SOURCE_MODES = [
 	"external_ccxt_fallback_v1",
 	"external_hummingbot_fallback_v1",
 	"legacy_migration_v1",
+	"historical_vendor_orderbook_v1",
+	"vendor_historical_backfill_v1",
 ] as const;
 export const CONSTRUCTION_MODES = [
 	"sampled_top_n_snapshot",
@@ -39,6 +44,7 @@ export const RAW_CAPTURE_SCOPES = [
 	"ccxt_normalized_object",
 	"broker_visible_payload",
 	"exchange_wire_frame",
+	"vendor_normalized_dataset_file",
 ] as const;
 
 export type CaptureFeed = (typeof CAPTURE_FEEDS)[number];
@@ -86,67 +92,102 @@ export function canonicalDecimal(value: number): string {
 	return negative ? `-${result}` : result;
 }
 
-function serializeCanonical(value: unknown, stack: Set<object>): string {
-	if (value === null) return "null";
-	if (typeof value === "string") return JSON.stringify(value);
-	if (typeof value === "boolean") return value ? "true" : "false";
-	if (typeof value === "number") return canonicalDecimal(value);
-	if (typeof value === "bigint") return value.toString(10);
+type CanonicalSink = (chunk: string) => void;
+
+function writeCanonical(
+	value: unknown,
+	stack: Set<object>,
+	sink: CanonicalSink,
+	omitChecksums: boolean,
+): void {
+	if (value === null) {
+		sink("null");
+		return;
+	}
+	if (typeof value === "string") {
+		sink(JSON.stringify(value));
+		return;
+	}
+	if (typeof value === "boolean") {
+		sink(value ? "true" : "false");
+		return;
+	}
+	if (typeof value === "number") {
+		sink(canonicalDecimal(value));
+		return;
+	}
+	if (typeof value === "bigint") {
+		sink(value.toString(10));
+		return;
+	}
 	if (value instanceof Date) {
 		if (Number.isNaN(value.getTime())) {
 			throw new Error("Canonical timestamps must be valid");
 		}
-		return value.getTime().toString(10);
+		sink(value.getTime().toString(10));
+		return;
 	}
 	if (Array.isArray(value)) {
 		if (stack.has(value)) throw new Error("Canonical values must be acyclic");
 		stack.add(value);
-		const result = `[${value
-			.map((entry) =>
-				entry === undefined ? "null" : serializeCanonical(entry, stack),
-			)
-			.join(",")}]`;
+		sink("[");
+		for (let index = 0; index < value.length; index += 1) {
+			if (index > 0) sink(",");
+			const entry = value[index];
+			if (entry === undefined) sink("null");
+			else writeCanonical(entry, stack, sink, omitChecksums);
+		}
+		sink("]");
 		stack.delete(value);
-		return result;
+		return;
 	}
 	if (typeof value === "object") {
 		if (stack.has(value)) throw new Error("Canonical values must be acyclic");
 		stack.add(value);
 		const entries = Object.entries(value as Record<string, unknown>)
-			.filter(([, entry]) => entry !== undefined)
-			.sort(([left], [right]) => left.localeCompare(right));
-		const result = `{${entries
-			.map(
+			.filter(
 				([key, entry]) =>
-					`${JSON.stringify(key)}:${serializeCanonical(entry, stack)}`,
+					entry !== undefined && (!omitChecksums || !CHECKSUM_FIELDS.has(key)),
 			)
-			.join(",")}}`;
+			.sort(([left], [right]) => left.localeCompare(right));
+		sink("{");
+		for (let index = 0; index < entries.length; index += 1) {
+			if (index > 0) sink(",");
+			const [key, entry] = entries[index] as [string, unknown];
+			sink(JSON.stringify(key));
+			sink(":");
+			writeCanonical(entry, stack, sink, omitChecksums);
+		}
+		sink("}");
 		stack.delete(value);
-		return result;
+		return;
 	}
 	throw new Error(`Unsupported canonical value type: ${typeof value}`);
 }
 
 export function canonicalSerialize(value: unknown): string {
-	return serializeCanonical(value, new Set());
-}
-
-function omitChecksumFields(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(omitChecksumFields);
-	if (value && typeof value === "object" && !(value instanceof Date)) {
-		return Object.fromEntries(
-			Object.entries(value as Record<string, unknown>)
-				.filter(([key]) => !CHECKSUM_FIELDS.has(key))
-				.map(([key, entry]) => [key, omitChecksumFields(entry)]),
-		);
-	}
-	return value;
+	const chunks: string[] = [];
+	writeCanonical(value, new Set(), (chunk) => chunks.push(chunk), false);
+	return chunks.join("");
 }
 
 export function sha256Canonical(value: unknown): string {
-	return createHash("sha256")
-		.update(canonicalSerialize(omitChecksumFields(value)))
-		.digest("hex");
+	const hash = createHash("sha256");
+	let pending = "";
+	writeCanonical(
+		value,
+		new Set(),
+		(chunk) => {
+			pending += chunk;
+			if (pending.length >= 64 * 1024) {
+				hash.update(pending);
+				pending = "";
+			}
+		},
+		true,
+	);
+	if (pending) hash.update(pending);
+	return hash.digest("hex");
 }
 
 export function normalizeTimestampMs(value: unknown, field: string): number {
@@ -169,7 +210,7 @@ export function normalizeTimestampMs(value: unknown, field: string): number {
 }
 
 function assertCaptureContext(context: MarketCaptureContext): void {
-	if (!(ARCHIVE_SOURCES as readonly string[]).includes(context.source)) {
+	if (!(MARKET_ARCHIVE_SOURCES as readonly string[]).includes(context.source)) {
 		throw new Error(`Unsupported archive source: ${context.source}`);
 	}
 	if (!(CAPTURE_FEEDS as readonly string[]).includes(context.feed)) {
@@ -237,13 +278,14 @@ export function captureCoreFields(
 ): Record<string, unknown> {
 	assertCaptureContext(context);
 	return {
-		source: context.source satisfies BrokerArchiveSource,
+		source: context.source,
 		deployment_id: context.deploymentId,
 		capture_bundle_id: context.captureBundleId,
 		exchange: context.exchange.trim().toLowerCase(),
 		symbol: context.symbol.trim(),
-		trading_pair: context.symbol.trim().replace("/", "-"),
-		source_symbol: context.symbol.trim(),
+		trading_pair:
+			context.tradingPair?.trim() || context.symbol.trim().replace("/", "-"),
+		source_symbol: context.sourceSymbol?.trim() || context.symbol.trim(),
 		asset_type: context.assetType,
 		feed: context.feed,
 		provider: context.provider,

@@ -1,8 +1,13 @@
 import { createClient } from "@clickhouse/client";
 import { loadForwarderConfig } from "./config";
 import { createClickHouseInserter } from "./insert";
-import { evaluateForwarderHealth, pingClickHouse } from "./health";
+import {
+	evaluateForwarderHealth,
+	pingClickHouse,
+	readArchiveClusterIdentity,
+} from "./health";
 import { handleArchiveRequest } from "./request";
+import { handleProductionBackfillPreflight } from "./production-authorization";
 import { ensureArchiveSchema } from "./schema";
 import { createClickHouseStreamHealthReplayStore } from "./stream-health-contract";
 import { createArchiveForwarderTelemetry } from "./telemetry";
@@ -66,11 +71,30 @@ const server = Bun.serve({
 	port: config.port,
 	async fetch(request) {
 		const url = new URL(request.url);
+		if (
+			request.method === "GET" &&
+			url.pathname === "/health/market-data-vendor-backfill"
+		) {
+			const archiveIdentity = schemaReady
+				? await readArchiveClusterIdentity(clickhouse)
+				: null;
+			return handleProductionBackfillPreflight(request, {
+				authToken: config.authToken,
+				authorization: config.productionAuthorization,
+				archiveIdentity,
+				nowMs: Date.now(),
+			});
+		}
 		if (request.method === "GET" && url.pathname === "/health") {
-			const clickhouseOk = schemaReady && (await pingClickHouse(clickhouse));
+			const archiveIdentity = schemaReady
+				? await readArchiveClusterIdentity(clickhouse)
+				: null;
+			const clickhouseOk =
+				archiveIdentity !== null && (await pingClickHouse(clickhouse));
 			if (!spool) {
 				const health = evaluateForwarderHealth({
 					clickhouseOk,
+					archiveIdentity,
 					spoolOk: false,
 					spool: null,
 				});
@@ -81,6 +105,7 @@ const server = Bun.serve({
 				telemetry.recordStrategySpoolStats(spoolStats);
 				const health = evaluateForwarderHealth({
 					clickhouseOk,
+					archiveIdentity,
 					spoolOk: true,
 					spool: spoolStats,
 				});
@@ -89,6 +114,7 @@ const server = Bun.serve({
 				telemetry.recordStrategyAdmissionRejected("spool_unavailable");
 				const health = evaluateForwarderHealth({
 					clickhouseOk,
+					archiveIdentity,
 					spoolOk: false,
 					spool: null,
 				});

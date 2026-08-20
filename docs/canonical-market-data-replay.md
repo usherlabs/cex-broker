@@ -68,6 +68,78 @@ Raw payloads are redacted before identity/checksum calculation. Canonical JSON s
 
 Exact L2 is future-facing and non-blocking for this delivery. The broker reports it unsupported and never silently labels sampled evidence exact. A future exact producer must supply complete continuity proof.
 
+## Historical vendor backfill
+
+The public `@usherlabs/cex-broker/market-data-vendor-backfill` subpath exposes `runMarketDataVendorBackfill(request, dependencies)`. It is a bounded library API, not an RPC or always-on process. Its closed lifecycle is:
+
+1. Validate the versioned, secret-free request before I/O and query replay-qualified coverage first.
+2. Resolve an explicitly enabled provider capability before asking a secure wrapper for credentials.
+3. Fetch only the authorized UTC-hour objects within file, byte, row, duration, and boundary-lookback budgets; hash and validate each object; and reconstruct prior-as-of sampled top-N books.
+4. Submit content-addressed candidate chunks through the archive-forwarder, query the unqualified canonical evidence, and verify logical keys/checksums, conflicts, seams, prefix/suffix stability, future leakage, depth, construction mode, required clocks, and exporter compatibility.
+5. Submit a passing promotion receipt last, then requery the qualified view. Only `already_covered` and `promoted` are successful outcomes.
+
+The CryptoHFTData registry is default-empty. Explicit profile injection is
+required; API-key possession never enables a venue or symbol. Adapter v2 adds
+the live-proven `CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE` alongside the synthetic
+Binance contract profile. OKX snapshots use `final_update_id=seqId` and
+`last_update_id=-1`; updates use `final_update_id=seqId` and
+`last_update_id=prevSeqId`. Replay ignores an update-only prefix before the
+first complete snapshot but requires every applied update to link to the current
+sequence. It rejects MEXC, `fill_gaps`, exact L2, unknown symbols, and ambiguous
+timestamp or sequence semantics before credential resolution.
+
+Secrets are dependency inputs, never request fields. Provider API keys are used only to obtain a short-lived token; downloads use a bearer header. ClickHouse read credentials belong to the injected archive reader, and forwarder authentication uses an HTTP bearer header. None belongs in request/result JSON, receipt hashes, URLs, argv, logs, or retained error bodies. Deterministic `batch_id` values make bounded producer-owned retries safe; the worker does not use the live-strategy spool and never writes ClickHouse directly.
+
+The opt-in real-provider check acquires and validates one hourly object but prints only stable identities, counts, and hashes:
+
+```bash
+CRYPTOHFTDATA_CONFORMANCE_ENABLED=1 \
+CRYPTOHFTDATA_CONFORMANCE_START_MS=1787045235308 \
+CRYPTOHFTDATA_API_KEY="<injected-secret>" \
+bun run test:conformance:market-data-vendor-backfill
+```
+
+Before declaring the profile ready, run the stronger local promotion gate. It
+starts a disposable `clickhouse/clickhouse-server:24.8`, initializes the
+production schema, submits through the real HTTP archive-forwarder, requires
+`promoted` plus qualified export, then repeats the identical request and
+requires `already_covered` with unchanged archive counts. The downloaded object
+is decoded only in memory; the temporary database and Parquet export are removed
+on completion.
+
+```bash
+MARKET_DATA_VENDOR_BACKFILL_SMOKE_ENABLED=1 \
+MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS=1787045235308 \
+MARKET_DATA_VENDOR_BACKFILL_SMOKE_EVIDENCE_PATH=/tmp/market-data-vendor-backfill-smoke-evidence.json \
+CRYPTOHFTDATA_API_KEY="$(vault kv get -field=CRYPTOHFTDATA_API_KEY kv/secrets)" \
+bun run test:smoke:market-data-vendor-backfill
+```
+
+The evidence file is atomically replaced with mode `0600` and contains only the
+closed `market-data-vendor-backfill-local-smoke/v1` projection: source and
+runtime versions, request/capture/receipt identities, provider object identities
+and hashes, row counts, coverage/export hashes, durations, and stable outcome
+codes. It never contains credentials, bearer tokens, decoded rows, response
+bodies, or ClickHouse/forwarder secrets. GitHub's manual-only
+`Market Data Vendor Backfill Smoke` workflow runs the same command under the
+protected `market-data-vendor-backfill-smoke` environment and retains that JSON
+for 90 days. Configure the environment secret `CRYPTOHFTDATA_API_KEY` and the
+approved positive-control variable
+`MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS`; the workflow has no push,
+pull-request, or scheduled trigger.
+
+The approved positive control is OKX Spot ARB-USDT beginning at
+`2026-08-18T09:27:15.308Z` (`1787045235308`). The hourly object contains an
+800-row complete snapshot (400 bids and 400 asks) followed by a linked update
+chain. The earlier tested Binance Spot BTC-USDT objects remain unsupported for
+this gate because they contain updates without a snapshot reset; the worker
+continues to reject them with `update_before_snapshot` rather than synthesize an
+initial historical book.
+
+Do not commit or publish licensed provider payloads or decoded rows. The committed fixtures are synthetic. Provider licensing and durable normalized-row retention rights remain a deployment prerequisite.
+
+Ownership stays split across repositories: CEX Broker owns acquisition, normalization, archive submission, semantic qualification, and the receipt; Fiet TEE owns the executable wrapper, secure-secret resolution, and package pin; Fiet Maker independently requeries qualified views and binds its loader/policy proof to the CEX receipt. Promotion makes rows eligible for replay but does not by itself make an economics result quotable.
+
 ## ClickHouse and replay
 
 Canonical storage is:
@@ -75,8 +147,11 @@ Canonical storage is:
 - `market_data.cex_stream_events` for the redacted raw ledger
 - `market_data.cex_ticker_events`, `market_data.cex_trades`, and `market_data.cex_ohlcv`
 - append-only `market_data.cex_order_book_levels` and `market_data.cex_order_book_depth_summary`
+- append-only passing receipts in `market_data.cex_order_book_capture_promotions`
 
 `cex_ohlcv` uses `ReplacingMergeTree(broker_version)`; `cex_ohlcv_closed` applies `FINAL` and closed-bar semantics. Order-book physical duplicates remain auditable. The `_canonical` views expose one checksum-consistent logical row, while `_conflicts` expose keys with multiple checksums. Same-batch conflicts are rejected by the forwarder; cross-batch conflicts remain stored and must block the affected replay bundle.
+
+Broker-origin canonical rows remain replay eligible. Physical `external_backfill` rows use provider identity separately from `source`, `historical_vendor_orderbook_v1`, and `vendor_normalized_dataset_file`; they become visible only through `cex_order_book_levels_replay_qualified` and `cex_order_book_depth_summary_replay_qualified` after an exact passing promotion joins their bundle, scope, window, depth, construction mode, and schema. Their old source timestamps are exempt from the broker-origin 90-day live TTL so candidate evidence is not deleted before qualification. Promotion rows have no shorter TTL.
 
 Use `schema/clickhouse/canonical_market_data_replay.sql` for bounded bundle/exchange/pair/source-time replay. Its conflict preflights must return no rows before consuming the canonical views.
 
@@ -97,7 +172,7 @@ uv run --project research/python --extra dev \
   /tmp/maker-capture/order_book_depth_summary.parquet
 ```
 
-The exporter refuses to overwrite existing files or export a selected window with an order-book checksum conflict. The Python verifier checks capture-core field presence and recomputes every normalized-row checksum from the Parquet values. Neither tool calls the broker or an exchange. Fixture materialization, coverage reports, and replay-bundle assembly are owned by [FIET-907](https://linear.app/usherlabs/issue/FIET-907/clickhouse-backtest-fixture-materializers-and-coveragereplay-bundles), not by the live capture runtime.
+The exporter reads replay-qualified views, refuses unqualified external bundles, returns matching promotion receipt IDs, and will not overwrite existing files or export a selected window with an order-book checksum conflict. The Python verifier checks capture-core field presence and recomputes every normalized-row checksum from the Parquet values. Neither tool calls the broker or an exchange. Fixture materialization, coverage reports, and replay-bundle assembly are owned by [FIET-907](https://linear.app/usherlabs/issue/FIET-907/clickhouse-backtest-fixture-materializers-and-coveragereplay-bundles), not by the live capture runtime.
 
 For complete strategy-pair validation, point `CEX_BROKER_REPLAY_VALIDATION_CONFIG` at a JSON document whose `windows` array contains `captureBundleIds`, `exchange`, `tradingPair`, `startTimeMs`, and `endTimeMs`, then run `bun scripts/validate-canonical-market-replay.ts`. Every configured window must contain raw and normalized ORDERBOOK, TICKER, TRADES, and OHLCV evidence; any missing feed or checksum conflict fails validation.
 

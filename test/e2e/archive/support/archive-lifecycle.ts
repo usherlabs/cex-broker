@@ -1358,15 +1358,41 @@ async function verifyStoredChecksums(
 			throw new Error(`No stored checksum rows in ${table}`);
 		}
 		for (const row of rows) {
-			const recomputed = sha256Canonical(row);
+			const emitted = endpoint.batches
+				.flatMap((batch) => batch.rows)
+				.find(
+					(entry) =>
+						entry.table === table &&
+						entry.row.normalized_row_checksum === row.normalized_row_checksum,
+				)?.row;
+			const checksumDocument = { ...row };
+			if ("capture_origin" in checksumDocument) {
+				const expectedOrigin =
+					row.source === "external_backfill"
+						? "vendor_historical_backfill"
+						: "production_capture";
+				if (row.capture_origin !== expectedOrigin) {
+					throw new Error(
+						`Stored capture origin mismatch in ${table}: expected ${expectedOrigin}, received ${String(row.capture_origin)}`,
+					);
+				}
+				delete checksumDocument.capture_origin;
+			}
+			if (
+				emitted &&
+				typeof emitted.sequence === "string" &&
+				typeof row.sequence === "number" &&
+				/^\d+$/.test(emitted.sequence) &&
+				Number.isSafeInteger(row.sequence) &&
+				BigInt(emitted.sequence) === BigInt(row.sequence)
+			) {
+				// ClickHouse materializes a safe UInt64 as a JSON number even when the
+				// producer used a decimal string. Restore only the equivalent producer
+				// representation before verifying the unchanged v1 row checksum.
+				checksumDocument.sequence = emitted.sequence;
+			}
+			const recomputed = sha256Canonical(checksumDocument);
 			if (recomputed !== row.normalized_row_checksum) {
-				const emitted = endpoint.batches
-					.flatMap((batch) => batch.rows)
-					.find(
-						(entry) =>
-							entry.table === table &&
-							entry.row.normalized_row_checksum === row.normalized_row_checksum,
-					)?.row;
 				const changedFields = emitted
 					? [...new Set([...Object.keys(emitted), ...Object.keys(row)])].filter(
 							(field) =>

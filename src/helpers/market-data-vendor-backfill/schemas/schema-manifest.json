@@ -1,0 +1,31 @@
+{
+	"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v1",
+	"artifacts": [
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-request/v1",
+			"path": "schemas/request.schema.json",
+			"schema_sha256": "94eea61421e2dbbb77a583d60aa18208debee31bb7284b0a57e844d8ff34e0ad"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-result/v1",
+			"path": "schemas/result.schema.json",
+			"schema_sha256": "65b5b3cf3b876159e8bc5f28978f3fcf08e9e91653eade463a1136e7b71c41fa"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-required-clock/v1",
+			"path": "schemas/required-clock.schema.json",
+			"schema_sha256": "9f850ddb07aaf4cd339ce60e8c54f80313a090bed1a30c82a6db5877c9b4fbf3"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-archive-selection/v1",
+			"path": "schemas/archive-selection.schema.json",
+			"schema_sha256": "1c76ee8579abdaa6f060a14361ed8fe1a93dcf484418b91eede9210d88f99aea"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-promotion-receipt/v1",
+			"path": "schemas/promotion-receipt.schema.json",
+			"schema_sha256": "00c42aba3e4a26d4692ef5554273ed762c21fce8c07624bc970ff0b28884b099"
+		}
+	],
+	"manifest_sha256": "48e5e91d33caafd930b45552c799a9fb0c2ccd9a676106fbab2543f231dba1b7"
+}
