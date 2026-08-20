@@ -29,13 +29,13 @@ describe("archive forwarder spool configuration", () => {
 	test("loads a complete production-scoped backfill authorization", () => {
 		process.env.ARCHIVE_FORWARDER_TOKEN = "production-secret";
 		process.env.ARCHIVE_FORWARDER_AUTHORIZATION_ID =
-			"018f0f4d-7b32-7a30-8f4d-1d2a6e40f103";
+			"00000000-0000-4000-8000-000000000000";
 		process.env.ARCHIVE_FORWARDER_AUTHORIZATION_EXPIRES_AT =
 			"2026-08-21T12:00:00.000Z";
 		process.env.ARCHIVE_FORWARDER_ENVIRONMENT = "production";
 		process.env.ARCHIVE_FORWARDER_CLUSTER = "cex-archive-primary";
 		expect(loadForwarderConfig().productionAuthorization).toEqual({
-			authorizationId: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+			authorizationId: "00000000-0000-4000-8000-000000000000",
 			scope: "production",
 			environment: "production",
 			cluster: "cex-archive-primary",
