@@ -53,8 +53,9 @@ digests, and the passing receipt identity are recorded.
 - Protected provider conformance: passed with exactly the single pinned OKX object recorded above.
 - Protected final-v1 promotion/idempotency smoke: passed; the disposable archive was removed and the evidence artifact remained mode `0600` outside the repository.
 - Strict OpenSpec validation: passed.
-- npm tarball: `@usherlabs/cex-broker@0.2.46`, 120 entries, 8,868,222 bytes, SHA-256 `2ba8a7f81f566585aeb5cbe601b06f34be1f6d2eabc9334c4132520ae51cf81d`.
-- Tarball audit: all schemas, policies, fixtures, JavaScript, and declarations are present; the product subpath imports with installed dependencies and contains no server/handler imports.
+- Pre-release stateful-worktree tarball: `@usherlabs/cex-broker@0.2.46`, 120 entries, 8,868,222 bytes, SHA-256 `2ba8a7f81f566585aeb5cbe601b06f34be1f6d2eabc9334c4132520ae51cf81d`.
+- Published clean-runner tarball: 119 entries, 8,867,879 bytes, SHA-256 `13986d1d11dba8fe4360061d2dfe0de1e38251e11c676d6ea33caaf79eb17032`, npm SHA-1 `64609a429c8491137980910cd104ccb6f278ba7a`, with npm provenance attestation.
+- Tarball audit: the published artifact contains all nine schemas, policies, fixtures, and manifest assets plus the exported JavaScript and declarations; the product subpath imports with installed dependencies and contains no server/handler imports. Manifest comparison found that the sole extra candidate entry was the stale, unexported `dist/helpers/market-data-vendor-backfill/index.d.ts`; its clean-runner omission does not alter the public package contract.
 
 ## Remaining production-dispatch prerequisites
 
