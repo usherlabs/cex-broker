@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -58,23 +60,69 @@ describe("exportDeadLetterJournal", () => {
 		expect(readFileSync(`${exportPath}.sha256`, "utf8")).toBe(
 			`${JOURNAL_SHA256}  exported.jsonl\n`,
 		);
-		expect(existsSync(`${exportPath}.partial`)).toBe(false);
+		expect(
+			readdirSync(dir).filter((name) => name.includes(".partial")),
+		).toEqual([]);
 	});
 
-	test("skips without touching an existing export target", () => {
+	test("skips without touching a completed export and receipt", () => {
 		const dir = makeDir();
 		const journalPath = join(dir, "archive-dead-letter.jsonl");
 		const exportPath = join(dir, "exported.jsonl");
-		writeFileSync(journalPath, JOURNAL_CONTENT);
-		writeFileSync(exportPath, "prior export the operator has not consumed");
+		const priorExport = "prior export the operator has not consumed";
+		const priorSha256 = new Bun.CryptoHasher("sha256")
+			.update(priorExport)
+			.digest("hex");
+		writeFileSync(exportPath, priorExport);
+		writeFileSync(`${exportPath}.sha256`, `${priorSha256}  exported.jsonl\n`);
 
 		const result = exportDeadLetterJournal(journalPath, exportPath);
 
 		expect(result.status).toBe("skipped_export_exists");
-		expect(readFileSync(exportPath, "utf8")).toBe(
-			"prior export the operator has not consumed",
+		expect(readFileSync(exportPath, "utf8")).toBe(priorExport);
+		expect(readFileSync(`${exportPath}.sha256`, "utf8")).toBe(
+			`${priorSha256}  exported.jsonl\n`,
 		);
-		expect(existsSync(`${exportPath}.sha256`)).toBe(false);
+	});
+
+	test("fails closed when an existing export has no receipt", () => {
+		const dir = makeDir();
+		const journalPath = join(dir, "archive-dead-letter.jsonl");
+		const exportPath = join(dir, "exported.jsonl");
+		writeFileSync(exportPath, "unverifiable export");
+
+		expect(() => exportDeadLetterJournal(journalPath, exportPath)).toThrow(
+			DeadLetterJournalExportError,
+		);
+		expect(readFileSync(exportPath, "utf8")).toBe("unverifiable export");
+	});
+
+	test("fails closed when an existing export has a malformed receipt", () => {
+		const dir = makeDir();
+		const journalPath = join(dir, "archive-dead-letter.jsonl");
+		const exportPath = join(dir, "exported.jsonl");
+		writeFileSync(exportPath, "unverifiable export");
+		writeFileSync(`${exportPath}.sha256`, "truncated receipt");
+
+		expect(() => exportDeadLetterJournal(journalPath, exportPath)).toThrow(
+			DeadLetterJournalExportError,
+		);
+	});
+
+	test("does not silently skip after receipt publication fails", () => {
+		const dir = makeDir();
+		const journalPath = join(dir, "archive-dead-letter.jsonl");
+		const exportPath = join(dir, "exported.jsonl");
+		writeFileSync(journalPath, JOURNAL_CONTENT);
+		mkdirSync(`${exportPath}.sha256`);
+
+		expect(() => exportDeadLetterJournal(journalPath, exportPath)).toThrow(
+			DeadLetterJournalExportError,
+		);
+		expect(existsSync(exportPath)).toBe(true);
+		expect(() => exportDeadLetterJournal(journalPath, exportPath)).toThrow(
+			DeadLetterJournalExportError,
+		);
 	});
 
 	test("skips when no journal exists and creates nothing", () => {

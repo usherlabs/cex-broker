@@ -1,17 +1,21 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
 	closeSync,
 	existsSync,
 	fsyncSync,
+	lstatSync,
 	openSync,
+	readFileSync,
 	readSync,
 	renameSync,
-	writeSync,
+	unlinkSync,
+	writeFileSync,
 } from "node:fs";
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import { log } from "../logger";
 
 const EXPORT_CHUNK_BYTES = 8 * 1024 * 1024;
+const SHA256_RECEIPT_PATTERN = /^([0-9a-f]{64}) {2}(.+)\n$/;
 
 export class DeadLetterJournalExportError extends Error {
 	constructor(message: string, options?: ErrorOptions) {
@@ -58,10 +62,30 @@ export function exportDeadLetterJournal(
 	journalPath: string,
 	exportPath: string,
 ): DeadLetterJournalExportResult {
-	// One-shot: an existing target is a completed prior export the operator has
-	// not consumed yet. Overwriting it on every boot would race the replay run
-	// reading it, so a re-export requires removing the old file first.
+	const receiptPath = `${exportPath}.sha256`;
+	// One-shot: an existing target is only a completed prior export when its
+	// atomically published receipt is present and well formed. Overwriting it on
+	// every boot would race the replay run reading it, so an incomplete pair
+	// fails closed and requires explicit operator cleanup.
 	if (existsSync(exportPath)) {
+		try {
+			if (!lstatSync(exportPath).isFile()) {
+				throw new Error("export target is not a regular file");
+			}
+			if (!lstatSync(receiptPath).isFile()) {
+				throw new Error("export receipt is not a regular file");
+			}
+			const receipt = readFileSync(receiptPath, "utf8");
+			const match = SHA256_RECEIPT_PATTERN.exec(receipt);
+			if (match?.[1] === undefined || match[2] !== basename(exportPath)) {
+				throw new Error("export receipt is malformed");
+			}
+		} catch (error) {
+			throw new DeadLetterJournalExportError(
+				"Dead-letter journal export target is incomplete or unverifiable",
+				{ cause: error },
+			);
+		}
 		log.info("Dead-letter journal export target already exists, skipping", {
 			export_path: exportPath,
 		});
@@ -75,14 +99,16 @@ export function exportDeadLetterJournal(
 		return { status: "skipped_missing_journal", journalPath };
 	}
 
-	const partialPath = `${exportPath}.partial`;
+	const temporarySuffix = `${process.pid}.${randomUUID()}.partial`;
+	const partialPath = `${exportPath}.${temporarySuffix}`;
+	const receiptPartialPath = `${receiptPath}.${temporarySuffix}`;
 	let bytes = 0;
 	let digest: string;
 	try {
 		const hash = createHash("sha256");
 		const sourceFd = openSync(journalPath, "r");
 		try {
-			const targetFd = openSync(partialPath, "w", 0o600);
+			const targetFd = openSync(partialPath, "wx", 0o600);
 			try {
 				const chunk = Buffer.alloc(EXPORT_CHUNK_BYTES);
 				for (;;) {
@@ -92,7 +118,7 @@ export function exportDeadLetterJournal(
 					}
 					const view = chunk.subarray(0, read);
 					hash.update(view);
-					writeSync(targetFd, view);
+					writeFileSync(targetFd, view);
 					bytes += read;
 				}
 				fsyncSync(targetFd);
@@ -103,18 +129,30 @@ export function exportDeadLetterJournal(
 			closeSync(sourceFd);
 		}
 		digest = hash.digest("hex");
-		// The bare target path only ever holds a complete copy: the bytes land in
-		// .partial first and are renamed after fsync, so a crash mid-export can
-		// never be mistaken for a finished export.
-		renameSync(partialPath, exportPath);
-		const receiptFd = openSync(`${exportPath}.sha256`, "w", 0o600);
+		const receiptFd = openSync(receiptPartialPath, "wx", 0o600);
 		try {
-			writeSync(receiptFd, `${digest}  ${basename(exportPath)}\n`);
+			writeFileSync(receiptFd, `${digest}  ${basename(exportPath)}\n`);
 			fsyncSync(receiptFd);
 		} finally {
 			closeSync(receiptFd);
 		}
+		// Publish the receipt last so it acts as the completion marker. A crash or
+		// rename failure between these operations leaves an export without a valid
+		// receipt, which the next startup rejects instead of silently skipping.
+		renameSync(partialPath, exportPath);
+		renameSync(receiptPartialPath, receiptPath);
+		const parentFd = openSync(dirname(exportPath), "r");
+		try {
+			fsyncSync(parentFd);
+		} finally {
+			closeSync(parentFd);
+		}
 	} catch (error) {
+		for (const temporaryPath of [partialPath, receiptPartialPath]) {
+			try {
+				unlinkSync(temporaryPath);
+			} catch {}
+		}
 		// The operator explicitly asked for this export; a partial or unverifiable
 		// copy silently left in place would defeat its purpose, so startup fails.
 		throw new DeadLetterJournalExportError(
