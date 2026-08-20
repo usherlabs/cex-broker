@@ -25,6 +25,18 @@ conflict views, plus
 
 ## ADDED Requirements
 
+### Requirement: Final-v1 archive conformance covers identity and authority transitions
+The isolated ClickHouse/forwarder suite SHALL cover production-only coverage,
+authoritative vendor promotion, idempotent selection reuse, fill-gaps
+composition, qualification quarantine and revocation, unauthorized production
+submission, and reader/forwarder cluster mismatch using the final v1 schemas
+and hash fixtures.
+
+#### Scenario: Final-v1 protected provider gate runs
+- **WHEN** all synthetic schema, policy, archive, authorization, and qualification tests pass
+- **THEN** the OKX live-provider gate MUST be rerun with final origin/mode, receipt, selection, and policy identities
+- **AND** retained evidence MUST remain hash-safe
+
 ### Requirement: Real ClickHouse proves the promotion commit boundary
 The archive E2E suite SHALL use the production schema, HTTP request parser,
 allowlist, inserter, and real pinned ClickHouse runtime to prove external capture

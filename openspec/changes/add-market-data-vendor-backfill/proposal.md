@@ -7,8 +7,34 @@ export broker captures, but it has no vendor adapter, promotion receipt, or
 qualification boundary that prevents partially inserted vendor bundles from
 becoming replay evidence.
 
+The first v1 contracts have not been published and diverge from the Fiet TEE
+and Fiet Maker integration contract. This change is therefore reopened to
+replace those provisional contracts in place before the first release. No v2
+compatibility layer or automatic migration of provisional vendor
+qualifications is provided.
+
 ## What Changes
 
+- Replace the provisional camelCase/Zod wire contract with strict snake_case
+  JSON Schema Draft 2020-12 request, result, required-clock, promotion-receipt,
+  and archive-selection artifacts. Publish their canonical RFC 8785 JCS
+  SHA-256 identities, policy manifests, fixtures, codecs, and declarations in
+  the dedicated package subpath and npm tarball.
+- Make archive selection an exact, content-addressed document binding the
+  requested scope, required clock, coverage policy, exact intervals and
+  bundles, qualification evidence, promotion receipts, and prior-as-of
+  `support_anchors`. Repeated qualified requests return the stored selection
+  and receipt identities rather than minting replacements.
+- Split promotion identity into timestamp-independent
+  `promotion_identity_sha256` for semantic deduplication and a full
+  `receipt_id` over the complete receipt including `verified_at`.
+- Make the durable external result a Fiet TEE-owned job envelope containing a
+  CEX domain outcome. CEX owns request validation, archive preflight,
+  capability, credential, vendor, ingestion, and post-promotion verification
+  statuses; Maker owns process and post-consumer insufficiency outcomes.
+- Add explicit capture origin, append-only qualification state, deployment-owned
+  archive cluster identity, and production-forwarder authorization so archive
+  identity and authority are verified before vendor or credential access.
 - Add a reusable `market-data-vendor-backfill` core API for versioned,
   secret-free request/result contracts, provider capability discovery,
   idempotent archive preflight, bounded vendor acquisition, canonicalization,
@@ -84,3 +110,6 @@ becoming replay evidence.
 - Follow-on Fiet TEE work pins the published package and provides atomic
   request/result file handling; Fiet Maker independently re-queries qualified
   ClickHouse output and owns its actual-loader consumer proof.
+- The first compatible package is released at the next unused npm version,
+  currently no lower than `0.2.46`; dispatch remains disabled until CEX, Fiet
+  TEE, and Maker pass identical schema/hash fixtures and pin released artifacts.

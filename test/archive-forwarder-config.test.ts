@@ -25,4 +25,38 @@ describe("archive forwarder spool configuration", () => {
 			"spoolRetentionMs",
 		);
 	});
+
+	test("loads a complete production-scoped backfill authorization", () => {
+		process.env.ARCHIVE_FORWARDER_TOKEN = "production-secret";
+		process.env.ARCHIVE_FORWARDER_AUTHORIZATION_ID =
+			"018f0f4d-7b32-7a30-8f4d-1d2a6e40f103";
+		process.env.ARCHIVE_FORWARDER_AUTHORIZATION_EXPIRES_AT =
+			"2026-08-21T12:00:00.000Z";
+		process.env.ARCHIVE_FORWARDER_ENVIRONMENT = "production";
+		process.env.ARCHIVE_FORWARDER_CLUSTER = "cex-archive-primary";
+		expect(loadForwarderConfig().productionAuthorization).toEqual({
+			authorizationId: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+			scope: "production",
+			environment: "production",
+			cluster: "cex-archive-primary",
+			expiresAt: "2026-08-21T12:00:00.000Z",
+		});
+	});
+
+	test("disables absent authorization and rejects partial or malformed configuration", () => {
+		for (const key of [
+			"ARCHIVE_FORWARDER_TOKEN",
+			"ARCHIVE_FORWARDER_AUTHORIZATION_ID",
+			"ARCHIVE_FORWARDER_AUTHORIZATION_EXPIRES_AT",
+			"ARCHIVE_FORWARDER_ENVIRONMENT",
+			"ARCHIVE_FORWARDER_CLUSTER",
+		]) {
+			delete process.env[key];
+		}
+		expect(loadForwarderConfig().productionAuthorization).toBeUndefined();
+		process.env.ARCHIVE_FORWARDER_AUTHORIZATION_ID = "not-a-uuid";
+		expect(() => loadForwarderConfig()).toThrow(
+			"production authorization configuration",
+		);
+	});
 });

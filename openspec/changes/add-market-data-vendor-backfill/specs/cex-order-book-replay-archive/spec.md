@@ -1,5 +1,45 @@
 ## ADDED Requirements
 
+### Requirement: Qualification state and resolved selections are append-only evidence
+The archive SHALL store append-only `qualified`, `quarantined`, and `revoked`
+qualification events and enough canonical receipt and resolved-selection
+content to return the original identities on idempotent reuse. Vendor-qualified
+views SHALL require the latest state to be `qualified` and its referenced final
+v1 receipt to have valid recomputed identities. Production rows SHALL retain
+their existing checksum/provenance eligibility without vendor receipts.
+
+#### Scenario: Receipt or selection content conflicts
+- **WHEN** a stored identity resolves to different content or a recomputed digest mismatches
+- **THEN** the reader MUST fail closed
+- **AND** no vendor rows covered by that evidence may be selected
+
+### Requirement: Archive identity is deployment-owned and checked before acquisition
+The archive SHALL expose one deployment-owned
+`market_data.cex_archive_cluster_identity` singleton containing environment and
+cluster identity. The archive reader SHALL query it and archive-forwarder
+health SHALL report the same stored identity. Preflight MUST require the reader,
+forwarder, and request identities to match before capability, credentials, or
+vendor acquisition.
+
+#### Scenario: Reader and forwarder target different clusters
+- **WHEN** either identity differs from the request environment or cluster
+- **THEN** the outcome MUST be `archive_preflight_failed`
+- **AND** no provider capability, credential, or network acquisition may occur
+
+### Requirement: Production forwarder admission requires scoped authorization
+Production forwarding SHALL validate a nonempty authorization ID, a
+production-scoped credential, expiry, environment, and cluster before fetch or
+submission. A missing authorization ID SHALL make the request invalid. An
+invalid or expired authorization, wrong scope, or identity mismatch SHALL fail
+archive preflight.
+
+#### Scenario: Production authorization is absent or invalid
+- **WHEN** a production request omits its authorization ID
+- **THEN** the outcome MUST be `request_invalid`
+- **WHEN** the referenced authorization is invalid, expired, not production-scoped, or bound to another environment or cluster
+- **THEN** the outcome MUST be `archive_preflight_failed`
+- **AND** no provider capability, credential, or network acquisition may occur
+
 ### Requirement: External capture qualification is an append-only commit boundary
 The archive SHALL store passing external-backfill promotion records in
 `market_data.cex_order_book_capture_promotions`. Each record MUST bind one
@@ -101,4 +141,3 @@ and compatibility with the CEX canonical export contract.
 - **WHEN** a pre-promotion prefix or suffix semantic digest differs after
   candidate ingestion
 - **THEN** promotion verification MUST fail and MUST NOT commit qualification
-

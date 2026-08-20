@@ -424,7 +424,7 @@ describe("CryptoHFTData capability and acquisition", () => {
 				source: "external_backfill",
 				deployment_id: "market-data-vendor-backfill",
 				provider: "cryptohftdata",
-				source_mode: "historical_vendor_orderbook_v1",
+				source_mode: "vendor_historical_backfill_v1",
 				raw_capture_scope: "vendor_normalized_dataset_file",
 				raw_checksum: object.checksum,
 				sequence,

@@ -80,7 +80,9 @@ export async function handleArchiveRequest(
 	}
 	if (
 		externalClassification === "candidate" ||
-		externalClassification === "promotion"
+		externalClassification === "promotion" ||
+		externalClassification === "qualification" ||
+		externalClassification === "selection"
 	) {
 		const validation = validateExternalBackfillBatch(body);
 		if (!validation.ok) {

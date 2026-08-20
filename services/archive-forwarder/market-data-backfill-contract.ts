@@ -1,10 +1,21 @@
 import { sha256Canonical } from "../../src/helpers/market-data-archive/capture-contract";
 import { promotionReceiptFromArchiveRow } from "../../src/helpers/market-data-vendor-backfill/promotion";
+import { qualificationEventFromArchiveRow } from "../../src/helpers/market-data-vendor-backfill/qualification";
+import { archiveSelectionFromArchiveRow } from "../../src/helpers/market-data-vendor-backfill/selection";
 import type { ArchiveBatchRequest, ArchiveRow } from "./types";
 
 export const EXTERNAL_BACKFILL_SOURCE = "external_backfill";
 export const PROMOTION_TABLE =
 	"market_data.cex_order_book_capture_promotions" as const;
+export const QUALIFICATION_TABLE =
+	"market_data.cex_order_book_capture_qualifications" as const;
+export const SELECTION_TABLE =
+	"market_data.cex_order_book_archive_selections" as const;
+const EVIDENCE_TABLES: ReadonlySet<string> = new Set([
+	PROMOTION_TABLE,
+	QUALIFICATION_TABLE,
+	SELECTION_TABLE,
+]);
 const CANDIDATE_TABLES: ReadonlySet<string> = new Set([
 	"market_data.cex_order_book_levels",
 	"market_data.cex_order_book_depth_summary",
@@ -68,9 +79,12 @@ const SUMMARY_FIELDS = new Set([
 ]);
 const PROMOTION_FIELDS = new Set([
 	"source",
+	"capture_origin",
+	"source_mode",
 	"deployment_id",
 	"receipt_schema_version",
 	"receipt_id",
+	"promotion_identity_sha256",
 	"request_id",
 	"idempotency_key",
 	"status",
@@ -86,7 +100,18 @@ const PROMOTION_FIELDS = new Set([
 	"depth_limit",
 	"construction_mode",
 	"schema_version",
+	"canonical_schema_sha256",
 	"checksum_algorithm",
+	"coverage_policy_json",
+	"selection_sha256",
+	"capability_policy_id",
+	"capability_policy_sha256",
+	"resource_policy_id",
+	"resource_policy_sha256",
+	"adapter_policy_id",
+	"adapter_policy_sha256",
+	"acquisition_policy_id",
+	"acquisition_policy_sha256",
 	"vendor_semantic_digest",
 	"canonical_semantic_digest",
 	"prefix_digest",
@@ -94,13 +119,44 @@ const PROMOTION_FIELDS = new Set([
 	"seam_verified",
 	"coverage_verified",
 	"dataset_objects_json",
+	"receipt_json",
 	"verification_time_ms",
+]);
+const QUALIFICATION_FIELDS = new Set([
+	"source",
+	"capture_origin",
+	"source_mode",
+	"deployment_id",
+	"qualification_event_id",
+	"capture_bundle_id",
+	"state",
+	"receipt_id",
+	"promotion_identity_sha256",
+	"window_start_ms",
+	"window_end_ms",
+	"event_at_ms",
+	"reason_code",
+	"event_json",
+]);
+const SELECTION_FIELDS = new Set([
+	"source",
+	"deployment_id",
+	"request_id",
+	"idempotency_key",
+	"selection_sha256",
+	"coverage_class",
+	"receipt_ids",
+	"request_json",
+	"selection_json",
+	"resolved_at_ms",
 ]);
 
 export type ExternalBackfillClassification =
 	| "direct"
 	| "candidate"
 	| "promotion"
+	| "qualification"
+	| "selection"
 	| "invalid_external_source"
 	| "invalid_external_mix";
 
@@ -124,14 +180,21 @@ export function classifyExternalBackfillBatch(
 		value && typeof value === "object"
 			? (value as { source?: unknown }).source
 			: undefined;
-	const hasPromotion = rows.some((entry) => tableOf(entry) === PROMOTION_TABLE);
+	const hasEvidence = rows.some((entry) =>
+		EVIDENCE_TABLES.has(String(tableOf(entry))),
+	);
 	if (source !== EXTERNAL_BACKFILL_SOURCE) {
-		return hasPromotion ? "invalid_external_source" : "direct";
+		return hasEvidence ? "invalid_external_source" : "direct";
 	}
 	if (rows.length === 0) return "invalid_external_mix";
-	const promotionOnly = rows.every((entry) => tableOf(entry) === PROMOTION_TABLE);
-	if (promotionOnly) {
-		return rows.length === 1 ? "promotion" : "invalid_external_mix";
+	for (const [table, classification] of [
+		[PROMOTION_TABLE, "promotion"],
+		[QUALIFICATION_TABLE, "qualification"],
+		[SELECTION_TABLE, "selection"],
+	] as const) {
+		if (rows.every((entry) => tableOf(entry) === table)) {
+			return rows.length === 1 ? classification : "invalid_external_mix";
+		}
 	}
 	const candidateOnly = rows.every((entry) =>
 		CANDIDATE_TABLES.has(String(tableOf(entry))),
@@ -201,7 +264,7 @@ function validCommonCandidate(
 		["spot", "swap", "future"].includes(String(row.asset_type)) &&
 		row.feed === "ORDERBOOK" &&
 		row.provider === "cryptohftdata" &&
-		row.source_mode === "historical_vendor_orderbook_v1" &&
+		row.source_mode === "vendor_historical_backfill_v1" &&
 		safeUnsigned(row.source_time_ms) &&
 		safeUnsigned(row.received_time_ms) &&
 		Number(row.received_time_ms) >= Number(row.source_time_ms) &&
@@ -331,10 +394,49 @@ export function validateExternalBackfillBatch(
 			return { ok: false, error: "Promotion identity does not match envelope" };
 		}
 		try {
-			promotionReceiptFromArchiveRow(entry.row);
+			const receipt = promotionReceiptFromArchiveRow(entry.row);
+			if (!("schema_id" in receipt)) {
+				return { ok: false, error: "Provisional receipt cannot qualify final-v1 data" };
+			}
 			return { ok: true };
 		} catch {
 			return { ok: false, error: "Invalid passing promotion receipt" };
+		}
+	}
+	if (classification === "qualification") {
+		const entry = envelope.rows[0];
+		if (
+			!entry ||
+			entry.table !== QUALIFICATION_TABLE ||
+			entry.row.source !== envelope.source ||
+			entry.row.deployment_id !== envelope.deployment_id ||
+			!exactFields(entry.row, QUALIFICATION_FIELDS)
+		) {
+			return { ok: false, error: "Invalid qualification event identity" };
+		}
+		try {
+			qualificationEventFromArchiveRow(entry.row);
+			return { ok: true };
+		} catch {
+			return { ok: false, error: "Invalid qualification event" };
+		}
+	}
+	if (classification === "selection") {
+		const entry = envelope.rows[0];
+		if (
+			!entry ||
+			entry.table !== SELECTION_TABLE ||
+			entry.row.source !== envelope.source ||
+			entry.row.deployment_id !== envelope.deployment_id ||
+			!exactFields(entry.row, SELECTION_FIELDS)
+		) {
+			return { ok: false, error: "Invalid archive selection identity" };
+		}
+		try {
+			archiveSelectionFromArchiveRow(entry.row);
+			return { ok: true };
+		} catch {
+			return { ok: false, error: "Invalid archive selection" };
 		}
 	}
 	return { ok: false, error: "Invalid external backfill source or table mix" };

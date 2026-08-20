@@ -6,15 +6,12 @@ import {
 } from "../services/archive-forwarder/telemetry";
 import { buildCanonicalOrderBookRows } from "../src/helpers/market-data-archive/canonical-orderbook";
 import { createMarketCaptureContext } from "../src/helpers/market-data-archive/capture-context";
+import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
 import {
-	BACKFILL_PROMOTION_SCHEMA_VERSION,
 	EXTERNAL_BACKFILL_SOURCE,
-	type PromotionReceipt,
+	type PromotionReceiptWire,
 } from "../src/helpers/market-data-vendor-backfill/contracts";
-import {
-	finalizePromotionReceipt,
-	promotionReceiptToArchiveRow,
-} from "../src/helpers/market-data-vendor-backfill/promotion";
+import { promotionReceiptToArchiveRow } from "../src/helpers/market-data-vendor-backfill/promotion";
 
 const noopRecorder: ArchiveMetricsRecorder = {
 	recordCounter: () => {},
@@ -29,44 +26,8 @@ function post(body: unknown): Request {
 	});
 }
 
-function receipt(): PromotionReceipt {
-	return finalizePromotionReceipt(
-		{
-			schemaVersion: BACKFILL_PROMOTION_SCHEMA_VERSION,
-			requestId: "maker-run-a",
-			idempotencyKey: "1".repeat(64),
-			status: "passing",
-			source: EXTERNAL_BACKFILL_SOURCE,
-			provider: "cryptohftdata",
-			adapterVersion: "cryptohftdata-orderbook/v1",
-			captureBundleId: "2".repeat(64),
-			exchange: "binance",
-			tradingPair: "BTC-USDT",
-			marketType: "spot",
-			feed: "ORDERBOOK",
-			startTimeMs: 1_700_000_000_000,
-			endTimeMs: 1_700_003_600_000,
-			depth: 20,
-			constructionMode: "sampled_top_n_snapshot",
-			canonicalSchemaVersion: "1.0.0",
-			checksumAlgorithm: "sha256-canonical-json-v1",
-			vendorSemanticDigest: "3".repeat(64),
-			canonicalSemanticDigest: "4".repeat(64),
-			prefixDigest: "5".repeat(64),
-			suffixDigest: "6".repeat(64),
-			seamVerified: true,
-			coverageVerified: true,
-			datasetObjects: [
-				{
-					identity: "binance/2023/11/14/22/BTCUSDT.parquet.zst",
-					checksum: "7".repeat(64),
-					bytes: 123,
-					rows: 45,
-				},
-			],
-		},
-		1_800_000_000_000,
-	);
+function receipt(): PromotionReceiptWire {
+	return structuredClone(CONFORMANCE_FIXTURES.documents.promotion_receipt);
 }
 
 function candidate() {
@@ -82,7 +43,7 @@ function candidate() {
 			assetType: "spot",
 			feed: "ORDERBOOK",
 			provider: "cryptohftdata",
-			sourceMode: "historical_vendor_orderbook_v1",
+			sourceMode: "vendor_historical_backfill_v1",
 			schemaVersion: "1.0.0",
 			checksumAlgorithm: "sha256-canonical-json-v1",
 			provenanceComplete: true,

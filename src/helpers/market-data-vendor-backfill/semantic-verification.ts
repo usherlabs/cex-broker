@@ -29,8 +29,13 @@ function logicalIdentity(row: BackfillArchiveRow): {
 	key: string;
 	checksum: string;
 } {
-	if (row.table === "market_data.cex_order_book_capture_promotions") {
-		throw new Error("promotion rows are not candidate semantic evidence");
+	if (
+		row.table !== "market_data.cex_order_book_levels" &&
+		row.table !== "market_data.cex_order_book_depth_summary"
+	) {
+		throw new Error(
+			"archive evidence rows are not candidate semantic evidence",
+		);
 	}
 	const keys = LOGICAL_KEYS[row.table];
 	const checksum = row.row.normalized_row_checksum;

@@ -48,3 +48,33 @@
 - [x] 8.3 Add the local package command, protected manual GitHub workflow, and operator documentation without adding push, pull-request, schedule, Maker, or Fiet TEE responsibilities.
 - [x] 8.4 Execute the gate locally with the API key read from Vault, retain only hash-safe evidence, run the complete regression suite, and strictly validate the reopened change.
   - Completed with the OKX Spot ARB-USDT positive control; see `implementation-evidence.md` for the hash-safe promotion, idempotency, archive, export, and regression evidence.
+
+## 9. Unpublished v1 contract convergence
+
+- [x] 9.1 Replace provisional wire types with strict snake_case Draft 2020-12 schemas and Ajv codecs for request, result, required clock, archive selection, and promotion receipt.
+- [x] 9.2 Pin RFC 8785 JCS, add document identity helpers that omit only the owning digest, and publish schema/policy manifests with canonical digests.
+- [x] 9.3 Add shared golden fixtures for every schema and for idempotency, policy, selection, promotion identity, full receipt, and RFC 8785 edge-vector hashes.
+- [x] 9.4 Export codecs, manifests, JCS helpers, the runner, and a dependency factory from the server-independent package subpath.
+
+## 10. Exact archive selection and outcome ownership
+
+- [x] 10.1 Replace boolean coverage with exact coverage class, bundle intervals, requested intervals, precedence, qualification, receipt identities, and prior-as-of support anchors.
+- [x] 10.2 Implement exact authoritative-window and fill-gaps resolution and persist/reload the original resolved selection and receipt for idempotent qualified reuse.
+- [x] 10.3 Converge the closed CEX statuses and vendor subreasons, including resource-limit rejection, and remove worker-owned consumer insufficiency.
+- [x] 10.4 Recompute and validate selection, promotion semantic, and full receipt identities on creation and archive reads, rejecting conflicting stored content.
+
+## 11. Origin, qualification, cluster, and authorization
+
+- [x] 11.1 Add deterministic `capture_origin` defaults and `vendor_historical_backfill_v1` source mode without changing existing capture-row or bundle checksum algorithms.
+- [x] 11.2 Add append-only qualified/quarantined/revoked events and require the latest valid qualified state and final receipt in vendor replay views.
+- [x] 11.3 Add the deployment-owned archive cluster identity singleton and require matching reader/forwarder/request environment and cluster before vendor or credential work.
+- [x] 11.4 Validate production-forwarder authorization ID, scoped credential, expiry, environment, and cluster with fail-closed request/preflight mappings.
+
+## 12. Package and release convergence
+
+- [x] 12.1 Copy schemas, fixtures, and policies into the npm tarball, expose them through package exports, emit declarations, and prove no broker/server import side effects.
+- [x] 12.2 Select the next unused package version no lower than `0.2.46`, build, inspect, and validate the package tarball.
+- [x] 12.3 Rerun unit, forwarder, isolated ClickHouse, conformance, and protected live-provider gates using the final v1 contracts; retain only hash-safe evidence.
+  - Final-v1 verification passed: 850 unit tests, 18 archive E2E tests, 14 ClickHouse Server 24.8 integration tests, protected one-object provider conformance, protected promotion/idempotency smoke, strict OpenSpec validation, and the `0.2.46` tarball audit. See `implementation-evidence.md` for hash-safe identities.
+- [ ] 12.4 Strictly validate and archive the CEX change only after downstream Fiet TEE and Maker conformance/pin prerequisites are recorded as satisfied.
+  - Blocked intentionally: Fiet TEE has not yet pinned the CEX package/artifacts and produced the hashed standalone executable, and Fiet Maker has not yet pinned that executable/commit or passed its independent conformance and consumer gates. Do not publish, archive, or enable production dispatch before those prerequisites are recorded.

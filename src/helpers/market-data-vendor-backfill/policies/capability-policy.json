@@ -1,0 +1,28 @@
+{
+	"policy_id": "market-data-vendor-backfill-capabilities/v1",
+	"provider": "cryptohftdata",
+	"adapter_policy": {
+		"policy_id": "cryptohftdata-orderbook-adapter/v1",
+		"adapter_version": "cryptohftdata-orderbook/v2"
+	},
+	"acquisition_policy": {
+		"policy_id": "cryptohftdata-hourly-acquisition/v1",
+		"object_granularity": "utc_hour",
+		"authentication": "bearer",
+		"initialization_lookback_ms": 0
+	},
+	"profiles": [
+		{
+			"exchange": "okx",
+			"market_type": "spot",
+			"feed": "ORDERBOOK",
+			"canonical_trading_pair": "ARB-USDT",
+			"provider_exchange_id": "okx_spot",
+			"resolved_symbol": "ARB-USDT",
+			"construction_modes": ["sampled_top_n_snapshot"],
+			"source_policies": ["authoritative_window"],
+			"max_depth": 400
+		}
+	],
+	"policy_sha256": "51f522286ad24ec55525c19cad5c2c37043f9325a5a8f20d838adb7fd71191bf"
+}

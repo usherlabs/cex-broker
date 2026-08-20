@@ -66,6 +66,23 @@ capture scope.
 
 ## ADDED Requirements
 
+### Requirement: Capture origin is distinct from producer admission source
+Order-book capture rows SHALL retain `source = external_backfill` as the bounded
+producer/admission role and SHALL add `capture_origin = production_capture |
+vendor_historical_backfill`. The vendor source mode SHALL be
+`vendor_historical_backfill_v1`. Existing immutable rows SHALL derive a
+deterministic origin from `source` without changing their existing checksums.
+
+#### Scenario: Existing row lacks explicit origin
+- **WHEN** an existing broker-origin or provisional external row is read
+- **THEN** its origin MUST be derived deterministically from immutable `source`
+- **AND** existing row and capture-bundle checksums MUST remain unchanged
+
+#### Scenario: Provisional vendor row is inspected
+- **WHEN** a row uses the superseded provisional vendor source mode or receipt
+- **THEN** it MUST remain auditable
+- **AND** it MUST NOT qualify under the final v1 contract without a new explicit qualification event
+
 ### Requirement: External historical capture provenance is generic and reproducible
 Every external-backfill order-book row SHALL identify the content-addressed
 capture bundle, dedicated tool deployment/product identity, exchange, trading
@@ -81,4 +98,3 @@ canonical schema version, checksum algorithm, and normalized-row checksum.
 - **AND** the archive MUST NOT claim exchange-wire provenance
 - **AND** the promotion receipt MUST bind the contributing dataset object
   identities and checksums
-

@@ -1,29 +1,35 @@
 import { sha256Canonical } from "../market-data-archive/capture-contract";
 import { buildForwarderBatches } from "./batching";
 import {
-	BACKFILL_PROMOTION_SCHEMA_VERSION,
-	BACKFILL_RESULT_SCHEMA_VERSION,
+	type ArchiveSelectionWire,
+	archiveSelectionCodec,
 	type BackfillArchiveRow,
-	type BackfillResult,
+	decodeBackfillRunDocuments,
 	EXTERNAL_BACKFILL_SOURCE,
+	type FinalBackfillStatus,
 	type ForwarderBatch,
 	type MarketDataVendorBackfillRequest,
-	type PromotionReceipt,
+	PROMOTION_RECEIPT_SCHEMA_ID,
+	type PromotionReceiptWire,
 	type ProviderCapability,
 	type ProviderObjectEvidence,
-	parseBackfillRequest,
+	promotionReceiptCodec,
 } from "./contracts";
+import { jcsCanonicalize } from "./identity";
+import {
+	EFFECTIVE_ACQUISITION_POLICY_PIN,
+	EFFECTIVE_ADAPTER_POLICY_PIN,
+	RESOURCE_POLICY,
+} from "./manifests";
 import {
 	finalizePromotionReceipt,
 	promotionReceiptToArchiveRow,
 } from "./promotion";
-
-export type QualifiedCoverage = {
-	complete: boolean;
-	coverageDigest: string;
-	prefixDigest?: string;
-	suffixDigest?: string;
-};
+import {
+	finalizeQualificationEvent,
+	qualificationEventToArchiveRow,
+} from "./qualification";
+import { archiveSelectionToArchiveRow } from "./selection";
 
 export type ProviderDataset<Row = unknown> = {
 	objects: ProviderObjectEvidence[];
@@ -50,16 +56,65 @@ export type CandidateVerification = {
 	reasonCode?: string;
 };
 
+export type ArchiveClusterIdentity = {
+	environment: string;
+	cluster: string;
+};
+
+export type ProductionForwarderAuthorization = {
+	authorizationId: string;
+	scope: "production";
+	environment: string;
+	cluster: string;
+	expiresAt: string;
+	credentialValidated: true;
+};
+
+export type ArchivePreflightResolution = {
+	selection: ArchiveSelectionWire;
+	receipts: PromotionReceiptWire[];
+	readerIdentity: ArchiveClusterIdentity;
+	verificationBaseline?: {
+		prefixDigest: string;
+		suffixDigest: string;
+	};
+};
+
+export type ForwarderPreflightResolution = {
+	forwarderIdentity: ArchiveClusterIdentity;
+	authorization: ProductionForwarderAuthorization;
+};
+
+/** @deprecated Use ArchivePreflightResolution and its exact selection. */
+export type QualifiedCoverage = {
+	complete: boolean;
+	coverageDigest: string;
+	prefixDigest?: string;
+	suffixDigest?: string;
+};
+
+export type BackfillDomainOutcome = {
+	status: FinalBackfillStatus;
+	reasonCode: string;
+	reasonSubcode?: string;
+	requestId?: string;
+	idempotencyKey?: string;
+	target?: ArchiveClusterIdentity;
+	selection?: ArchiveSelectionWire;
+	receipt?: PromotionReceiptWire;
+	diagnostics?: Record<string, string | number | boolean>;
+};
+
 export type BackfillDependencies = {
 	archive: {
-		coverage(
+		resolveSelection(
 			request: MarketDataVendorBackfillRequest,
-		): Promise<QualifiedCoverage>;
+		): Promise<ArchivePreflightResolution>;
 		verifyCandidate(
 			request: MarketDataVendorBackfillRequest,
 			normalized: NormalizedBackfill,
 			captureBundleId: string,
-			baseline: QualifiedCoverage,
+			baseline: ArchivePreflightResolution,
 		): Promise<CandidateVerification>;
 	};
 	providers: {
@@ -82,6 +137,10 @@ export type BackfillDependencies = {
 		resolve(provider: "cryptohftdata"): Promise<unknown | undefined>;
 	};
 	forwarder: {
+		preflight(input: {
+			authorizationId: string;
+			target: ArchiveClusterIdentity;
+		}): Promise<ForwarderPreflightResolution>;
 		submit(batch: ForwarderBatch): Promise<{ ok: boolean; inserted: number }>;
 	};
 	clock: { nowMs(): number };
@@ -92,23 +151,57 @@ export type BackfillDependencies = {
 	log?: (event: string, fields: Record<string, unknown>) => void;
 };
 
-function result(
-	request: Partial<MarketDataVendorBackfillRequest>,
-	status: BackfillResult["status"],
+export function createMarketDataVendorBackfillDependencies(
+	dependencies: BackfillDependencies,
+): BackfillDependencies {
+	for (const [name, value] of Object.entries({
+		archive: dependencies.archive,
+		providers: dependencies.providers,
+		credentials: dependencies.credentials,
+		forwarder: dependencies.forwarder,
+		clock: dependencies.clock,
+	})) {
+		if (!value || typeof value !== "object") {
+			throw new TypeError(`Backfill dependency ${name} is required`);
+		}
+	}
+	for (const [name, method] of Object.entries({
+		"archive.resolveSelection": dependencies.archive.resolveSelection,
+		"archive.verifyCandidate": dependencies.archive.verifyCandidate,
+		"providers.capabilityFor": dependencies.providers.capabilityFor,
+		"providers.acquire": dependencies.providers.acquire,
+		"providers.normalize": dependencies.providers.normalize,
+		"credentials.resolve": dependencies.credentials.resolve,
+		"forwarder.preflight": dependencies.forwarder.preflight,
+		"forwarder.submit": dependencies.forwarder.submit,
+		"clock.nowMs": dependencies.clock.nowMs,
+	})) {
+		if (typeof method !== "function") {
+			throw new TypeError(`Backfill dependency ${name} is required`);
+		}
+	}
+	return dependencies;
+}
+
+function outcome(
+	request: MarketDataVendorBackfillRequest | undefined,
+	status: FinalBackfillStatus,
 	reasonCode: string,
-	extra: Pick<BackfillResult, "receipt" | "diagnostics"> = {},
-): BackfillResult {
+	extra: Pick<
+		BackfillDomainOutcome,
+		"reasonSubcode" | "selection" | "receipt" | "diagnostics"
+	> = {},
+): BackfillDomainOutcome {
 	return {
-		schemaVersion: BACKFILL_RESULT_SCHEMA_VERSION,
-		requestId:
-			typeof request.requestId === "string"
-				? request.requestId
-				: "invalid-request",
-		...(typeof request.idempotencyKey === "string"
-			? { idempotencyKey: request.idempotencyKey }
-			: {}),
 		status,
 		reasonCode,
+		...(request
+			? {
+					requestId: request.requestId,
+					idempotencyKey: request.idempotencyKey,
+					...(request.target ? { target: request.target } : {}),
+				}
+			: {}),
 		...extra,
 	};
 }
@@ -118,6 +211,8 @@ function captureBundleId(
 	capability: ProviderCapability,
 	dataset: ProviderDataset,
 ): string {
+	// Capture-bundle identity intentionally retains the existing capture checksum
+	// algorithm. RFC 8785 applies only to final-v1 wire documents.
 	return sha256Canonical({
 		request_business_identity: request.idempotencyKey,
 		provider: capability.provider,
@@ -135,41 +230,54 @@ function captureBundleId(
 	});
 }
 
-function promotionReceipt(
+function buildPromotionReceipt(
 	request: MarketDataVendorBackfillRequest,
 	capability: ProviderCapability,
 	normalized: NormalizedBackfill,
 	verification: CandidateVerification,
 	verificationTimeMs: number,
-): PromotionReceipt {
-	const stable = {
-		schemaVersion: BACKFILL_PROMOTION_SCHEMA_VERSION,
-		requestId: request.requestId,
-		idempotencyKey: request.idempotencyKey,
-		status: "passing" as const,
+): PromotionReceiptWire {
+	if (
+		!request.wire ||
+		!request.initialSelection ||
+		!request.expectedCanonicalSchema ||
+		!request.coveragePolicy ||
+		!request.productPins
+	) {
+		throw new Error("decoded final-v1 request context is missing");
+	}
+	return finalizePromotionReceipt({
+		schema_id: PROMOTION_RECEIPT_SCHEMA_ID,
+		verified_at: new Date(verificationTimeMs).toISOString(),
+		request_id: request.requestId,
+		idempotency_key: request.idempotencyKey,
 		source: EXTERNAL_BACKFILL_SOURCE,
+		capture_origin: "vendor_historical_backfill",
+		source_mode: "vendor_historical_backfill_v1",
 		provider: capability.provider,
-		adapterVersion: capability.adapterVersion,
-		captureBundleId: normalized.captureBundleId,
-		exchange: request.scope.exchange,
-		tradingPair: request.scope.tradingPair,
-		marketType: request.scope.marketType,
-		feed: request.scope.feed,
-		startTimeMs: request.window.startTimeMs,
-		endTimeMs: request.window.endTimeMs,
+		adapter_version: capability.adapterVersion,
+		effective_policies: {
+			capability_policy: request.productPins.capability_policy,
+			resource_policy: request.productPins.resource_policy,
+			adapter_policy: EFFECTIVE_ADAPTER_POLICY_PIN,
+			acquisition_policy: EFFECTIVE_ACQUISITION_POLICY_PIN,
+		},
+		capture_bundle_id: normalized.captureBundleId,
+		scope: request.wire.scope,
+		window: request.wire.window,
 		depth: request.depth,
-		constructionMode: request.constructionMode,
-		canonicalSchemaVersion: request.expectedProduct.canonicalSchemaVersion,
-		checksumAlgorithm: request.expectedProduct.checksumAlgorithm,
-		vendorSemanticDigest: normalized.vendorSemanticDigest,
-		canonicalSemanticDigest: verification.canonicalSemanticDigest,
-		prefixDigest: verification.prefixDigest,
-		suffixDigest: verification.suffixDigest,
-		seamVerified: true as const,
-		coverageVerified: true as const,
-		datasetObjects: normalized.objects,
-	};
-	return finalizePromotionReceipt(stable, verificationTimeMs);
+		construction_mode: request.constructionMode,
+		canonical_schema: request.expectedCanonicalSchema,
+		coverage_policy: request.coveragePolicy,
+		selection_sha256: request.initialSelection.selection_sha256,
+		vendor_semantic_digest: normalized.vendorSemanticDigest,
+		canonical_semantic_digest: verification.canonicalSemanticDigest,
+		prefix_digest: verification.prefixDigest,
+		suffix_digest: verification.suffixDigest,
+		seam_verified: true,
+		coverage_verified: true,
+		dataset_objects: normalized.objects,
+	});
 }
 
 async function submitAll(
@@ -207,52 +315,164 @@ function stableFailureReason(error: unknown, fallback: string): string {
 	return fallback;
 }
 
+function assertArchivePreflight(
+	request: MarketDataVendorBackfillRequest,
+	resolution: ArchivePreflightResolution,
+): void {
+	if (!request.target || !request.productionAuthorizationId) {
+		throw new Error("request target or production authorization ID is missing");
+	}
+	const selection = archiveSelectionCodec.decode(resolution.selection);
+	const receipts = resolution.receipts.map((receipt) =>
+		promotionReceiptCodec.decode(receipt),
+	);
+	const receiptById = new Map<string, PromotionReceiptWire>();
+	for (const receipt of receipts) {
+		const existing = receiptById.get(receipt.receipt_id);
+		if (existing && jcsCanonicalize(existing) !== jcsCanonicalize(receipt)) {
+			throw new Error("stored receipt identity has conflicting content");
+		}
+		receiptById.set(receipt.receipt_id, receipt);
+	}
+	for (const bundle of selection.bundles) {
+		if (
+			bundle.capture_origin === "vendor_historical_backfill" &&
+			(!bundle.qualification ||
+				!receiptById.has(bundle.qualification.receipt_id))
+		) {
+			throw new Error("vendor selection lacks its validated stored receipt");
+		}
+	}
+	if (
+		resolution.readerIdentity.environment !== request.target.environment ||
+		resolution.readerIdentity.cluster !== request.target.cluster
+	) {
+		throw new Error("archive reader cluster identity mismatch");
+	}
+}
+
+function assertForwarderPreflight(
+	request: MarketDataVendorBackfillRequest,
+	resolution: ForwarderPreflightResolution,
+	nowMs: number,
+): void {
+	if (!request.target || !request.productionAuthorizationId) {
+		throw new Error("request target or production authorization ID is missing");
+	}
+	if (
+		resolution.forwarderIdentity.environment !== request.target.environment ||
+		resolution.forwarderIdentity.cluster !== request.target.cluster
+	) {
+		throw new Error("archive forwarder cluster identity mismatch");
+	}
+	const authorization = resolution.authorization;
+	const expiresAtMs = Date.parse(authorization.expiresAt);
+	if (
+		authorization.authorizationId !== request.productionAuthorizationId ||
+		authorization.scope !== "production" ||
+		authorization.environment !== request.target.environment ||
+		authorization.cluster !== request.target.cluster ||
+		authorization.credentialValidated !== true ||
+		!Number.isSafeInteger(expiresAtMs) ||
+		new Date(expiresAtMs).toISOString() !== authorization.expiresAt ||
+		expiresAtMs <= nowMs
+	) {
+		throw new Error("production forwarder authorization is invalid");
+	}
+}
+
+function resourcePolicyScopeExceeded(
+	request: MarketDataVendorBackfillRequest,
+): boolean {
+	return (
+		request.depth > RESOURCE_POLICY.request_bounds.max_depth ||
+		request.window.endTimeMs - request.window.startTimeMs >
+			RESOURCE_POLICY.request_bounds.max_window_ms ||
+		request.requiredClockTargetsMs.length >
+			RESOURCE_POLICY.request_bounds.max_required_events
+	);
+}
+
+function storedReceiptForSelection(
+	resolution: ArchivePreflightResolution,
+): PromotionReceiptWire | undefined {
+	const receiptId = resolution.selection.receipt_ids[0];
+	return receiptId
+		? resolution.receipts.find((receipt) => receipt.receipt_id === receiptId)
+		: undefined;
+}
+
 export async function runMarketDataVendorBackfill(
 	input: unknown,
 	dependencies: BackfillDependencies,
-): Promise<BackfillResult> {
+): Promise<BackfillDomainOutcome> {
 	let request: MarketDataVendorBackfillRequest;
 	try {
-		request = parseBackfillRequest(input);
+		const documents = input as { request?: unknown; requiredClock?: unknown };
+		request = decodeBackfillRunDocuments({
+			request: documents.request,
+			requiredClock: documents.requiredClock,
+		});
 	} catch {
-		return result(
-			(input && typeof input === "object"
-				? input
-				: {}) as Partial<MarketDataVendorBackfillRequest>,
-			"capability_unsupported",
-			"request_invalid",
-		);
+		return outcome(undefined, "request_invalid", "request_invalid");
 	}
 
-	let initialCoverage: QualifiedCoverage;
+	let initialResolution: ArchivePreflightResolution;
 	try {
-		initialCoverage = await dependencies.archive.coverage(request);
-	} catch {
-		return result(
+		initialResolution = await dependencies.archive.resolveSelection(request);
+		assertArchivePreflight(request, initialResolution);
+		const forwarderPreflight = await dependencies.forwarder.preflight({
+			authorizationId: request.productionAuthorizationId as string,
+			target: request.target as ArchiveClusterIdentity,
+		});
+		assertForwarderPreflight(
 			request,
-			"promotion_verification_failed",
-			"qualified_archive_preflight_failed",
+			forwarderPreflight,
+			dependencies.clock.nowMs(),
+		);
+	} catch {
+		return outcome(
+			request,
+			"archive_preflight_failed",
+			"archive_preflight_failed",
 		);
 	}
-	if (initialCoverage.complete) {
-		return result(request, "already_covered", "qualified_coverage_complete");
+	if (initialResolution.selection.coverage_class === "complete") {
+		const receipt = storedReceiptForSelection(initialResolution);
+		return outcome(request, "already_covered", "qualified_coverage_complete", {
+			selection: initialResolution.selection,
+			...(receipt ? { receipt } : {}),
+		});
+	}
+
+	if (resourcePolicyScopeExceeded(request)) {
+		return outcome(
+			request,
+			"capability_unsupported",
+			"capability_unsupported",
+			{ reasonSubcode: "resource_policy_scope_exceeded" },
+		);
 	}
 
 	let capability: ProviderCapability | undefined;
 	try {
 		capability = dependencies.providers.capabilityFor(request);
 	} catch {
-		return result(request, "capability_unsupported", "capability_probe_failed");
+		return outcome(
+			request,
+			"capability_unsupported",
+			"capability_probe_failed",
+		);
 	}
 	if (!capability) {
-		return result(request, "capability_unsupported", "scope_unsupported");
+		return outcome(request, "capability_unsupported", "scope_unsupported");
 	}
 	if (
 		!request.providerPolicy.allowedAdapterVersions.includes(
 			capability.adapterVersion,
 		)
 	) {
-		return result(
+		return outcome(
 			request,
 			"capability_unsupported",
 			"adapter_version_unpinned",
@@ -263,14 +483,14 @@ export async function runMarketDataVendorBackfill(
 	try {
 		credential = await dependencies.credentials.resolve(capability.provider);
 	} catch {
-		return result(
+		return outcome(
 			request,
 			"credentials_missing",
 			"credential_resolution_failed",
 		);
 	}
 	if (credential === undefined || credential === null) {
-		return result(
+		return outcome(
 			request,
 			"credentials_missing",
 			"provider_credentials_missing",
@@ -293,36 +513,34 @@ export async function runMarketDataVendorBackfill(
 			bundleId,
 		);
 		if (normalized.captureBundleId !== bundleId) {
-			return result(
-				request,
-				"vendor_fetch_failed",
-				"capture_identity_mismatch",
-			);
+			return outcome(request, "vendor_fetch_failed", "vendor_fetch_failed", {
+				reasonSubcode: "capture_identity_mismatch",
+			});
 		}
 	} catch (error) {
-		return result(
-			request,
-			"vendor_fetch_failed",
-			stableFailureReason(error, "provider_dataset_invalid"),
-		);
+		const reason = stableFailureReason(error, "provider_dataset_invalid");
+		return outcome(request, "vendor_fetch_failed", "vendor_fetch_failed", {
+			reasonSubcode: reason.startsWith("budget_")
+				? "resource_limit_exceeded"
+				: reason,
+		});
 	}
 
-	let candidateBatches: ForwarderBatch[];
 	try {
-		candidateBatches = buildForwarderBatches({
+		const candidateBatches = buildForwarderBatches({
 			captureBundleId: normalized.captureBundleId,
 			deploymentId: "market-data-vendor-backfill",
 			rows: normalized.rows,
 		});
 		if (!(await submitAll(dependencies, candidateBatches))) {
-			return result(
+			return outcome(
 				request,
 				"archive_ingest_failed",
 				"candidate_batch_rejected",
 			);
 		}
 	} catch {
-		return result(
+		return outcome(
 			request,
 			"archive_ingest_failed",
 			"candidate_submission_failed",
@@ -335,10 +553,10 @@ export async function runMarketDataVendorBackfill(
 			request,
 			normalized,
 			normalized.captureBundleId,
-			initialCoverage,
+			initialResolution,
 		);
 	} catch {
-		return result(
+		return outcome(
 			request,
 			"promotion_verification_failed",
 			"candidate_query_failed",
@@ -352,55 +570,131 @@ export async function runMarketDataVendorBackfill(
 		!verification.seamVerified ||
 		!verification.coverageVerified
 	) {
-		return result(
+		return outcome(
 			request,
 			"promotion_verification_failed",
 			verification.reasonCode ?? "semantic_verification_failed",
 		);
 	}
 
-	const receipt = promotionReceipt(
-		request,
-		capability,
-		normalized,
-		verification,
-		dependencies.clock.nowMs(),
-	);
+	let receipt: PromotionReceiptWire;
 	try {
+		receipt = buildPromotionReceipt(
+			request,
+			capability,
+			normalized,
+			verification,
+			dependencies.clock.nowMs(),
+		);
 		const [batch] = buildForwarderBatches({
 			captureBundleId: normalized.captureBundleId,
 			deploymentId: "market-data-vendor-backfill",
 			rows: [promotionReceiptToArchiveRow(receipt)],
 		});
 		if (!batch || !(await submitAll(dependencies, [batch]))) {
-			return result(
+			return outcome(
 				request,
 				"archive_ingest_failed",
 				"promotion_commit_failed",
 			);
 		}
+		const qualification = finalizeQualificationEvent({
+			capture_bundle_id: receipt.capture_bundle_id,
+			state: "qualified",
+			receipt_id: receipt.receipt_id,
+			promotion_identity_sha256: receipt.promotion_identity_sha256,
+			window: receipt.window,
+			event_at: receipt.verified_at,
+			reason_code: "promotion_verified",
+		});
+		const [qualificationBatch] = buildForwarderBatches({
+			captureBundleId: normalized.captureBundleId,
+			deploymentId: "market-data-vendor-backfill",
+			rows: [qualificationEventToArchiveRow(qualification)],
+		});
+		if (
+			!qualificationBatch ||
+			!(await submitAll(dependencies, [qualificationBatch]))
+		) {
+			return outcome(
+				request,
+				"archive_ingest_failed",
+				"qualification_commit_failed",
+				{ receipt },
+			);
+		}
 	} catch {
-		return result(request, "archive_ingest_failed", "promotion_commit_failed");
+		return outcome(request, "archive_ingest_failed", "promotion_commit_failed");
 	}
 
-	let finalCoverage: QualifiedCoverage;
+	let finalResolution: ArchivePreflightResolution;
 	try {
-		finalCoverage = await dependencies.archive.coverage(request);
-	} catch {
-		return result(
+		finalResolution = await dependencies.archive.resolveSelection(request);
+		assertArchivePreflight(request, finalResolution);
+	} catch (error) {
+		return outcome(
 			request,
-			"post_backfill_coverage_insufficient",
-			"post_promotion_query_failed",
-			{ receipt },
+			"promotion_verification_failed",
+			"post_promotion_selection_failed",
+			{
+				receipt,
+				reasonSubcode: stableFailureReason(
+					error,
+					"archive_selection_resolution_failed",
+				),
+			},
 		);
 	}
-	if (!finalCoverage.complete) {
-		return result(
+	if (finalResolution.selection.coverage_class !== "complete") {
+		return outcome(
 			request,
-			"post_backfill_coverage_insufficient",
+			"promotion_verification_failed",
 			"qualified_coverage_incomplete",
-			{ receipt },
+			{ receipt, selection: finalResolution.selection },
 		);
 	}
-	return result(request, "promoted", "promotion_qualified", { receipt });
+	if (
+		finalResolution.selection.bundles.some(
+			(bundle) =>
+				bundle.capture_bundle_id === receipt.capture_bundle_id &&
+				bundle.capture_origin === "vendor_historical_backfill" &&
+				bundle.qualification?.receipt_id === receipt.receipt_id,
+		) === false
+	) {
+		return outcome(
+			request,
+			"promotion_verification_failed",
+			"promoted_receipt_not_selected",
+			{ receipt, selection: finalResolution.selection },
+		);
+	}
+	try {
+		if (!request.wire) throw new Error("decoded request wire is missing");
+		const [selectionBatch] = buildForwarderBatches({
+			captureBundleId: receipt.capture_bundle_id,
+			deploymentId: "market-data-vendor-backfill",
+			rows: [
+				archiveSelectionToArchiveRow(request.wire, finalResolution.selection),
+			],
+		});
+		if (!selectionBatch || !(await submitAll(dependencies, [selectionBatch]))) {
+			return outcome(
+				request,
+				"archive_ingest_failed",
+				"selection_persistence_failed",
+				{ receipt, selection: finalResolution.selection },
+			);
+		}
+	} catch {
+		return outcome(
+			request,
+			"archive_ingest_failed",
+			"selection_persistence_failed",
+			{ receipt, selection: finalResolution.selection },
+		);
+	}
+	return outcome(request, "promoted", "promotion_qualified", {
+		receipt,
+		selection: finalResolution.selection,
+	});
 }

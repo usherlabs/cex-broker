@@ -2,7 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ConfiguredProductionAuthorization } from "../../../../services/archive-forwarder/config";
+import type { ArchiveClusterIdentity } from "../../../../services/archive-forwarder/health";
 import type { RowInserter } from "../../../../services/archive-forwarder/insert";
+import { handleProductionBackfillPreflight } from "../../../../services/archive-forwarder/production-authorization";
 import { handleArchiveRequest } from "../../../../services/archive-forwarder/request";
 import { StrategyArchiveSpool } from "../../../../services/archive-forwarder/strategy-spool";
 import { StrategySpoolWorker } from "../../../../services/archive-forwarder/strategy-worker";
@@ -14,6 +17,11 @@ export async function startArchiveForwarderEndpoint(options: {
 	inserter: RowInserter;
 	authToken?: string;
 	spoolPath?: string;
+	productionBackfill?: {
+		authorization: ConfiguredProductionAuthorization;
+		archiveIdentity: ArchiveClusterIdentity;
+		nowMs?: () => number;
+	};
 }): Promise<ArchiveForwarderEndpoint> {
 	const ownsSpoolDirectory = !options.spoolPath;
 	const spoolDirectory = ownsSpoolDirectory
@@ -40,6 +48,28 @@ export async function startArchiveForwarderEndpoint(options: {
 		void (async () => {
 			try {
 				requestCount += 1;
+				if (
+					incoming.method === "GET" &&
+					incoming.url === "/health/market-data-vendor-backfill"
+				) {
+					const request = new Request(
+						"http://127.0.0.1/health/market-data-vendor-backfill",
+						{ headers: incoming.headers as HeadersInit },
+					);
+					const response = handleProductionBackfillPreflight(request, {
+						authToken: options.authToken,
+						authorization: options.productionBackfill?.authorization,
+						archiveIdentity:
+							options.productionBackfill?.archiveIdentity ?? null,
+						nowMs: options.productionBackfill?.nowMs?.() ?? Date.now(),
+					});
+					outgoing.writeHead(
+						response.status,
+						Object.fromEntries(response.headers.entries()),
+					);
+					outgoing.end(Buffer.from(await response.arrayBuffer()));
+					return;
+				}
 				if (incoming.method !== "POST" || incoming.url !== "/archive") {
 					outgoing.writeHead(404, { "content-type": "application/json" });
 					outgoing.end('{"error":"Not found"}');

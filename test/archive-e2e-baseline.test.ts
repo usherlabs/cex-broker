@@ -71,6 +71,8 @@ describe("archive E2E immutable baseline", () => {
 		).toEqual([
 			...CANONICAL_BASE_TABLES,
 			"market_data.cex_order_book_capture_promotions",
+			"market_data.cex_order_book_capture_qualifications",
+			"market_data.cex_order_book_archive_selections",
 			// Landed after the immutable baseline was cut, so it is outside the
 			// frozen inventory until the fixture is regenerated.
 			"broker_account.user_asset_snapshots",

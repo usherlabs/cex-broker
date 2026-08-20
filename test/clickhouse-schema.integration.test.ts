@@ -28,17 +28,26 @@ import {
 	QualifiedOrderBookArchiveReader,
 } from "../src/helpers/market-data-vendor-backfill/archive-reader";
 import {
-	BACKFILL_PROMOTION_SCHEMA_VERSION,
 	BACKFILL_REQUEST_SCHEMA_VERSION,
-	createBackfillIdempotencyKey,
 	EXTERNAL_BACKFILL_SOURCE,
 	HISTORICAL_VENDOR_SOURCE_MODE,
+	PROMOTION_RECEIPT_SCHEMA_ID,
 	VENDOR_DATASET_RAW_CAPTURE_SCOPE,
 } from "../src/helpers/market-data-vendor-backfill/contracts";
+import {
+	CAPABILITY_POLICY,
+	EFFECTIVE_ACQUISITION_POLICY_PIN,
+	EFFECTIVE_ADAPTER_POLICY_PIN,
+	RESOURCE_POLICY,
+} from "../src/helpers/market-data-vendor-backfill/manifests";
 import {
 	finalizePromotionReceipt,
 	promotionReceiptToArchiveRow,
 } from "../src/helpers/market-data-vendor-backfill/promotion";
+import {
+	finalizeQualificationEvent,
+	qualificationEventToArchiveRow,
+} from "../src/helpers/market-data-vendor-backfill/qualification";
 
 const CLICKHOUSE_URL =
 	process.env.CLICKHOUSE_TEST_URL?.trim() ||
@@ -241,6 +250,15 @@ describe("ClickHouse market_data schema integration", () => {
 		expect(await tableEngine("cex_order_book_capture_promotions")).toBe(
 			"MergeTree",
 		);
+		expect(await tableEngine("cex_order_book_capture_qualifications")).toBe(
+			"MergeTree",
+		);
+		expect(await tableEngine("cex_order_book_archive_selections")).toBe(
+			"MergeTree",
+		);
+		expect(await tableEngine("cex_archive_cluster_identity")).toBe(
+			"ReplacingMergeTree",
+		);
 		expect(await tableEngine("cex_order_book_levels_canonical")).toBe("View");
 		expect(await tableEngine("cex_order_book_levels_conflicts")).toBe("View");
 		expect(await tableEngine("cex_order_book_levels_replay_qualified")).toBe(
@@ -348,50 +366,74 @@ describe("ClickHouse market_data schema integration", () => {
 			},
 		]);
 
-		const promotion = (depth: number) =>
-			promotionReceiptToArchiveRow(
-				finalizePromotionReceipt(
-					{
-						schemaVersion: BACKFILL_PROMOTION_SCHEMA_VERSION,
-						requestId: `${TEST_DEPLOYMENT}-depth-${depth}`,
-						idempotencyKey: "e".repeat(64),
-						status: "passing",
-						source: EXTERNAL_BACKFILL_SOURCE,
-						provider: "cryptohftdata",
-						adapterVersion: "cryptohftdata-orderbook/v1",
-						captureBundleId,
-						exchange: "binance",
-						tradingPair: "TEST-EXTERNAL",
-						marketType: "spot",
-						feed: "ORDERBOOK",
-						startTimeMs: sourceTimeMs - 1,
-						endTimeMs: sourceTimeMs + 1,
-						depth,
-						constructionMode: "sampled_top_n_snapshot",
-						canonicalSchemaVersion: "1.0.0",
-						checksumAlgorithm: "sha256-canonical-json-v1",
-						vendorSemanticDigest: "1".repeat(64),
-						canonicalSemanticDigest: "2".repeat(64),
-						prefixDigest: "3".repeat(64),
-						suffixDigest: "4".repeat(64),
-						seamVerified: true,
-						coverageVerified: true,
-						datasetObjects: [
-							{
-								identity:
-									"binance_spot/2025-07-01/10/TESTEXTERNAL_orderbook.parquet.zst",
-								checksum: "d".repeat(64),
-								bytes: 10,
-								rows: 2,
-							},
-						],
+		const promotion = (depth: number) => {
+			const receipt = finalizePromotionReceipt({
+				schema_id: PROMOTION_RECEIPT_SCHEMA_ID,
+				verified_at: new Date(sourceTimeMs + depth).toISOString(),
+				request_id: `018f0f4d-7b32-7a30-8f4d-1d2a6e40f1${depth.toString().padStart(2, "0")}`,
+				idempotency_key: "e".repeat(64),
+				source: EXTERNAL_BACKFILL_SOURCE,
+				capture_origin: "vendor_historical_backfill",
+				source_mode: HISTORICAL_VENDOR_SOURCE_MODE,
+				provider: "cryptohftdata",
+				adapter_version: "cryptohftdata-orderbook/v2",
+				effective_policies: {
+					capability_policy: {
+						policy_id: CAPABILITY_POLICY.policy_id,
+						policy_sha256: CAPABILITY_POLICY.policy_sha256,
 					},
-					sourceTimeMs + depth,
-				),
-			);
+					resource_policy: {
+						policy_id: RESOURCE_POLICY.policy_id,
+						policy_sha256: RESOURCE_POLICY.policy_sha256,
+					},
+					adapter_policy: EFFECTIVE_ADAPTER_POLICY_PIN,
+					acquisition_policy: EFFECTIVE_ACQUISITION_POLICY_PIN,
+				},
+				capture_bundle_id: captureBundleId,
+				scope: {
+					exchange: "binance",
+					trading_pair: "TEST-EXTERNAL",
+					market_type: "spot",
+					feed: "ORDERBOOK",
+				},
+				window: {
+					start_at: new Date(sourceTimeMs - 1).toISOString(),
+					end_at: new Date(sourceTimeMs + 1).toISOString(),
+				},
+				depth,
+				construction_mode: "sampled_top_n_snapshot",
+				canonical_schema: {
+					schema_id: "cex-order-book-canonical/v1",
+					schema_sha256: "a".repeat(64),
+				},
+				coverage_policy: {
+					policy_id: "prior-asof-strict/v1",
+					max_asof_lag_ms: 1,
+					future_rows: "reject",
+					missing_required_event: "fail",
+				},
+				selection_sha256: "5".repeat(64),
+				vendor_semantic_digest: "1".repeat(64),
+				canonical_semantic_digest: "2".repeat(64),
+				prefix_digest: "3".repeat(64),
+				suffix_digest: "4".repeat(64),
+				seam_verified: true,
+				coverage_verified: true,
+				dataset_objects: [
+					{
+						identity:
+							"binance_spot/2025-07-01/10/TESTEXTERNAL_orderbook.parquet.zst",
+						checksum: "d".repeat(64),
+						bytes: 10,
+						rows: 2,
+					},
+				],
+			});
+			return { receipt, row: promotionReceiptToArchiveRow(receipt) };
+		};
 
 		for (const depth of [2, 1]) {
-			const row = promotion(depth);
+			const { receipt, row } = promotion(depth);
 			const inserted = await handleArchiveBatch(
 				createClickHouseInserter(client),
 				{
@@ -402,12 +444,77 @@ describe("ClickHouse market_data schema integration", () => {
 				},
 			);
 			expect(inserted.failed).toBe(0);
+			if (depth === 1) {
+				const qualification = qualificationEventToArchiveRow(
+					finalizeQualificationEvent({
+						capture_bundle_id: receipt.capture_bundle_id,
+						state: "qualified",
+						receipt_id: receipt.receipt_id,
+						promotion_identity_sha256: receipt.promotion_identity_sha256,
+						window: receipt.window,
+						event_at: new Date(sourceTimeMs + 10).toISOString(),
+						reason_code: "integration_qualified",
+					}),
+				);
+				const qualificationInsert = await handleArchiveBatch(
+					createClickHouseInserter(client),
+					{
+						source: EXTERNAL_BACKFILL_SOURCE,
+						deployment_id: "market-data-vendor-backfill",
+						batch_id: "qualification-integration",
+						rows: [qualification],
+					},
+				);
+				expect(qualificationInsert.failed).toBe(0);
+			}
 			expect((await counts())[0]).toMatchObject({
 				physical_levels: "2",
 				qualified_levels: depth === 1 ? "2" : "0",
 				qualified_summaries: depth === 1 ? "1" : "0",
 			});
 		}
+		const qualifiedReceipt = promotion(1).receipt;
+		const appendQualification = async (
+			state: "qualified" | "quarantined" | "revoked",
+			offsetMs: number,
+		) => {
+			const event = qualificationEventToArchiveRow(
+				finalizeQualificationEvent({
+					capture_bundle_id: qualifiedReceipt.capture_bundle_id,
+					state,
+					receipt_id: qualifiedReceipt.receipt_id,
+					promotion_identity_sha256: qualifiedReceipt.promotion_identity_sha256,
+					window: qualifiedReceipt.window,
+					event_at: new Date(sourceTimeMs + offsetMs).toISOString(),
+					reason_code: `integration_${state}`,
+				}),
+			);
+			const result = await handleArchiveBatch(
+				createClickHouseInserter(client),
+				{
+					source: EXTERNAL_BACKFILL_SOURCE,
+					deployment_id: "market-data-vendor-backfill",
+					batch_id: `qualification-integration-${state}-${offsetMs}`,
+					rows: [event],
+				},
+			);
+			expect(result.failed).toBe(0);
+		};
+		await appendQualification("quarantined", 20);
+		expect((await counts())[0]).toMatchObject({
+			qualified_levels: "0",
+			qualified_summaries: "0",
+		});
+		await appendQualification("revoked", 30);
+		expect((await counts())[0]).toMatchObject({
+			qualified_levels: "0",
+			qualified_summaries: "0",
+		});
+		await appendQualification("qualified", 40);
+		expect((await counts())[0]).toMatchObject({
+			qualified_levels: "2",
+			qualified_summaries: "1",
+		});
 		const requestBusiness = {
 			schemaVersion: BACKFILL_REQUEST_SCHEMA_VERSION,
 			requestId: `${TEST_DEPLOYMENT}-reader`,
@@ -449,7 +556,7 @@ describe("ClickHouse market_data schema integration", () => {
 			}),
 		).coverage({
 			...requestBusiness,
-			idempotencyKey: createBackfillIdempotencyKey(requestBusiness),
+			idempotencyKey: "e".repeat(64),
 		});
 		expect(qualifiedCoverage.complete).toBe(true);
 
@@ -470,7 +577,7 @@ describe("ClickHouse market_data schema integration", () => {
 			});
 			expect(exported).toMatchObject({ levelRows: 2, summaryRows: 1 });
 			expect(exported.promotionReceiptIds).toEqual([
-				promotion(1).row.receipt_id as string,
+				promotion(1).receipt.receipt_id,
 			]);
 		} finally {
 			await rm(outputDirectory, { recursive: true, force: true });

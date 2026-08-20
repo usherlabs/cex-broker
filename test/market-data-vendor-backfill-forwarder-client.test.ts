@@ -63,4 +63,116 @@ describe("market-data vendor backfill forwarder client", () => {
 		expect(message).toContain("503");
 		expect(message).not.toContain(secret);
 	});
+
+	test("proves the scoped production credential and returns a secret-free identity", async () => {
+		const secret = "forwarder-production-secret";
+		let observedRequest: Request | undefined;
+		const client = createArchiveForwarderClient({
+			url: "http://archive-forwarder:8090/archive",
+			authToken: secret,
+			fetch: async (input, init) => {
+				observedRequest = new Request(input, init);
+				return Response.json({
+					ok: true,
+					forwarder_identity: {
+						environment: "production",
+						cluster: "cex-archive-primary",
+					},
+					authorization: {
+						authorization_id: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+						scope: "production",
+						environment: "production",
+						cluster: "cex-archive-primary",
+						expires_at: "2026-08-21T12:00:00.000Z",
+						credential_validated: true,
+					},
+				});
+			},
+		});
+		const result = await client.preflight({
+			authorizationId: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+			target: { environment: "production", cluster: "cex-archive-primary" },
+		});
+		expect(observedRequest?.url).toBe(
+			"http://archive-forwarder:8090/health/market-data-vendor-backfill",
+		);
+		expect(observedRequest?.headers.get("authorization")).toBe(
+			`Bearer ${secret}`,
+		);
+		expect(observedRequest?.headers.get("x-archive-authorization-id")).toBe(
+			"018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+		);
+		expect(result).toEqual({
+			forwarderIdentity: {
+				environment: "production",
+				cluster: "cex-archive-primary",
+			},
+			authorization: {
+				authorizationId: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+				scope: "production",
+				environment: "production",
+				cluster: "cex-archive-primary",
+				expiresAt: "2026-08-21T12:00:00.000Z",
+				credentialValidated: true,
+			},
+		});
+		expect(JSON.stringify(result)).not.toContain(secret);
+	});
+
+	test("fails closed on an incompatible preflight response", async () => {
+		const client = createArchiveForwarderClient({
+			url: "http://archive-forwarder:8090/archive",
+			authToken: "secret",
+			fetch: async () =>
+				Response.json({
+					ok: true,
+					forwarder_identity: {
+						environment: "staging",
+						cluster: "wrong",
+					},
+					authorization: { credential_validated: false },
+				}),
+		});
+		await expect(
+			client.preflight({
+				authorizationId: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+				target: {
+					environment: "production",
+					cluster: "cex-archive-primary",
+				},
+			}),
+		).rejects.toThrow("archive_forwarder_invalid_preflight");
+	});
+
+	test("maps malformed authorization expiry to the stable preflight error", async () => {
+		const client = createArchiveForwarderClient({
+			url: "http://archive-forwarder:8090/archive",
+			authToken: "secret",
+			fetch: async () =>
+				Response.json({
+					ok: true,
+					forwarder_identity: {
+						environment: "production",
+						cluster: "cex-archive-primary",
+					},
+					authorization: {
+						authorization_id: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+						scope: "production",
+						environment: "production",
+						cluster: "cex-archive-primary",
+						expires_at: "not-a-timestamp",
+						credential_validated: true,
+					},
+				}),
+		});
+		await expect(
+			client.preflight({
+				authorizationId: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+				target: {
+					environment: "production",
+					cluster: "cex-archive-primary",
+				},
+			}),
+		).rejects.toThrow("archive_forwarder_invalid_preflight");
+	});
 });

@@ -8,6 +8,8 @@ export const MAX_ARCHIVE_ROWS_BY_TABLE: Readonly<Record<string, number>> = {
 	"market_data.cex_order_book_levels": 1_000,
 	"market_data.cex_order_book_depth_summary": 500,
 	"market_data.cex_order_book_capture_promotions": 1,
+	"market_data.cex_order_book_capture_qualifications": 1,
+	"market_data.cex_order_book_archive_selections": 1,
 };
 
 export function findTableRowLimitViolation(

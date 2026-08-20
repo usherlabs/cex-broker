@@ -1,22 +1,78 @@
 import { describe, expect, test } from "bun:test";
-import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
-import {
-	type BackfillDependencies,
-	runMarketDataVendorBackfill,
+import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
+import type { PromotionReceiptWire } from "../src/helpers/market-data-vendor-backfill/contracts";
+import type {
+	ArchivePreflightResolution,
+	BackfillDependencies,
 } from "../src/helpers/market-data-vendor-backfill/core";
+import { runMarketDataVendorBackfill } from "../src/helpers/market-data-vendor-backfill/core";
 import { CryptoHftDataError } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
-import { validBackfillRequest } from "./market-data-vendor-backfill-contract.test";
+import { promotionReceiptFromArchiveRow } from "../src/helpers/market-data-vendor-backfill/promotion";
+import { qualificationEventFromArchiveRow } from "../src/helpers/market-data-vendor-backfill/qualification";
+import { resolveArchiveSelection } from "../src/helpers/market-data-vendor-backfill/selection";
 
-function dependencies(
-	overrides: Partial<BackfillDependencies> = {},
-): BackfillDependencies & { calls: string[] } {
+const documents = {
+	request: CONFORMANCE_FIXTURES.documents.request,
+	requiredClock: CONFORMANCE_FIXTURES.documents.required_clock,
+};
+
+function preflight(
+	overrides: Partial<ArchivePreflightResolution> = {},
+): ArchivePreflightResolution {
+	return {
+		selection: CONFORMANCE_FIXTURES.documents.request.initial_selection,
+		receipts: [],
+		readerIdentity: {
+			environment: "production",
+			cluster: "cex-archive-primary",
+		},
+		...overrides,
+	};
+}
+
+function dependencies(): BackfillDependencies & { calls: string[] } {
 	const calls: string[] = [];
+	let storedReceipt: PromotionReceiptWire | undefined;
+	let qualification:
+		| ReturnType<typeof qualificationEventFromArchiveRow>
+		| undefined;
 	return {
 		calls,
 		archive: {
-			coverage: async () => {
-				calls.push("coverage");
-				return { complete: false, coverageDigest: "before" };
+			resolveSelection: async (request) => {
+				calls.push("preflight");
+				if (!storedReceipt || !qualification) return preflight();
+				return preflight({
+					selection: resolveArchiveSelection({
+						request,
+						bundles: [
+							{
+								captureBundleId: storedReceipt.capture_bundle_id,
+								captureOrigin: "vendor_historical_backfill",
+								startTimeMs: request.window.startTimeMs,
+								endTimeMs: request.window.endTimeMs,
+								qualification: {
+									qualificationEventId: qualification.qualification_event_id,
+									state: qualification.state,
+									receiptId: qualification.receipt_id,
+									promotionIdentitySha256:
+										qualification.promotion_identity_sha256,
+								},
+								supportAnchors: request.requiredClockTargetsMs.map(
+									(target, index) => ({
+										captureBundleId: storedReceipt.capture_bundle_id,
+										rawCaptureId: `${index + 1}`.repeat(64),
+										snapshotId: `${index + 3}`.repeat(64),
+										sourceTimeMs: target - 1,
+										normalizedSummaryChecksum: `${index + 5}`.repeat(64),
+									}),
+								),
+							},
+						],
+						resolvedAtMs: Date.parse("2026-08-20T12:00:02.000Z"),
+					}),
+					receipts: [storedReceipt],
+				});
 			},
 			verifyCandidate: async (_request, normalized, captureBundleId) => {
 				calls.push("verify");
@@ -36,9 +92,9 @@ function dependencies(
 				calls.push("capability");
 				return {
 					provider: "cryptohftdata",
-					adapterVersion: "cryptohftdata-orderbook/v1",
-					providerExchangeId: "binance-futures",
-					resolvedSymbol: "BTCUSDT",
+					adapterVersion: "cryptohftdata-orderbook/v2",
+					providerExchangeId: "okx_spot",
+					resolvedSymbol: "ARB-USDT",
 				};
 			},
 			acquire: async () => {
@@ -46,7 +102,7 @@ function dependencies(
 				return {
 					objects: [
 						{
-							identity: "binance/2023/11/14/22/BTCUSDT.parquet.zst",
+							identity: "okx/2026/08/20/12/ARB-USDT.parquet.zst",
 							checksum: "a".repeat(64),
 							bytes: 100,
 							rows: 1,
@@ -79,95 +135,110 @@ function dependencies(
 			},
 		},
 		forwarder: {
+			preflight: async () => {
+				calls.push("forwarder-preflight");
+				return {
+					forwarderIdentity: {
+						environment: "production",
+						cluster: "cex-archive-primary",
+					},
+					authorization: {
+						authorizationId:
+							CONFORMANCE_FIXTURES.documents.request
+								.production_authorization_id,
+						scope: "production",
+						environment: "production",
+						cluster: "cex-archive-primary",
+						expiresAt: "2026-08-21T12:00:00.000Z",
+						credentialValidated: true,
+					},
+				};
+			},
 			submit: async (batch) => {
-				calls.push(
-					batch.rows[0]?.table ===
-						"market_data.cex_order_book_capture_promotions"
-						? "promotion"
-						: "candidate",
-				);
+				const entry = batch.rows[0];
+				if (!entry) throw new Error("missing synthetic row");
+				if (entry.table === "market_data.cex_order_book_capture_promotions") {
+					calls.push("promotion");
+					const parsed = promotionReceiptFromArchiveRow(entry.row);
+					if (!("schema_id" in parsed))
+						throw new Error("expected final receipt");
+					storedReceipt = parsed;
+				} else if (
+					entry.table === "market_data.cex_order_book_capture_qualifications"
+				) {
+					calls.push("qualification");
+					qualification = qualificationEventFromArchiveRow(entry.row);
+				} else if (
+					entry.table === "market_data.cex_order_book_archive_selections"
+				) {
+					calls.push("selection");
+				} else {
+					calls.push("candidate");
+				}
 				return { ok: true, inserted: batch.rows.length };
 			},
 		},
-		clock: { nowMs: () => 1_800_000_000_000 },
-		...overrides,
+		clock: {
+			nowMs: () => Date.parse("2026-08-20T12:00:02.000Z"),
+		},
 	};
 }
 
-describe("runMarketDataVendorBackfill", () => {
+describe("runMarketDataVendorBackfill final-v1 resilience", () => {
 	test("validates before any dependency I/O", async () => {
 		const deps = dependencies();
 		const result = await runMarketDataVendorBackfill(
-			{ ...validBackfillRequest(), idempotencyKey: "bad" },
+			{
+				...documents,
+				request: { ...documents.request, idempotency_key: "bad" },
+			},
 			deps,
 		);
-		expect(result.status).toBe("capability_unsupported");
-		expect(result.reasonCode).toBe("request_invalid");
+		expect(result).toMatchObject({
+			status: "request_invalid",
+			reasonCode: "request_invalid",
+		});
 		expect(deps.calls).toEqual([]);
 	});
 
 	test("returns already covered before capability or credentials", async () => {
-		const deps = dependencies({
-			archive: {
-				coverage: async () => {
-					deps.calls.push("coverage");
-					return { complete: true, coverageDigest: "covered" };
-				},
-				verifyCandidate: async () => {
-					throw new Error("must not verify");
-				},
-			},
-		});
-		const result = await runMarketDataVendorBackfill(
-			validBackfillRequest(),
-			deps,
-		);
+		const deps = dependencies();
+		deps.archive.resolveSelection = async () => {
+			deps.calls.push("preflight");
+			return preflight({
+				selection: CONFORMANCE_FIXTURES.documents.archive_selection,
+				receipts: [CONFORMANCE_FIXTURES.documents.promotion_receipt],
+			});
+		};
+		const result = await runMarketDataVendorBackfill(documents, deps);
 		expect(result.status).toBe("already_covered");
-		expect(deps.calls).toEqual(["coverage"]);
+		expect(deps.calls).toEqual(["preflight", "forwarder-preflight"]);
 	});
 
 	test("checks capability before credentials", async () => {
-		const deps = dependencies({
-			providers: {
-				capabilityFor: () => {
-					deps.calls.push("capability");
-					return undefined;
-				},
-				acquire: async () => {
-					throw new Error("must not acquire");
-				},
-				normalize: async () => {
-					throw new Error("must not normalize");
-				},
-			},
-		});
-		const result = await runMarketDataVendorBackfill(
-			validBackfillRequest(),
-			deps,
-		);
+		const deps = dependencies();
+		deps.providers.capabilityFor = () => {
+			deps.calls.push("capability");
+			return undefined;
+		};
+		const result = await runMarketDataVendorBackfill(documents, deps);
 		expect(result.status).toBe("capability_unsupported");
-		expect(deps.calls).toEqual(["coverage", "capability"]);
+		expect(deps.calls).toEqual([
+			"preflight",
+			"forwarder-preflight",
+			"capability",
+		]);
 	});
 
-	test("submits candidates, verifies semantics, commits promotion last, and rechecks coverage", async () => {
-		let coverageCalls = 0;
+	test("submits candidates, receipt, qualification, and exact selection", async () => {
 		const deps = dependencies();
-		deps.archive.coverage = async () => {
-			deps.calls.push("coverage");
-			coverageCalls += 1;
-			return {
-				complete: coverageCalls === 2,
-				coverageDigest: coverageCalls === 2 ? "after" : "before",
-			};
-		};
-		const result = await runMarketDataVendorBackfill(
-			validBackfillRequest(),
-			deps,
-		);
+		const result = await runMarketDataVendorBackfill(documents, deps);
 		expect(result.status).toBe("promoted");
-		expect(result.receipt?.receiptId).toMatch(/^[a-f0-9]{64}$/);
+		expect(result.receipt?.receipt_id).toMatch(/^[a-f0-9]{64}$/);
+		expect(result.selection?.receipt_ids).toEqual([result.receipt?.receipt_id]);
 		expect(deps.calls).toEqual([
-			"coverage",
+			"preflight",
+			"forwarder-preflight",
 			"capability",
 			"credentials",
 			"acquire",
@@ -175,42 +246,30 @@ describe("runMarketDataVendorBackfill", () => {
 			"candidate",
 			"verify",
 			"promotion",
-			"coverage",
+			"qualification",
+			"preflight",
+			"selection",
 		]);
 		expect(JSON.stringify(result)).not.toContain("secret-value");
-		expect(result.receipt?.receiptId).toBe(
-			sha256Canonical(
-				result.receipt && {
-					...result.receipt,
-					receiptId: undefined,
-					verificationTimeMs: undefined,
-				},
-			),
-		);
 	});
 
 	test("retries the same deterministic batch identity after an ambiguous failure", async () => {
-		let coverageCalls = 0;
-		let submissionCalls = 0;
-		const batchIds: string[] = [];
 		const deps = dependencies();
-		deps.archive.coverage = async () => ({
-			complete: ++coverageCalls === 2,
-			coverageDigest: "coverage",
-		});
+		const submit = deps.forwarder.submit;
+		const batchIds: string[] = [];
+		let first = true;
 		deps.forwarder.submit = async (batch) => {
 			batchIds.push(batch.batch_id);
-			submissionCalls += 1;
-			if (submissionCalls === 1) throw new Error("ambiguous transport failure");
-			return { ok: true, inserted: batch.rows.length };
+			if (first) {
+				first = false;
+				throw new Error("ambiguous transport failure");
+			}
+			return submit(batch);
 		};
-		const result = await runMarketDataVendorBackfill(
-			validBackfillRequest(),
-			deps,
-		);
+		const result = await runMarketDataVendorBackfill(documents, deps);
 		expect(result.status).toBe("promoted");
 		expect(batchIds[0]).toBe(batchIds[1]);
-		expect(new Set(batchIds).size).toBe(2);
+		expect(new Set(batchIds).size).toBe(4);
 	});
 
 	test("never reflects dependency error text that may contain credentials", async () => {
@@ -219,25 +278,20 @@ describe("runMarketDataVendorBackfill", () => {
 		deps.providers.acquire = async () => {
 			throw new Error(`provider rejected credential ${secret}`);
 		};
-		const result = await runMarketDataVendorBackfill(
-			validBackfillRequest(),
-			deps,
-		);
+		const result = await runMarketDataVendorBackfill(documents, deps);
 		expect(result).toMatchObject({
 			status: "vendor_fetch_failed",
-			reasonCode: "provider_dataset_invalid",
+			reasonCode: "vendor_fetch_failed",
+			reasonSubcode: "provider_dataset_invalid",
 		});
 		expect(JSON.stringify(result)).not.toContain(secret);
 	});
 
-	test("maps every terminal dependency gate to a closed status and stable reason", async () => {
+	test("maps every terminal dependency gate to a closed final-v1 outcome", async () => {
 		const missingCredentials = dependencies();
 		missingCredentials.credentials.resolve = async () => undefined;
 		expect(
-			await runMarketDataVendorBackfill(
-				validBackfillRequest(),
-				missingCredentials,
-			),
+			await runMarketDataVendorBackfill(documents, missingCredentials),
 		).toMatchObject({
 			status: "credentials_missing",
 			reasonCode: "provider_credentials_missing",
@@ -248,16 +302,18 @@ describe("runMarketDataVendorBackfill", () => {
 			throw new CryptoHftDataError("budget_max_rows_exceeded");
 		};
 		expect(
-			await runMarketDataVendorBackfill(validBackfillRequest(), fetchFailed),
+			await runMarketDataVendorBackfill(documents, fetchFailed),
 		).toMatchObject({
 			status: "vendor_fetch_failed",
-			reasonCode: "budget_max_rows_exceeded",
+			reasonCode: "vendor_fetch_failed",
+			reasonSubcode: "resource_limit_exceeded",
 		});
 
-		const ingestFailed = dependencies({ retry: { maxAttempts: 1 } });
+		const ingestFailed = dependencies();
+		ingestFailed.retry = { maxAttempts: 1 };
 		ingestFailed.forwarder.submit = async () => ({ ok: false, inserted: 0 });
 		expect(
-			await runMarketDataVendorBackfill(validBackfillRequest(), ingestFailed),
+			await runMarketDataVendorBackfill(documents, ingestFailed),
 		).toMatchObject({
 			status: "archive_ingest_failed",
 			reasonCode: "candidate_batch_rejected",
@@ -279,25 +335,21 @@ describe("runMarketDataVendorBackfill", () => {
 			reasonCode: "timeline_seam_invalid",
 		});
 		expect(
-			await runMarketDataVendorBackfill(
-				validBackfillRequest(),
-				verificationFailed,
-			),
+			await runMarketDataVendorBackfill(documents, verificationFailed),
 		).toMatchObject({
 			status: "promotion_verification_failed",
 			reasonCode: "timeline_seam_invalid",
 		});
 
-		let coverageCalls = 0;
 		const coverageFailed = dependencies();
-		coverageFailed.archive.coverage = async () => ({
-			complete: false,
-			coverageDigest: `coverage-${++coverageCalls}`,
-		});
+		coverageFailed.archive.resolveSelection = async () => {
+			coverageFailed.calls.push("preflight");
+			return preflight();
+		};
 		expect(
-			await runMarketDataVendorBackfill(validBackfillRequest(), coverageFailed),
+			await runMarketDataVendorBackfill(documents, coverageFailed),
 		).toMatchObject({
-			status: "post_backfill_coverage_insufficient",
+			status: "promotion_verification_failed",
 			reasonCode: "qualified_coverage_incomplete",
 		});
 	});

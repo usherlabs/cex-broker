@@ -1,5 +1,17 @@
 ## ADDED Requirements
 
+### Requirement: The published subpath exposes the complete final-v1 library boundary
+The dedicated package subpath SHALL export strict request/result codecs, schema
+and policy manifests, RFC 8785 identity helpers, the domain runner, and a
+dependency factory. Its implementation and generated declarations MUST NOT
+import broker/server modules. Schemas, policies, fixtures, and declarations
+MUST be present in the published npm tarball.
+
+#### Scenario: Fiet TEE bundles the subpath
+- **WHEN** a consumer imports or bundles the package subpath
+- **THEN** it MUST obtain all final-v1 artifacts without starting the gRPC server
+- **AND** package smoke tests MUST reject server-side imports or missing assets
+
 ### Requirement: Market-data vendor backfill is a bounded archive tool
 The service architecture SHALL document `market-data-vendor-backfill` as a
 bounded library/tool executed by a caller-owned preparation process. CEX Broker
@@ -36,4 +48,3 @@ policy proof.
 - **THEN** it MUST bind the published CEX package, Fiet TEE executable, CEX
   promotion receipt, Maker post-promotion query, and Maker consumer artifact
 - **AND** CEX Broker MUST NOT import or invoke Maker application or policy code
-

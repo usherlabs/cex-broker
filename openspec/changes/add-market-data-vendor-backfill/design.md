@@ -16,6 +16,14 @@ final artifacts. Fiet TEE is the executable and secure-secret boundary. CEX
 Broker remains the owner of vendor adapters, normalization, forwarder
 submission, archive qualification, and the FIET-1017 promotion receipt.
 
+This amendment supersedes every unpublished provisional v1 wire shape below
+where they conflict. Wire documents use snake_case, strict JSON Schema Draft
+2020-12 validation, RFC 8785 JCS plus SHA-256 identities, lowercase UUIDs and
+hex digests, fixed UTC RFC3339 timestamps, safe integers, and no floating-point
+fields. A document identity omits only that document's own digest field. The
+existing capture-row and capture-bundle checksum algorithms are intentionally
+unchanged.
+
 The initial provider publishes hourly Zstd-compressed Parquet objects containing
 normalized L2 snapshot and price-level update records. Its current documented
 exchange set does not include MEXC, and its standard licence permits internal
@@ -127,7 +135,10 @@ changing v1 wire schemas.
 ### 5. Vendor files are replayed into snapshots before canonicalization
 
 The CryptoHFTData adapter enumerates bounded UTC-hour object paths including a
-bounded pre-window initialization lookback. It authenticates by obtaining a
+bounded pre-window initialization lookback. The acquisition policy fixes the
+effective initialization lookback independently from the resource policy's
+maximum; v1 uses the containing UTC-hour object only (`0ms` additional
+lookback). It authenticates by obtaining a
 short-lived token from an environment/secure-secret API key, then uses a bearer
 header for downloads. Object bytes are hashed before decoding. A pure Node/Bun
 Parquet and outer-Zstd path is used so the Fiet TEE bundle does not shell out to
@@ -244,6 +255,73 @@ projection. This gate blocks declaring the initial provider profile ready; it
 does not block unrelated CEX Broker releases. Fiet TEE still owns packaged
 executable conformance, and Maker still owns the independent qualified-reader
 and actual-loader proof.
+
+### 12. Published contracts are schemas, not TypeScript implementation details
+
+The package ships request, result, required-clock, archive-selection, and
+promotion-receipt JSON Schemas plus capability/resource policy schemas,
+manifests, canonical digests, and golden fixtures. Ajv validates wire input and
+codecs map it to internal domain types. `canonicalize@4.0.0` is the only JCS
+serializer used for these identities; the capture checksum helper is not reused
+because it deliberately removes checksum-named fields.
+
+The request contains canonical scope/window/depth/construction/source policy,
+target environment and cluster, a required-clock reference, initial selection,
+expected canonical schema, and the fully resolved
+`prior-asof-strict/v1` coverage policy. Provider mappings, allowlists, object
+paths, fetch margins, resource budgets, and package expectations are
+deployment policy rather than request content. Product pins bind versioned
+capability and resource policy IDs and JCS digests.
+
+### 13. Archive selection is exact evidence, not a coverage boolean
+
+Preflight returns `complete`, `partial`, or `missing` together with the exact
+selected bundles and intervals, requested intervals, precedence,
+qualification/receipt evidence, and exact prior-as-of `support_anchors`.
+`authoritative_window` selects promoted vendor intervals only. `fill_gaps`
+preserves retained production intervals and adds promoted gaps with
+archive-wins precedence. `already_covered` returns the exact stored identities.
+
+`selection_sha256` binds the entire selection except itself. Selection and
+receipt readers recompute identities, reject mismatches, and reject conflicting
+stored content. Enough resolved selection and receipt content is persisted to
+return the original document on idempotent reuse.
+
+### 14. Receipt occurrence identity is distinct from semantic deduplication
+
+`promotion_identity_sha256` hashes the stable semantic promotion content and is
+used only for deduplication. `receipt_id` hashes the full receipt including the
+fixed UTC `verified_at` timestamp. Qualification is append-only with
+`qualified`, `quarantined`, and `revoked` transitions. Vendor views require the
+latest state to be qualified and to reference a valid final receipt; production
+rows retain their existing checksum/provenance eligibility without a vendor
+receipt.
+
+### 15. Archive cluster identity and production authority fail closed
+
+`market_data.cex_archive_cluster_identity` is a deployment-owned singleton.
+The archive reader queries it and forwarder health reports the same stored
+identity. Preflight requires the request environment and cluster to match both
+before capability or credential resolution.
+
+Production submission additionally binds an authorization ID, a
+production-scoped credential, expiry, environment, and cluster. Missing
+authorization identity is request-invalid; invalid/expired authorization or an
+identity mismatch is archive-preflight-failed.
+
+### 16. CEX returns a domain outcome inside a TEE-owned job result
+
+The CEX runner returns the closed domain statuses `request_invalid`,
+`archive_preflight_failed`, `already_covered`, `promoted`,
+`capability_unsupported`, `credentials_missing`, `vendor_fetch_failed`,
+`archive_ingest_failed`, and `promotion_verification_failed`. CEX retains the
+post-promotion selection/qualification query and maps its failure to
+`promotion_verification_failed`. Consumer insufficiency, timeout, missing or
+corrupt result, and incompatible process/result state are Maker outcomes.
+
+Fiet TEE owns the durable file-job envelope and raw request-file hash. The CEX
+package exports validated codecs, JCS helpers, manifests, the runner, and a
+dependency factory without importing broker/server modules.
 
 ## Risks / Trade-offs
 

@@ -1,5 +1,85 @@
 ## ADDED Requirements
 
+### Requirement: Final v1 wire artifacts are strict and cross-language canonical
+The package SHALL publish strict snake_case JSON Schema Draft 2020-12 artifacts
+for the request, result, required clock, archive selection, and promotion
+receipt. It SHALL publish versioned capability and resource policy manifests
+and one manifest that binds every artifact ID to its RFC 8785 JCS SHA-256
+digest. Unknown fields, non-lowercase UUIDs or hexadecimal digests, non-fixed
+UTC RFC3339 timestamps, unsafe integers, and floating-point hashed wire fields
+MUST be rejected. A document digest MUST omit only its own digest field.
+
+#### Scenario: TypeScript and Python validate the same fixture
+- **WHEN** CEX, Fiet TEE, and Maker load a published golden fixture
+- **THEN** every implementation MUST validate the same document and compute the same canonical digest
+- **AND** official RFC 8785 edge vectors MUST have identical hashes
+
+#### Scenario: Capture checksums remain compatible
+- **WHEN** final v1 document identities are introduced
+- **THEN** capture-row and capture-bundle checksums MUST remain unchanged
+- **AND** document identity MUST NOT use the capture checksum helper that removes checksum-named fields
+
+### Requirement: Request policy is caller-resolved and deployment details stay private
+The request SHALL contain canonical scope, half-open window, depth, construction
+mode, source policy, target environment/cluster, required-clock reference,
+initial selection, expected canonical schema, and coverage policy
+`prior-asof-strict/v1`. `max_asof_lag_ms` MUST be supplied explicitly and
+applied without defaulting, widening, or clamping. Provider names/symbols,
+adapter allowlists, object paths, fetch margins, resource budgets, and package
+expectations MUST NOT be request fields. Product pins SHALL bind capability and
+resource policy IDs and canonical digests.
+
+#### Scenario: Idempotency identity is computed
+- **WHEN** a valid request is decoded
+- **THEN** `idempotency_key` MUST bind canonical scope, clock hash, coverage and source policy, expected schema, environment, and cluster
+- **AND** it MUST exclude request/attempt IDs, provider mapping, resource policy, paths, and timestamps
+
+### Requirement: Archive preflight returns an exact content-addressed selection
+Archive preflight SHALL return a coverage class, exact bundle intervals,
+requested intervals, precedence, qualification and receipt evidence, and exact
+prior-as-of `support_anchors`. `selection_sha256` MUST bind scope, required
+clock, coverage policy, exact bundles, requested intervals, precedence,
+qualification, receipts, and anchors. Every anchor SHALL identify its capture
+bundle, raw capture, snapshot, source time, normalized summary checksum, and a
+reference to origin/qualification/receipt metadata.
+
+#### Scenario: Source policy resolves coverage
+- **WHEN** `authoritative_window` resolves coverage
+- **THEN** only promoted vendor bundles MUST be returned
+- **WHEN** `fill_gaps` resolves coverage
+- **THEN** retained production intervals and promoted gaps MUST be returned with archive-wins precedence
+
+#### Scenario: Qualified request is repeated
+- **WHEN** an identical qualified vendor request is preflighted again
+- **THEN** the original stored selection and receipt MUST be returned
+- **AND** the reader MUST reject identity mismatches or conflicting stored content
+
+### Requirement: Full receipt identity and semantic promotion identity are distinct
+`promotion_identity_sha256` SHALL be the timestamp-independent semantic
+deduplication identity. `receipt_id` SHALL be the RFC 8785 JCS SHA-256 digest of
+the full receipt including fixed UTC `verified_at`. Qualification state SHALL
+be append-only and support `qualified`, `quarantined`, and `revoked`.
+
+#### Scenario: Vendor qualification changes
+- **WHEN** the latest qualification state is quarantined or revoked
+- **THEN** vendor rows MUST be excluded from qualified selection
+- **AND** production rows MUST retain existing checksum/provenance eligibility without vendor receipts
+
+### Requirement: Closed CEX outcomes match durable job ownership
+The CEX domain runner SHALL return only `request_invalid`,
+`archive_preflight_failed`, `already_covered`, `promoted`,
+`capability_unsupported`, `credentials_missing`, `vendor_fetch_failed`,
+`archive_ingest_failed`, or `promotion_verification_failed`. Invalid requests
+and archive preflight errors MUST map to their dedicated statuses. Resource
+budget exhaustion MUST use `vendor_fetch_failed` subreason
+`resource_limit_exceeded`; predictable resource-policy scope rejection MUST use
+`capability_unsupported/resource_policy_scope_exceeded`. Post-promotion
+qualification/selection query failure MUST be `promotion_verification_failed`.
+
+#### Scenario: Consumer or process proof fails
+- **WHEN** the result is missing/corrupt, the process times out, or Maker's real loader finds insufficient post-backfill coverage
+- **THEN** Maker MUST own that outcome outside the CEX domain result
+
 ### Requirement: Backfill contracts are versioned, deterministic, and secret-free
 The core library SHALL validate `market-data-vendor-backfill-request/v1` before
 performing network access and SHALL return
@@ -76,7 +156,9 @@ The initial provider adapter SHALL identify CryptoHFTData separately from the
 archive source, discover supported symbols without credentials when possible,
 authenticate downloads using a non-URL bearer mechanism when credentials are
 required, fetch only the hourly files authorized by the request and boundary
-lookback, and validate every dataset before normalization. The adapter MUST NOT
+lookback, and validate every dataset before normalization. The effective
+initialization lookback MUST come from the pinned acquisition policy and MUST
+NOT exceed the pinned resource-policy ceiling. The adapter MUST NOT
 advertise MEXC, exact L2 reconstruction, or another unsupported scope merely
 because an API key is present.
 

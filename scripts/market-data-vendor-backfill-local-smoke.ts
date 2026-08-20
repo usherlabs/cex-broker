@@ -12,29 +12,39 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { type ClickHouseClient, createClient } from "@clickhouse/client";
+import { readArchiveClusterIdentity } from "../services/archive-forwarder/health";
 import { createClickHouseInserter } from "../services/archive-forwarder/insert";
 import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
 import {
 	createClickHouseArchiveQueryClient,
 	QualifiedOrderBookArchiveReader,
 } from "../src/helpers/market-data-vendor-backfill/archive-reader";
-import type {
-	BackfillResult,
-	MarketDataVendorBackfillRequest,
-	PromotionReceipt,
+import {
+	type BackfillRequestWire,
+	decodeBackfillRunDocuments,
+	type MarketDataVendorBackfillRequest,
+	type PromotionReceiptWire,
+	type RequiredClockWire,
 } from "../src/helpers/market-data-vendor-backfill/contracts";
-import { runMarketDataVendorBackfill } from "../src/helpers/market-data-vendor-backfill/core";
+import {
+	type BackfillDomainOutcome,
+	runMarketDataVendorBackfill,
+} from "../src/helpers/market-data-vendor-backfill/core";
 import {
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 	CryptoHftDataAdapter,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
 import { createArchiveForwarderClient } from "../src/helpers/market-data-vendor-backfill/forwarder-client";
+import { jcsSha256 } from "../src/helpers/market-data-vendor-backfill/identity";
 import { startArchiveForwarderEndpoint } from "../test/e2e/archive/support/archive-forwarder-endpoint";
 import {
 	type CanonicalOrderBookParquetExportResult,
 	exportCanonicalOrderBookParquet,
 } from "./export-canonical-orderbook-parquet";
-import { buildCryptoHftDataConformanceRequest } from "./market-data-vendor-backfill-conformance";
+import {
+	buildCryptoHftDataConformanceDocuments,
+	type CryptoHftDataConformanceDocuments,
+} from "./market-data-vendor-backfill-conformance";
 
 export const MARKET_DATA_VENDOR_BACKFILL_SMOKE_EVIDENCE_SCHEMA_VERSION =
 	"market-data-vendor-backfill-local-smoke/v1" as const;
@@ -79,16 +89,19 @@ export type MarketDataVendorBackfillSmokeRuntime = {
 		version: string;
 	};
 	run(
-		request: MarketDataVendorBackfillRequest,
+		documents: {
+			request: BackfillRequestWire;
+			requiredClock: RequiredClockWire;
+		},
 		apiKey: string,
-	): Promise<BackfillResult>;
+	): Promise<BackfillDomainOutcome>;
 	inspect(
 		request: MarketDataVendorBackfillRequest,
-		receipt: PromotionReceipt,
+		receipt: PromotionReceiptWire,
 	): Promise<MarketDataVendorBackfillSmokeArchiveInspection>;
 	exportQualified(
 		request: MarketDataVendorBackfillRequest,
-		receipt: PromotionReceipt,
+		receipt: PromotionReceiptWire,
 	): Promise<MarketDataVendorBackfillSmokeExport>;
 	cleanup(): Promise<void>;
 };
@@ -110,7 +123,10 @@ type SmokePhase =
 	| "idempotency_inspection"
 	| "cleanup";
 
-type SmokeResultProjection = Pick<BackfillResult, "status" | "reasonCode">;
+type SmokeResultProjection = Pick<
+	BackfillDomainOutcome,
+	"status" | "reasonCode" | "reasonSubcode"
+>;
 
 type SmokeEvidenceBase = {
 	schemaVersion: typeof MARKET_DATA_VENDOR_BACKFILL_SMOKE_EVIDENCE_SCHEMA_VERSION;
@@ -140,7 +156,7 @@ export type MarketDataVendorBackfillSmokePassedEvidence = SmokeEvidenceBase & {
 	provider: {
 		name: "cryptohftdata";
 		adapterVersion: string;
-		objects: PromotionReceipt["datasetObjects"];
+		objects: PromotionReceiptWire["dataset_objects"];
 		vendorSemanticDigest: string;
 	};
 	promotion: {
@@ -168,7 +184,9 @@ export type MarketDataVendorBackfillSmokeEvidence =
 	| MarketDataVendorBackfillSmokeFailedEvidence;
 
 export type MarketDataVendorBackfillSmokeDependencies = {
-	createRuntime(): Promise<MarketDataVendorBackfillSmokeRuntime>;
+	createRuntime(
+		documents: CryptoHftDataConformanceDocuments,
+	): Promise<MarketDataVendorBackfillSmokeRuntime>;
 	nowMs(): number;
 	sourceIdentity(): Promise<SmokeSourceIdentity>;
 };
@@ -206,8 +224,12 @@ export function parseMarketDataVendorBackfillSmokeConfiguration(
 	};
 }
 
-function projection(result: BackfillResult): SmokeResultProjection {
-	return { status: result.status, reasonCode: result.reasonCode };
+function projection(result: BackfillDomainOutcome): SmokeResultProjection {
+	return {
+		status: result.status,
+		reasonCode: result.reasonCode,
+		...(result.reasonSubcode ? { reasonSubcode: result.reasonSubcode } : {}),
+	};
 }
 
 function stableReason(error: unknown): string {
@@ -230,7 +252,9 @@ function sameStrings(
 	);
 }
 
-function assertFirstResult(result: BackfillResult): PromotionReceipt {
+function assertFirstResult(
+	result: BackfillDomainOutcome,
+): PromotionReceiptWire {
 	if (result.status !== "promoted" || !result.receipt) {
 		throw new SmokeGateError("first_run_not_promoted");
 	}
@@ -271,7 +295,7 @@ function assertQualifiedExport(
 }
 
 function assertIdempotentReplay(
-	result: BackfillResult,
+	result: BackfillDomainOutcome,
 	before: MarketDataVendorBackfillSmokeArchiveInspection,
 	after: MarketDataVendorBackfillSmokeArchiveInspection,
 ): void {
@@ -289,9 +313,9 @@ function passedEvidence(input: {
 	source: SmokeSourceIdentity;
 	runtime: MarketDataVendorBackfillSmokeRuntime;
 	request: MarketDataVendorBackfillRequest;
-	receipt: PromotionReceipt;
-	firstResult: BackfillResult;
-	secondResult: BackfillResult;
+	receipt: PromotionReceiptWire;
+	firstResult: BackfillDomainOutcome;
+	secondResult: BackfillDomainOutcome;
 	archive: MarketDataVendorBackfillSmokeArchiveInspection;
 	exported: MarketDataVendorBackfillSmokeExport;
 }): MarketDataVendorBackfillSmokePassedEvidence {
@@ -318,14 +342,14 @@ function passedEvidence(input: {
 		},
 		provider: {
 			name: "cryptohftdata",
-			adapterVersion: input.receipt.adapterVersion,
-			objects: input.receipt.datasetObjects,
-			vendorSemanticDigest: input.receipt.vendorSemanticDigest,
+			adapterVersion: input.receipt.adapter_version,
+			objects: input.receipt.dataset_objects,
+			vendorSemanticDigest: input.receipt.vendor_semantic_digest,
 		},
 		promotion: {
-			captureBundleId: input.receipt.captureBundleId,
-			receiptId: input.receipt.receiptId,
-			canonicalSemanticDigest: input.receipt.canonicalSemanticDigest,
+			captureBundleId: input.receipt.capture_bundle_id,
+			receiptId: input.receipt.receipt_id,
+			canonicalSemanticDigest: input.receipt.canonical_semantic_digest,
 		},
 		firstResult: projection(input.firstResult),
 		secondResult: projection(input.secondResult),
@@ -346,30 +370,31 @@ export async function runMarketDataVendorBackfillLocalSmoke(
 	let phase: SmokePhase = "source_identity";
 	let source: SmokeSourceIdentity | undefined;
 	let runtime: MarketDataVendorBackfillSmokeRuntime | undefined;
-	let firstResult: BackfillResult | undefined;
+	let firstResult: BackfillDomainOutcome | undefined;
 	let evidence: MarketDataVendorBackfillSmokeEvidence;
 	try {
 		source = await dependencies.sourceIdentity();
-		phase = "runtime_setup";
-		runtime = await dependencies.createRuntime();
-		const request = buildCryptoHftDataConformanceRequest(
+		const documents = buildCryptoHftDataConformanceDocuments(
 			configuration.startTimeMs,
 		);
+		const request = decodeBackfillRunDocuments(documents);
+		phase = "runtime_setup";
+		runtime = await dependencies.createRuntime(documents);
 
 		phase = "first_run";
-		firstResult = await runtime.run(request, configuration.apiKey);
+		firstResult = await runtime.run(documents, configuration.apiKey);
 		const receipt = assertFirstResult(firstResult);
 
 		phase = "archive_inspection";
 		const beforeReplay = await runtime.inspect(request, receipt);
-		assertArchiveInspection(beforeReplay, receipt.receiptId);
+		assertArchiveInspection(beforeReplay, receipt.receipt_id);
 
 		phase = "qualified_export";
 		const exported = await runtime.exportQualified(request, receipt);
-		assertQualifiedExport(exported, beforeReplay, receipt.receiptId);
+		assertQualifiedExport(exported, beforeReplay, receipt.receipt_id);
 
 		phase = "second_run";
-		const secondResult = await runtime.run(request, configuration.apiKey);
+		const secondResult = await runtime.run(documents, configuration.apiKey);
 
 		phase = "idempotency_inspection";
 		const afterReplay = await runtime.inspect(request, receipt);
@@ -504,7 +529,7 @@ async function inspectArchive(
 	client: ClickHouseClient,
 	reader: QualifiedOrderBookArchiveReader,
 	request: MarketDataVendorBackfillRequest,
-	receipt: PromotionReceipt,
+	receipt: PromotionReceiptWire,
 ): Promise<MarketDataVendorBackfillSmokeArchiveInspection> {
 	const scope = `
 		capture_bundle_id = {capture_bundle_id:String}
@@ -546,19 +571,19 @@ async function inspectArchive(
 			   FROM market_data.cex_order_book_capture_promotions
 			   WHERE capture_bundle_id = {capture_bundle_id:String}) AS receipt_ids`,
 		query_params: {
-			capture_bundle_id: receipt.captureBundleId,
-			receipt_id: receipt.receiptId,
-			exchange: receipt.exchange,
-			trading_pair: receipt.tradingPair,
-			asset_type: receipt.marketType,
-			feed: receipt.feed,
+			capture_bundle_id: receipt.capture_bundle_id,
+			receipt_id: receipt.receipt_id,
+			exchange: receipt.scope.exchange,
+			trading_pair: receipt.scope.trading_pair,
+			asset_type: receipt.scope.market_type,
+			feed: receipt.scope.feed,
 			provider: receipt.provider,
-			start_time_ms: receipt.startTimeMs,
-			end_time_ms: receipt.endTimeMs,
+			start_time_ms: Date.parse(receipt.window.start_at),
+			end_time_ms: Date.parse(receipt.window.end_at),
 			depth_limit: receipt.depth,
-			construction_mode: receipt.constructionMode,
-			schema_version: receipt.canonicalSchemaVersion,
-			checksum_algorithm: receipt.checksumAlgorithm,
+			construction_mode: receipt.construction_mode,
+			schema_version: request.expectedProduct.canonicalSchemaVersion,
+			checksum_algorithm: request.expectedProduct.checksumAlgorithm,
 		},
 		format: "JSONEachRow",
 	});
@@ -598,7 +623,9 @@ async function projectExport(
 	};
 }
 
-async function createDockerSmokeRuntime(): Promise<MarketDataVendorBackfillSmokeRuntime> {
+async function createDockerSmokeRuntime(
+	documents: CryptoHftDataConformanceDocuments,
+): Promise<MarketDataVendorBackfillSmokeRuntime> {
 	const containerName = `cex-broker-vendor-smoke-${randomUUID()}`;
 	const clickhousePassword = randomUUID();
 	const forwarderToken = randomUUID();
@@ -665,9 +692,40 @@ async function createDockerSmokeRuntime(): Promise<MarketDataVendorBackfillSmoke
 			throw new SmokeGateError("clickhouse_version_mismatch");
 		}
 		await ensureArchiveSchema(client);
+		const configuredAtMs = Date.now();
+		const archiveIdentityContent = {
+			singleton_key: "archive",
+			environment: documents.request.target.environment,
+			cluster: documents.request.target.cluster,
+			configured_at_ms: configuredAtMs,
+		};
+		await client.insert({
+			table: "market_data.cex_archive_cluster_identity",
+			values: [
+				{
+					...archiveIdentityContent,
+					configuration_sha256: jcsSha256(archiveIdentityContent),
+				},
+			],
+			format: "JSONEachRow",
+		});
+		const archiveIdentity = await readArchiveClusterIdentity(client);
+		if (!archiveIdentity) {
+			throw new SmokeGateError("archive_cluster_identity_unavailable");
+		}
 		endpoint = await startArchiveForwarderEndpoint({
 			inserter: createClickHouseInserter(client),
 			authToken: forwarderToken,
+			productionBackfill: {
+				archiveIdentity,
+				authorization: {
+					authorizationId: documents.request.production_authorization_id,
+					scope: "production",
+					environment: documents.request.target.environment,
+					cluster: documents.request.target.cluster,
+					expiresAt: new Date(configuredAtMs + 60 * 60 * 1_000).toISOString(),
+				},
+			},
 		});
 
 		const reader = new QualifiedOrderBookArchiveReader(
@@ -710,7 +768,7 @@ async function createDockerSmokeRuntime(): Promise<MarketDataVendorBackfillSmoke
 					username: CLICKHOUSE_USER,
 					password: clickhousePassword,
 					outputDirectory: exportDirectory,
-					captureBundleIds: [receipt.captureBundleId],
+					captureBundleIds: [receipt.capture_bundle_id],
 					exchange: request.scope.exchange,
 					tradingPair: request.scope.tradingPair,
 					startTimeMs: request.window.startTimeMs,

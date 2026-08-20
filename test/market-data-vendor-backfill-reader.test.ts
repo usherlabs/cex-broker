@@ -4,11 +4,25 @@ import {
 	type ArchiveQueryClient,
 	QualifiedOrderBookArchiveReader,
 } from "../src/helpers/market-data-vendor-backfill/archive-reader";
+import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
 import type { NormalizedBackfill } from "../src/helpers/market-data-vendor-backfill/core";
 import { semanticDigest } from "../src/helpers/market-data-vendor-backfill/semantic-verification";
 import { validBackfillRequest } from "./market-data-vendor-backfill-contract.test";
 
 const digest = (value: string) => sha256Canonical({ value });
+
+const verificationBaseline = {
+	selection: CONFORMANCE_FIXTURES.documents.request.initial_selection,
+	receipts: [],
+	readerIdentity: {
+		environment: "production",
+		cluster: "cex-archive-primary",
+	},
+	verificationBaseline: {
+		prefixDigest: sha256Canonical([]),
+		suffixDigest: sha256Canonical([]),
+	},
+};
 
 function normalized(): NormalizedBackfill {
 	const common = {
@@ -111,12 +125,6 @@ describe("qualification-aware archive reader", () => {
 			},
 		};
 		const reader = new QualifiedOrderBookArchiveReader(client);
-		const baseline = {
-			complete: false,
-			coverageDigest: digest("coverage"),
-			prefixDigest: sha256Canonical([]),
-			suffixDigest: sha256Canonical([]),
-		};
 		const result = await reader.verifyCandidate(
 			validBackfillRequest({
 				requiredClockTargetsMs: [1_700_000_900_000],
@@ -124,7 +132,7 @@ describe("qualification-aware archive reader", () => {
 			}),
 			candidate,
 			candidate.captureBundleId,
-			baseline,
+			verificationBaseline,
 		);
 		expect(result.passed).toBe(true);
 		expect(queries.some((sql) => sql.includes("levels_canonical"))).toBe(true);
@@ -175,12 +183,7 @@ describe("qualification-aware archive reader", () => {
 			}),
 			candidate,
 			candidate.captureBundleId,
-			{
-				complete: false,
-				coverageDigest: digest("coverage"),
-				prefixDigest: sha256Canonical([]),
-				suffixDigest: sha256Canonical([]),
-			},
+			verificationBaseline,
 		);
 		expect(result).toMatchObject({
 			passed: false,

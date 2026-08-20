@@ -9,7 +9,8 @@ import {
 	runMarketDataVendorBackfillLocalSmoke,
 	writeMarketDataVendorBackfillSmokeEvidence,
 } from "../scripts/market-data-vendor-backfill-local-smoke";
-import type { BackfillResult } from "../src/helpers/market-data-vendor-backfill/contracts";
+import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
+import type { BackfillDomainOutcome } from "../src/helpers/market-data-vendor-backfill/core";
 
 const temporaryDirectories: string[] = [];
 
@@ -21,49 +22,14 @@ afterEach(async () => {
 	);
 });
 
-function promotedResult(): BackfillResult {
+const receipt = CONFORMANCE_FIXTURES.documents.promotion_receipt;
+
+function promotedResult(): BackfillDomainOutcome {
 	return {
-		schemaVersion: "market-data-vendor-backfill-result/v1",
-		requestId: "cryptohftdata-conformance-1787045235308",
-		idempotencyKey: "a".repeat(64),
 		status: "promoted",
-		reasonCode: "promotion_committed",
-		receipt: {
-			schemaVersion: "market-data-vendor-backfill-promotion-receipt/v1",
-			requestId: "cryptohftdata-conformance-1787045235308",
-			idempotencyKey: "a".repeat(64),
-			status: "passing",
-			source: "external_backfill",
-			provider: "cryptohftdata",
-			adapterVersion: "cryptohftdata-orderbook/v2",
-			captureBundleId: "b".repeat(64),
-			exchange: "okx",
-			tradingPair: "ARB-USDT",
-			marketType: "spot",
-			feed: "ORDERBOOK",
-			startTimeMs: 1_787_045_235_308,
-			endTimeMs: 1_787_045_295_308,
-			depth: 20,
-			constructionMode: "sampled_top_n_snapshot",
-			canonicalSchemaVersion: "1.0.0",
-			checksumAlgorithm: "sha256-canonical-json-v1",
-			vendorSemanticDigest: "c".repeat(64),
-			canonicalSemanticDigest: "d".repeat(64),
-			prefixDigest: "e".repeat(64),
-			suffixDigest: "f".repeat(64),
-			seamVerified: true,
-			coverageVerified: true,
-			datasetObjects: [
-				{
-					identity: "okx_spot/2026-08-18/09/ARB-USDT_orderbook.parquet.zst",
-					checksum: "1".repeat(64),
-					bytes: 123,
-					rows: 456,
-				},
-			],
-			verificationTimeMs: 1_751_364_700_000,
-			receiptId: "2".repeat(64),
-		},
+		reasonCode: "promotion_qualified",
+		receipt,
+		selection: CONFORMANCE_FIXTURES.documents.archive_selection,
 	};
 }
 
@@ -74,7 +40,7 @@ function archiveInspection() {
 		qualifiedLevelRows: 40,
 		qualifiedSummaryRows: 1,
 		promotionRows: 1,
-		promotionReceiptIds: ["2".repeat(64)],
+		promotionReceiptIds: [receipt.receipt_id],
 		coverageComplete: true,
 		coverageDigest: "3".repeat(64),
 		prefixDigest: "4".repeat(64),
@@ -84,7 +50,8 @@ function archiveInspection() {
 
 function smokeRuntime(input: {
 	secret: string;
-	secondStatus?: BackfillResult["status"];
+	firstResult?: BackfillDomainOutcome;
+	secondStatus?: BackfillDomainOutcome["status"];
 	throwMessage?: string;
 	onCleanup: () => void;
 }): MarketDataVendorBackfillSmokeRuntime {
@@ -95,23 +62,25 @@ function smokeRuntime(input: {
 			imageId: "sha256:clickhouse-image",
 			version: "24.8.14.39",
 		},
-		async run(request, apiKey) {
-			expect(request.window.startTimeMs).toBe(1_787_045_235_308);
-			expect(request.scope).toMatchObject({
+		async run(documents, apiKey) {
+			expect(documents.request.window.start_at).toBe(
+				"2026-08-18T09:27:15.308Z",
+			);
+			expect(documents.request.scope).toMatchObject({
 				exchange: "okx",
-				tradingPair: "ARB-USDT",
-				sourceSymbol: "ARB-USDT",
+				trading_pair: "ARB-USDT",
+				market_type: "spot",
 			});
 			expect(apiKey).toBe(input.secret);
 			if (input.throwMessage) throw new Error(input.throwMessage);
 			invocation += 1;
-			if (invocation === 1) return promotedResult();
+			if (invocation === 1) return input.firstResult ?? promotedResult();
 			return {
-				schemaVersion: "market-data-vendor-backfill-result/v1",
-				requestId: request.requestId,
-				idempotencyKey: request.idempotencyKey,
+				requestId: documents.request.request_id,
+				idempotencyKey: documents.request.idempotency_key,
 				status: input.secondStatus ?? "already_covered",
 				reasonCode: "qualified_coverage_complete",
+				selection: CONFORMANCE_FIXTURES.documents.archive_selection,
 			};
 		},
 		async inspect() {
@@ -121,7 +90,7 @@ function smokeRuntime(input: {
 			return {
 				levelRows: 40,
 				summaryRows: 1,
-				promotionReceiptIds: ["2".repeat(64)],
+				promotionReceiptIds: [receipt.receipt_id],
 				levelsSha256: "6".repeat(64),
 				summarySha256: "7".repeat(64),
 			};
@@ -168,8 +137,18 @@ describe("market-data vendor backfill local smoke", () => {
 		const evidence = await runMarketDataVendorBackfillLocalSmoke(
 			{ startTimeMs: 1_787_045_235_308, apiKey: secret },
 			{
-				createRuntime: async () =>
-					smokeRuntime({ secret, onCleanup: () => (cleaned = true) }),
+				createRuntime: async (documents) => {
+					expect(documents.request.schema_id).toBe(
+						"https://schemas.usher.so/market-data-vendor-backfill-request/v1",
+					);
+					expect(documents.requiredClock.clock_sha256).toBe(
+						documents.request.required_clock.clock_sha256,
+					);
+					return smokeRuntime({
+						secret,
+						onCleanup: () => (cleaned = true),
+					});
+				},
 				nowMs: (() => {
 					let value = 1_751_364_700_000;
 					return () => value++;
@@ -185,7 +164,7 @@ describe("market-data vendor backfill local smoke", () => {
 		expect(evidence).toMatchObject({
 			schemaVersion: MARKET_DATA_VENDOR_BACKFILL_SMOKE_EVIDENCE_SCHEMA_VERSION,
 			status: "passed",
-			firstResult: { status: "promoted", reasonCode: "promotion_committed" },
+			firstResult: { status: "promoted", reasonCode: "promotion_qualified" },
 			secondResult: {
 				status: "already_covered",
 				reasonCode: "qualified_coverage_complete",
@@ -230,6 +209,48 @@ describe("market-data vendor backfill local smoke", () => {
 		expect(cleaned).toBe(true);
 		expect(JSON.stringify(evidence)).not.toContain(secret);
 		expect(JSON.stringify(evidence)).not.toContain("download exposed");
+	});
+
+	test("retains a closed provider subreason without retaining diagnostics", async () => {
+		const evidence = await runMarketDataVendorBackfillLocalSmoke(
+			{
+				startTimeMs: 1_787_045_235_308,
+				apiKey: "vault-only-provider-secret",
+			},
+			{
+				createRuntime: async () =>
+					smokeRuntime({
+						secret: "vault-only-provider-secret",
+						firstResult: {
+							status: "vendor_fetch_failed",
+							reasonCode: "vendor_fetch_failed",
+							reasonSubcode: "update_chain_gap",
+							diagnostics: { unsafe: "not-retained" },
+						},
+						onCleanup: () => {},
+					}),
+				nowMs: (() => {
+					let value = 1_751_364_700_000;
+					return () => value++;
+				})(),
+				sourceIdentity: async () => ({
+					gitCommit: "8".repeat(40),
+					gitDirty: true,
+					packageVersion: "1.2.3",
+				}),
+			},
+		);
+
+		expect(evidence).toMatchObject({
+			status: "failed",
+			phase: "first_run",
+			firstResult: {
+				status: "vendor_fetch_failed",
+				reasonCode: "vendor_fetch_failed",
+				reasonSubcode: "update_chain_gap",
+			},
+		});
+		expect(JSON.stringify(evidence)).not.toContain("not-retained");
 	});
 
 	test("atomically writes evidence with owner-only permissions", async () => {

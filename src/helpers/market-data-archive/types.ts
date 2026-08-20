@@ -60,7 +60,9 @@ export type CaptureSourceMode =
 	| "external_ccxt_fallback_v1"
 	| "external_hummingbot_fallback_v1"
 	| "legacy_migration_v1"
-	| "historical_vendor_orderbook_v1";
+	| "historical_vendor_orderbook_v1"
+	| "vendor_historical_backfill_v1";
+export type CaptureOrigin = "production_capture" | "vendor_historical_backfill";
 export type RawCaptureScope =
 	| "ccxt_normalized_object"
 	| "broker_visible_payload"
