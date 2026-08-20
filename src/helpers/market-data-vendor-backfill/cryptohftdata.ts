@@ -24,7 +24,7 @@ import type { NormalizedBackfill, ProviderDataset } from "./core";
 import { semanticDigest } from "./semantic-verification";
 
 export const CRYPTOHFTDATA_ADAPTER_VERSION =
-	"cryptohftdata-orderbook/v1" as const;
+	"cryptohftdata-orderbook/v2" as const;
 export const CRYPTOHFTDATA_API_URL = "https://api.cryptohftdata.com" as const;
 const CRYPTOHFTDATA_HISTORY_START_MS = Date.UTC(2025, 5, 28);
 const HOUR_MS = 60 * 60 * 1_000;
@@ -40,8 +40,10 @@ export type CryptoHftDataCapabilityProfile = Readonly<{
 	maxDepth: number;
 	eventTimeUnit: "milliseconds";
 	receivedTimeUnit: "nanoseconds";
-	snapshotGrouping: "event_time_last_update_id_object";
-	sequenceSemantics: "binance_u_U_pu";
+	snapshotGrouping:
+		| "event_time_last_update_id_object"
+		| "event_time_final_update_id_object";
+	sequenceSemantics: "binance_u_U_pu" | "okx_seq_id_prev_seq_id";
 	constructionModes: readonly ["sampled_top_n_snapshot"];
 	sourcePolicies: readonly ["authoritative_window"];
 }>;
@@ -63,6 +65,26 @@ export const CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE: CryptoHftDataCapability
 		receivedTimeUnit: "nanoseconds",
 		snapshotGrouping: "event_time_last_update_id_object",
 		sequenceSemantics: "binance_u_U_pu",
+		constructionModes: ["sampled_top_n_snapshot"] as const,
+		sourcePolicies: ["authoritative_window"] as const,
+	});
+
+// This profile is pinned to a live-proven object containing a complete OKX
+// snapshot followed by a contiguous seqId/prevSeqId update chain.
+export const CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE: CryptoHftDataCapabilityProfile =
+	Object.freeze({
+		profileId: "cryptohftdata/okx_spot/ARB-USDT/v1",
+		exchange: "okx",
+		tradingPair: "ARB-USDT",
+		sourceSymbol: "ARB-USDT",
+		marketType: "spot",
+		providerExchangeId: "okx_spot",
+		historyStartMs: CRYPTOHFTDATA_HISTORY_START_MS,
+		maxDepth: 400,
+		eventTimeUnit: "milliseconds",
+		receivedTimeUnit: "nanoseconds",
+		snapshotGrouping: "event_time_final_update_id_object",
+		sequenceSemantics: "okx_seq_id_prev_seq_id",
 		constructionModes: ["sampled_top_n_snapshot"] as const,
 		sourcePolicies: ["authoritative_window"] as const,
 	});
@@ -242,15 +264,46 @@ function validatedRow(
 	return { ...row, eventTimeMs, receivedTimeMs };
 }
 
-function groupKey(row: ReturnType<typeof validatedRow>): string {
+function groupKey(
+	row: ReturnType<typeof validatedRow>,
+	profile: CryptoHftDataCapabilityProfile,
+): string {
+	const sequence =
+		row.event_type === "snapshot"
+			? profile.snapshotGrouping === "event_time_final_update_id_object"
+				? unsignedString(row.final_update_id, "final_update_id", true)
+				: unsignedString(row.last_update_id, "last_update_id", true)
+			: unsignedString(row.final_update_id, "final_update_id", true);
 	return [
 		row.event_type,
 		row.eventTimeMs,
-		row.event_type === "snapshot"
-			? unsignedString(row.last_update_id, "last_update_id", true)
-			: unsignedString(row.final_update_id, "final_update_id", true),
+		sequence,
 		row.dataset_object_identity,
 	].join("\u0000");
+}
+
+function absent(value: string | number | bigint | null | undefined): boolean {
+	return value === null || value === undefined;
+}
+
+function snapshotSequence(
+	row: ReturnType<typeof validatedRow>,
+	profile: CryptoHftDataCapabilityProfile,
+): string {
+	if (profile.sequenceSemantics === "okx_seq_id_prev_seq_id") {
+		if (String(row.last_update_id) !== "-1") {
+			throw new CryptoHftDataError("schema_last_update_id_snapshot_sentinel");
+		}
+		if (!absent(row.first_update_id) || !absent(row.prev_final_update_id)) {
+			throw new CryptoHftDataError("ambiguous_snapshot_group");
+		}
+		return unsignedString(
+			row.final_update_id,
+			"final_update_id",
+			true,
+		) as string;
+	}
+	return unsignedString(row.last_update_id, "last_update_id", true) as string;
 }
 
 type BookState = {
@@ -291,6 +344,7 @@ function applyRows(
 export function reconstructCryptoHftDataOrderBooks(
 	request: MarketDataVendorBackfillRequest,
 	inputRows: readonly CryptoHftDataOrderBookRow[],
+	profile: CryptoHftDataCapabilityProfile = CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
 ): ReconstructedCryptoHftBook[] {
 	const rows = inputRows
 		.map((row, index) => ({
@@ -307,7 +361,8 @@ export function reconstructCryptoHftDataOrderBooks(
 		const current = groups.at(-1);
 		if (
 			!current ||
-			groupKey(current[0] as ReturnType<typeof validatedRow>) !== groupKey(row)
+			groupKey(current[0] as ReturnType<typeof validatedRow>, profile) !==
+				groupKey(row, profile)
 		) {
 			groups.push([row]);
 		} else {
@@ -315,27 +370,43 @@ export function reconstructCryptoHftDataOrderBooks(
 		}
 	}
 
+	const earliestTargetTimeMs = Math.min(...request.requiredClockTargetsMs);
+	const latestTargetTimeMs = Math.max(...request.requiredClockTargetsMs);
+	const anchorIndex = groups.findIndex((group) => {
+		const first = group[0] as ReturnType<typeof validatedRow>;
+		return (
+			first.event_type === "snapshot" &&
+			first.eventTimeMs <= earliestTargetTimeMs
+		);
+	});
+	if (anchorIndex < 0) {
+		throw new CryptoHftDataError("update_before_snapshot");
+	}
+
 	let state: BookState | undefined;
 	let previousFinalUpdateId: bigint | undefined;
 	const states: BookState[] = [];
-	for (const group of groups) {
+	for (const group of groups.slice(anchorIndex)) {
 		const first = group[0] as ReturnType<typeof validatedRow>;
+		if (first.eventTimeMs > latestTargetTimeMs) break;
 		if (first.event_type === "snapshot") {
-			const last = unsignedString(
-				first.last_update_id,
-				"last_update_id",
-				true,
-			) as string;
+			const sequence = snapshotSequence(first, profile);
+			for (const row of group) {
+				if (snapshotSequence(row, profile) !== sequence) {
+					throw new CryptoHftDataError("ambiguous_snapshot_group");
+				}
+			}
 			if (
+				profile.sequenceSemantics === "binance_u_U_pu" &&
 				previousFinalUpdateId !== undefined &&
-				BigInt(last) < previousFinalUpdateId
+				BigInt(sequence) < previousFinalUpdateId
 			) {
 				throw new CryptoHftDataError("snapshot_sequence_regression");
 			}
 			state = {
 				bids: new Map(),
 				asks: new Map(),
-				sequence: last,
+				sequence,
 				sourceTimeMs: first.eventTimeMs,
 				receivedTimeMs: Math.max(
 					...group.map(({ receivedTimeMs }) => receivedTimeMs),
@@ -344,18 +415,11 @@ export function reconstructCryptoHftDataOrderBooks(
 				datasetObjectChecksum: first.dataset_object_checksum,
 			};
 			applyRows(state, group);
-			previousFinalUpdateId = BigInt(last);
+			previousFinalUpdateId = BigInt(sequence);
 		} else {
 			if (!state || previousFinalUpdateId === undefined) {
 				throw new CryptoHftDataError("update_before_snapshot");
 			}
-			const firstUpdate = BigInt(
-				unsignedString(
-					first.first_update_id,
-					"first_update_id",
-					true,
-				) as string,
-			);
 			const finalUpdate = BigInt(
 				unsignedString(
 					first.final_update_id,
@@ -363,29 +427,65 @@ export function reconstructCryptoHftDataOrderBooks(
 					true,
 				) as string,
 			);
-			const previous = unsignedString(
-				first.prev_final_update_id,
-				"prev_final_update_id",
-			);
-			for (const row of group) {
+			if (profile.sequenceSemantics === "okx_seq_id_prev_seq_id") {
 				if (
-					unsignedString(row.first_update_id, "first_update_id", true) !==
-						firstUpdate.toString() ||
-					unsignedString(row.final_update_id, "final_update_id", true) !==
-						finalUpdate.toString() ||
-					unsignedString(row.prev_final_update_id, "prev_final_update_id") !==
-						previous
+					!absent(first.first_update_id) ||
+					!absent(first.prev_final_update_id)
 				) {
 					throw new CryptoHftDataError("ambiguous_update_group");
 				}
-			}
-			const expected = previousFinalUpdateId + 1n;
-			if (
-				firstUpdate > expected ||
-				finalUpdate < expected ||
-				(previous !== undefined && BigInt(previous) !== previousFinalUpdateId)
-			) {
-				throw new CryptoHftDataError("update_chain_gap");
+				const previous = unsignedString(
+					first.last_update_id,
+					"last_update_id",
+					true,
+				) as string;
+				for (const row of group) {
+					if (
+						!absent(row.first_update_id) ||
+						!absent(row.prev_final_update_id) ||
+						unsignedString(row.final_update_id, "final_update_id", true) !==
+							finalUpdate.toString() ||
+						unsignedString(row.last_update_id, "last_update_id", true) !==
+							previous
+					) {
+						throw new CryptoHftDataError("ambiguous_update_group");
+					}
+				}
+				if (BigInt(previous) !== previousFinalUpdateId) {
+					throw new CryptoHftDataError("update_chain_gap");
+				}
+			} else {
+				const firstUpdate = BigInt(
+					unsignedString(
+						first.first_update_id,
+						"first_update_id",
+						true,
+					) as string,
+				);
+				const previous = unsignedString(
+					first.prev_final_update_id,
+					"prev_final_update_id",
+				);
+				for (const row of group) {
+					if (
+						unsignedString(row.first_update_id, "first_update_id", true) !==
+							firstUpdate.toString() ||
+						unsignedString(row.final_update_id, "final_update_id", true) !==
+							finalUpdate.toString() ||
+						unsignedString(row.prev_final_update_id, "prev_final_update_id") !==
+							previous
+					) {
+						throw new CryptoHftDataError("ambiguous_update_group");
+					}
+				}
+				const expected = previousFinalUpdateId + 1n;
+				if (
+					firstUpdate > expected ||
+					finalUpdate < expected ||
+					(previous !== undefined && BigInt(previous) !== previousFinalUpdateId)
+				) {
+					throw new CryptoHftDataError("update_chain_gap");
+				}
 			}
 			applyRows(state, group);
 			state.sequence = finalUpdate.toString();
@@ -696,13 +796,25 @@ export class CryptoHftDataAdapter {
 
 	async normalize(
 		request: MarketDataVendorBackfillRequest,
-		_capability: ProviderCapability,
+		capability: ProviderCapability,
 		dataset: ProviderDataset,
 		captureBundleId: string,
 	): Promise<NormalizedBackfill> {
+		const profile = this.profiles.find(
+			(candidate) =>
+				candidate.exchange === request.scope.exchange.trim().toLowerCase() &&
+				candidate.tradingPair === request.scope.tradingPair &&
+				candidate.sourceSymbol === request.scope.sourceSymbol &&
+				candidate.marketType === request.scope.marketType &&
+				candidate.providerExchangeId === capability.providerExchangeId,
+		);
+		if (!profile) {
+			throw new CryptoHftDataError("profile_semantics_unavailable");
+		}
 		const samples = reconstructCryptoHftDataOrderBooks(
 			request,
 			dataset.rows as CryptoHftDataOrderBookRow[],
+			profile,
 		);
 		const context: MarketCaptureContext = {
 			source: EXTERNAL_BACKFILL_SOURCE,

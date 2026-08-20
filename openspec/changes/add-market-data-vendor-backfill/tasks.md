@@ -46,5 +46,5 @@
 - [x] 8.1 Add failing contract tests for explicit opt-in and input validation, atomic secret-free pass/fail evidence, full promotion assertions, cleanup, and manual-only workflow configuration.
 - [x] 8.2 Implement the bounded local smoke using a disposable ClickHouse Server 24.8, production schema, HTTP archive-forwarder, real CryptoHFTData adapter, qualified reader, worker core, canonical exporter, and idempotent second invocation.
 - [x] 8.3 Add the local package command, protected manual GitHub workflow, and operator documentation without adding push, pull-request, schedule, Maker, or Fiet TEE responsibilities.
-- [ ] 8.4 Execute the gate locally with the API key read from Vault, retain only hash-safe evidence, run the complete regression suite, and strictly validate the reopened change.
-  - Blocked: the Vault-backed run returned `vendor_fetch_failed/update_before_snapshot`; two tested Binance Spot BTC-USDT hourly objects contained zero snapshot rows, so no truthful promotion can be produced until a vendor-confirmed snapshot-bearing scope is available.
+- [x] 8.4 Execute the gate locally with the API key read from Vault, retain only hash-safe evidence, run the complete regression suite, and strictly validate the reopened change.
+  - Completed with the OKX Spot ARB-USDT positive control; see `implementation-evidence.md` for the hash-safe promotion, idempotency, archive, export, and regression evidence.

@@ -19,8 +19,10 @@ submission, archive qualification, and the FIET-1017 promotion receipt.
 The initial provider publishes hourly Zstd-compressed Parquet objects containing
 normalized L2 snapshot and price-level update records. Its current documented
 exchange set does not include MEXC, and its standard licence permits internal
-research rather than redistribution. The implementation therefore needs a
-truthful capability matrix and synthetic public fixtures.
+research rather than redistribution. A live-proven OKX Spot ARB-USDT object at
+`2026-08-18T09:27:15.308Z` supplies the initial complete snapshot positive
+control. The implementation therefore needs a truthful capability matrix and
+synthetic public fixtures.
 
 ## Goals / Non-Goals
 
@@ -134,10 +136,17 @@ Python, DuckDB, or a sibling checkout.
 Rows are normalized without first converting sequence IDs or timestamps through
 unsafe integers. Consecutive `snapshot` rows form one reset group. Ordered
 `update` rows replace or delete (`quantity=0`) one price level. Venue-profile
-logic validates all available update IDs. At each required clock timestamp the
-engine emits the latest prior-as-of non-crossed top-N book if it satisfies the
-request's lag and boundary rules. The existing canonical row builder supplies
-capture-core fields, snapshot IDs, summaries, and normalized-row checksums.
+logic validates all available update IDs. Binance profiles use `U/u/pu`; the
+live-proven OKX profile groups snapshots by event time and `seqId`, requires the
+snapshot `prevSeqId=-1` sentinel, and links every update's `prevSeqId` to the
+current `seqId`. A linked OKX maintenance reset or heartbeat remains valid even
+when the new sequence is lower or unchanged. Updates preceding the first
+complete snapshot at or before the earliest requested clock are ignored; the
+adapter never invents state from that delta prefix. At each required clock
+timestamp the engine emits the latest prior-as-of non-crossed top-N book if it
+satisfies the request's lag and boundary rules. The existing canonical row
+builder supplies capture-core fields, snapshot IDs, summaries, and
+normalized-row checksums.
 
 V1 labels the emitted artifact `sampled_top_n_snapshot` even though it was
 replayed from deltas; it does not set the exact-reconstruction flag until every
@@ -273,7 +282,8 @@ and actual-loader proof.
    before any external-backfill producer is enabled.
 3. Add the CryptoHFTData decoder/replay adapter behind a default-empty enabled
    capability set; run synthetic and opt-in provider conformance.
-4. Run the protected live-provider smoke for the first proven Binance profile,
+4. Run the protected live-provider smoke for the first proven OKX Spot
+   ARB-USDT profile at `2026-08-18T09:27:15.308Z`,
    require an authoritative-window FIET-1017 promotion plus idempotent rerun
    against an isolated Server 24.8 archive, and retain hash-only evidence.
 5. Publish an unused CEX Broker patch version containing the package subpath.
@@ -288,10 +298,6 @@ and actual-loader proof.
 
 ## Open Questions
 
-- Which vendor-confirmed pair/window contains the snapshot reset required for
-  the first licensed FIET-1017 positive control? The tested Binance Spot
-  BTC-USDT 2025-07-01 10:00 and documented 2025-08-01 20:00 hourly objects
-  contained update rows only and therefore remain release-blocked.
 - Should production eventually require a separate archive-forwarder credential
   for promotion rows, beyond the strict row/source contract and trusted network?
 - What explicit retention duration replaces indefinite retention if internal

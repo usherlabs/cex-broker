@@ -8,12 +8,12 @@ import {
 describe("market-data vendor backfill provider conformance harness", () => {
 	test("builds one explicitly enabled, bounded proven-profile request", () => {
 		const request = buildCryptoHftDataConformanceRequest(
-			Date.UTC(2025, 6, 1, 10, 10),
+			Date.UTC(2026, 7, 18, 9, 27, 15, 308),
 		);
 		expect(request.scope).toMatchObject({
-			exchange: "binance",
-			tradingPair: "BTC-USDT",
-			sourceSymbol: "BTCUSDT",
+			exchange: "okx",
+			tradingPair: "ARB-USDT",
+			sourceSymbol: "ARB-USDT",
 			marketType: "spot",
 		});
 		expect(request.budgets).toMatchObject({
@@ -27,14 +27,14 @@ describe("market-data vendor backfill provider conformance harness", () => {
 		const evidence = toHashOnlyConformanceEvidence(
 			{
 				provider: "cryptohftdata",
-				adapterVersion: "cryptohftdata-orderbook/v1",
-				providerExchangeId: "binance_spot",
-				resolvedSymbol: "BTCUSDT",
+				adapterVersion: "cryptohftdata-orderbook/v2",
+				providerExchangeId: "okx_spot",
+				resolvedSymbol: "ARB-USDT",
 			},
 			{
 				objects: [
 					{
-						identity: "binance_spot/object.parquet.zst",
+						identity: "okx_spot/object.parquet.zst",
 						checksum: "a".repeat(64),
 						bytes: 123,
 						rows: 2,

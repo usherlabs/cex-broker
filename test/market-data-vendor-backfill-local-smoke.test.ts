@@ -24,25 +24,25 @@ afterEach(async () => {
 function promotedResult(): BackfillResult {
 	return {
 		schemaVersion: "market-data-vendor-backfill-result/v1",
-		requestId: "cryptohftdata-conformance-1751364600000",
+		requestId: "cryptohftdata-conformance-1787045235308",
 		idempotencyKey: "a".repeat(64),
 		status: "promoted",
 		reasonCode: "promotion_committed",
 		receipt: {
 			schemaVersion: "market-data-vendor-backfill-promotion-receipt/v1",
-			requestId: "cryptohftdata-conformance-1751364600000",
+			requestId: "cryptohftdata-conformance-1787045235308",
 			idempotencyKey: "a".repeat(64),
 			status: "passing",
 			source: "external_backfill",
 			provider: "cryptohftdata",
-			adapterVersion: "cryptohftdata-orderbook/v1",
+			adapterVersion: "cryptohftdata-orderbook/v2",
 			captureBundleId: "b".repeat(64),
-			exchange: "binance",
-			tradingPair: "BTC-USDT",
+			exchange: "okx",
+			tradingPair: "ARB-USDT",
 			marketType: "spot",
 			feed: "ORDERBOOK",
-			startTimeMs: 1_751_364_600_000,
-			endTimeMs: 1_751_364_660_000,
+			startTimeMs: 1_787_045_235_308,
+			endTimeMs: 1_787_045_295_308,
 			depth: 20,
 			constructionMode: "sampled_top_n_snapshot",
 			canonicalSchemaVersion: "1.0.0",
@@ -55,7 +55,7 @@ function promotedResult(): BackfillResult {
 			coverageVerified: true,
 			datasetObjects: [
 				{
-					identity: "binance_spot/2025-07-01/10/BTCUSDT_orderbook.parquet.zst",
+					identity: "okx_spot/2026-08-18/09/ARB-USDT_orderbook.parquet.zst",
 					checksum: "1".repeat(64),
 					bytes: 123,
 					rows: 456,
@@ -96,7 +96,12 @@ function smokeRuntime(input: {
 			version: "24.8.14.39",
 		},
 		async run(request, apiKey) {
-			expect(request.window.startTimeMs).toBe(1_751_364_600_000);
+			expect(request.window.startTimeMs).toBe(1_787_045_235_308);
+			expect(request.scope).toMatchObject({
+				exchange: "okx",
+				tradingPair: "ARB-USDT",
+				sourceSymbol: "ARB-USDT",
+			});
 			expect(apiKey).toBe(input.secret);
 			if (input.throwMessage) throw new Error(input.throwMessage);
 			invocation += 1;
@@ -141,18 +146,18 @@ describe("market-data vendor backfill local smoke", () => {
 		expect(() =>
 			parseMarketDataVendorBackfillSmokeConfiguration({
 				MARKET_DATA_VENDOR_BACKFILL_SMOKE_ENABLED: "1",
-				MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS: "1751364600000",
+				MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS: "1787045235308",
 			}),
 		).toThrow("cryptohftdata_api_key_missing");
 
 		expect(
 			parseMarketDataVendorBackfillSmokeConfiguration({
 				MARKET_DATA_VENDOR_BACKFILL_SMOKE_ENABLED: "1",
-				MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS: "1751364600000",
+				MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS: "1787045235308",
 				CRYPTOHFTDATA_API_KEY: "secret",
 			}),
 		).toEqual({
-			startTimeMs: 1_751_364_600_000,
+			startTimeMs: 1_787_045_235_308,
 			apiKey: "secret",
 		});
 	});
@@ -161,7 +166,7 @@ describe("market-data vendor backfill local smoke", () => {
 		const secret = "vault-only-provider-secret";
 		let cleaned = false;
 		const evidence = await runMarketDataVendorBackfillLocalSmoke(
-			{ startTimeMs: 1_751_364_600_000, apiKey: secret },
+			{ startTimeMs: 1_787_045_235_308, apiKey: secret },
 			{
 				createRuntime: async () =>
 					smokeRuntime({ secret, onCleanup: () => (cleaned = true) }),
@@ -200,7 +205,7 @@ describe("market-data vendor backfill local smoke", () => {
 		const secret = "never-reflect-this-provider-secret";
 		let cleaned = false;
 		const evidence = await runMarketDataVendorBackfillLocalSmoke(
-			{ startTimeMs: 1_751_364_600_000, apiKey: secret },
+			{ startTimeMs: 1_787_045_235_308, apiKey: secret },
 			{
 				createRuntime: async () =>
 					smokeRuntime({

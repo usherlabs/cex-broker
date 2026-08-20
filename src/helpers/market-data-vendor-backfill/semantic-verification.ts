@@ -101,11 +101,18 @@ function requiredClockCoverage(
 ): boolean {
 	const summaryTimes = rows
 		.filter(({ table }) => table === "market_data.cex_order_book_depth_summary")
-		.map(({ row }) => row.source_time_ms)
-		.filter(
-			(value): value is number =>
-				Number.isSafeInteger(value) && Number(value) >= 0,
-		)
+		.map(({ row }) => {
+			const value = row.source_time_ms;
+			if (
+				typeof value !== "number" &&
+				(typeof value !== "string" || !/^\d+$/.test(value))
+			) {
+				return undefined;
+			}
+			const parsed = Number(value);
+			return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+		})
+		.filter((value): value is number => value !== undefined)
 		.sort((left, right) => left - right);
 	return request.requiredClockTargetsMs.every((target) => {
 		let prior: number | undefined;

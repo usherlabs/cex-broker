@@ -78,7 +78,15 @@ The public `@usherlabs/cex-broker/market-data-vendor-backfill` subpath exposes `
 4. Submit content-addressed candidate chunks through the archive-forwarder, query the unqualified canonical evidence, and verify logical keys/checksums, conflicts, seams, prefix/suffix stability, future leakage, depth, construction mode, required clocks, and exporter compatibility.
 5. Submit a passing promotion receipt last, then requery the qualified view. Only `already_covered` and `promoted` are successful outcomes.
 
-The initial CryptoHFTData registry is default-empty. `CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE` must be supplied explicitly only after its provider conformance gate passes; API-key possession never enables a venue or symbol. V1 supports the proven sampled `authoritative_window` profile only. It rejects MEXC, `fill_gaps`, exact L2, unknown symbols, and ambiguous timestamp or sequence semantics before credential resolution.
+The CryptoHFTData registry is default-empty. Explicit profile injection is
+required; API-key possession never enables a venue or symbol. Adapter v2 adds
+the live-proven `CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE` alongside the synthetic
+Binance contract profile. OKX snapshots use `final_update_id=seqId` and
+`last_update_id=-1`; updates use `final_update_id=seqId` and
+`last_update_id=prevSeqId`. Replay ignores an update-only prefix before the
+first complete snapshot but requires every applied update to link to the current
+sequence. It rejects MEXC, `fill_gaps`, exact L2, unknown symbols, and ambiguous
+timestamp or sequence semantics before credential resolution.
 
 Secrets are dependency inputs, never request fields. Provider API keys are used only to obtain a short-lived token; downloads use a bearer header. ClickHouse read credentials belong to the injected archive reader, and forwarder authentication uses an HTTP bearer header. None belongs in request/result JSON, receipt hashes, URLs, argv, logs, or retained error bodies. Deterministic `batch_id` values make bounded producer-owned retries safe; the worker does not use the live-strategy spool and never writes ClickHouse directly.
 
@@ -86,7 +94,7 @@ The opt-in real-provider check acquires and validates one hourly object but prin
 
 ```bash
 CRYPTOHFTDATA_CONFORMANCE_ENABLED=1 \
-CRYPTOHFTDATA_CONFORMANCE_START_MS=1751364600000 \
+CRYPTOHFTDATA_CONFORMANCE_START_MS=1787045235308 \
 CRYPTOHFTDATA_API_KEY="<injected-secret>" \
 bun run test:conformance:market-data-vendor-backfill
 ```
@@ -101,7 +109,7 @@ on completion.
 
 ```bash
 MARKET_DATA_VENDOR_BACKFILL_SMOKE_ENABLED=1 \
-MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS="<approved-positive-control-start-ms>" \
+MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS=1787045235308 \
 MARKET_DATA_VENDOR_BACKFILL_SMOKE_EVIDENCE_PATH=/tmp/market-data-vendor-backfill-smoke-evidence.json \
 CRYPTOHFTDATA_API_KEY="$(vault kv get -field=CRYPTOHFTDATA_API_KEY kv/secrets)" \
 bun run test:smoke:market-data-vendor-backfill
@@ -120,12 +128,13 @@ approved positive-control variable
 `MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS`; the workflow has no push,
 pull-request, or scheduled trigger.
 
-The initial local verification remains release-blocking: tested Binance Spot
-BTC-USDT objects contained updates but no snapshot reset, so the worker correctly
-returned `vendor_fetch_failed/update_before_snapshot`. Do not enable the profile
-or synthesize an initial historical book from those deltas. A passing run needs
-a licensed, vendor-confirmed object whose snapshot/update and sequence contract
-satisfies the same gate.
+The approved positive control is OKX Spot ARB-USDT beginning at
+`2026-08-18T09:27:15.308Z` (`1787045235308`). The hourly object contains an
+800-row complete snapshot (400 bids and 400 asks) followed by a linked update
+chain. The earlier tested Binance Spot BTC-USDT objects remain unsupported for
+this gate because they contain updates without a snapshot reset; the worker
+continues to reject them with `update_before_snapshot` rather than synthesize an
+initial historical book.
 
 Do not commit or publish licensed provider payloads or decoded rows. The committed fixtures are synthetic. Provider licensing and durable normalized-row retention rights remain a deployment prerequisite.
 

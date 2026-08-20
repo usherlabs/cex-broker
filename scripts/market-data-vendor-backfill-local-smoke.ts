@@ -25,7 +25,7 @@ import type {
 } from "../src/helpers/market-data-vendor-backfill/contracts";
 import { runMarketDataVendorBackfill } from "../src/helpers/market-data-vendor-backfill/core";
 import {
-	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
+	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 	CryptoHftDataAdapter,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
 import { createArchiveForwarderClient } from "../src/helpers/market-data-vendor-backfill/forwarder-client";
@@ -678,7 +678,7 @@ async function createDockerSmokeRuntime(): Promise<MarketDataVendorBackfillSmoke
 			}),
 		);
 		const adapter = new CryptoHftDataAdapter({
-			profiles: [CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE],
+			profiles: [CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE],
 		});
 		const forwarder = createArchiveForwarderClient({
 			url: endpoint.url,

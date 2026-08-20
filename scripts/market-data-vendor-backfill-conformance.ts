@@ -6,7 +6,7 @@ import {
 } from "../src/helpers/market-data-vendor-backfill/contracts";
 import type { ProviderDataset } from "../src/helpers/market-data-vendor-backfill/core";
 import {
-	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
+	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 	CryptoHftDataAdapter,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
 
@@ -26,12 +26,12 @@ export function buildCryptoHftDataConformanceRequest(
 		requestId: `cryptohftdata-conformance-${startTimeMs}`,
 		providerPolicy: {
 			provider: "cryptohftdata" as const,
-			allowedAdapterVersions: ["cryptohftdata-orderbook/v1"],
+			allowedAdapterVersions: ["cryptohftdata-orderbook/v2"],
 		},
 		scope: {
-			exchange: "binance",
-			tradingPair: "BTC-USDT",
-			sourceSymbol: "BTCUSDT",
+			exchange: "okx",
+			tradingPair: "ARB-USDT",
+			sourceSymbol: "ARB-USDT",
 			marketType: "spot" as const,
 			feed: "ORDERBOOK" as const,
 		},
@@ -93,7 +93,7 @@ export async function runCryptoHftDataConformance(input: {
 	const request = buildCryptoHftDataConformanceRequest(input.startTimeMs);
 	const adapter = new CryptoHftDataAdapter({
 		fetch: input.fetch,
-		profiles: [CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE],
+		profiles: [CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE],
 	});
 	const capability = adapter.capabilityFor(request);
 	if (!capability) throw new Error("conformance_profile_unsupported");

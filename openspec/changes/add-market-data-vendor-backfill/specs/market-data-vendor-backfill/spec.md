@@ -114,6 +114,17 @@ venue-specific complete continuity proof is implemented.
 - **AND** replaying the same dataset under the same adapter and canonicalization
   versions MUST reproduce snapshot IDs and normalized-row checksums
 
+#### Scenario: OKX snapshot anchors a prefixed hourly object
+- **WHEN** a proven OKX object contains update rows before a complete snapshot
+  whose `prevSeqId` snapshot sentinel is `-1`
+- **THEN** the adapter MUST ignore only the unanchored delta prefix and begin
+  replay from that complete snapshot when it is at or before the earliest
+  required clock
+- **AND** every applied update MUST link its `prevSeqId` to the current `seqId`,
+  including a linked heartbeat or maintenance reset
+- **AND** the adapter MUST fail `update_before_snapshot` or `update_chain_gap`
+  rather than infer missing state or accept an unlinked reset
+
 #### Scenario: Sequence or clock semantics are ambiguous
 - **WHEN** an update chain has a gap, regression, ambiguous snapshot grouping,
   unsupported timestamp unit, future observation, crossed book, or missing side
@@ -183,4 +194,3 @@ policy code.
 - **THEN** the bundle MAY become eligible for qualified canonical reading
 - **AND** economics quotability MUST still require Maker's independent
   post-promotion query and consumer evidence outside this core API
-

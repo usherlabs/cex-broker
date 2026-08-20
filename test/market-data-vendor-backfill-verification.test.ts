@@ -76,6 +76,32 @@ describe("FIET-1017 semantic promotion verification", () => {
 		});
 	});
 
+	test("accepts ClickHouse UInt64 clock fields returned as decimal strings", () => {
+		const request = validBackfillRequest({
+			requiredClockTargetsMs: [1_700_000_900_000],
+		});
+		const expected = rows();
+		const queried = rows().map((entry) => ({
+			...entry,
+			row: {
+				...entry.row,
+				source_time_ms: String(entry.row.source_time_ms),
+			},
+		}));
+
+		expect(
+			verifySemanticPromotion({
+				request,
+				normalizedRows: expected,
+				...evidence({ candidateRows: queried }),
+			}),
+		).toMatchObject({
+			passed: true,
+			reasonCode: "semantic_promotion_verified",
+			coverageVerified: true,
+		});
+	});
+
 	test("maps every semantic verification gate to a stable fail-closed reason", () => {
 		const base = {
 			request: validBackfillRequest({

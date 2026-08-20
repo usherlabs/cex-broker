@@ -3,6 +3,7 @@ import { zstdCompressSync } from "node:zlib";
 import { parquetWriteBuffer } from "hyparquet-writer";
 import {
 	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
+	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 	CryptoHftDataAdapter,
 	type CryptoHftDataError,
 	cryptoHftDataCapabilityFor,
@@ -12,7 +13,10 @@ import {
 import { validBackfillRequest } from "./market-data-vendor-backfill-contract.test";
 
 const JULY_2025 = Date.UTC(2025, 6, 1, 10, 10);
-const provenProfiles = [CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE];
+const provenProfiles = [
+	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
+	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
+];
 
 function capability(request: ReturnType<typeof validBackfillRequest>) {
 	const resolved = cryptoHftDataCapabilityFor(request, provenProfiles);
@@ -90,7 +94,7 @@ describe("CryptoHFTData capability and acquisition", () => {
 			{
 				providerExchangeId: "binance_spot",
 				resolvedSymbol: "BTCUSDT",
-				adapterVersion: "cryptohftdata-orderbook/v1",
+				adapterVersion: "cryptohftdata-orderbook/v2",
 			},
 		);
 		for (const request of [
@@ -108,6 +112,35 @@ describe("CryptoHFTData capability and acquisition", () => {
 				cryptoHftDataCapabilityFor(request, provenProfiles),
 			).toBeUndefined();
 		}
+	});
+
+	test("advertises the pinned OKX Spot ARB-USDT profile with v2 semantics", () => {
+		const request = validBackfillRequest({
+			providerPolicy: {
+				provider: "cryptohftdata",
+				allowedAdapterVersions: ["cryptohftdata-orderbook/v2"],
+			},
+			scope: {
+				exchange: "okx",
+				tradingPair: "ARB-USDT",
+				sourceSymbol: "ARB-USDT",
+				marketType: "spot",
+				feed: "ORDERBOOK",
+			},
+			window: {
+				startTimeMs: Date.UTC(2026, 7, 18, 9, 27, 15, 308),
+				endTimeMs: Date.UTC(2026, 7, 18, 9, 28, 15, 308),
+			},
+			requiredClockTargetsMs: [Date.UTC(2026, 7, 18, 9, 27, 45, 308)],
+			depth: 20,
+		});
+
+		expect(cryptoHftDataCapabilityFor(request, provenProfiles)).toEqual({
+			provider: "cryptohftdata",
+			adapterVersion: "cryptohftdata-orderbook/v2",
+			providerExchangeId: "okx_spot",
+			resolvedSymbol: "ARB-USDT",
+		});
 	});
 
 	test("enumerates bounded UTC-hour object paths including initialization lookback", () => {
@@ -382,12 +415,9 @@ describe("CryptoHFTData capability and acquisition", () => {
 				},
 			],
 		};
-		const normalized = await new CryptoHftDataAdapter().normalize(
-			request,
-			capability(request),
-			dataset,
-			"c".repeat(64),
-		);
+		const normalized = await new CryptoHftDataAdapter({
+			profiles: provenProfiles,
+		}).normalize(request, capability(request), dataset, "c".repeat(64));
 		expect(normalized.rows).toHaveLength(3);
 		for (const { row } of normalized.rows) {
 			expect(row).toMatchObject({
