@@ -7,11 +7,11 @@ import {
 } from "../services/archive-forwarder/telemetry";
 import { buildForwarderBatches } from "../src/helpers/market-data-vendor-backfill/batching";
 import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
+import { promotionReceiptToArchiveRow } from "../src/helpers/market-data-vendor-backfill/promotion";
 import {
 	finalizeQualificationEvent,
 	qualificationEventToArchiveRow,
 } from "../src/helpers/market-data-vendor-backfill/qualification";
-import { promotionReceiptToArchiveRow } from "../src/helpers/market-data-vendor-backfill/promotion";
 import { archiveSelectionToArchiveRow } from "../src/helpers/market-data-vendor-backfill/selection";
 
 function envelope(row: ReturnType<typeof promotionReceiptToArchiveRow>) {
@@ -56,7 +56,9 @@ describe("final-v1 external backfill forwarder evidence admission", () => {
 				CONFORMANCE_FIXTURES.documents.archive_selection,
 			),
 		]) {
-			expect(validateExternalBackfillBatch(envelope(row))).toEqual({ ok: true });
+			expect(validateExternalBackfillBatch(envelope(row))).toEqual({
+				ok: true,
+			});
 		}
 	});
 
@@ -70,7 +72,8 @@ describe("final-v1 external backfill forwarder evidence admission", () => {
 				promotion_identity_sha256: receipt.promotion_identity_sha256,
 				window: receipt.window,
 				event_at: "2026-08-20T13:00:00.000Z",
-				reason_code: state === "revoked" ? "operator_revoked" : "integrity_review",
+				reason_code:
+					state === "revoked" ? "operator_revoked" : "integrity_review",
 			});
 			expect(
 				validateExternalBackfillBatch(
