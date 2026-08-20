@@ -1,0 +1,47 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.usher.so/market-data-vendor-backfill-required-clock/v1",
+	"title": "Market data vendor backfill required clock v1",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"schema_id",
+		"clock_id",
+		"clock_sha256",
+		"created_at",
+		"targets"
+	],
+	"properties": {
+		"schema_id": {
+			"const": "https://schemas.usher.so/market-data-vendor-backfill-required-clock/v1"
+		},
+		"clock_id": { "$ref": "#/$defs/uuid" },
+		"clock_sha256": { "$ref": "#/$defs/sha256" },
+		"created_at": { "$ref": "#/$defs/timestamp" },
+		"targets": {
+			"type": "array",
+			"minItems": 1,
+			"maxItems": 100000,
+			"items": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["target_id", "target_at"],
+				"properties": {
+					"target_id": { "$ref": "#/$defs/uuid" },
+					"target_at": { "$ref": "#/$defs/timestamp" }
+				}
+			}
+		}
+	},
+	"$defs": {
+		"uuid": {
+			"type": "string",
+			"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+		},
+		"sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+		"timestamp": {
+			"type": "string",
+			"pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+		}
+	}
+}

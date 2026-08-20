@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.2.45",
+	"version": "0.2.46",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
 	"repository": {
 		"type": "git",
@@ -13,6 +13,20 @@
 	"license": "MIT",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		},
+		"./market-data-vendor-backfill": {
+			"import": "./dist/market-data-vendor-backfill.js",
+			"types": "./dist/market-data-vendor-backfill.d.ts"
+		},
+		"./market-data-vendor-backfill/schema-manifest.json": "./dist/market-data-vendor-backfill/schema-manifest.json",
+		"./market-data-vendor-backfill/schemas/*": "./dist/market-data-vendor-backfill/schemas/*",
+		"./market-data-vendor-backfill/policies/*": "./dist/market-data-vendor-backfill/policies/*",
+		"./market-data-vendor-backfill/fixtures/*": "./dist/market-data-vendor-backfill/fixtures/*"
+	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.16",
 		"@types/bun": "latest",
@@ -21,7 +35,8 @@
 		"bun-types": "latest",
 		"cpx": "^1.5.0",
 		"dotenv": "^17.2.0",
-		"husky": "^9.1.7"
+		"husky": "^9.1.7",
+		"hyparquet-writer": "0.16.6"
 	},
 	"files": [
 		"dist"
@@ -57,6 +72,8 @@
 		"archive:proof-a": "bun run scripts/archive-orderbook-coalescing-evidence.ts",
 		"archive:loss:replay": "bun run scripts/archive-loss-replay.ts",
 		"test:smoke:archive": "bun run scripts/archive-live-smoke.ts",
+		"test:conformance:market-data-vendor-backfill": "bun run scripts/market-data-vendor-backfill-conformance.ts",
+		"test:smoke:market-data-vendor-backfill": "bun run scripts/market-data-vendor-backfill-local-smoke.ts",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint",
 		"lint:fix": "bunx biome lint --write",
@@ -86,7 +103,11 @@
 		"@opentelemetry/sdk-metrics": "^2.5.1",
 		"@usherlabs/ccxt": "^0.0.14",
 		"@usherlabs/verity-client": "^0.1.1",
+		"ajv": "8.17.1",
+		"canonicalize": "4.0.0",
 		"commander": "^14.0.0",
+		"fzstd": "0.1.1",
+		"hyparquet": "1.28.2",
 		"joi": "^17.13.3",
 		"loglayer": "^9.1.0",
 		"protobufjs": "^7.4.0",

@@ -309,6 +309,18 @@ describe("canonical market capture contract", () => {
 		expect(left).toHaveLength(64);
 	});
 
+	test("streams the unchanged canonical checksum bytes for nested documents", () => {
+		expect(
+			sha256Canonical({
+				z: -0,
+				b: 1e-7,
+				omitted: undefined,
+				a: [2, 1.5, { checksum: "ignored", value: "ok" }],
+				nested: { raw_checksum: "ignored", keep: true },
+			}),
+		).toBe("0e62d642722dbe12a9d5b567504bc7ca4b3c3409501be85caa10496b4d056ed6");
+	});
+
 	test("raw captures redact secrets and reproduce identity", () => {
 		const first = createRawCapture(captureContext, {
 			payload: { apiSecret: "do-not-retain", bids: [[100, 1]] },

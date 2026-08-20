@@ -22,6 +22,7 @@ export type CanonicalOrderBookParquetExportResult = {
 	summaryPath: string;
 	levelRows: number;
 	summaryRows: number;
+	promotionReceiptIds: string[];
 };
 
 export type CanonicalMarketReplayValidation = {
@@ -136,6 +137,42 @@ async function rowCount(http: HttpQuery, table: string): Promise<number> {
 	return Number(parsed.rows);
 }
 
+async function promotionReceiptIds(http: HttpQuery): Promise<string[]> {
+	const bytes = await executeQuery(
+		http,
+		`SELECT DISTINCT promotion.receipt_id
+		 FROM market_data.cex_order_book_capture_promotions AS promotion
+		 INNER JOIN
+		 (
+		   SELECT DISTINCT capture_bundle_id, exchange, trading_pair, asset_type,
+		          feed, provider, depth_limit, construction_mode, schema_version,
+		          checksum_algorithm
+		   FROM market_data.cex_order_book_depth_summary_replay_qualified
+		   WHERE ${WINDOW_FILTER}
+		 ) AS qualified
+		 ON promotion.capture_bundle_id = qualified.capture_bundle_id
+		 AND promotion.exchange = qualified.exchange
+		 AND promotion.trading_pair = qualified.trading_pair
+		 AND promotion.asset_type = qualified.asset_type
+		 AND promotion.feed = qualified.feed
+		 AND promotion.provider = qualified.provider
+		 AND promotion.depth_limit = qualified.depth_limit
+		 AND promotion.construction_mode = qualified.construction_mode
+		 AND promotion.schema_version = qualified.schema_version
+		 AND promotion.checksum_algorithm = qualified.checksum_algorithm
+		 WHERE promotion.status = 'passing'
+		   AND promotion.seam_verified = 1
+		   AND promotion.coverage_verified = 1
+		   AND promotion.window_start_ms <= {start_time_ms:UInt64}
+		   AND promotion.window_end_ms >= {end_time_ms:UInt64}
+		 ORDER BY promotion.receipt_id`,
+		"JSONEachRow",
+	);
+	return parseJsonEachRow<{ receipt_id: string }>(bytes).map(
+		({ receipt_id }) => receipt_id,
+	);
+}
+
 async function assertConflictFree(http: HttpQuery): Promise<void> {
 	const bytes = await executeQuery(
 		http,
@@ -193,8 +230,11 @@ export async function validateCanonicalMarketReplayWindow(
 				 GROUP BY feed`,
 				"JSONEachRow",
 			),
-			rowCount(http, "market_data.cex_order_book_levels_canonical"),
-			rowCount(http, "market_data.cex_order_book_depth_summary_canonical"),
+			rowCount(http, "market_data.cex_order_book_levels_replay_qualified"),
+			rowCount(
+				http,
+				"market_data.cex_order_book_depth_summary_replay_qualified",
+			),
 			rowCount(http, "market_data.cex_ticker_events"),
 			rowCount(http, "market_data.cex_trades"),
 			rowCount(http, "market_data.cex_ohlcv FINAL"),
@@ -244,11 +284,20 @@ export async function exportCanonicalOrderBookParquet(
 	validateInput(input);
 	const http = httpQuery(input);
 	await assertConflictFree(http);
-	const levelsTable = "market_data.cex_order_book_levels_canonical";
-	const summaryTable = "market_data.cex_order_book_depth_summary_canonical";
-	const [levelRows, summaryRows, levels, summary] = await Promise.all([
+	const levelsTable = "market_data.cex_order_book_levels_replay_qualified";
+	const summaryTable =
+		"market_data.cex_order_book_depth_summary_replay_qualified";
+	const [levelRows, summaryRows, receiptIds] = await Promise.all([
 		rowCount(http, levelsTable),
 		rowCount(http, summaryTable),
+		promotionReceiptIds(http),
+	]);
+	if (levelRows === 0 || summaryRows === 0) {
+		throw new Error(
+			"Qualified order-book export has no complete replay-eligible rows for the selected capture window",
+		);
+	}
+	const [levels, summary] = await Promise.all([
 		executeQuery(
 			http,
 			`SELECT * FROM ${levelsTable} WHERE ${WINDOW_FILTER}
@@ -274,7 +323,13 @@ export async function exportCanonicalOrderBookParquet(
 		writeFile(levelsPath, levels, { flag: "wx", mode: 0o600 }),
 		writeFile(summaryPath, summary, { flag: "wx", mode: 0o600 }),
 	]);
-	return { levelsPath, summaryPath, levelRows, summaryRows };
+	return {
+		levelsPath,
+		summaryPath,
+		levelRows,
+		summaryRows,
+		promotionReceiptIds: receiptIds,
+	};
 }
 
 function requiredEnv(name: string): string {

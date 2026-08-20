@@ -296,6 +296,7 @@ CREATE TABLE IF NOT EXISTS market_data.cex_order_book_levels
     feed LowCardinality(String),
     provider LowCardinality(String),
     source_mode LowCardinality(String),
+    capture_origin LowCardinality(String) DEFAULT if(source = 'external_backfill', 'vendor_historical_backfill', 'production_capture'),
     source_time_ms UInt64,
     received_time_ms UInt64,
     raw_capture_id Nullable(String),
@@ -323,6 +324,7 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(source_time_ms))
 ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version, side, level_index)
 TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
+    DELETE WHERE source != 'external_backfill'
 SETTINGS allow_nullable_key = 1, non_replicated_deduplication_window = 1000000;
 
 CREATE TABLE IF NOT EXISTS market_data.cex_order_book_depth_summary
@@ -338,6 +340,7 @@ CREATE TABLE IF NOT EXISTS market_data.cex_order_book_depth_summary
     feed LowCardinality(String),
     provider LowCardinality(String),
     source_mode LowCardinality(String),
+    capture_origin LowCardinality(String) DEFAULT if(source = 'external_backfill', 'vendor_historical_backfill', 'production_capture'),
     source_time_ms UInt64,
     received_time_ms UInt64,
     raw_capture_id Nullable(String),
@@ -371,6 +374,7 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(source_time_ms))
 ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version)
 TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
+    DELETE WHERE source != 'external_backfill'
 SETTINGS allow_nullable_key = 1, non_replicated_deduplication_window = 1000000;
 
 CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_conflicts AS
@@ -440,6 +444,217 @@ AND evidence.snapshot_id = consistent.snapshot_id
 AND evidence.schema_version = consistent.schema_version
 AND evidence.normalized_row_checksum = consistent.agreed_checksum;
 
+-- A passing row is the last-write commit marker for one content-addressed
+-- external capture. Candidate rows remain auditable in the physical/canonical
+-- tables, but replay readers cannot see them through the qualified views below
+-- until this exact scope is present.
+CREATE TABLE IF NOT EXISTS market_data.cex_order_book_capture_promotions
+(
+    source LowCardinality(String),
+    capture_origin LowCardinality(String),
+    source_mode LowCardinality(String),
+    deployment_id LowCardinality(String),
+    receipt_schema_version LowCardinality(String),
+    receipt_id String,
+    promotion_identity_sha256 String,
+    request_id String,
+    idempotency_key String,
+    status LowCardinality(String),
+    capture_bundle_id String,
+    provider LowCardinality(String),
+    adapter_version LowCardinality(String),
+    exchange LowCardinality(String),
+    trading_pair LowCardinality(String),
+    asset_type LowCardinality(String),
+    feed LowCardinality(String),
+    window_start_ms UInt64,
+    window_end_ms UInt64,
+    depth_limit UInt16,
+    construction_mode LowCardinality(String),
+    schema_version LowCardinality(String),
+    canonical_schema_sha256 String,
+    checksum_algorithm LowCardinality(String),
+    coverage_policy_json String,
+    selection_sha256 String,
+    capability_policy_id String,
+    capability_policy_sha256 String,
+    resource_policy_id String,
+    resource_policy_sha256 String,
+    adapter_policy_id String,
+    adapter_policy_sha256 String,
+    acquisition_policy_id String,
+    acquisition_policy_sha256 String,
+    vendor_semantic_digest String,
+    canonical_semantic_digest String,
+    prefix_digest String,
+    suffix_digest String,
+    seam_verified UInt8,
+    coverage_verified UInt8,
+    dataset_objects_json String,
+    receipt_json String,
+    verification_time_ms UInt64
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(verification_time_ms))
+ORDER BY (capture_bundle_id, exchange, trading_pair, window_start_ms, window_end_ms, depth_limit, construction_mode, schema_version, receipt_id)
+SETTINGS non_replicated_deduplication_window = 1000000;
+
+-- Final-v1 receipt occurrence identity is distinct from the semantic promotion
+-- identity. A receipt is necessary but no longer sufficient for qualification.
+-- The latest append-only event controls vendor replay eligibility; provisional
+-- historical_vendor_orderbook_v1 receipts cannot enter this table's final-v1
+-- qualified path.
+CREATE TABLE IF NOT EXISTS market_data.cex_order_book_capture_qualifications
+(
+    source LowCardinality(String),
+    capture_origin LowCardinality(String),
+    source_mode LowCardinality(String),
+    deployment_id LowCardinality(String),
+    qualification_event_id UUID,
+    capture_bundle_id String,
+    state Enum8('qualified' = 1, 'quarantined' = 2, 'revoked' = 3),
+    receipt_id String,
+    promotion_identity_sha256 String,
+    window_start_ms UInt64,
+    window_end_ms UInt64,
+    event_at_ms UInt64,
+    reason_code LowCardinality(String),
+    event_json String
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_at_ms))
+ORDER BY (capture_bundle_id, event_at_ms, qualification_event_id)
+SETTINGS non_replicated_deduplication_window = 1000000;
+
+CREATE TABLE IF NOT EXISTS market_data.cex_order_book_archive_selections
+(
+    source LowCardinality(String),
+    deployment_id LowCardinality(String),
+    request_id UUID,
+    idempotency_key String,
+    selection_sha256 String,
+    coverage_class LowCardinality(String),
+    receipt_ids Array(String),
+    request_json String,
+    selection_json String,
+    resolved_at_ms UInt64
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(resolved_at_ms))
+ORDER BY (idempotency_key, resolved_at_ms, selection_sha256)
+SETTINGS non_replicated_deduplication_window = 1000000;
+
+-- Deployment automation owns this singleton. The ordinary archive-forwarder
+-- allowlist deliberately does not expose it to producers.
+CREATE TABLE IF NOT EXISTS market_data.cex_archive_cluster_identity
+(
+    singleton_key LowCardinality(String),
+    environment LowCardinality(String),
+    cluster LowCardinality(String),
+    configured_at_ms UInt64,
+    configuration_sha256 String
+)
+ENGINE = ReplacingMergeTree(configured_at_ms)
+ORDER BY singleton_key;
+
+CREATE OR REPLACE VIEW market_data.cex_order_book_levels_replay_qualified AS
+SELECT canonical.*
+FROM market_data.cex_order_book_levels_canonical AS canonical
+WHERE canonical.source IN ('broker_read', 'broker_write')
+UNION ALL
+SELECT canonical.*
+FROM market_data.cex_order_book_levels_canonical AS canonical
+INNER JOIN
+(
+    SELECT DISTINCT promotion.*
+    FROM
+    (
+        SELECT
+            capture_bundle_id AS qualified_capture_bundle_id,
+            receipt_id AS qualified_receipt_id,
+            promotion_identity_sha256 AS qualified_promotion_identity_sha256,
+            state
+        FROM market_data.cex_order_book_capture_qualifications
+        ORDER BY event_at_ms DESC
+        LIMIT 1 BY capture_bundle_id
+    ) AS latest_qualification
+    INNER JOIN market_data.cex_order_book_capture_promotions AS promotion
+      ON latest_qualification.qualified_capture_bundle_id = promotion.capture_bundle_id
+     AND latest_qualification.qualified_receipt_id = promotion.receipt_id
+     AND latest_qualification.qualified_promotion_identity_sha256 = promotion.promotion_identity_sha256
+    WHERE latest_qualification.state = 'qualified'
+      AND promotion.source = 'external_backfill'
+      AND promotion.capture_origin = 'vendor_historical_backfill'
+      AND promotion.source_mode = 'vendor_historical_backfill_v1'
+      AND promotion.receipt_schema_version = 'https://schemas.usher.so/market-data-vendor-backfill-promotion-receipt/v1'
+      AND promotion.status = 'passing'
+      AND promotion.seam_verified = 1
+      AND promotion.coverage_verified = 1
+      AND promotion.receipt_json != ''
+) AS qualification
+ON canonical.capture_bundle_id = qualification.capture_bundle_id
+AND canonical.exchange = qualification.exchange
+AND canonical.trading_pair = qualification.trading_pair
+AND canonical.asset_type = qualification.asset_type
+AND canonical.feed = qualification.feed
+AND canonical.provider = qualification.provider
+AND canonical.depth_limit = qualification.depth_limit
+AND canonical.construction_mode = qualification.construction_mode
+AND canonical.schema_version = qualification.schema_version
+AND canonical.checksum_algorithm = qualification.checksum_algorithm
+WHERE canonical.source = 'external_backfill'
+  AND canonical.source_time_ms >= qualification.window_start_ms
+  AND canonical.source_time_ms < qualification.window_end_ms;
+
+CREATE OR REPLACE VIEW market_data.cex_order_book_depth_summary_replay_qualified AS
+SELECT canonical.*
+FROM market_data.cex_order_book_depth_summary_canonical AS canonical
+WHERE canonical.source IN ('broker_read', 'broker_write')
+UNION ALL
+SELECT canonical.*
+FROM market_data.cex_order_book_depth_summary_canonical AS canonical
+INNER JOIN
+(
+    SELECT DISTINCT promotion.*
+    FROM
+    (
+        SELECT
+            capture_bundle_id AS qualified_capture_bundle_id,
+            receipt_id AS qualified_receipt_id,
+            promotion_identity_sha256 AS qualified_promotion_identity_sha256,
+            state
+        FROM market_data.cex_order_book_capture_qualifications
+        ORDER BY event_at_ms DESC
+        LIMIT 1 BY capture_bundle_id
+    ) AS latest_qualification
+    INNER JOIN market_data.cex_order_book_capture_promotions AS promotion
+      ON latest_qualification.qualified_capture_bundle_id = promotion.capture_bundle_id
+     AND latest_qualification.qualified_receipt_id = promotion.receipt_id
+     AND latest_qualification.qualified_promotion_identity_sha256 = promotion.promotion_identity_sha256
+    WHERE latest_qualification.state = 'qualified'
+      AND promotion.source = 'external_backfill'
+      AND promotion.capture_origin = 'vendor_historical_backfill'
+      AND promotion.source_mode = 'vendor_historical_backfill_v1'
+      AND promotion.receipt_schema_version = 'https://schemas.usher.so/market-data-vendor-backfill-promotion-receipt/v1'
+      AND promotion.status = 'passing'
+      AND promotion.seam_verified = 1
+      AND promotion.coverage_verified = 1
+      AND promotion.receipt_json != ''
+) AS qualification
+ON canonical.capture_bundle_id = qualification.capture_bundle_id
+AND canonical.exchange = qualification.exchange
+AND canonical.trading_pair = qualification.trading_pair
+AND canonical.asset_type = qualification.asset_type
+AND canonical.feed = qualification.feed
+AND canonical.provider = qualification.provider
+AND canonical.depth_limit = qualification.depth_limit
+AND canonical.construction_mode = qualification.construction_mode
+AND canonical.schema_version = qualification.schema_version
+AND canonical.checksum_algorithm = qualification.checksum_algorithm
+WHERE canonical.source = 'external_backfill'
+  AND canonical.source_time_ms >= qualification.window_start_ms
+  AND canonical.source_time_ms < qualification.window_end_ms;
+
 CREATE TABLE IF NOT EXISTS market_data.cex_ohlcv
 (
     source LowCardinality(String),
@@ -503,5 +718,62 @@ ALTER TABLE market_data.cex_order_book_levels
     MODIFY SETTING non_replicated_deduplication_window = 1000000;
 ALTER TABLE market_data.cex_order_book_depth_summary
     MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_order_book_capture_qualifications
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
+ALTER TABLE market_data.cex_order_book_archive_selections
+    MODIFY SETTING non_replicated_deduplication_window = 1000000;
 ALTER TABLE market_data.cex_ohlcv
     MODIFY SETTING non_replicated_deduplication_window = 1000000;
+
+-- Existing installations were created with an unconditional live-capture TTL.
+-- Preserve that policy for broker-origin rows while retaining historical
+-- external candidates long enough for verification and later replay.
+ALTER TABLE market_data.cex_order_book_levels
+    MODIFY TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
+        DELETE WHERE source != 'external_backfill';
+ALTER TABLE market_data.cex_order_book_depth_summary
+    MODIFY TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
+        DELETE WHERE source != 'external_backfill';
+
+-- Final-v1 origin is derived from immutable producer source so existing rows
+-- and their stored checksum values remain untouched.
+ALTER TABLE market_data.cex_order_book_levels
+    ADD COLUMN IF NOT EXISTS capture_origin LowCardinality(String)
+    DEFAULT if(source = 'external_backfill', 'vendor_historical_backfill', 'production_capture')
+    AFTER source_mode;
+ALTER TABLE market_data.cex_order_book_depth_summary
+    ADD COLUMN IF NOT EXISTS capture_origin LowCardinality(String)
+    DEFAULT if(source = 'external_backfill', 'vendor_historical_backfill', 'production_capture')
+    AFTER source_mode;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS capture_origin LowCardinality(String) DEFAULT '' AFTER source;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS source_mode LowCardinality(String) DEFAULT '' AFTER capture_origin;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS promotion_identity_sha256 String DEFAULT '' AFTER receipt_id;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS canonical_schema_sha256 String DEFAULT '' AFTER schema_version;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS coverage_policy_json String DEFAULT '' AFTER checksum_algorithm;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS selection_sha256 String DEFAULT '' AFTER coverage_policy_json;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS capability_policy_id String DEFAULT '' AFTER selection_sha256;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS capability_policy_sha256 String DEFAULT '' AFTER capability_policy_id;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS resource_policy_id String DEFAULT '' AFTER capability_policy_sha256;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS resource_policy_sha256 String DEFAULT '' AFTER resource_policy_id;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS adapter_policy_id String DEFAULT '' AFTER resource_policy_sha256;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS adapter_policy_sha256 String DEFAULT '' AFTER adapter_policy_id;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS acquisition_policy_id String DEFAULT '' AFTER adapter_policy_sha256;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS acquisition_policy_sha256 String DEFAULT '' AFTER acquisition_policy_id;
+ALTER TABLE market_data.cex_order_book_capture_promotions
+    ADD COLUMN IF NOT EXISTS receipt_json String DEFAULT '' AFTER dataset_objects_json;

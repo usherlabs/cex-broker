@@ -1,0 +1,448 @@
+{
+	"fixture_id": "market-data-vendor-backfill-conformance/v1",
+	"documents": {
+		"required_clock": {
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-required-clock/v1",
+			"clock_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f102",
+			"created_at": "2026-08-20T12:00:00.000Z",
+			"targets": [
+				{
+					"target_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f105",
+					"target_at": "2026-08-18T09:27:16.000Z"
+				}
+			],
+			"clock_sha256": "1934fd40540efffee5f5e862cea676f65e398c129db9a3f988acd28765ff0600"
+		},
+		"archive_selection": {
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-archive-selection/v1",
+			"scope": {
+				"exchange": "okx",
+				"trading_pair": "ARB-USDT",
+				"market_type": "spot",
+				"feed": "ORDERBOOK"
+			},
+			"required_clock": {
+				"clock_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f102",
+				"clock_sha256": "1934fd40540efffee5f5e862cea676f65e398c129db9a3f988acd28765ff0600",
+				"event_count": 1
+			},
+			"coverage_policy": {
+				"policy_id": "prior-asof-strict/v1",
+				"max_asof_lag_ms": 5000,
+				"future_rows": "reject",
+				"missing_required_event": "fail"
+			},
+			"source_policy": "authoritative_window",
+			"coverage_class": "complete",
+			"requested_intervals": [
+				{
+					"start_at": "2026-08-18T09:27:15.000Z",
+					"end_at": "2026-08-18T09:27:17.000Z"
+				}
+			],
+			"selected_intervals": [
+				{
+					"start_at": "2026-08-18T09:27:15.000Z",
+					"end_at": "2026-08-18T09:27:17.000Z",
+					"capture_bundle_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+					"capture_origin": "vendor_historical_backfill"
+				}
+			],
+			"precedence": ["vendor"],
+			"bundles": [
+				{
+					"capture_bundle_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+					"capture_origin": "vendor_historical_backfill",
+					"interval": {
+						"start_at": "2026-08-18T09:27:15.000Z",
+						"end_at": "2026-08-18T09:27:17.000Z"
+					},
+					"qualification": {
+						"qualification_event_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f104",
+						"state": "qualified",
+						"receipt_id": "69705f79f1a12ef550949b6aceb8b4a1c49230a87022b080e77cb91145525663",
+						"promotion_identity_sha256": "e1993e99a7aefae1a2c56248d2c6ff35c5755f8840d474aaa792abe4ab2c22b5"
+					}
+				}
+			],
+			"support_anchors": [
+				{
+					"capture_bundle_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+					"raw_capture_id": "4444444444444444444444444444444444444444444444444444444444444444",
+					"snapshot_id": "5555555555555555555555555555555555555555555555555555555555555555",
+					"source_time": "2026-08-18T09:27:15.308Z",
+					"normalized_summary_checksum": "6666666666666666666666666666666666666666666666666666666666666666",
+					"metadata_ref": {
+						"capture_origin": "vendor_historical_backfill",
+						"qualification_event_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f104",
+						"receipt_id": "69705f79f1a12ef550949b6aceb8b4a1c49230a87022b080e77cb91145525663"
+					}
+				}
+			],
+			"receipt_ids": [
+				"69705f79f1a12ef550949b6aceb8b4a1c49230a87022b080e77cb91145525663"
+			],
+			"qualification_event_ids": ["018f0f4d-7b32-7a30-8f4d-1d2a6e40f104"],
+			"resolved_at": "2026-08-20T12:00:02.000Z",
+			"selection_sha256": "cc4869df6d08c79d030c8407e7a55e5c534e6a96da7c1ac3f726e814c66a108e"
+		},
+		"request": {
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-request/v1",
+			"request_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f100",
+			"attempt_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f101",
+			"scope": {
+				"exchange": "okx",
+				"trading_pair": "ARB-USDT",
+				"market_type": "spot",
+				"feed": "ORDERBOOK"
+			},
+			"window": {
+				"start_at": "2026-08-18T09:27:15.000Z",
+				"end_at": "2026-08-18T09:27:17.000Z"
+			},
+			"depth": 20,
+			"construction_mode": "sampled_top_n_snapshot",
+			"source_policy": "authoritative_window",
+			"target": {
+				"environment": "production",
+				"cluster": "cex-archive-primary"
+			},
+			"coverage_policy": {
+				"policy_id": "prior-asof-strict/v1",
+				"max_asof_lag_ms": 5000,
+				"future_rows": "reject",
+				"missing_required_event": "fail"
+			},
+			"required_clock": {
+				"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-required-clock/v1",
+				"clock_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f102",
+				"file_name": "required-clock.json",
+				"clock_sha256": "1934fd40540efffee5f5e862cea676f65e398c129db9a3f988acd28765ff0600",
+				"event_count": 1
+			},
+			"initial_selection": {
+				"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-archive-selection/v1",
+				"scope": {
+					"exchange": "okx",
+					"trading_pair": "ARB-USDT",
+					"market_type": "spot",
+					"feed": "ORDERBOOK"
+				},
+				"required_clock": {
+					"clock_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f102",
+					"clock_sha256": "1934fd40540efffee5f5e862cea676f65e398c129db9a3f988acd28765ff0600",
+					"event_count": 1
+				},
+				"coverage_policy": {
+					"policy_id": "prior-asof-strict/v1",
+					"max_asof_lag_ms": 5000,
+					"future_rows": "reject",
+					"missing_required_event": "fail"
+				},
+				"source_policy": "authoritative_window",
+				"coverage_class": "missing",
+				"requested_intervals": [
+					{
+						"start_at": "2026-08-18T09:27:15.000Z",
+						"end_at": "2026-08-18T09:27:17.000Z"
+					}
+				],
+				"selected_intervals": [],
+				"precedence": ["vendor"],
+				"bundles": [],
+				"support_anchors": [],
+				"receipt_ids": [],
+				"qualification_event_ids": [],
+				"resolved_at": "2026-08-20T12:00:00.000Z",
+				"selection_sha256": "7f9a03dbf3dd3c600ffe7a28bd2b2211a69509c26c06d5e11ad926faeb82f895"
+			},
+			"expected_canonical_schema": {
+				"schema_id": "cex-order-book-canonical/v1",
+				"schema_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			},
+			"product_pins": {
+				"capability_policy": {
+					"policy_id": "market-data-vendor-backfill-capabilities/v1",
+					"policy_sha256": "51f522286ad24ec55525c19cad5c2c37043f9325a5a8f20d838adb7fd71191bf"
+				},
+				"resource_policy": {
+					"policy_id": "market-data-vendor-backfill-resources/v1",
+					"policy_sha256": "38d4f47cbd15794efed570801556a95f724561a8b45567d518c044da9d454142"
+				}
+			},
+			"production_authorization_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f103",
+			"idempotency_key": "2108b6e712cd118bbd1acaff2cd7f481e230b6818048a3973b0a5bcbe3305c95"
+		},
+		"promotion_receipt": {
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-promotion-receipt/v1",
+			"verified_at": "2026-08-20T12:00:02.000Z",
+			"request_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f100",
+			"idempotency_key": "2108b6e712cd118bbd1acaff2cd7f481e230b6818048a3973b0a5bcbe3305c95",
+			"source": "external_backfill",
+			"capture_origin": "vendor_historical_backfill",
+			"source_mode": "vendor_historical_backfill_v1",
+			"provider": "cryptohftdata",
+			"adapter_version": "cryptohftdata-orderbook/v2",
+			"effective_policies": {
+				"capability_policy": {
+					"policy_id": "market-data-vendor-backfill-capabilities/v1",
+					"policy_sha256": "51f522286ad24ec55525c19cad5c2c37043f9325a5a8f20d838adb7fd71191bf"
+				},
+				"resource_policy": {
+					"policy_id": "market-data-vendor-backfill-resources/v1",
+					"policy_sha256": "38d4f47cbd15794efed570801556a95f724561a8b45567d518c044da9d454142"
+				},
+				"adapter_policy": {
+					"policy_id": "cryptohftdata-orderbook-adapter/v1",
+					"policy_sha256": "b71eec2948593eb3f9f43371a23ec6a37fd186177c6e368f7f792113e907a737"
+				},
+				"acquisition_policy": {
+					"policy_id": "cryptohftdata-hourly-acquisition/v1",
+					"policy_sha256": "dd3b94d6fdeed161580735673913e3483dada4725ee4fb7add461b74e20713d5"
+				}
+			},
+			"capture_bundle_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+			"scope": {
+				"exchange": "okx",
+				"trading_pair": "ARB-USDT",
+				"market_type": "spot",
+				"feed": "ORDERBOOK"
+			},
+			"window": {
+				"start_at": "2026-08-18T09:27:15.000Z",
+				"end_at": "2026-08-18T09:27:17.000Z"
+			},
+			"depth": 20,
+			"construction_mode": "sampled_top_n_snapshot",
+			"canonical_schema": {
+				"schema_id": "cex-order-book-canonical/v1",
+				"schema_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			},
+			"coverage_policy": {
+				"policy_id": "prior-asof-strict/v1",
+				"max_asof_lag_ms": 5000,
+				"future_rows": "reject",
+				"missing_required_event": "fail"
+			},
+			"selection_sha256": "7f9a03dbf3dd3c600ffe7a28bd2b2211a69509c26c06d5e11ad926faeb82f895",
+			"vendor_semantic_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+			"canonical_semantic_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"prefix_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+			"suffix_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+			"seam_verified": true,
+			"coverage_verified": true,
+			"dataset_objects": [
+				{
+					"identity": "okx/spot/orderbook/hour/arb-usdt/2026-08-18t09",
+					"checksum": "3333333333333333333333333333333333333333333333333333333333333333",
+					"bytes": 1000,
+					"rows": 50
+				}
+			],
+			"promotion_identity_sha256": "e1993e99a7aefae1a2c56248d2c6ff35c5755f8840d474aaa792abe4ab2c22b5",
+			"receipt_id": "69705f79f1a12ef550949b6aceb8b4a1c49230a87022b080e77cb91145525663"
+		},
+		"result": {
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-result/v1",
+			"job_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f120",
+			"request_file_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+			"executable_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+			"schema_manifest_sha256": "48e5e91d33caafd930b45552c799a9fb0c2ccd9a676106fbab2543f231dba1b7",
+			"cex_package": {
+				"name": "@usherlabs/cex-broker",
+				"version": "0.2.46",
+				"package_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+			},
+			"capability_policy": {
+				"policy_id": "market-data-vendor-backfill-capabilities/v1",
+				"policy_sha256": "51f522286ad24ec55525c19cad5c2c37043f9325a5a8f20d838adb7fd71191bf"
+			},
+			"resource_policy": {
+				"policy_id": "market-data-vendor-backfill-resources/v1",
+				"policy_sha256": "38d4f47cbd15794efed570801556a95f724561a8b45567d518c044da9d454142"
+			},
+			"build": {
+				"fiet_tee_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"created_at": "2026-08-20T12:00:00.000Z"
+			},
+			"started_at": "2026-08-20T12:00:01.000Z",
+			"completed_at": "2026-08-20T12:00:03.000Z",
+			"outcome": {
+				"status": "promoted",
+				"reason_code": "promotion_qualified",
+				"reason_subcode": null,
+				"request_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f100",
+				"idempotency_key": "2108b6e712cd118bbd1acaff2cd7f481e230b6818048a3973b0a5bcbe3305c95",
+				"target": {
+					"environment": "production",
+					"cluster": "cex-archive-primary"
+				},
+				"selection": {
+					"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-archive-selection/v1",
+					"scope": {
+						"exchange": "okx",
+						"trading_pair": "ARB-USDT",
+						"market_type": "spot",
+						"feed": "ORDERBOOK"
+					},
+					"required_clock": {
+						"clock_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f102",
+						"clock_sha256": "1934fd40540efffee5f5e862cea676f65e398c129db9a3f988acd28765ff0600",
+						"event_count": 1
+					},
+					"coverage_policy": {
+						"policy_id": "prior-asof-strict/v1",
+						"max_asof_lag_ms": 5000,
+						"future_rows": "reject",
+						"missing_required_event": "fail"
+					},
+					"source_policy": "authoritative_window",
+					"coverage_class": "complete",
+					"requested_intervals": [
+						{
+							"start_at": "2026-08-18T09:27:15.000Z",
+							"end_at": "2026-08-18T09:27:17.000Z"
+						}
+					],
+					"selected_intervals": [
+						{
+							"start_at": "2026-08-18T09:27:15.000Z",
+							"end_at": "2026-08-18T09:27:17.000Z",
+							"capture_bundle_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+							"capture_origin": "vendor_historical_backfill"
+						}
+					],
+					"precedence": ["vendor"],
+					"bundles": [
+						{
+							"capture_bundle_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+							"capture_origin": "vendor_historical_backfill",
+							"interval": {
+								"start_at": "2026-08-18T09:27:15.000Z",
+								"end_at": "2026-08-18T09:27:17.000Z"
+							},
+							"qualification": {
+								"qualification_event_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f104",
+								"state": "qualified",
+								"receipt_id": "69705f79f1a12ef550949b6aceb8b4a1c49230a87022b080e77cb91145525663",
+								"promotion_identity_sha256": "e1993e99a7aefae1a2c56248d2c6ff35c5755f8840d474aaa792abe4ab2c22b5"
+							}
+						}
+					],
+					"support_anchors": [
+						{
+							"capture_bundle_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+							"raw_capture_id": "4444444444444444444444444444444444444444444444444444444444444444",
+							"snapshot_id": "5555555555555555555555555555555555555555555555555555555555555555",
+							"source_time": "2026-08-18T09:27:15.308Z",
+							"normalized_summary_checksum": "6666666666666666666666666666666666666666666666666666666666666666",
+							"metadata_ref": {
+								"capture_origin": "vendor_historical_backfill",
+								"qualification_event_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f104",
+								"receipt_id": "69705f79f1a12ef550949b6aceb8b4a1c49230a87022b080e77cb91145525663"
+							}
+						}
+					],
+					"receipt_ids": [
+						"69705f79f1a12ef550949b6aceb8b4a1c49230a87022b080e77cb91145525663"
+					],
+					"qualification_event_ids": ["018f0f4d-7b32-7a30-8f4d-1d2a6e40f104"],
+					"resolved_at": "2026-08-20T12:00:02.000Z",
+					"selection_sha256": "cc4869df6d08c79d030c8407e7a55e5c534e6a96da7c1ac3f726e814c66a108e"
+				},
+				"receipt": {
+					"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-promotion-receipt/v1",
+					"verified_at": "2026-08-20T12:00:02.000Z",
+					"request_id": "018f0f4d-7b32-7a30-8f4d-1d2a6e40f100",
+					"idempotency_key": "2108b6e712cd118bbd1acaff2cd7f481e230b6818048a3973b0a5bcbe3305c95",
+					"source": "external_backfill",
+					"capture_origin": "vendor_historical_backfill",
+					"source_mode": "vendor_historical_backfill_v1",
+					"provider": "cryptohftdata",
+					"adapter_version": "cryptohftdata-orderbook/v2",
+					"effective_policies": {
+						"capability_policy": {
+							"policy_id": "market-data-vendor-backfill-capabilities/v1",
+							"policy_sha256": "51f522286ad24ec55525c19cad5c2c37043f9325a5a8f20d838adb7fd71191bf"
+						},
+						"resource_policy": {
+							"policy_id": "market-data-vendor-backfill-resources/v1",
+							"policy_sha256": "38d4f47cbd15794efed570801556a95f724561a8b45567d518c044da9d454142"
+						},
+						"adapter_policy": {
+							"policy_id": "cryptohftdata-orderbook-adapter/v1",
+							"policy_sha256": "b71eec2948593eb3f9f43371a23ec6a37fd186177c6e368f7f792113e907a737"
+						},
+						"acquisition_policy": {
+							"policy_id": "cryptohftdata-hourly-acquisition/v1",
+							"policy_sha256": "dd3b94d6fdeed161580735673913e3483dada4725ee4fb7add461b74e20713d5"
+						}
+					},
+					"capture_bundle_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+					"scope": {
+						"exchange": "okx",
+						"trading_pair": "ARB-USDT",
+						"market_type": "spot",
+						"feed": "ORDERBOOK"
+					},
+					"window": {
+						"start_at": "2026-08-18T09:27:15.000Z",
+						"end_at": "2026-08-18T09:27:17.000Z"
+					},
+					"depth": 20,
+					"construction_mode": "sampled_top_n_snapshot",
+					"canonical_schema": {
+						"schema_id": "cex-order-book-canonical/v1",
+						"schema_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+					},
+					"coverage_policy": {
+						"policy_id": "prior-asof-strict/v1",
+						"max_asof_lag_ms": 5000,
+						"future_rows": "reject",
+						"missing_required_event": "fail"
+					},
+					"selection_sha256": "7f9a03dbf3dd3c600ffe7a28bd2b2211a69509c26c06d5e11ad926faeb82f895",
+					"vendor_semantic_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+					"canonical_semantic_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+					"prefix_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+					"suffix_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+					"seam_verified": true,
+					"coverage_verified": true,
+					"dataset_objects": [
+						{
+							"identity": "okx/spot/orderbook/hour/arb-usdt/2026-08-18t09",
+							"checksum": "3333333333333333333333333333333333333333333333333333333333333333",
+							"bytes": 1000,
+							"rows": 50
+						}
+					],
+					"promotion_identity_sha256": "e1993e99a7aefae1a2c56248d2c6ff35c5755f8840d474aaa792abe4ab2c22b5",
+					"receipt_id": "69705f79f1a12ef550949b6aceb8b4a1c49230a87022b080e77cb91145525663"
+				},
+				"diagnostics": {
+					"promoted_rows": 50
+				}
+			},
+			"result_sha256": "ce95e09d3eda84efa28506b386798a71171ca0de1a426664ebf3a7c610bf7c21"
+		}
+	},
+	"identities": {
+		"idempotency_key": "2108b6e712cd118bbd1acaff2cd7f481e230b6818048a3973b0a5bcbe3305c95",
+		"clock_sha256": "1934fd40540efffee5f5e862cea676f65e398c129db9a3f988acd28765ff0600",
+		"initial_selection_sha256": "7f9a03dbf3dd3c600ffe7a28bd2b2211a69509c26c06d5e11ad926faeb82f895",
+		"selection_sha256": "cc4869df6d08c79d030c8407e7a55e5c534e6a96da7c1ac3f726e814c66a108e",
+		"promotion_identity_sha256": "e1993e99a7aefae1a2c56248d2c6ff35c5755f8840d474aaa792abe4ab2c22b5",
+		"receipt_id": "69705f79f1a12ef550949b6aceb8b4a1c49230a87022b080e77cb91145525663",
+		"result_sha256": "ce95e09d3eda84efa28506b386798a71171ca0de1a426664ebf3a7c610bf7c21",
+		"capability_policy_sha256": "51f522286ad24ec55525c19cad5c2c37043f9325a5a8f20d838adb7fd71191bf",
+		"resource_policy_sha256": "38d4f47cbd15794efed570801556a95f724561a8b45567d518c044da9d454142"
+	},
+	"jcs_edge_vector": {
+		"literals": [null, true, false],
+		"numbers": [333333333.3333333, 1e30, 4.5, 0.002],
+		"string": "€$\u000f\nA'B\"\\\"/"
+	},
+	"hashes": {
+		"jcs_edge_vector_sha256": "f5785b468bc849d9db1fa473d3b15863460850a1723b38e5fd4468399c32021f"
+	}
+}

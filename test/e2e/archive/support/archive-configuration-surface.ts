@@ -40,7 +40,6 @@ const FORBIDDEN_TOKENS = [
 	"CredentialPolicy",
 	"credentialPolicy",
 	"provisionedProfile",
-	"sourcePolicy",
 	"provisioned_only",
 	"read_only_key",
 	"writeMode",
