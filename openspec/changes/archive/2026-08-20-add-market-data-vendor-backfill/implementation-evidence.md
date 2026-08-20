@@ -8,9 +8,9 @@ evidence artifact, command arguments, logs, repository, or ClickHouse.
 
 - Evidence schema: `market-data-vendor-backfill-local-smoke/v1`
 - Evidence status: `passed`
-- Evidence SHA-256: `e73eedb8aadcd8189b97ba633f291e0755f8258f4935b32f072dc263c8cd4ac2`
+- Evidence SHA-256: `baf05b508524a53262ff2f6629b745cb95c0394b7843cf34108937ec89869f2e`
 - Secret-reflection scan: passed
-- Source commit: `5580915edf82e9dc211265f3b3dbcf601ccacc5a` (working tree dirty with this change)
+- Source commit: `1277ae9658ca833262cdfc4585afb466a24d1b1a` (working tree dirty with this change)
 - Package version: `0.2.46`
 - ClickHouse image: `clickhouse/clickhouse-server:24.8`
 - ClickHouse image ID: `sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b`
@@ -27,7 +27,7 @@ evidence artifact, command arguments, logs, repository, or ClickHouse.
 - Vendor object size/rows: 646843 bytes / 68970 rows
 - Vendor semantic digest: `ff4e9ad85e1b1857bb6ee781d5aea95b84a12203400c3d4ff732369500787b17`
 - Capture bundle ID: `84ef9def3099545be059a96d902cc02079833318637b9b7033fb169e3d9d3f5a`
-- Promotion receipt ID: `35c1019fd8caf16e8f3fb3630b86884f6564c63d7e8424912650d5196872a4e1`
+- Promotion receipt ID: `925ef010667aa7139f7b786433423fbb31e738f5994616abd5da5a5cda6388c2`
 - Canonical semantic digest: `e393a453dbf5f365bfc055f1f008528d24409be61e76c21feba5361cafed7298`
 - First invocation: `promoted` / `promotion_qualified`
 - Second invocation: `already_covered` / `qualified_coverage_complete`
@@ -45,7 +45,7 @@ digests, and the passing receipt identity are recorded.
 
 ## Regression and specification verification
 
-- Full Bun test suite: 850 passed, 0 failed across 88 files.
+- Full Bun test suite: 861 passed, 0 failed across 89 files.
 - TypeScript `--noEmit`, declaration build, package build, and Node package construction smoke: passed.
 - Biome check of all changed TypeScript and JSON files: passed (29 files).
 - ClickHouse Local archive E2E: 18 passed, 0 failed.
@@ -53,14 +53,15 @@ digests, and the passing receipt identity are recorded.
 - Protected provider conformance: passed with exactly the single pinned OKX object recorded above.
 - Protected final-v1 promotion/idempotency smoke: passed; the disposable archive was removed and the evidence artifact remained mode `0600` outside the repository.
 - Strict OpenSpec validation: passed.
-- npm tarball: `@usherlabs/cex-broker@0.2.46`, 119 entries, 8,862,803 bytes, SHA-256 `d0f66e3eaf2556dc57cce71e3140a96c3baaf4d080bfb2eb7b91084b930f42e0`.
+- npm tarball: `@usherlabs/cex-broker@0.2.46`, 120 entries, 8,868,222 bytes, SHA-256 `2ba8a7f81f566585aeb5cbe601b06f34be1f6d2eabc9334c4132520ae51cf81d`.
 - Tarball audit: all schemas, policies, fixtures, JavaScript, and declarations are present; the product subpath imports with installed dependencies and contains no server/handler imports.
 
-## Remaining release prerequisite
+## Remaining production-dispatch prerequisites
 
-The CEX implementation and final-v1 gates are complete, but this change must
-not be archived or published yet. Fiet TEE must first pin this package and its
-artifact identities, build and hash the standalone executable, and pass the
-shared conformance suite. Fiet Maker must then pin the Fiet TEE commit and
-executable and pass its independent archive/consumer validation. Production
-dispatch remains disabled until those downstream pins and gates are recorded.
+The CEX implementation and final-v1 gates are complete and the CEX package may
+be published and this change archived. Fiet TEE must still pin the published
+package and its artifact identities, build and hash the standalone executable,
+and pass the shared conformance suite. Fiet Maker must then pin the Fiet TEE
+commit and executable and pass its independent archive/consumer validation.
+Production dispatch remains disabled until those downstream pins and gates are
+recorded.

@@ -39,7 +39,7 @@
 
 - [x] 7.1 Document the bounded worker lifecycle, credential and ClickHouse authority boundaries, deterministic producer retry ownership, and CEX/Fiet TEE/Fiet Maker proof ownership.
 - [x] 7.2 Add package-subpath type/build smoke tests and an opt-in hash-only real-provider conformance harness that never persists licensed vendor payloads or secrets.
-- [x] 7.3 Validate the complete OpenSpec change and record the required downstream Fiet TEE wrapper/package pin and Maker independent post-promotion consumer proof as explicit release prerequisites.
+- [x] 7.3 Validate the complete OpenSpec change and record the required downstream Fiet TEE wrapper/package pin and Maker independent post-promotion consumer proof as explicit production-dispatch prerequisites.
 
 ## 8. Live-provider isolated-archive verification gate
 
@@ -75,6 +75,6 @@
 - [x] 12.1 Copy schemas, fixtures, and policies into the npm tarball, expose them through package exports, emit declarations, and prove no broker/server import side effects.
 - [x] 12.2 Select the next unused package version no lower than `0.2.46`, build, inspect, and validate the package tarball.
 - [x] 12.3 Rerun unit, forwarder, isolated ClickHouse, conformance, and protected live-provider gates using the final v1 contracts; retain only hash-safe evidence.
-  - Final-v1 verification passed: 850 unit tests, 18 archive E2E tests, 14 ClickHouse Server 24.8 integration tests, protected one-object provider conformance, protected promotion/idempotency smoke, strict OpenSpec validation, and the `0.2.46` tarball audit. See `implementation-evidence.md` for hash-safe identities.
-- [ ] 12.4 Strictly validate and archive the CEX change only after downstream Fiet TEE and Maker conformance/pin prerequisites are recorded as satisfied.
-  - Blocked intentionally: Fiet TEE has not yet pinned the CEX package/artifacts and produced the hashed standalone executable, and Fiet Maker has not yet pinned that executable/commit or passed its independent conformance and consumer gates. Do not publish, archive, or enable production dispatch before those prerequisites are recorded.
+  - Final-v1 verification passed: 861 unit tests, 18 archive E2E tests, 14 ClickHouse Server 24.8 integration tests, protected one-object provider conformance, protected promotion/idempotency smoke, strict OpenSpec validation, and the `0.2.46` tarball audit. See `implementation-evidence.md` for hash-safe identities.
+- [x] 12.4 Strictly validate and archive the implementation-complete CEX change, retaining downstream Fiet TEE and Maker conformance/pins as production-dispatch prerequisites.
+  - Release sequencing was clarified during reconciliation: the CEX package must be publishable before downstream repositories can pin it. Fiet TEE executable conformance and Fiet Maker consumer proof therefore remain required before production dispatch is enabled, but do not block CEX package publication or OpenSpec archival.

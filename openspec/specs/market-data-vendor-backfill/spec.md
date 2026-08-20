@@ -1,5 +1,11 @@
-## ADDED Requirements
+# market-data-vendor-backfill Specification
 
+## Purpose
+Define the bounded CEX-owned library/tool for acquiring historical order-book
+data, preserving vendor provenance, and promoting exact qualified scopes into
+the canonical archive for deterministic downstream replay.
+
+## Requirements
 ### Requirement: Final v1 wire artifacts are strict and cross-language canonical
 The package SHALL publish strict snake_case JSON Schema Draft 2020-12 artifacts
 for the request, result, required clock, archive selection, and promotion
@@ -84,10 +90,10 @@ qualification/selection query failure MUST be `promotion_verification_failed`.
 The core library SHALL validate `market-data-vendor-backfill-request/v1` before
 performing network access and SHALL return
 `market-data-vendor-backfill-result/v1`. The request MUST contain request and
-idempotency identities, a provider policy, one exchange/pair/market/feed scope,
-a bounded half-open source-time window, depth, construction mode, required
-evaluation-clock targets, maximum prior-as-of lag, order-book source policy,
-bounded acquisition budgets, and expected product/schema identities. The
+idempotency identities, one exchange/pair/market/feed scope, a bounded half-open
+source-time window, depth, construction mode, required-clock identity, maximum
+prior-as-of lag, order-book source and coverage policies, target archive
+identity, initial archive selection, and expected canonical schema identity. The
 request, result, logs, errors, receipt, and retained evidence MUST NOT contain
 vendor, ClickHouse, archive-forwarder, Vault, or SSH credentials.
 
@@ -110,12 +116,12 @@ vendor, ClickHouse, archive-forwarder, Vault, or SSH credentials.
 CEX Broker SHALL publish
 `runMarketDataVendorBackfill(request, dependencies)` from a package subpath that
 does not import or start the gRPC server. Every completed call MUST return
-exactly one status from `already_covered`, `promoted`,
+exactly one status from `request_invalid`, `archive_preflight_failed`,
+`already_covered`, `promoted`,
 `capability_unsupported`, `credentials_missing`, `vendor_fetch_failed`,
-`archive_ingest_failed`, `promotion_verification_failed`, or
-`post_backfill_coverage_insufficient`, together with a stable reason code and
-secret-free diagnostics. Only `already_covered` and `promoted` are success
-statuses.
+`archive_ingest_failed`, or `promotion_verification_failed`, together with a
+stable reason code, optional stable subcode, and secret-free diagnostics. Only
+`already_covered` and `promoted` are success statuses.
 
 #### Scenario: Core API is consumed as a library
 - **WHEN** Fiet TEE or a conformance harness imports the worker package subpath
@@ -244,9 +250,10 @@ checksums with the normalized vendor projection, prove that pre-existing
 qualified prefix and suffix digests are unchanged, validate old/new seams,
 conflicts, depth, construction, future-leakage, and required-clock coverage, and
 only then submit `market-data-vendor-backfill-promotion-receipt/v1` as the final
-qualification commit. The receipt ID MUST be a canonical hash of its stable
-semantic content; verification time MAY be reported but MUST NOT alter stable
-request, capture, or semantic identities.
+qualification commit. `promotion_identity_sha256` MUST hash the stable semantic
+promotion content, while `receipt_id` MUST hash the complete receipt including
+its fixed UTC `verified_at`; verification time MUST NOT alter request, capture,
+or semantic promotion identities.
 
 #### Scenario: Candidate bundle matches and expands the timeline
 - **WHEN** queried candidate rows match every normalized vendor row and the
@@ -260,8 +267,8 @@ request, capture, or semantic identities.
 - **WHEN** any candidate row is missing, changed, conflicted, discontinuous,
   future-leaking, consumer-schema-incompatible, or insufficient for the
   required clock
-- **THEN** the worker MUST return `promotion_verification_failed` or
-  `post_backfill_coverage_insufficient` as applicable
+- **THEN** the worker MUST return `promotion_verification_failed` with a stable
+  reason and optional subcode
 - **AND** the physical rows MUST remain excluded from replay-qualified views
 
 ### Requirement: Maker consumer proof remains independently bound

@@ -92,17 +92,18 @@ would blur bounded tool and service lifecycles.
 
 ### 2. Request identity, attempt identity, and capture identity are separate
 
-`requestId` binds the caller's durable Maker attempt. `idempotencyKey` is the
+`request_id` binds the caller's durable Maker attempt. `idempotency_key` is the
 canonical SHA-256 of business fields excluding caller path, secrets, and
 request/result filenames. The worker validates the supplied key. A
-content-addressed `captureBundleId` additionally binds provider object checksums,
+content-addressed `capture_bundle_id` additionally binds provider object checksums,
 adapter version, canonical schema, and checksum algorithm. A rerun with identical
 business scope and dataset content therefore reuses the same capture and batch
 identities, while changed upstream content produces a different capture bundle.
 
-Promotion receipt identity is the canonical hash of stable semantic receipt
-content. `verificationTimeMs` is audit metadata and is excluded from request,
-capture, and semantic digest identities.
+`promotion_identity_sha256` is the canonical hash of stable semantic promotion
+content. `receipt_id` separately hashes the complete receipt, including its
+fixed UTC `verified_at` timestamp. Verification time remains excluded from
+request, capture, and semantic promotion identities.
 
 ### 3. External producer provenance is generic and cannot configure the broker
 
@@ -110,7 +111,7 @@ Market capture gains `external_backfill`, but the normal
 `BrokerArchiveSource`/environment parser remains closed to `broker_read` and
 `broker_write`. The vendor path constructs a separate `MarketArchiveSource`
 context. Vendor identity is `provider=cryptohftdata`; v1 source mode is
-`historical_vendor_orderbook_v1`; earliest retained evidence uses
+`vendor_historical_backfill_v1`; earliest retained evidence uses
 `raw_capture_scope=vendor_normalized_dataset_file`.
 
 This describes what CEX received without falsely claiming exchange-wire bytes
