@@ -1,6 +1,7 @@
 import dts from "bun-plugin-dts";
 import { chmod } from "node:fs/promises";
 import { dirname } from "node:path";
+import { resolveBuildGitHead } from "./scripts/build-provenance";
 import { PREPARATION_CONFORMANCE_FIXTURES } from "./src/helpers/market-data-preparation/conformance-fixtures";
 
 const packageDocument = (await Bun.file("./package.json").json()) as {
@@ -14,15 +15,19 @@ if (
 ) {
 	throw new Error("package.json has no pin-eligible version");
 }
-const gitHeadProcess = Bun.spawnSync({
-	cmd: ["git", "rev-parse", "HEAD"],
-	stdout: "pipe",
-	stderr: "pipe",
+const gitHead = resolveBuildGitHead({
+	environmentGitHead: process.env.CEX_BROKER_BUILD_GIT_HEAD,
+	resolveRepositoryGitHead: () => {
+		const gitHeadProcess = Bun.spawnSync({
+			cmd: ["git", "rev-parse", "HEAD"],
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		return gitHeadProcess.exitCode === 0
+			? gitHeadProcess.stdout.toString()
+			: "";
+	},
 });
-const gitHead = gitHeadProcess.stdout.toString().trim();
-if (gitHeadProcess.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(gitHead)) {
-	throw new Error("build cannot resolve a pin-eligible git HEAD");
-}
 
 await Bun.build({
 	entrypoints: ["./src/cli.ts"],

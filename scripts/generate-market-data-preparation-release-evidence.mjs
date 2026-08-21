@@ -54,19 +54,23 @@ const registryComplete = registryValues.every(
 );
 const tarballBytes = readFileSync(tarballPath);
 const tarballSha256 = sha256(tarballBytes);
+let registryPackageVersion;
 if (registryComplete) {
 	const registryUrl = options.get("registry-url");
 	const integrity = options.get("registry-integrity");
 	const npmGitHead = options.get("npm-git-head");
-	if (
-		!/^https:\/\/registry\.npmjs\.org\/@usherlabs\/cex-broker\/-\/cex-broker-0\.2\.47\.tgz$/.test(
+	const registryUrlMatch =
+		/^https:\/\/registry\.npmjs\.org\/@usherlabs\/cex-broker\/-\/cex-broker-([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)\.tgz$/.exec(
 			registryUrl,
-		) ||
+		);
+	if (
+		!registryUrlMatch ||
 		!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(integrity) ||
 		!/^[0-9a-f]{40}$/.test(npmGitHead)
 	) {
 		throw new Error("registry product identity is malformed");
 	}
+	registryPackageVersion = registryUrlMatch[1];
 	if (integrity !== sha512Integrity(tarballBytes)) {
 		throw new Error("registry integrity does not match the supplied tarball");
 	}
@@ -83,9 +87,12 @@ try {
 	);
 	if (
 		packageDocument.name !== "@usherlabs/cex-broker" ||
-		packageDocument.version !== "0.2.47"
+		!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageDocument.version)
 	) {
-		throw new Error("tarball is not @usherlabs/cex-broker@0.2.47");
+		throw new Error("tarball is not a versioned @usherlabs/cex-broker package");
+	}
+	if (registryComplete && registryPackageVersion !== packageDocument.version) {
+		throw new Error("registry URL version does not match the supplied tarball");
 	}
 	const manifest = JSON.parse(
 		readFileSync(
@@ -155,8 +162,8 @@ try {
 			? []
 			: [
 					"merge the clean release commit",
-					"tag v0.2.47",
-					"publish @usherlabs/cex-broker@0.2.47",
+					`tag v${packageDocument.version}`,
+					`publish @usherlabs/cex-broker@${packageDocument.version}`,
 					"download the registry tarball and verify npm metadata",
 					"run the protected provider smoke with the extracted package",
 					"generate the post-registry product pin",
@@ -175,7 +182,7 @@ try {
 			schema_id: "cex-market-data-preparation-product-pin/v1",
 			package: {
 				name: "@usherlabs/cex-broker",
-				version: "0.2.47",
+				version: packageDocument.version,
 				registry_tarball_url: registryUrl,
 				integrity,
 				tarball_sha256: tarballSha256,
