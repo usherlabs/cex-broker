@@ -56,10 +56,13 @@ export interface OtelMetricsEnvOptions {
 const DEFAULT_SERVICE = "cex-broker";
 const DEFAULT_OTLP_PORT = 4318;
 const EXPORT_INTERVAL_MS = 5_000;
+const EXPORT_TIMEOUT_MS = 2_000;
+const SHUTDOWN_TIMEOUT_MS = 3_000;
 
 abstract class BaseOtelSignal<TProvider> {
 	private provider: TProvider | null = null;
 	private isEnabled = false;
+	private closePromise: Promise<void> | null = null;
 	private readonly serviceName: string;
 
 	protected constructor(
@@ -113,19 +116,43 @@ abstract class BaseOtelSignal<TProvider> {
 		return this.isEnabled && this.provider !== null;
 	}
 
-	public async close(): Promise<void> {
-		if (!this.provider) {
-			return;
-		}
-		try {
-			await this.shutdownProvider(this.provider);
-			log.info(`OTel ${this.signal} provider shut down`);
-		} catch (error) {
-			log.error(`Error shutting down OTel ${this.signal} provider:`, error);
-		}
+	public close(): Promise<void> {
+		if (this.closePromise) return this.closePromise;
+
+		const provider = this.provider;
 		this.provider = null;
 		this.isEnabled = false;
 		this.onProviderClosed();
+		if (!provider) {
+			this.closePromise = Promise.resolve();
+			return this.closePromise;
+		}
+
+		const shutdown = Promise.resolve()
+			.then(() => this.shutdownProvider(provider))
+			.then(
+				() => {
+					log.info(`OTel ${this.signal} provider shut down`);
+				},
+				(error) => {
+					log.error(`Error shutting down OTel ${this.signal} provider:`, error);
+				},
+			);
+		let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+		const deadline = new Promise<void>((resolve) => {
+			deadlineTimer = setTimeout(() => {
+				deadlineTimer = undefined;
+				log.warn(
+					`OTel ${this.signal} provider shutdown exceeded ${SHUTDOWN_TIMEOUT_MS}ms; continuing shutdown`,
+				);
+				resolve();
+			}, SHUTDOWN_TIMEOUT_MS);
+		});
+
+		this.closePromise = Promise.race([shutdown, deadline]).finally(() => {
+			if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+		});
+		return this.closePromise;
 	}
 }
 
@@ -171,10 +198,12 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 	): MeterProviderType {
 		const exporter = new OTLPMetricExporter({
 			url: appendOtlpPath(endpoint, "metrics", appendSignalPath),
+			timeoutMillis: EXPORT_TIMEOUT_MS,
 		});
 		const reader = new PeriodicExportingMetricReader({
 			exporter,
 			exportIntervalMillis: EXPORT_INTERVAL_MS,
+			exportTimeoutMillis: EXPORT_TIMEOUT_MS,
 		});
 		const resource = resourceFromAttributes({
 			"service.name": serviceName,
@@ -362,8 +391,11 @@ export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
 	): LoggerProvider {
 		const exporter = new OTLPLogExporter({
 			url: appendOtlpPath(endpoint, "logs", appendSignalPath),
+			timeoutMillis: EXPORT_TIMEOUT_MS,
 		});
-		const processor = new BatchLogRecordProcessor(exporter);
+		const processor = new BatchLogRecordProcessor(exporter, {
+			exportTimeoutMillis: EXPORT_TIMEOUT_MS,
+		});
 		const resource = resourceFromAttributes({
 			"service.name": serviceName,
 		});
@@ -379,7 +411,7 @@ export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
 	}
 
 	protected shutdownProvider(provider: LoggerProvider): Promise<void> {
-		return provider.forceFlush().then(() => provider.shutdown());
+		return provider.shutdown();
 	}
 
 	protected override onProviderClosed(): void {

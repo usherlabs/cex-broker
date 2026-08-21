@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { startBrokerCommand } from "./commands/start-broker";
+import { log } from "./helpers/logger";
 
 const program = new Command();
 
@@ -32,22 +33,44 @@ program
 
 				for (const ip of whitelist) {
 					if (!isValidIPv4(ip)) {
-						console.error(`❌ Invalid IPv4 address: ${ip}`);
-						process.exit(1);
+						throw new Error(`Invalid IPv4 address: ${ip}`);
 					}
 				}
 			}
 
-			await startBrokerCommand(
+			const broker = await startBrokerCommand(
 				options.policy,
 				parseInt(options.port, 10),
 				whitelist, // Pass whitelist to your command,
 				options.verityProverUrl,
 			);
+			let shutdownPromise: Promise<void> | undefined;
+			const onSignal = (signal: NodeJS.Signals): void => {
+				if (shutdownPromise) return;
+				log.info("CEXBroker graceful shutdown requested", { signal });
+				shutdownPromise = (async () => {
+					try {
+						await broker.stop();
+						log.info("CEXBroker graceful shutdown complete", { signal });
+						process.exitCode = 0;
+					} catch (error) {
+						log.error("CEXBroker graceful shutdown failed", {
+							signal,
+							error,
+						});
+						process.exitCode = 1;
+					} finally {
+						process.off("SIGTERM", onSignal);
+						process.off("SIGINT", onSignal);
+					}
+				})();
+			};
+			process.on("SIGTERM", onSignal);
+			process.on("SIGINT", onSignal);
 		} catch (err) {
 			console.error("❌ Failed to start broker:", err);
-			process.exit(1);
+			process.exitCode = 1;
 		}
 	});
 
-program.parse(process.argv);
+await program.parseAsync(process.argv);

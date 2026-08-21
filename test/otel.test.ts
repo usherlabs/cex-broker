@@ -1,4 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createServer, type Socket } from "node:net";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+import {
+	AggregationTemporality,
+	DataPointType,
+	InMemoryMetricExporter,
+	MeterProvider,
+	type MeterProvider as MeterProviderType,
+	PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
 import {
 	createOtelMetricsFromEnv,
 	type MetricData,
@@ -13,6 +23,50 @@ function enabledConfig(overrides?: Partial<OtelConfig>): OtelConfig {
 		serviceName: "test-service",
 		...overrides,
 	};
+}
+
+function createInMemoryMetrics(
+	exporter: InMemoryMetricExporter,
+	serviceName: string,
+): OtelMetrics {
+	class InMemoryOtelMetrics extends OtelMetrics {
+		protected override createProvider(
+			_endpoint: string,
+			providerServiceName: string,
+			_appendSignalPath: boolean,
+		): MeterProviderType {
+			return new MeterProvider({
+				resource: resourceFromAttributes({
+					"service.name": providerServiceName,
+				}),
+				readers: [
+					new PeriodicExportingMetricReader({
+						exporter,
+						exportIntervalMillis: 60_000,
+					}),
+				],
+			});
+		}
+	}
+
+	return new InMemoryOtelMetrics({
+		otlpEndpoint: "http://in-memory.invalid",
+		serviceName,
+	});
+}
+
+async function listen(
+	server: ReturnType<typeof createServer>,
+): Promise<number> {
+	await new Promise<void>((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(0, "127.0.0.1", resolve);
+	});
+	const address = server.address();
+	if (!address || typeof address === "string") {
+		throw new Error("Blackhole collector did not bind to a TCP port");
+	}
+	return address.port;
 }
 
 describe("OtelMetrics", () => {
@@ -99,8 +153,9 @@ describe("OtelMetrics", () => {
 	describe("Metric Recording", () => {
 		test("should not throw when recording metrics and OTel is disabled", async () => {
 			const metrics = new OtelMetrics();
-			await metrics.recordCounter("test_metric", 1, { label: "value" });
-			expect(true).toBe(true);
+			await expect(
+				metrics.recordCounter("test_metric", 1, { label: "value" }),
+			).resolves.toBeUndefined();
 		});
 
 		test("should not throw when inserting metric and OTel is disabled", async () => {
@@ -113,8 +168,7 @@ describe("OtelMetrics", () => {
 				labels: JSON.stringify({ label: "value" }),
 				service: "test-service",
 			};
-			await metrics.insertMetric(metricData);
-			expect(true).toBe(true);
+			await expect(metrics.insertMetric(metricData)).resolves.toBeUndefined();
 		});
 
 		test("should not throw when inserting multiple metrics and OTel is disabled", async () => {
@@ -137,63 +191,61 @@ describe("OtelMetrics", () => {
 					service: "test-service",
 				},
 			];
-			await metrics.insertMetrics(metricData);
-			expect(true).toBe(true);
+			await expect(metrics.insertMetrics(metricData)).resolves.toBeUndefined();
 		});
 
-		test("should record counter metric", async () => {
-			const metrics = new OtelMetrics();
+		test("shutdown exports counter value, metric attributes, and service resource", async () => {
+			const exporter = new InMemoryMetricExporter(
+				AggregationTemporality.CUMULATIVE,
+			);
+			const metrics = createInMemoryMetrics(exporter, "resource-service");
+
 			await metrics.recordCounter(
-				"test_counter",
-				5,
-				{ label: "test" },
-				"test-service",
+				"semantic_counter_total",
+				7,
+				{ custom: "kept" },
+				"metric-service",
 			);
-			expect(true).toBe(true);
-		});
+			await metrics.close();
 
-		test("should record gauge metric", async () => {
-			const metrics = new OtelMetrics();
-			await metrics.recordGauge(
-				"test_gauge",
-				10.5,
-				{ label: "test" },
-				"test-service",
+			const exported = exporter.getMetrics();
+			expect(exported).toHaveLength(1);
+			expect(exported[0]?.resource.attributes["service.name"]).toBe(
+				"resource-service",
 			);
-			expect(true).toBe(true);
-		});
-
-		test("should record histogram metric", async () => {
-			const metrics = new OtelMetrics();
-			await metrics.recordHistogram(
-				"test_histogram",
-				100,
-				{ label: "test" },
-				"test-service",
-			);
-			expect(true).toBe(true);
+			const counter = exported
+				.flatMap(({ scopeMetrics }) => scopeMetrics)
+				.flatMap(({ metrics: scopeMetricData }) => scopeMetricData)
+				.find(({ descriptor }) => descriptor.name === "semantic_counter_total");
+			expect(counter?.dataPointType).toBe(DataPointType.SUM);
+			if (!counter || counter.dataPointType !== DataPointType.SUM) {
+				throw new Error("Expected shutdown to export a sum counter");
+			}
+			expect(counter.dataPoints).toHaveLength(1);
+			expect(counter.dataPoints[0]?.value).toBe(7);
+			expect(counter.dataPoints[0]?.attributes).toEqual({
+				custom: "kept",
+				service: "metric-service",
+			});
 		});
 
 		test("should handle empty metrics array", async () => {
 			const metrics = new OtelMetrics();
-			await metrics.insertMetrics([]);
-			expect(true).toBe(true);
+			await expect(metrics.insertMetrics([])).resolves.toBeUndefined();
 		});
 	});
 
 	describe("Initialization (no-op)", () => {
 		test("should not throw when initializing and OTel is disabled", async () => {
 			const metrics = new OtelMetrics();
-			await metrics.initialize();
-			expect(true).toBe(true);
+			await expect(metrics.initialize()).resolves.toBeUndefined();
 		});
 	});
 
 	describe("Connection Management", () => {
 		test("should not throw when closing and OTel is disabled", async () => {
 			const metrics = new OtelMetrics();
-			await metrics.close();
-			expect(true).toBe(true);
+			await expect(metrics.close()).resolves.toBeUndefined();
 		});
 
 		test("should close connection when enabled", async () => {
@@ -202,30 +254,96 @@ describe("OtelMetrics", () => {
 				port: 8123,
 			};
 			const metrics = new OtelMetrics(config);
+			expect(metrics.isOtelEnabled()).toBe(true);
 			await metrics.close();
-			expect(true).toBe(true);
-		});
-	});
-
-	describe("Metric Data Format", () => {
-		test("should serialize labels as JSON string", async () => {
-			const metrics = new OtelMetrics();
-			const labels = { key1: "value1", key2: 123, key3: true };
-			await metrics.recordCounter("test", 1, labels);
-			expect(JSON.stringify(labels)).toContain("value1");
+			expect(metrics.isOtelEnabled()).toBe(false);
 		});
 
-		test("should handle numeric labels", async () => {
-			const metrics = new OtelMetrics();
-			await metrics.recordCounter("test", 1, { numeric_label: 42 });
-			expect(true).toBe(true);
+		test("coalesces concurrent and repeated provider shutdown calls", async () => {
+			const exporter = new InMemoryMetricExporter(
+				AggregationTemporality.CUMULATIVE,
+			);
+			let shutdownCalls = 0;
+			class CountingOtelMetrics extends OtelMetrics {
+				protected override createProvider(
+					_endpoint: string,
+					serviceName: string,
+					_appendSignalPath: boolean,
+				): MeterProviderType {
+					return new MeterProvider({
+						resource: resourceFromAttributes({ "service.name": serviceName }),
+						readers: [
+							new PeriodicExportingMetricReader({
+								exporter,
+								exportIntervalMillis: 60_000,
+							}),
+						],
+					});
+				}
+
+				protected override shutdownProvider(
+					provider: MeterProviderType,
+				): Promise<void> {
+					shutdownCalls += 1;
+					return super.shutdownProvider(provider);
+				}
+			}
+			const metrics = new CountingOtelMetrics(enabledConfig());
+			await metrics.recordCounter("idempotent_close_total", 1, {});
+
+			const first = metrics.close();
+			const second = metrics.close();
+			const third = metrics.close();
+			expect(second).toBe(first);
+			expect(third).toBe(first);
+			await Promise.all([first, second, third]);
+			expect(metrics.close()).toBe(first);
+
+			expect(shutdownCalls).toBe(1);
+			expect(metrics.isOtelEnabled()).toBe(false);
 		});
 
-		test("should handle string labels", async () => {
-			const metrics = new OtelMetrics();
-			await metrics.recordCounter("test", 1, { string_label: "value" });
-			expect(true).toBe(true);
-		});
+		test("observes a provider rejection that arrives after the shutdown deadline", async () => {
+			let rejectShutdown: ((reason: Error) => void) | undefined;
+			const unhandled: unknown[] = [];
+			const onUnhandled = (reason: unknown) => unhandled.push(reason);
+			process.on("unhandledRejection", onUnhandled);
+
+			class LateRejectingOtelMetrics extends OtelMetrics {
+				protected override shutdownProvider(
+					provider: MeterProviderType,
+				): Promise<void> {
+					return new Promise<void>((_resolve, reject) => {
+						rejectShutdown = (reason) => {
+							void super.shutdownProvider(provider).then(
+								() => reject(reason),
+								() => reject(reason),
+							);
+						};
+					});
+				}
+			}
+
+			const metrics = new LateRejectingOtelMetrics({
+				otlpEndpoint: "http://127.0.0.1:1",
+				serviceName: "late-rejection-test",
+			});
+			const closing = metrics.close();
+			try {
+				await Bun.sleep(3_100);
+				expect(metrics.isOtelEnabled()).toBe(false);
+				await closing;
+				const rejectAfterDeadline = rejectShutdown;
+				rejectShutdown = undefined;
+				rejectAfterDeadline?.(new Error("late provider rejection"));
+				await Bun.sleep(50);
+				expect(unhandled).toEqual([]);
+			} finally {
+				process.off("unhandledRejection", onUnhandled);
+				rejectShutdown?.(new Error("late provider cleanup"));
+				await closing;
+			}
+		}, 5_000);
 	});
 
 	describe("Metrics enabled (OTLP)", () => {
@@ -381,13 +499,13 @@ describe("OtelMetrics", () => {
 	});
 
 	describe("OTLP export integration", () => {
-		test("should send metrics to OTLP HTTP endpoint when recording", async () => {
-			let received = 0;
+		test("close flushes a non-empty OTLP metrics request before resolving", async () => {
+			const receivedBodies: Uint8Array[] = [];
 			const server = Bun.serve({
 				port: 0,
-				fetch(req) {
+				async fetch(req) {
 					if (req.url.endsWith("/v1/metrics") && req.method === "POST") {
-						received += 1;
+						receivedBodies.push(new Uint8Array(await req.arrayBuffer()));
 						return new Response(null, { status: 200 });
 					}
 					return new Response("Not Found", { status: 404 });
@@ -400,18 +518,53 @@ describe("OtelMetrics", () => {
 			});
 			expect(metrics.isOtelEnabled()).toBe(true);
 
-			await metrics.recordCounter("integration_counter", 1, { test: "true" });
-			await metrics.recordHistogram("integration_histogram", 10, {
-				test: "true",
+			try {
+				await metrics.recordCounter("integration_counter", 1, {
+					test: "true",
+				});
+				await metrics.close();
+
+				expect(receivedBodies).toHaveLength(1);
+				expect(receivedBodies[0]?.byteLength).toBeGreaterThan(0);
+			} finally {
+				server.stop();
+			}
+		});
+
+		test("blackhole collector cannot hold shutdown past the OTEL deadline", async () => {
+			const sockets = new Set<Socket>();
+			let resolveConnection: (() => void) | undefined;
+			const connectionAttempted = new Promise<void>((resolve) => {
+				resolveConnection = resolve;
 			});
-			await metrics.setObservableGauge("integration_heartbeat", 123, {});
+			const server = createServer((socket) => {
+				sockets.add(socket);
+				socket.once("close", () => sockets.delete(socket));
+				resolveConnection?.();
+			});
+			const port = await listen(server);
+			const metrics = new OtelMetrics({
+				otlpEndpoint: `http://127.0.0.1:${port}`,
+				serviceName: "blackhole-test",
+			});
 
-			await new Promise((r) => setTimeout(r, 5500));
+			try {
+				await metrics.recordCounter("blackhole_shutdown_total", 1, {
+					attempt: "expected",
+				});
+				const started = performance.now();
+				const closing = metrics.close();
+				const disabledImmediately = !metrics.isOtelEnabled();
+				await connectionAttempted;
+				await closing;
+				const elapsedMs = performance.now() - started;
 
-			expect(received).toBeGreaterThanOrEqual(1);
-
-			await metrics.close();
-			server.stop();
-		}, 12000);
+				expect(disabledImmediately).toBe(true);
+				expect(elapsedMs).toBeLessThan(3_500);
+			} finally {
+				for (const socket of sockets) socket.destroy();
+				await new Promise<void>((resolve) => server.close(() => resolve()));
+			}
+		}, 12_000);
 	});
 });
