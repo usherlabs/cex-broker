@@ -1,0 +1,34 @@
+{
+	"schema_id": "cex-market-data-preparation-release-evidence/v1",
+	"status": "registry_tarball_verified",
+	"package": {
+		"name": "@usherlabs/cex-broker",
+		"version": "0.2.48",
+		"candidate_tarball_sha256": "58968a3882fde77540ea12c3182681c36c33e4b6d815113e3173a54f4045caf5"
+	},
+	"executables": [
+		{
+			"product_id": "market-data-vendor-backfill",
+			"product_version": "market-data-vendor-backfill/v1",
+			"relative_path": "dist/commands/market-data-vendor-backfill.js",
+			"executable_sha256": "793a51c317b0f9e4a6e9710075c5876b04452768421c8f0c98b77e0489d7f8e3"
+		},
+		{
+			"product_id": "cex-canonical-orderbook-export",
+			"product_version": "cex-canonical-orderbook-export/v1",
+			"relative_path": "dist/commands/cex-canonical-orderbook-export.js",
+			"executable_sha256": "47b5a9281acbaf2139b7eb449622448c9ad74aa2ce286b8f1c16a51d5458ec2f"
+		}
+	],
+	"schema_manifest": {
+		"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v2",
+		"manifest_sha256": "0e226165c78c6217a765c09be15b6305a574e69b6e05e8607f399b468ba04d5b"
+	},
+	"registry": {
+		"tarball_url": "https://registry.npmjs.org/@usherlabs/cex-broker/-/cex-broker-0.2.48.tgz",
+		"integrity": "sha512-Zapa/tRmJMTvjDn0EWw3fGTTtpe8BqUeEwqPapjYE1onWxa610ovRRfPIX5k0pfSR2fz8ujy0zY+JcKxKWNSFw==",
+		"npm_git_head": "3b42f32422c587afbdfab6ed16b0969980eaaddb",
+		"tarball_sha256": "58968a3882fde77540ea12c3182681c36c33e4b6d815113e3173a54f4045caf5"
+	},
+	"pending_steps": []
+}
