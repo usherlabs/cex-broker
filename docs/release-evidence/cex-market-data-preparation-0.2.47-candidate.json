@@ -1,0 +1,60 @@
+{
+	"schema_id": "cex-market-data-preparation-release-candidate-evidence/v1",
+	"status": "candidate_unpublished_dirty_worktree",
+	"authoritative": false,
+	"package": {
+		"name": "@usherlabs/cex-broker",
+		"version": "0.2.47",
+		"source_git_head_at_build": "67c72b745ce3f3ae98e588af75deaf587298d3bc",
+		"candidate_tarball_sha256": "d158fb26356841a4b4517d9fd317203ec91b2259f073e343f1adc0ad8820c04d"
+	},
+	"executables": [
+		{
+			"product_id": "market-data-vendor-backfill",
+			"relative_path": "dist/commands/market-data-vendor-backfill.js",
+			"executable_sha256": "8426390fec42b872573bc4aec0ba76d3dc16c53b5d9fb4cb71300b9c27680037"
+		},
+		{
+			"product_id": "cex-canonical-orderbook-export",
+			"relative_path": "dist/commands/cex-canonical-orderbook-export.js",
+			"executable_sha256": "5675f13c6ea8ab081a4aeab1e884bd92e8dac260e790f941c51978fa1bbf4214"
+		}
+	],
+	"schema_manifest": {
+		"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v2",
+		"manifest_sha256": "0e226165c78c6217a765c09be15b6305a574e69b6e05e8607f399b468ba04d5b",
+		"raw_file_sha256": "086fc93a4d4154e0ec563f81556fe3f9861c7228b93f4bdca92bfe4cffb2a50f"
+	},
+	"verification": {
+		"targeted_tests": "31 passed",
+		"full_unit_tests": "887 passed",
+		"archive_e2e": "18 passed",
+		"clickhouse_server_integration": "14 passed against isolated ClickHouse 24.8, including the vendor promotion and exact-export lifecycle",
+		"local_live_provider_smoke": "passed against CryptoHFTData OKX Spot ARB-USDT on the dirty candidate worktree",
+		"typescript": "passed",
+		"biome": "passed with 114 pre-existing warnings",
+		"server_line_budget": "passed",
+		"strict_openspec": "13 passed",
+		"extracted_tarball_audit": "passed under Node 22 without node_modules"
+	},
+	"registry": null,
+	"local_live_provider_smoke": {
+		"status": "passed_dirty_worktree",
+		"evidence_path": "docs/release-evidence/cex-market-data-vendor-backfill-0.2.47-local-smoke.json",
+		"evidence_sha256": "49281cfcc4b87a95ff8e20e53e6aef8453ad5d8eb24c6bf86e38a6bb5c3c2937",
+		"first_result": "promoted",
+		"second_result": "already_covered",
+		"qualified_level_rows": 40,
+		"qualified_summary_rows": 1
+	},
+	"protected_provider_smoke": null,
+	"pending_steps": [
+		"commit the implementation and rebuild from the clean release commit",
+		"rerun all gates and the protected CryptoHFTData smoke against the extracted clean-commit package",
+		"merge the clean release commit and create tag v0.2.47",
+		"publish @usherlabs/cex-broker@0.2.47 through the authorized release workflow",
+		"download the registry tarball and verify npm dist.integrity and gitHead",
+		"run release:evidence:market-data-preparation with all registry arguments to generate the authoritative product pin",
+		"commit the post-registry pin and protected-smoke evidence before downstream Maker dispatch"
+	]
+}

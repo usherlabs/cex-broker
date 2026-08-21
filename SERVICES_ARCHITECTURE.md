@@ -21,7 +21,15 @@ The full broker is the only repository service that owns CEX connections and CEX
 
 The archive-forwarder centralizes trusted ClickHouse writes behind HTTP. It is not a universal ClickHouse proxy: viewers, replay materializers, validators, and externally owned metrics consumers may read ClickHouse directly.
 
-The market-data vendor backfill package is a bounded worker library, not a daemon or broker RPC. An authorized caller invokes it for one closed scope/window. It may read qualified and candidate ClickHouse views, fetch an explicitly enabled historical-vendor profile, and submit deterministic candidate and promotion batches to the archive-forwarder. It never starts the broker, owns a live CEX subscription, or writes ClickHouse directly.
+The market-data preparation package contains a bounded worker library and two
+CEX-owned standalone Node file jobs, not daemons or broker RPCs. An authorized
+caller invokes backfill for one closed scope/window and invokes canonical export
+for one complete archive selection. Backfill may read qualified and candidate
+ClickHouse views, fetch an explicitly enabled historical-vendor profile, and
+submit deterministic candidate and promotion batches to the archive-forwarder.
+Export has read-only ClickHouse access and writes only its caller-owned Parquet
+and result files. Neither starts the broker, owns a live CEX subscription, adds
+domain logic to `src/server.ts`, or writes ClickHouse directly.
 
 ## Repository-owned services
 
@@ -78,7 +86,15 @@ ORDERBOOK physical identity is venue-resolved. Binance and MEXC have candidate d
 The following repository components are not production services:
 
 - `examples/archive-watch-subscribe.ts` is an interactive/local subscription example, not the managed continuous collector.
-- `@usherlabs/cex-broker/market-data-vendor-backfill` is a server-independent bounded worker package. CEX Broker owns its request/result contracts, provider profiles, canonicalization, semantic promotion, archive reader, and deterministic producer retry. The archive-forwarder remains the only ClickHouse writer; its live-strategy SQLite spool is not reused by this bounded producer.
+- `@usherlabs/cex-broker/market-data-vendor-backfill` remains the
+  server-independent library API. The package bins
+  `market-data-vendor-backfill` and `cex-canonical-orderbook-export` are bounded
+  file jobs with exact argv, Node 22, no installed runtime dependency tree, and
+  result-last commit semantics. CEX Broker owns their contracts, provider
+  profiles, exact replay query compiler, canonicalization, semantic promotion,
+  archive reader, and deterministic producer retry. The archive-forwarder
+  remains the only ClickHouse writer; its live-strategy SQLite spool is not
+  reused by either job.
 - `scripts/market-data-vendor-backfill-conformance.ts` is an explicit opt-in licensed-provider probe. It enables one pinned profile for one bounded object and emits only object identities, counts, and hashes; it does not retain decoded provider rows or credentials.
 - `scripts/market-data-vendor-backfill-local-smoke.ts` is the protected CEX-owned live-provider release gate. It runs the complete bounded worker twice against a disposable Server 24.8 archive through the HTTP forwarder, requires promotion followed by an archive-first no-op, and retains only the closed hash-safe evidence projection. It is local/manual CI only and does not run on pull requests, pushes, or a schedule.
 - `scripts/migrate-legacy-market-data-to-canonical.ts`, replay validators, and Parquet exporters are bounded operator tools that access ClickHouse directly.
@@ -89,7 +105,14 @@ The following repository components are not production services:
 
 CEX venues, ClickHouse, OpenTelemetry infrastructure, and Verity are external dependencies. FIET Maker/Hummingbot runtimes, `fiet-observer`, and other archive or metrics producers are owned by their respective repositories. Their direct ClickHouse reads or supported archive-forwarder writes do not make them CEX Broker services.
 
-The cross-repository backfill release boundary has three owners. CEX Broker publishes the unused library package and promotion contract. Fiet TEE pins that package and owns the file/CLI, Vault/secret resolution, dependency wiring, and executable packaging. Fiet Maker independently requeries replay-qualified views after promotion and binds the CEX receipt, query evidence, loader output, and final policy artifact hashes. A CEX promotion alone does not establish Maker economics quotability.
+The cross-repository backfill release boundary has two product owners. CEX
+Broker publishes the library, both executable files, schemas, promotion
+contract, and post-registry product-pin inputs in one package. Deployment
+automation owns secret injection and production authorization. Fiet Maker pins
+and extracts the immutable CEX package, invokes the file jobs, independently
+binds replay-qualified query evidence, loader output, and final policy artifact
+hashes, and retains claim authority. A CEX promotion or export alone does not
+establish Maker economics quotability.
 
 ## Deployment profiles
 

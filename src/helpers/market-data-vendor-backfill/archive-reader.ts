@@ -173,6 +173,46 @@ export class QualifiedOrderBookArchiveReader {
 			environment: String(identityRows[0]?.environment ?? ""),
 			cluster: String(identityRows[0]?.cluster ?? ""),
 		};
+		const conflictRows = await archiveQuery(
+			this.client,
+			"archive_selection_conflict_query_failed",
+			`SELECT count() AS conflicts
+			 FROM
+			 (
+			   SELECT conflict.capture_bundle_id, conflict.snapshot_id
+			   FROM market_data.cex_order_book_levels_conflicts AS conflict
+			   INNER JOIN
+			   (
+			     SELECT DISTINCT capture_bundle_id, snapshot_id
+			     FROM market_data.cex_order_book_depth_summary
+			     WHERE ${scopeFilter()}
+			       AND source_time_ms >= {start_time_ms:UInt64}
+			       AND source_time_ms < {end_time_ms:UInt64}
+			   ) AS selected USING (capture_bundle_id, snapshot_id)
+			   UNION ALL
+			   SELECT conflict.capture_bundle_id, conflict.snapshot_id
+			   FROM market_data.cex_order_book_depth_summary_conflicts AS conflict
+			   INNER JOIN
+			   (
+			     SELECT DISTINCT capture_bundle_id, snapshot_id
+			     FROM market_data.cex_order_book_depth_summary
+			     WHERE ${scopeFilter()}
+			       AND source_time_ms >= {start_time_ms:UInt64}
+			       AND source_time_ms < {end_time_ms:UInt64}
+			   ) AS selected USING (capture_bundle_id, snapshot_id)
+			 )`,
+			queryParameters(request),
+		);
+		if (
+			conflictRows.length !== 1 ||
+			!Number.isSafeInteger(Number(conflictRows[0]?.conflicts)) ||
+			Number(conflictRows[0]?.conflicts) < 0
+		) {
+			throw new ArchiveReaderError("archive_selection_conflict_query_invalid");
+		}
+		if (Number(conflictRows[0]?.conflicts) > 0) {
+			throw new ArchiveReaderError("archive_selection_checksum_conflict");
+		}
 		const storedRows = await archiveQuery(
 			this.client,
 			"archive_stored_selection_query_failed",

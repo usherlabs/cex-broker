@@ -10,6 +10,10 @@ import {
 import { createClickHouseInserter } from "../services/archive-forwarder/insert";
 import { handleArchiveBatch } from "../services/archive-forwarder/router";
 import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
+import {
+	createClickHouseExactOrderBookExportClient,
+	exportExactCanonicalOrderBook,
+} from "../src/helpers/canonical-orderbook-export/exporter";
 import { buildCanonicalOrderBookRows } from "../src/helpers/market-data-archive/canonical-orderbook";
 import {
 	createRawCapture,
@@ -23,6 +27,7 @@ import {
 	buildCanonicalTradeRow,
 } from "../src/helpers/market-data-archive/rows";
 import type { MarketCaptureContext } from "../src/helpers/market-data-archive/types";
+import { CANONICAL_ORDERBOOK_EXPORT_REQUEST_SCHEMA_ID } from "../src/helpers/market-data-preparation/contracts";
 import {
 	createClickHouseArchiveQueryClient,
 	QualifiedOrderBookArchiveReader,
@@ -30,6 +35,7 @@ import {
 import {
 	BACKFILL_REQUEST_SCHEMA_VERSION,
 	EXTERNAL_BACKFILL_SOURCE,
+	finalizeArchiveSelection,
 	HISTORICAL_VENDOR_SOURCE_MODE,
 	PROMOTION_RECEIPT_SCHEMA_ID,
 	VENDOR_DATASET_RAW_CAPTURE_SCOPE,
@@ -478,17 +484,16 @@ describe("ClickHouse market_data schema integration", () => {
 			state: "qualified" | "quarantined" | "revoked",
 			offsetMs: number,
 		) => {
-			const event = qualificationEventToArchiveRow(
-				finalizeQualificationEvent({
-					capture_bundle_id: qualifiedReceipt.capture_bundle_id,
-					state,
-					receipt_id: qualifiedReceipt.receipt_id,
-					promotion_identity_sha256: qualifiedReceipt.promotion_identity_sha256,
-					window: qualifiedReceipt.window,
-					event_at: new Date(sourceTimeMs + offsetMs).toISOString(),
-					reason_code: `integration_${state}`,
-				}),
-			);
+			const finalizedEvent = finalizeQualificationEvent({
+				capture_bundle_id: qualifiedReceipt.capture_bundle_id,
+				state,
+				receipt_id: qualifiedReceipt.receipt_id,
+				promotion_identity_sha256: qualifiedReceipt.promotion_identity_sha256,
+				window: qualifiedReceipt.window,
+				event_at: new Date(sourceTimeMs + offsetMs).toISOString(),
+				reason_code: `integration_${state}`,
+			});
+			const event = qualificationEventToArchiveRow(finalizedEvent);
 			const result = await handleArchiveBatch(
 				createClickHouseInserter(client),
 				{
@@ -499,6 +504,7 @@ describe("ClickHouse market_data schema integration", () => {
 				},
 			);
 			expect(result.failed).toBe(0);
+			return finalizedEvent;
 		};
 		await appendQualification("quarantined", 20);
 		expect((await counts())[0]).toMatchObject({
@@ -510,7 +516,7 @@ describe("ClickHouse market_data schema integration", () => {
 			qualified_levels: "0",
 			qualified_summaries: "0",
 		});
-		await appendQualification("qualified", 40);
+		const currentQualification = await appendQualification("qualified", 40);
 		expect((await counts())[0]).toMatchObject({
 			qualified_levels: "2",
 			qualified_summaries: "1",
@@ -564,21 +570,93 @@ describe("ClickHouse market_data schema integration", () => {
 			join(tmpdir(), "cex-broker-external-parquet-test-"),
 		);
 		try {
-			const exported = await exportCanonicalOrderBookParquet({
-				clickhouseUrl: CLICKHOUSE_URL,
-				username: CLICKHOUSE_USERNAME,
-				password: CLICKHOUSE_PASSWORD,
-				outputDirectory,
-				captureBundleIds: [captureBundleId],
-				exchange: "binance",
-				tradingPair: "TEST-EXTERNAL",
-				startTimeMs: sourceTimeMs - 1,
-				endTimeMs: sourceTimeMs + 1,
+			await client.insert({
+				table: "cex_archive_cluster_identity",
+				format: "JSONEachRow",
+				values: [
+					{
+						singleton_key: "archive",
+						environment: "integration",
+						cluster: "clickhouse-schema-test",
+						configured_at_ms: sourceTimeMs,
+						configuration_sha256: "9".repeat(64),
+					},
+				],
 			});
-			expect(exported).toMatchObject({ levelRows: 2, summaryRows: 1 });
+			const selection = finalizeArchiveSelection({
+				schema_id:
+					"https://schemas.usher.so/market-data-vendor-backfill-archive-selection/v1",
+				scope: qualifiedReceipt.scope,
+				required_clock: {
+					clock_id: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f130",
+					clock_sha256: "8".repeat(64),
+					event_count: 1,
+				},
+				coverage_policy: qualifiedReceipt.coverage_policy,
+				source_policy: "authoritative_window",
+				coverage_class: "complete",
+				requested_intervals: [qualifiedReceipt.window],
+				selected_intervals: [
+					{
+						...qualifiedReceipt.window,
+						capture_bundle_id: captureBundleId,
+						capture_origin: "vendor_historical_backfill",
+					},
+				],
+				precedence: ["vendor"],
+				bundles: [
+					{
+						capture_bundle_id: captureBundleId,
+						capture_origin: "vendor_historical_backfill",
+						interval: qualifiedReceipt.window,
+						qualification: {
+							qualification_event_id:
+								currentQualification.qualification_event_id,
+							state: "qualified",
+							receipt_id: qualifiedReceipt.receipt_id,
+							promotion_identity_sha256:
+								qualifiedReceipt.promotion_identity_sha256,
+						},
+					},
+				],
+				support_anchors: [],
+				receipt_ids: [qualifiedReceipt.receipt_id],
+				qualification_event_ids: [currentQualification.qualification_event_id],
+				resolved_at: new Date(sourceTimeMs + 41).toISOString(),
+			});
+			const exported = await exportExactCanonicalOrderBook({
+				request: {
+					schema_id: CANONICAL_ORDERBOOK_EXPORT_REQUEST_SCHEMA_ID,
+					request_id: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f131",
+					target: {
+						environment: "integration",
+						cluster: "clickhouse-schema-test",
+					},
+					selection,
+					depth: 1,
+					construction_mode: "sampled_top_n_snapshot",
+					canonical_schema_version: "1.0.0",
+					checksum_algorithm: "sha256-canonical-json-v1",
+				},
+				client: createClickHouseExactOrderBookExportClient({
+					url: CLICKHOUSE_URL,
+					username: CLICKHOUSE_USERNAME,
+					password: CLICKHOUSE_PASSWORD,
+				}),
+				outputDirectory,
+			});
+			expect(exported).toMatchObject({
+				levels: { rows: 2 },
+				summary: { rows: 1 },
+			});
 			expect(exported.promotionReceiptIds).toEqual([
-				promotion(1).receipt.receipt_id,
+				qualifiedReceipt.receipt_id,
 			]);
+			for (const artifactPath of [exported.levelsPath, exported.summaryPath]) {
+				const bytes = await readFile(artifactPath);
+				expect(bytes.subarray(0, 4).toString()).toBe("PAR1");
+				expect(bytes.subarray(-4).toString()).toBe("PAR1");
+			}
 		} finally {
 			await rm(outputDirectory, { recursive: true, force: true });
 		}

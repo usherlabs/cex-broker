@@ -23,6 +23,36 @@ const archiveIdentity = {
 };
 
 describe("final-v1 qualification-aware archive reader", () => {
+	test("rejects relevant checksum conflicts before stored or fresh coverage classification", async () => {
+		let selectionQueries = 0;
+		const client: ArchiveQueryClient = {
+			query: async (sql) => {
+				if (sql.includes("cex_archive_cluster_identity")) {
+					return [archiveIdentity];
+				}
+				if (sql.includes("levels_conflicts")) return [{ conflicts: "1" }];
+				if (sql.includes("cex_order_book_archive_selections")) {
+					selectionQueries += 1;
+					return [];
+				}
+				throw new Error(`unexpected query: ${sql}`);
+			},
+		};
+
+		try {
+			await new QualifiedOrderBookArchiveReader(
+				client,
+				options,
+			).resolveSelection(request);
+			throw new Error("reader unexpectedly classified conflicted coverage");
+		} catch (error) {
+			expect(error).toMatchObject({
+				reason: "archive_selection_checksum_conflict",
+			});
+		}
+		expect(selectionQueries).toBe(0);
+	});
+
 	test("encodes typed ClickHouse string arrays as array literals", async () => {
 		let requestedUrl = "";
 		const client = createClickHouseArchiveQueryClient({
@@ -55,6 +85,7 @@ describe("final-v1 qualification-aware archive reader", () => {
 						},
 					];
 				}
+				if (sql.includes("levels_conflicts")) return [{ conflicts: "0" }];
 				if (sql.includes("cex_order_book_archive_selections")) {
 					return [
 						{
@@ -92,7 +123,7 @@ describe("final-v1 qualification-aware archive reader", () => {
 			CONFORMANCE_FIXTURES.documents.promotion_receipt,
 		]);
 		expect(resolved.readerIdentity).toEqual(archiveIdentity);
-		expect(queries).toHaveLength(3);
+		expect(queries).toHaveLength(4);
 	});
 
 	test("rejects conflicting stored content for one selection identity", async () => {
@@ -101,6 +132,7 @@ describe("final-v1 qualification-aware archive reader", () => {
 				if (sql.includes("cex_archive_cluster_identity")) {
 					return [archiveIdentity];
 				}
+				if (sql.includes("levels_conflicts")) return [{ conflicts: "0" }];
 				if (sql.includes("cex_order_book_archive_selections")) {
 					return [
 						{
@@ -136,6 +168,7 @@ describe("final-v1 qualification-aware archive reader", () => {
 				if (sql.includes("cex_archive_cluster_identity")) {
 					return [archiveIdentity];
 				}
+				if (sql.includes("levels_conflicts")) return [{ conflicts: "0" }];
 				if (sql.includes("cex_order_book_archive_selections")) return [];
 				throw new Error("unsafe ClickHouse response detail");
 			},
@@ -161,6 +194,7 @@ describe("final-v1 qualification-aware archive reader", () => {
 				if (sql.includes("cex_archive_cluster_identity")) {
 					return [archiveIdentity];
 				}
+				if (sql.includes("levels_conflicts")) return [{ conflicts: "0" }];
 				if (sql.includes("cex_order_book_archive_selections")) return [];
 				if (sql.includes("'level' AS table")) return [];
 				if (sql.includes("depth_summary_replay_qualified")) {
