@@ -16,6 +16,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const expectedPackageJson = JSON.parse(
+	readFileSync(path.join(root, "package.json"), "utf8"),
+);
 const temporaryRoot = mkdtempSync(
 	path.join(os.tmpdir(), "cex-preparation-package-audit-"),
 );
@@ -50,8 +53,13 @@ try {
 	const packageJson = JSON.parse(
 		readFileSync(path.join(extracted, "package.json"), "utf8"),
 	);
-	if (packageJson.version !== "0.2.47") {
-		throw new Error(`expected package 0.2.47, got ${packageJson.version}`);
+	if (
+		packageJson.name !== expectedPackageJson.name ||
+		packageJson.version !== expectedPackageJson.version
+	) {
+		throw new Error(
+			`expected package ${expectedPackageJson.name}@${expectedPackageJson.version}, got ${packageJson.name}@${packageJson.version}`,
+		);
 	}
 	for (const [name, relativePath] of Object.entries({
 		"market-data-vendor-backfill":
@@ -101,7 +109,7 @@ try {
 		const result = JSON.parse(readFileSync(resultPath, "utf8"));
 		if (
 			result.outcome?.status !== "request_invalid" ||
-			result.producer?.package?.version !== "0.2.47" ||
+			result.producer?.package?.version !== packageJson.version ||
 			result.producer?.executable_sha256 !== sha256(readFileSync(executable))
 		) {
 			throw new Error(`${name} extracted result identity is invalid`);
@@ -178,7 +186,7 @@ try {
 			"--out",
 			invalidRegistryEvidencePath,
 			"--registry-url",
-			"https://registry.npmjs.org/@usherlabs/cex-broker/-/cex-broker-0.2.47.tgz",
+			`https://registry.npmjs.org/@usherlabs/cex-broker/-/cex-broker-${packageJson.version}.tgz`,
 			"--registry-integrity",
 			"sha512-YQ==",
 			"--npm-git-head",
