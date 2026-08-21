@@ -1,5 +1,28 @@
 import dts from "bun-plugin-dts";
+import { chmod } from "node:fs/promises";
 import { dirname } from "node:path";
+import { PREPARATION_CONFORMANCE_FIXTURES } from "./src/helpers/market-data-preparation/conformance-fixtures";
+
+const packageDocument = (await Bun.file("./package.json").json()) as {
+	version?: unknown;
+};
+if (
+	typeof packageDocument.version !== "string" ||
+	!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(
+		packageDocument.version,
+	)
+) {
+	throw new Error("package.json has no pin-eligible version");
+}
+const gitHeadProcess = Bun.spawnSync({
+	cmd: ["git", "rev-parse", "HEAD"],
+	stdout: "pipe",
+	stderr: "pipe",
+});
+const gitHead = gitHeadProcess.stdout.toString().trim();
+if (gitHeadProcess.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(gitHead)) {
+	throw new Error("build cannot resolve a pin-eligible git HEAD");
+}
 
 await Bun.build({
 	entrypoints: ["./src/cli.ts"],
@@ -41,6 +64,38 @@ await Bun.build({
 	sourcemap: "external",
 });
 
+await Bun.build({
+	entrypoints: ["./src/market-data-preparation.ts"],
+	outdir: "./dist",
+	target: "node",
+	sourcemap: "external",
+});
+
+const preparationCommands = [
+	"market-data-vendor-backfill",
+	"cex-canonical-orderbook-export",
+] as const;
+const commandBuild = await Bun.build({
+	entrypoints: preparationCommands.map((name) => `./src/commands/${name}.ts`),
+	outdir: "./dist/commands",
+	target: "node",
+	format: "esm",
+	banner: "#!/usr/bin/env node",
+	define: {
+		__CEX_BROKER_PACKAGE_VERSION__: JSON.stringify(packageDocument.version),
+		__CEX_BROKER_GIT_HEAD__: JSON.stringify(gitHead),
+	},
+	sourcemap: "external",
+});
+if (!commandBuild.success) {
+	throw new Error(
+		`preparation command build failed: ${commandBuild.logs.join("; ")}`,
+	);
+}
+for (const command of preparationCommands) {
+	await chmod(`./dist/commands/${command}.js`, 0o755);
+}
+
 const backfillAssetRoot = "./src/helpers/market-data-vendor-backfill";
 const backfillAssetOutput = "./dist/market-data-vendor-backfill";
 const backfillAssets = [
@@ -60,6 +115,33 @@ for (const [sourcePath, outputPath] of backfillAssets) {
 	await Bun.spawn({ cmd: ["mkdir", "-p", dirname(destination)] }).exited;
 	await Bun.write(destination, Bun.file(`${backfillAssetRoot}/${sourcePath}`));
 }
+
+const preparationAssetOutput = "./dist/market-data-preparation";
+const preparationAssets = [
+	["./src/helpers/market-data-preparation/schema-manifest.json", "schema-manifest.json"],
+	["./src/helpers/market-data-vendor-backfill/schemas/request.schema.json", "schemas/backfill-request-v1.schema.json"],
+	["./src/helpers/market-data-preparation/schemas/backfill-result-v2.schema.json", "schemas/backfill-result-v2.schema.json"],
+	["./src/helpers/market-data-vendor-backfill/schemas/required-clock.schema.json", "schemas/required-clock-v1.schema.json"],
+	["./src/helpers/market-data-vendor-backfill/schemas/archive-selection.schema.json", "schemas/archive-selection-v1.schema.json"],
+	["./src/helpers/market-data-vendor-backfill/schemas/promotion-receipt.schema.json", "schemas/promotion-receipt-v1.schema.json"],
+	["./src/helpers/market-data-preparation/schemas/canonical-orderbook-export-request.schema.json", "schemas/canonical-orderbook-export-request-v1.schema.json"],
+	["./src/helpers/market-data-preparation/schemas/canonical-orderbook-export-result.schema.json", "schemas/canonical-orderbook-export-result-v1.schema.json"],
+	["./src/helpers/market-data-preparation/schemas/preparation-product-pin.schema.json", "schemas/preparation-product-pin-v1.schema.json"],
+	["./src/helpers/market-data-vendor-backfill/policies/capability-policy.json", "policies/capability-policy.json"],
+	["./src/helpers/market-data-vendor-backfill/policies/resource-policy.json", "policies/resource-policy.json"],
+] as const;
+for (const [sourcePath, outputPath] of preparationAssets) {
+	const destination = `${preparationAssetOutput}/${outputPath}`;
+	await Bun.spawn({ cmd: ["mkdir", "-p", dirname(destination)] }).exited;
+	await Bun.write(destination, Bun.file(sourcePath));
+}
+await Bun.spawn({
+	cmd: ["mkdir", "-p", `${preparationAssetOutput}/fixtures`],
+}).exited;
+await Bun.write(
+	`${preparationAssetOutput}/fixtures/conformance-v2.json`,
+	`${JSON.stringify(PREPARATION_CONFORMANCE_FIXTURES, null, "\t")}\n`,
+);
 
 // Copy descriptor alongside dist output for runtime import
 await Bun.spawn({ cmd: ["mkdir", "-p", "./dist/proto"] }).exited;

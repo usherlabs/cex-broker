@@ -1,0 +1,238 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v1",
+	"title": "CEX canonical order-book exact-selection export result v1",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"schema_id",
+		"result_sha256",
+		"job_id",
+		"request_file_sha256",
+		"producer",
+		"started_at",
+		"completed_at",
+		"outcome"
+	],
+	"properties": {
+		"schema_id": {
+			"const": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v1"
+		},
+		"result_sha256": { "$ref": "#/$defs/sha256" },
+		"job_id": { "$ref": "#/$defs/uuid" },
+		"request_file_sha256": {
+			"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }]
+		},
+		"producer": { "$ref": "#/$defs/producer" },
+		"started_at": { "$ref": "#/$defs/timestamp" },
+		"completed_at": { "$ref": "#/$defs/timestamp" },
+		"outcome": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"status",
+				"reason_code",
+				"reason_subcode",
+				"request_id",
+				"target",
+				"selection_sha256",
+				"query_sha256",
+				"query_segments",
+				"promotion_receipt_ids",
+				"artifacts",
+				"diagnostics"
+			],
+			"properties": {
+				"status": {
+					"enum": [
+						"exported",
+						"request_invalid",
+						"archive_query_failed",
+						"archive_data_invalid",
+						"artifact_write_failed"
+					]
+				},
+				"reason_code": {
+					"type": "string",
+					"pattern": "^[a-z][a-z0-9_]{0,127}$"
+				},
+				"reason_subcode": {
+					"oneOf": [
+						{ "type": "null" },
+						{ "type": "string", "pattern": "^[a-z][a-z0-9_]{0,127}$" }
+					]
+				},
+				"request_id": {
+					"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uuid" }]
+				},
+				"target": {
+					"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/target" }]
+				},
+				"selection_sha256": {
+					"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }]
+				},
+				"query_sha256": {
+					"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }]
+				},
+				"query_segments": {
+					"type": "array",
+					"items": { "$ref": "#/$defs/segment" }
+				},
+				"promotion_receipt_ids": {
+					"type": "array",
+					"uniqueItems": true,
+					"items": { "$ref": "#/$defs/sha256" }
+				},
+				"artifacts": {
+					"oneOf": [
+						{ "type": "null" },
+						{
+							"type": "object",
+							"additionalProperties": false,
+							"required": ["levels", "summary"],
+							"properties": {
+								"levels": { "$ref": "#/$defs/artifact" },
+								"summary": { "$ref": "#/$defs/artifact" }
+							}
+						}
+					]
+				},
+				"diagnostics": {
+					"type": "object",
+					"maxProperties": 64,
+					"additionalProperties": {
+						"oneOf": [
+							{ "type": "string", "maxLength": 1024 },
+							{ "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+							{ "type": "boolean" }
+						]
+					}
+				}
+			},
+			"allOf": [
+				{
+					"if": {
+						"type": "object",
+						"properties": { "status": { "const": "exported" } },
+						"required": ["status"]
+					},
+					"then": {
+						"type": "object",
+						"properties": {
+							"request_id": { "$ref": "#/$defs/uuid" },
+							"target": { "$ref": "#/$defs/target" },
+							"selection_sha256": { "$ref": "#/$defs/sha256" },
+							"query_sha256": { "$ref": "#/$defs/sha256" },
+							"query_segments": { "type": "array", "minItems": 1 },
+							"artifacts": { "type": "object" }
+						}
+					},
+					"else": {
+						"type": "object",
+						"properties": { "artifacts": { "type": "null" } }
+					}
+				}
+			]
+		}
+	},
+	"$defs": {
+		"uuid": {
+			"type": "string",
+			"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+		},
+		"sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+		"timestamp": {
+			"type": "string",
+			"pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+		},
+		"semver": {
+			"type": "string",
+			"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+		},
+		"target": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["environment", "cluster"],
+			"properties": {
+				"environment": {
+					"type": "string",
+					"pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+				},
+				"cluster": {
+					"type": "string",
+					"pattern": "^[a-z0-9][a-z0-9_-]{0,127}$"
+				}
+			}
+		},
+		"producer": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"product_id",
+				"product_version",
+				"package",
+				"executable_sha256",
+				"runtime"
+			],
+			"properties": {
+				"product_id": { "const": "cex-canonical-orderbook-export" },
+				"product_version": { "const": "cex-canonical-orderbook-export/v1" },
+				"package": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["name", "version", "git_head"],
+					"properties": {
+						"name": { "const": "@usherlabs/cex-broker" },
+						"version": { "$ref": "#/$defs/semver" },
+						"git_head": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+					}
+				},
+				"executable_sha256": { "$ref": "#/$defs/sha256" },
+				"runtime": {
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["name", "version"],
+					"properties": {
+						"name": { "const": "node" },
+						"version": { "$ref": "#/$defs/semver" }
+					}
+				}
+			}
+		},
+		"segment": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["start_at", "end_at", "capture_bundle_id", "capture_origin"],
+			"properties": {
+				"start_at": { "$ref": "#/$defs/timestamp" },
+				"end_at": { "$ref": "#/$defs/timestamp" },
+				"capture_bundle_id": { "$ref": "#/$defs/sha256" },
+				"capture_origin": {
+					"enum": ["production_capture", "vendor_historical_backfill"]
+				}
+			}
+		},
+		"artifact": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["file_name", "rows", "bytes", "sha256"],
+			"properties": {
+				"file_name": {
+					"type": "string",
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$"
+				},
+				"rows": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				},
+				"bytes": {
+					"type": "integer",
+					"minimum": 8,
+					"maximum": 9007199254740991
+				},
+				"sha256": { "$ref": "#/$defs/sha256" }
+			}
+		}
+	}
+}

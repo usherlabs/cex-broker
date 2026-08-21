@@ -78,6 +78,39 @@ The public `@usherlabs/cex-broker/market-data-vendor-backfill` subpath exposes `
 4. Submit content-addressed candidate chunks through the archive-forwarder, query the unqualified canonical evidence, and verify logical keys/checksums, conflicts, seams, prefix/suffix stability, future leakage, depth, construction mode, required clocks, and exporter compatibility.
 5. Submit a passing promotion receipt last, then requery the qualified view. Only `already_covered` and `promoted` are successful outcomes.
 
+Starting with `@usherlabs/cex-broker@0.2.47`, CEX Broker also owns two
+standalone Node 22 file-job products:
+
+```text
+market-data-vendor-backfill run --request <path> --result <path>
+cex-canonical-orderbook-export run --request <path> --result <path>
+```
+
+Both commands accept exactly those five arguments. Secrets and endpoints come
+only from their closed environment allowlists. Request and sidecar files are
+bounded, regular, no-follow reads in one non-symlink attempt directory; the
+result is validated, file-synced, atomically renamed, and directory-synced.
+Malformed argv and unsafe result targets are unhandled nonzero failures, while
+closed domain outcomes commit a typed result and return zero. Neither command
+starts the broker, registers an RPC, runs a collector loop, or writes directly
+to ClickHouse.
+
+Backfill result v2 identifies the CEX product/version, package version and clean
+git head, actual Node runtime, and runtime SHA-256 of the extracted executable.
+It deliberately contains no Fiet commit, build timestamp, or self-referential
+package digest. The unchanged v1 result/schema/fixture and public TypeScript
+names remain published for existing consumers.
+
+The canonical exporter accepts one complete archive-selection v1 document. It
+compiles each selected bundle interval into a non-broad half-open predicate,
+uses production archive rows before vendor rows for `fill_gaps`, and uses only
+qualified vendor rows for `authoritative_window`. Archive identity, checksum
+conflicts, current qualification, passing promotion receipt linkage, row
+counts, and Parquet envelopes are checked under the same bound segments. The
+fixed Parquet basenames are written first; a successful result containing their
+relative names, row counts, byte counts, SHA-256 hashes, query identity, and
+promotion receipts is the commit marker.
+
 The CryptoHFTData registry is default-empty. Explicit profile injection is
 required; API-key possession never enables a venue or symbol. Adapter v2 adds
 the live-proven `CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE` alongside the synthetic
@@ -138,7 +171,14 @@ initial historical book.
 
 Do not commit or publish licensed provider payloads or decoded rows. The committed fixtures are synthetic. Provider licensing and durable normalized-row retention rights remain a deployment prerequisite.
 
-Ownership stays split across repositories: CEX Broker owns acquisition, normalization, archive submission, semantic qualification, and the receipt; Fiet TEE owns the executable wrapper, secure-secret resolution, and package pin; Fiet Maker independently requeries qualified views and binds its loader/policy proof to the CEX receipt. Promotion makes rows eligible for replay but does not by itself make an economics result quotable.
+Ownership stays split across repositories: CEX Broker owns acquisition,
+normalization, archive submission, semantic qualification, both preparation
+executables, and their request/result contracts. Deployment automation injects
+the CEX read/forwarder/provider secrets. Fiet Maker independently pins and
+extracts the published package, requeries qualified views through the exporter,
+and binds its loader/policy proof to the CEX receipt. Promotion or export makes
+evidence eligible for replay but does not by itself make an economics result
+quotable.
 
 ## ClickHouse and replay
 
