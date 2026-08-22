@@ -1,0 +1,72 @@
+{
+	"schema_id": "cex-market-data-preparation-product-pin/v1",
+	"package": {
+		"name": "@usherlabs/cex-broker",
+		"version": "0.2.49",
+		"registry_tarball_url": "https://registry.npmjs.org/@usherlabs/cex-broker/-/cex-broker-0.2.49.tgz",
+		"integrity": "sha512-OUOW3PJatO+8Eap2daCZPvbdyNkO8wq+A2Scxt8+AdxEvyjgcGQopjWy6HQOX7bmphlIueRJ26Arw0k2tiZ4vw==",
+		"tarball_sha256": "2780a73a76058208ce1b882a67dbbb1b1e08bded764d6afb86d0a92db110674d",
+		"npm_git_head": "c1ffe071e7696c5b17c8f058da01d61cb27ec8a4"
+	},
+	"executables": [
+		{
+			"product_id": "market-data-vendor-backfill",
+			"product_version": "market-data-vendor-backfill/v1",
+			"relative_path": "dist/commands/market-data-vendor-backfill.js",
+			"executable_sha256": "ebc513532fd55782157748aa7c86ac775720c21e16be55e740f6cc20dfecae0d"
+		},
+		{
+			"product_id": "cex-canonical-orderbook-export",
+			"product_version": "cex-canonical-orderbook-export/v1",
+			"relative_path": "dist/commands/cex-canonical-orderbook-export.js",
+			"executable_sha256": "51f1df24dac3684c0569f0553aa5ce68570a326181ccb4ff812b1cef65c77508"
+		}
+	],
+	"schema_manifest": {
+		"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v2",
+		"manifest_sha256": "0e226165c78c6217a765c09be15b6305a574e69b6e05e8607f399b468ba04d5b",
+		"relative_path": "dist/market-data-preparation/schema-manifest.json"
+	},
+	"schema_pins": [
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-request/v1",
+			"schema_sha256": "94eea61421e2dbbb77a583d60aa18208debee31bb7284b0a57e844d8ff34e0ad"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-result/v2",
+			"schema_sha256": "31d9768cc34d2b46c4e6e98428dbacb066429d412679f21fea331908db556df4"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-required-clock/v1",
+			"schema_sha256": "9f850ddb07aaf4cd339ce60e8c54f80313a090bed1a30c82a6db5877c9b4fbf3"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-archive-selection/v1",
+			"schema_sha256": "1c76ee8579abdaa6f060a14361ed8fe1a93dcf484418b91eede9210d88f99aea"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-promotion-receipt/v1",
+			"schema_sha256": "00c42aba3e4a26d4692ef5554273ed762c21fce8c07624bc970ff0b28884b099"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/cex-canonical-orderbook-export-request/v1",
+			"schema_sha256": "50a698628b00204c927e28d8c7048345330fb17ab61f86addd3a04114debc0f3"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v1",
+			"schema_sha256": "77da86c140474294bfc351be6a3a69c57fff95032e9bafa9aaa09d398315cd3c"
+		},
+		{
+			"schema_id": "cex-market-data-preparation-product-pin/v1",
+			"schema_sha256": "7e50cf70aaa87fc608647dfc71e61f18c3da05f27f1f6ceba4c58bc960ff88ff"
+		}
+	],
+	"capability_policy": {
+		"policy_id": "market-data-vendor-backfill-capabilities/v2",
+		"policy_sha256": "a1bce5936b00ca6f8c8d338b57eddbaf6d48e6f9c40566c4beae76630e969c5a"
+	},
+	"resource_policy": {
+		"policy_id": "market-data-vendor-backfill-resources/v1",
+		"policy_sha256": "38d4f47cbd15794efed570801556a95f724561a8b45567d518c044da9d454142"
+	}
+}
