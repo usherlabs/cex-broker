@@ -2,11 +2,17 @@ import { expect, test } from "bun:test";
 import { createServer, type Socket } from "node:net";
 import path from "node:path";
 import * as grpc from "@grpc/grpc-js";
+import { TRACE_METADATA_KEY } from "../src/helpers/trace-context";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "../src/proto-package-definition";
 
 type BrokerClient = grpc.Client & {
 	ExecuteAction(
 		request: Record<string, unknown>,
+		callback: (error: grpc.ServiceError | null, response?: unknown) => void,
+	): void;
+	ExecuteAction(
+		request: Record<string, unknown>,
+		metadata: grpc.Metadata,
 		callback: (error: grpc.ServiceError | null, response?: unknown) => void,
 	): void;
 };
@@ -141,5 +147,111 @@ test("standalone CLI flushes operational metrics and exits cleanly on repeated s
 		}
 		for (const socket of sockets) socket.destroy();
 		await new Promise<void>((resolve) => collector.close(() => resolve()));
+	}
+}, 10_000);
+
+test("standalone CLI exports correlated ExecuteAction logs without adding trace_id to metrics", async () => {
+	const traceId = "0123456789abcdef0123456789abcdef";
+	const requests = {
+		logs: [] as Uint8Array[],
+		metrics: [] as Uint8Array[],
+	};
+	const collector = Bun.serve({
+		hostname: "127.0.0.1",
+		port: 0,
+		async fetch(request) {
+			const url = new URL(request.url);
+			const body = new Uint8Array(await request.arrayBuffer());
+			if (request.method === "POST" && url.pathname === "/v1/logs") {
+				requests.logs.push(body);
+				return new Response(null, { status: 200 });
+			}
+			if (request.method === "POST" && url.pathname === "/v1/metrics") {
+				requests.metrics.push(body);
+				return new Response(null, { status: 200 });
+			}
+			return new Response("Not Found", { status: 404 });
+		},
+	});
+	const brokerPort = await reservePort();
+	const childEnvironment = Object.fromEntries(
+		Object.entries(process.env).filter(
+			([key]) =>
+				!key.startsWith("CEX_BROKER_") && !key.startsWith("OTEL_EXPORTER_OTLP"),
+		),
+	) as Record<string, string>;
+	const child = Bun.spawn({
+		cmd: [
+			process.execPath,
+			path.resolve("src/cli.ts"),
+			"--policy",
+			path.resolve("policy/policy.json"),
+			"--port",
+			String(brokerPort),
+			"--whitelistAll",
+		],
+		cwd: process.cwd(),
+		env: {
+			...childEnvironment,
+			NODE_ENV: "production",
+			OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${collector.port}`,
+			OTEL_SERVICE_NAME: "cli-trace-correlation-test",
+		},
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const stdout = new Response(child.stdout).text();
+	const stderr = new Response(child.stderr).text();
+	let client: BrokerClient | undefined;
+
+	try {
+		client = new grpcObject.cex_broker.cex_service(
+			`127.0.0.1:${brokerPort}`,
+			grpc.credentials.createInsecure(),
+		);
+		await waitForReady(client);
+		const metadata = new grpc.Metadata();
+		metadata.set(TRACE_METADATA_KEY, traceId);
+		const rpcError = await new Promise<grpc.ServiceError | null>((resolve) => {
+			client?.ExecuteAction({}, metadata, (error) => resolve(error));
+		});
+		expect(rpcError?.code).toBe(grpc.status.INVALID_ARGUMENT);
+
+		const started = performance.now();
+		child.kill("SIGTERM");
+		const result = await Promise.race([
+			child.exited.then((exitCode) => ({ exitCode })),
+			Bun.sleep(4_500).then(() => null),
+		]);
+		if (!result) {
+			child.kill("SIGKILL");
+			await child.exited;
+			throw new Error(
+				`CLI did not exit within 4.5s\nstdout:\n${await stdout}\nstderr:\n${await stderr}`,
+			);
+		}
+		const elapsedMs = performance.now() - started;
+		const logsPayload = Buffer.concat(requests.logs).toString("utf8");
+		const metricsPayload = Buffer.concat(requests.metrics).toString("utf8");
+
+		expect(result.exitCode).toBe(0);
+		expect(elapsedMs).toBeLessThan(4_500);
+		expect(requests.logs.some((body) => body.byteLength > 0)).toBe(true);
+		expect(requests.metrics.some((body) => body.byteLength > 0)).toBe(true);
+		expect(logsPayload).toContain(traceId);
+		expect(logsPayload).toContain("ExecuteAction failed");
+		expect(logsPayload).toContain("INVALID_ARGUMENT");
+		expect(logsPayload).toContain('"key":"trace_id"');
+		expect(logsPayload).toContain('"key":"grpc_status"');
+		expect(logsPayload).not.toContain("ExecuteAction started [object Object]");
+		expect(logsPayload).not.toContain("ExecuteAction failed [object Object]");
+		expect(metricsPayload).not.toContain(traceId);
+	} finally {
+		client?.close();
+		if (child.exitCode === null) {
+			child.kill("SIGKILL");
+			await child.exited;
+		}
+		collector.stop();
 	}
 }, 10_000);

@@ -101,9 +101,9 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 					...traceFields,
 				};
 				if (error) {
-					log.error("ExecuteAction failed", terminalFields);
+					log.withMetadata(terminalFields).error("ExecuteAction failed");
 				} else {
-					log.info("ExecuteAction completed", terminalFields);
+					log.withMetadata(terminalFields).info("ExecuteAction completed");
 				}
 				otelMetrics?.recordHistogram("execute_action_duration_ms", latency, {
 					action: actionName,
@@ -128,11 +128,13 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 		};
 
 		try {
-			log.info("ExecuteAction started", {
-				action: actionName,
-				cex: operationalCex,
-				...traceFields,
-			});
+			log
+				.withMetadata({
+					action: actionName,
+					cex: operationalCex,
+					...traceFields,
+				})
+				.info("ExecuteAction started");
 			otelMetrics?.recordCounter("execute_action_requests_total", 1, {
 				action: actionName,
 				cex: cex || "unknown",

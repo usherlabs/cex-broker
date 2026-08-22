@@ -411,11 +411,11 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				outcome,
 			};
 			if (outcome === "error") {
-				log.error("Subscribe failed", fields);
+				log.withMetadata(fields).error("Subscribe failed");
 			} else if (outcome === "cancelled") {
-				log.info("Subscribe cancelled", fields);
+				log.withMetadata(fields).info("Subscribe cancelled");
 			} else {
-				log.info("Subscribe ended", fields);
+				log.withMetadata(fields).info("Subscribe ended");
 			}
 		};
 		const writeTerminalError = async (frame: SubscribeResponse) => {
@@ -423,7 +423,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			await writeSubscribeError(call, isStreamClosed, frame);
 		};
 
-		log.info("Subscribe started", operationalFields);
+		log.withMetadata(operationalFields).info("Subscribe started");
 
 		call.once("cancelled", () => {
 			markStreamClosed();

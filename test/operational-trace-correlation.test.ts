@@ -129,11 +129,53 @@ function createSubscribeCall(
 	};
 }
 
-function findLogCall(
-	calls: unknown[][],
+type CapturedOperationalLog = {
+	level: "info" | "error";
+	message: unknown;
+	metadata: Record<string, unknown>;
+};
+
+function captureOperationalLogs() {
+	const entries: CapturedOperationalLog[] = [];
+	const info = spyOn(log, "info").mockImplementation(() => {});
+	const error = spyOn(log, "error").mockImplementation(() => {});
+	const withMetadata = spyOn(log, "withMetadata").mockImplementation(
+		(metadata) =>
+			({
+				info: (message: unknown) => {
+					entries.push({
+						level: "info",
+						message,
+						metadata: metadata ?? {},
+					});
+				},
+				error: (message: unknown) => {
+					entries.push({
+						level: "error",
+						message,
+						metadata: metadata ?? {},
+					});
+				},
+			}) as ReturnType<typeof log.withMetadata>,
+	);
+
+	return {
+		entries,
+		info,
+		error,
+		restore: () => {
+			withMetadata.mockRestore();
+			info.mockRestore();
+			error.mockRestore();
+		},
+	};
+}
+
+function findLogEntry(
+	entries: CapturedOperationalLog[],
 	message: string,
-): unknown[] | undefined {
-	return calls.find(([candidate]) => candidate === message);
+): CapturedOperationalLog | undefined {
+	return entries.find((entry) => entry.message === message);
 }
 
 function expectNoTraceMetricDimension(metrics: CapturingOtelMetrics): void {
@@ -144,8 +186,7 @@ function expectNoTraceMetricDimension(metrics: CapturingOtelMetrics): void {
 
 describe("FIET-601 operational trace correlation", () => {
 	test("ExecuteAction logs one correlated success and keeps trace_id out of metrics", async () => {
-		const info = spyOn(log, "info").mockImplementation(() => {});
-		const error = spyOn(log, "error").mockImplementation(() => {});
+		const captured = captureOperationalLogs();
 		const metrics = new CapturingOtelMetrics();
 		const exchange = {
 			fetchTicker: async () => ({ symbol: "BTC/USDT", last: 100 }),
@@ -165,17 +206,18 @@ describe("FIET-601 operational trace correlation", () => {
 
 			expect(result.error).toBeNull();
 			expect(
-				findLogCall(info.mock.calls, "ExecuteAction started")?.[1],
+				findLogEntry(captured.entries, "ExecuteAction started")?.metadata,
 			).toEqual({
 				action: "FetchTicker",
 				cex: "binance",
 				trace_id: OTEL_TRACE_ID,
 			});
-			const completionCalls = info.mock.calls.filter(
-				([message]) => message === "ExecuteAction completed",
+			const completionLogs = captured.entries.filter(
+				(entry) => entry.message === "ExecuteAction completed",
 			);
-			expect(completionCalls).toHaveLength(1);
-			expect(completionCalls[0]?.[1]).toEqual({
+			expect(completionLogs).toHaveLength(1);
+			expect(completionLogs[0]?.level).toBe("info");
+			expect(completionLogs[0]?.metadata).toEqual({
 				action: "FetchTicker",
 				cex: "binance",
 				latency_ms: expect.any(Number),
@@ -184,20 +226,18 @@ describe("FIET-601 operational trace correlation", () => {
 				trace_id: OTEL_TRACE_ID,
 			});
 			expect(
-				error.mock.calls.filter(
-					([message]) => message === "ExecuteAction failed",
+				captured.entries.filter(
+					(entry) => entry.message === "ExecuteAction failed",
 				),
 			).toHaveLength(0);
 			expectNoTraceMetricDimension(metrics);
 		} finally {
-			info.mockRestore();
-			error.mockRestore();
+			captured.restore();
 		}
 	});
 
 	test("ExecuteAction logs one correlated error with a stable gRPC status", async () => {
-		const info = spyOn(log, "info").mockImplementation(() => {});
-		const error = spyOn(log, "error").mockImplementation(() => {});
+		const captured = captureOperationalLogs();
 		const metrics = new CapturingOtelMetrics();
 		const exchange = {} as Exchange;
 
@@ -210,11 +250,12 @@ describe("FIET-601 operational trace correlation", () => {
 			});
 
 			expect(result.error?.code).toBe(grpc.status.INVALID_ARGUMENT);
-			const failureCalls = error.mock.calls.filter(
-				([message]) => message === "ExecuteAction failed",
+			const failureLogs = captured.entries.filter(
+				(entry) => entry.message === "ExecuteAction failed",
 			);
-			expect(failureCalls).toHaveLength(1);
-			expect(failureCalls[0]?.[1]).toEqual({
+			expect(failureLogs).toHaveLength(1);
+			expect(failureLogs[0]?.level).toBe("error");
+			expect(failureLogs[0]?.metadata).toEqual({
 				action: "FetchTicker",
 				cex: "binance",
 				latency_ms: expect.any(Number),
@@ -223,20 +264,18 @@ describe("FIET-601 operational trace correlation", () => {
 				trace_id: UUID_TRACE_ID,
 			});
 			expect(
-				info.mock.calls.filter(
-					([message]) => message === "ExecuteAction completed",
+				captured.entries.filter(
+					(entry) => entry.message === "ExecuteAction completed",
 				),
 			).toHaveLength(0);
 			expectNoTraceMetricDimension(metrics);
 		} finally {
-			info.mockRestore();
-			error.mockRestore();
+			captured.restore();
 		}
 	});
 
 	test("invalid ExecuteAction metadata is omitted and does not affect RPC success", async () => {
-		const info = spyOn(log, "info").mockImplementation(() => {});
-		const error = spyOn(log, "error").mockImplementation(() => {});
+		const captured = captureOperationalLogs();
 		const metrics = new CapturingOtelMetrics();
 		const invalidTraceId = `${"a".repeat(256)}-sensitive-suffix`;
 		const exchange = {
@@ -256,26 +295,30 @@ describe("FIET-601 operational trace correlation", () => {
 			});
 
 			expect(result.error).toBeNull();
-			const boundaryCalls = info.mock.calls.filter(([message]) =>
-				String(message).startsWith("ExecuteAction"),
+			const boundaryLogs = captured.entries.filter((entry) =>
+				String(entry.message).startsWith("ExecuteAction"),
 			);
-			expect(boundaryCalls).toHaveLength(2);
-			for (const call of boundaryCalls) {
-				expect(call[1]).not.toHaveProperty("trace_id");
+			expect(boundaryLogs).toHaveLength(2);
+			for (const entry of boundaryLogs) {
+				expect(entry.metadata).not.toHaveProperty("trace_id");
 			}
 			expect(
-				JSON.stringify([...info.mock.calls, ...error.mock.calls]),
+				JSON.stringify({
+					entries: captured.entries,
+					directCalls: [
+						...captured.info.mock.calls,
+						...captured.error.mock.calls,
+					],
+				}),
 			).not.toContain(invalidTraceId);
 			expectNoTraceMetricDimension(metrics);
 		} finally {
-			info.mockRestore();
-			error.mockRestore();
+			captured.restore();
 		}
 	});
 
 	test("Subscribe logs one correlated cancellation and keeps trace_id out of metrics", async () => {
-		const info = spyOn(log, "info").mockImplementation(() => {});
-		const error = spyOn(log, "error").mockImplementation(() => {});
+		const captured = captureOperationalLogs();
 		const metrics = new CapturingOtelMetrics();
 		let resolveWatch!: (value: unknown) => void;
 		const exchange = {
@@ -307,20 +350,23 @@ describe("FIET-601 operational trace correlation", () => {
 			resolveWatch({ USDT: { total: 1 } });
 			await handlerPromise;
 
-			expect(findLogCall(info.mock.calls, "Subscribe started")?.[1]).toEqual({
+			expect(
+				findLogEntry(captured.entries, "Subscribe started")?.metadata,
+			).toEqual({
 				cex: "mexc",
 				symbol: "USDT",
 				subscription_type: "BALANCE",
 				trace_id: OTEL_TRACE_ID,
 			});
-			const terminalCalls = [...info.mock.calls, ...error.mock.calls].filter(
-				([message]) =>
-					message === "Subscribe ended" ||
-					message === "Subscribe cancelled" ||
-					message === "Subscribe failed",
+			const terminalLogs = captured.entries.filter(
+				(entry) =>
+					entry.message === "Subscribe ended" ||
+					entry.message === "Subscribe cancelled" ||
+					entry.message === "Subscribe failed",
 			);
-			expect(terminalCalls).toHaveLength(1);
-			expect(terminalCalls[0]?.[1]).toEqual({
+			expect(terminalLogs).toHaveLength(1);
+			expect(terminalLogs[0]?.level).toBe("info");
+			expect(terminalLogs[0]?.metadata).toEqual({
 				cex: "mexc",
 				symbol: "USDT",
 				subscription_type: "BALANCE",
@@ -330,14 +376,12 @@ describe("FIET-601 operational trace correlation", () => {
 			});
 			expectNoTraceMetricDimension(metrics);
 		} finally {
-			info.mockRestore();
-			error.mockRestore();
+			captured.restore();
 		}
 	});
 
 	test("Subscribe logs a correlated terminal error", async () => {
-		const info = spyOn(log, "info").mockImplementation(() => {});
-		const error = spyOn(log, "error").mockImplementation(() => {});
+		const captured = captureOperationalLogs();
 		const metrics = new CapturingOtelMetrics();
 		const exchange = {
 			watchBalance: async () => {
@@ -361,11 +405,12 @@ describe("FIET-601 operational trace correlation", () => {
 		try {
 			await handler(fixture.call);
 
-			const failureCalls = error.mock.calls.filter(
-				([message]) => message === "Subscribe failed",
+			const failureLogs = captured.entries.filter(
+				(entry) => entry.message === "Subscribe failed",
 			);
-			expect(failureCalls).toHaveLength(1);
-			expect(failureCalls[0]?.[1]).toEqual({
+			expect(failureLogs).toHaveLength(1);
+			expect(failureLogs[0]?.level).toBe("error");
+			expect(failureLogs[0]?.metadata).toEqual({
 				cex: "mexc",
 				symbol: "USDT",
 				subscription_type: "BALANCE",
@@ -375,8 +420,7 @@ describe("FIET-601 operational trace correlation", () => {
 			});
 			expectNoTraceMetricDimension(metrics);
 		} finally {
-			info.mockRestore();
-			error.mockRestore();
+			captured.restore();
 		}
 	});
 });
