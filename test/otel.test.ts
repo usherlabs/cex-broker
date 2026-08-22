@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createServer, type Socket } from "node:net";
+import { type LogRecord, logs, SeverityNumber } from "@opentelemetry/api-logs";
 import { resourceFromAttributes } from "@opentelemetry/resources";
+import {
+	BatchLogRecordProcessor,
+	InMemoryLogRecordExporter,
+	LoggerProvider,
+} from "@opentelemetry/sdk-logs";
 import {
 	AggregationTemporality,
 	DataPointType,
@@ -9,10 +15,12 @@ import {
 	type MeterProvider as MeterProviderType,
 	PeriodicExportingMetricReader,
 } from "@opentelemetry/sdk-metrics";
+import { log } from "../src/helpers/logger";
 import {
 	createOtelMetricsFromEnv,
 	type MetricData,
 	type OtelConfig,
+	OtelLogs,
 	OtelMetrics,
 } from "../src/helpers/otel";
 
@@ -50,6 +58,35 @@ function createInMemoryMetrics(
 	}
 
 	return new InMemoryOtelMetrics({
+		otlpEndpoint: "http://in-memory.invalid",
+		serviceName,
+	});
+}
+
+function createInMemoryLogs(
+	exporter: InMemoryLogRecordExporter,
+	serviceName: string,
+): OtelLogs {
+	class InMemoryOtelLogs extends OtelLogs {
+		protected override createProvider(
+			_endpoint: string,
+			providerServiceName: string,
+			_appendSignalPath: boolean,
+		): LoggerProvider {
+			return new LoggerProvider({
+				resource: resourceFromAttributes({
+					"service.name": providerServiceName,
+				}),
+				processors: [
+					new BatchLogRecordProcessor(exporter, {
+						scheduledDelayMillis: 60_000,
+					}),
+				],
+			});
+		}
+	}
+
+	return new InMemoryOtelLogs({
 		otlpEndpoint: "http://in-memory.invalid",
 		serviceName,
 	});
@@ -566,5 +603,89 @@ describe("OtelMetrics", () => {
 				await new Promise<void>((resolve) => server.close(() => resolve()));
 			}
 		}, 12_000);
+	});
+});
+
+describe("OtelLogs", () => {
+	let originalEnv: NodeJS.ProcessEnv;
+
+	beforeEach(() => {
+		originalEnv = { ...process.env };
+		logs.disable();
+	});
+
+	afterEach(() => {
+		logs.disable();
+		process.env = originalEnv;
+	});
+
+	test("emit flushes a semantic log record through the configured provider", async () => {
+		class RetainingInMemoryLogRecordExporter extends InMemoryLogRecordExporter {
+			public override shutdown(): Promise<void> {
+				return Promise.resolve();
+			}
+		}
+		const exporter = new RetainingInMemoryLogRecordExporter();
+		const otelLogs = createInMemoryLogs(exporter, "semantic-log-service");
+		const record: LogRecord = {
+			body: "semantic lifecycle log",
+			severityNumber: SeverityNumber.INFO,
+			severityText: "INFO",
+			attributes: {
+				signal: "SIGTERM",
+				phase: "shutdown-requested",
+			},
+		};
+
+		otelLogs.emit(record);
+		await otelLogs.close();
+
+		const exported = exporter.getFinishedLogRecords();
+		expect(exported).toHaveLength(1);
+		expect(exported[0]?.body).toBe("semantic lifecycle log");
+		expect(exported[0]?.severityNumber).toBe(SeverityNumber.INFO);
+		expect(exported[0]?.attributes).toEqual({
+			signal: "SIGTERM",
+			phase: "shutdown-requested",
+		});
+		expect(exported[0]?.resource.attributes["service.name"]).toBe(
+			"semantic-log-service",
+		);
+	});
+
+	test("immediate close delivers a non-empty OTLP logs request", async () => {
+		process.env.NODE_ENV = "production";
+		const receivedBodies: Uint8Array[] = [];
+		const server = Bun.serve({
+			port: 0,
+			async fetch(req) {
+				if (req.url.endsWith("/v1/logs") && req.method === "POST") {
+					receivedBodies.push(new Uint8Array(await req.arrayBuffer()));
+					return new Response(null, { status: 200 });
+				}
+				return new Response("Not Found", { status: 404 });
+			},
+		});
+		const otelLogs = new OtelLogs({
+			otlpEndpoint: `http://127.0.0.1:${server.port}`,
+			serviceName: "immediate-close-log-test",
+		});
+
+		try {
+			log
+				.withMetadata({ signal: "SIGTERM" })
+				.info("CEXBroker graceful shutdown requested");
+			await otelLogs.close();
+
+			expect(receivedBodies).toHaveLength(1);
+			expect(receivedBodies[0]?.byteLength).toBeGreaterThan(0);
+			const payload = Buffer.from(receivedBodies[0] ?? []).toString("utf8");
+			expect(payload).toContain("CEXBroker graceful shutdown requested");
+			expect(payload).toContain("signal");
+			expect(payload).toContain("SIGTERM");
+		} finally {
+			await otelLogs.close();
+			server.stop();
+		}
 	});
 });

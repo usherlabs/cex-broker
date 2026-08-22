@@ -12,16 +12,25 @@ const tslogLogger = new Logger({
 });
 
 const baseLogger = new LogLayer({
-	transport: [
-		new TsLogTransport({ id: "tslog", logger: tslogLogger }),
-		new OpenTelemetryTransport({
-			id: "otel",
-			enabled: process.env.NODE_ENV !== "test",
-		}),
-	],
+	transport: [new TsLogTransport({ id: "tslog", logger: tslogLogger })],
 	plugins: [openTelemetryPlugin()],
 	errorSerializer: serializeError,
 });
+
+const OTEL_TRANSPORT_ID = "otel";
+
+export function attachOtelLogTransport(): void {
+	baseLogger.addTransport(
+		new OpenTelemetryTransport({
+			id: OTEL_TRANSPORT_ID,
+			enabled: process.env.NODE_ENV !== "test",
+		}),
+	);
+}
+
+export function detachOtelLogTransport(): void {
+	baseLogger.removeTransport(OTEL_TRANSPORT_ID);
+}
 
 if (process.env.LOG_LEVEL !== "debug") {
 	baseLogger.setLevel("info");
@@ -35,6 +44,7 @@ const log = baseLogger as unknown as {
 	warn: (...args: unknown[]) => void;
 	error: (...args: unknown[]) => void;
 	fatal: (...args: unknown[]) => void;
+	withMetadata: LogLayer["withMetadata"];
 };
 
 export { log };

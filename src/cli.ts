@@ -47,17 +47,20 @@ program
 			let shutdownPromise: Promise<void> | undefined;
 			const onSignal = (signal: NodeJS.Signals): void => {
 				if (shutdownPromise) return;
-				log.info("CEXBroker graceful shutdown requested", { signal });
+				log
+					.withMetadata({ signal })
+					.info("CEXBroker graceful shutdown requested");
 				shutdownPromise = (async () => {
 					try {
 						await broker.stop();
-						log.info("CEXBroker graceful shutdown complete", { signal });
+						log
+							.withMetadata({ signal })
+							.info("CEXBroker graceful shutdown complete");
 						process.exitCode = 0;
 					} catch (error) {
-						log.error("CEXBroker graceful shutdown failed", {
-							signal,
-							error,
-						});
+						log
+							.withMetadata({ signal, error })
+							.error("CEXBroker graceful shutdown failed");
 						process.exitCode = 1;
 					} finally {
 						process.off("SIGTERM", onSignal);

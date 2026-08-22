@@ -56,10 +56,10 @@ function waitForReady(client: grpc.Client): Promise<void> {
 
 test("standalone CLI flushes operational metrics and exits cleanly on repeated signals", async () => {
 	const sockets = new Set<Socket>();
-	const requests: string[] = [];
+	const requestChunks: Uint8Array[] = [];
 	const collector = createServer((socket) => {
 		sockets.add(socket);
-		socket.on("data", (chunk) => requests.push(chunk.toString()));
+		socket.on("data", (chunk) => requestChunks.push(new Uint8Array(chunk)));
 		socket.once("close", () => sockets.delete(socket));
 	});
 	const collectorPort = await listen(collector);
@@ -122,12 +122,15 @@ test("standalone CLI flushes operational metrics and exits cleanly on repeated s
 		}
 		const elapsedMs = performance.now() - started;
 		const output = `${await stdout}\n${await stderr}`;
+		const requests = Buffer.concat(requestChunks).toString("utf8");
 
 		expect(result.exitCode).toBe(0);
 		expect(elapsedMs).toBeLessThan(4_500);
-		expect(
-			requests.some((request) => request.includes("POST /v1/metrics")),
-		).toBe(true);
+		expect(requests).toContain("POST /v1/metrics");
+		expect(requests).toContain("POST /v1/logs");
+		expect(requests).toContain("CEXBroker graceful shutdown requested");
+		expect(requests).toContain("signal");
+		expect(requests).toContain("SIGTERM");
 		expect(output).toContain("CEXBroker graceful shutdown requested");
 		expect(output).toContain("CEXBroker graceful shutdown complete");
 	} finally {

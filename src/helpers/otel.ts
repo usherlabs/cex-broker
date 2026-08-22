@@ -16,7 +16,7 @@ import {
 	type MeterProvider as MeterProviderType,
 	PeriodicExportingMetricReader,
 } from "@opentelemetry/sdk-metrics";
-import { log } from "./logger";
+import { attachOtelLogTransport, detachOtelLogTransport, log } from "./logger";
 
 /** OTLP/OpenTelemetry metrics config. Metrics are sent to an OTel Collector. */
 export interface OtelConfig {
@@ -378,10 +378,15 @@ export class OtelMetrics extends BaseOtelSignal<MeterProviderType> {
 }
 
 export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
-	private logger: ReturnType<LoggerProvider["getLogger"]> | null = null;
+	private logger: ReturnType<LoggerProvider["getLogger"]> | null;
 
 	constructor(config?: OtelConfig) {
 		super(config, "logs");
+		const provider = this.getProvider();
+		this.logger = provider?.getLogger("cex-broker-logs", "1.0.0") ?? null;
+		if (provider) {
+			attachOtelLogTransport();
+		}
 	}
 
 	protected createProvider(
@@ -407,7 +412,6 @@ export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
 
 	protected override onProviderCreated(provider: LoggerProvider): void {
 		logs.setGlobalLoggerProvider(provider);
-		this.logger = provider.getLogger("cex-broker-logs", "1.0.0");
 	}
 
 	protected shutdownProvider(provider: LoggerProvider): Promise<void> {
@@ -415,6 +419,7 @@ export class OtelLogs extends BaseOtelSignal<LoggerProvider> {
 	}
 
 	protected override onProviderClosed(): void {
+		detachOtelLogTransport();
 		this.logger = null;
 	}
 
