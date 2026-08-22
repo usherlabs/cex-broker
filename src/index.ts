@@ -338,12 +338,7 @@ export default class CEXBroker {
 		if (this.brokerArchiver) {
 			await this.brokerArchiver.close();
 		}
-		if (this.otelMetrics) {
-			await this.otelMetrics.close();
-		}
-		if (this.otelLogs) {
-			await this.otelLogs.close();
-		}
+		await Promise.all([this.otelMetrics?.close(), this.otelLogs?.close()]);
 	}
 
 	/**
