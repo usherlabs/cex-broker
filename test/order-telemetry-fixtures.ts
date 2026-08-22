@@ -20,6 +20,11 @@ export const grpcObj = grpc.loadPackageDefinition(packageDef) as {
 				request: Record<string, unknown>,
 				callback: grpc.requestCallback<{ result: string; proof: string }>,
 			): void;
+			ExecuteAction(
+				request: Record<string, unknown>,
+				metadata: grpc.Metadata,
+				callback: grpc.requestCallback<{ result: string; proof: string }>,
+			): void;
 			close(): void;
 		};
 	};
@@ -146,14 +151,23 @@ export function bindServer(server: grpc.Server) {
 export function executeAction(
 	client: InstanceType<typeof grpcObj.cex_broker.cex_service>,
 	request: Record<string, unknown>,
+	metadata?: grpc.Metadata,
 ) {
 	return new Promise<{ result: string; proof: string }>((resolve, reject) => {
-		client.ExecuteAction(request, (error, response) => {
+		const callback: grpc.requestCallback<{
+			result: string;
+			proof: string;
+		}> = (error, response) => {
 			if (error) {
 				reject(error);
 				return;
 			}
 			resolve(response as { result: string; proof: string });
-		});
+		};
+		if (metadata) {
+			client.ExecuteAction(request, metadata, callback);
+		} else {
+			client.ExecuteAction(request, callback);
+		}
 	});
 }

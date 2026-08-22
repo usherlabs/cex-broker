@@ -18,6 +18,7 @@ import type { OrderActivityTracker } from "../../helpers/order-activity-tracker"
 import { isOrderBookCallMethod } from "../../helpers/order-book";
 import type { OtelMetrics } from "../../helpers/otel";
 import { safeLogError } from "../../helpers/shared/errors";
+import { extractTraceId } from "../../helpers/trace-context";
 import {
 	buildHttpClientOverrideFromMetadata,
 	verityHttpClientOverridePredicate,
@@ -48,6 +49,16 @@ function isPublicMarketDataAction(
 	return isOrderBookCallMethod(payload?.method ?? payload?.functionName);
 }
 
+function grpcStatusName(error: { code?: number } | null): string {
+	if (!error) {
+		return "OK";
+	}
+	if (typeof error.code !== "number") {
+		return "UNKNOWN";
+	}
+	return grpc.status[error.code] ?? "UNKNOWN";
+}
+
 export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 	const {
 		policy,
@@ -68,6 +79,10 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 		const startTime = Date.now();
 		const { action: rawAction, cex, symbol } = call.request;
 		const action = resolveAction(rawAction);
+		const actionName = getActionName(action);
+		const operationalCex = cex?.trim().toLowerCase() || "unknown";
+		const traceId = extractTraceId(call.metadata);
+		const traceFields = traceId === undefined ? {} : { trace_id: traceId };
 		let actionCompleted = false;
 
 		const wrappedCallback: grpc.sendUnaryData<ActionResponse> = (
@@ -77,7 +92,19 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 			if (!actionCompleted) {
 				actionCompleted = true;
 				const latency = Date.now() - startTime;
-				const actionName = getActionName(action);
+				const terminalFields = {
+					action: actionName,
+					cex: operationalCex,
+					latency_ms: latency,
+					outcome: error ? "error" : "success",
+					grpc_status: grpcStatusName(error),
+					...traceFields,
+				};
+				if (error) {
+					log.withMetadata(terminalFields).error("ExecuteAction failed");
+				} else {
+					log.withMetadata(terminalFields).info("ExecuteAction completed");
+				}
 				otelMetrics?.recordHistogram("execute_action_duration_ms", latency, {
 					action: actionName,
 					cex: cex || "unknown",
@@ -101,9 +128,15 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 		};
 
 		try {
-			log.info(`Request - ExecuteAction:`, { action, cex, symbol });
+			log
+				.withMetadata({
+					action: actionName,
+					cex: operationalCex,
+					...traceFields,
+				})
+				.info("ExecuteAction started");
 			otelMetrics?.recordCounter("execute_action_requests_total", 1, {
-				action: getActionName(action),
+				action: actionName,
 				cex: cex || "unknown",
 			});
 

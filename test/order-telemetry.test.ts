@@ -10,6 +10,7 @@ import {
 	buildOrderExecutionTelemetry,
 	extractOrderTelemetryIds,
 } from "../src/helpers/order-telemetry";
+import { TRACE_METADATA_KEY } from "../src/helpers/trace-context";
 import { getServer } from "../src/server";
 import type { PolicyConfig } from "../src/types";
 import { startForwarderServer } from "./archive-forwarder-server";
@@ -357,19 +358,26 @@ describe("order execution telemetry RPC harness", () => {
 		);
 		try {
 			client = createClient(await bindServer(server));
+			const traceId = "0123456789abcdef0123456789abcdef";
+			const metadata = new grpc.Metadata();
+			metadata.set(TRACE_METADATA_KEY, traceId);
 
-			const response = await executeAction(client, {
-				action: Action.Call,
-				cex: "binance",
-				payload: {
-					functionName: "createOrder",
-					args: JSON.stringify(["ARB/USDT", "limit", "buy", 10, 2.1]),
-					params: JSON.stringify({
-						postOnly: true,
-						clientOrderId: "FIET-call-order-1",
-					}),
+			const response = await executeAction(
+				client,
+				{
+					action: Action.Call,
+					cex: "binance",
+					payload: {
+						functionName: "createOrder",
+						args: JSON.stringify(["ARB/USDT", "limit", "buy", 10, 2.1]),
+						params: JSON.stringify({
+							postOnly: true,
+							clientOrderId: "FIET-call-order-1",
+						}),
+					},
 				},
-			});
+				metadata,
+			);
 
 			expect(JSON.parse(response.result)).toEqual(order);
 			expect(calls.createOrder).toEqual([
@@ -413,6 +421,10 @@ describe("order execution telemetry RPC harness", () => {
 			expect(archivedOrder?.row.market_metadata_hash).toBe(
 				archivedMarketSnapshot?.row.market_metadata_hash,
 			);
+			expect(JSON.stringify(archivedRows)).not.toContain(traceId);
+			for (const archivedRow of archivedRows) {
+				expect(archivedRow.row).not.toHaveProperty("trace_id");
+			}
 			expect(metrics.counters).toContainEqual(
 				expect.objectContaining({
 					name: "cex_market_action_executions_total",

@@ -16,6 +16,7 @@ import {
 	SubscriptionType,
 	type SubscriptionType as SubscriptionTypeValue,
 } from "../src/helpers/constants";
+import { TRACE_METADATA_KEY } from "../src/helpers/trace-context";
 import { startForwarderServer } from "./archive-forwarder-server";
 
 const archiveTestDirectory = mkdtempSync(
@@ -415,6 +416,7 @@ describe("subscribe handler", () => {
 		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
 
 		try {
+			const traceId = "550e8400-e29b-41d4-a716-446655440000";
 			const controlledWatch = createControlledWatch();
 			const exchange = {
 				watchOrderBook: controlledWatch.watch,
@@ -431,6 +433,7 @@ describe("subscribe handler", () => {
 				symbol: "BTC/USDT",
 				type: SubscriptionType.ORDERBOOK,
 			});
+			call.metadata.set(TRACE_METADATA_KEY, traceId);
 			const handler = createSubscribeHandler({
 				brokers: createPool(exchange),
 				whitelistIps: ["*"],
@@ -469,6 +472,10 @@ describe("subscribe handler", () => {
 						row: Record<string, unknown>;
 					}>,
 			);
+			expect(JSON.stringify(rows)).not.toContain(traceId);
+			for (const archivedRow of rows) {
+				expect(archivedRow.row).not.toHaveProperty("trace_id");
+			}
 			expect(
 				rows.some((entry) => entry.table === "market_data.orderbook_snapshots"),
 			).toBe(false);
