@@ -57,6 +57,18 @@ function firstSupportAnchor(bundle: ArchiveBundleEvidence) {
 }
 
 describe("exact archive selection resolver", () => {
+	test("authoritative_window reuses complete production coverage when no qualified vendor exists", () => {
+		const selection = resolveArchiveSelection({
+			request,
+			bundles: [evidence("production_capture")],
+			resolvedAtMs: Date.parse("2026-08-20T12:00:02.000Z"),
+		});
+
+		expect(selection.coverage_class).toBe("complete");
+		expect(selection.bundles).toHaveLength(1);
+		expect(selection.bundles[0]?.capture_origin).toBe("production_capture");
+	});
+
 	test("authoritative_window selects only qualified vendor bundles", () => {
 		const selection = resolveArchiveSelection({
 			request,

@@ -103,6 +103,41 @@ function exportRequest(
 }
 
 describe("exact canonical order-book export selection", () => {
+	test("authoritative-window accepts a pure production archive hit", () => {
+		const request = exportRequest("authoritative_window");
+		const production = finalizeArchiveSelection({
+			...request.selection,
+			selected_intervals: [
+				{
+					start_at: START,
+					end_at: END,
+					capture_bundle_id: PRODUCTION_BUNDLE,
+					capture_origin: "production_capture",
+				},
+			],
+			bundles: [
+				{
+					capture_bundle_id: PRODUCTION_BUNDLE,
+					capture_origin: "production_capture",
+					interval: { start_at: START, end_at: END },
+					qualification: null,
+				},
+			],
+			receipt_ids: [],
+			qualification_event_ids: [],
+		});
+
+		expect(
+			compileExactOrderBookExport({ ...request, selection: production })
+				.segments,
+		).toMatchObject([
+			{
+				capture_bundle_id: PRODUCTION_BUNDLE,
+				capture_origin: "production_capture",
+			},
+		]);
+	});
+
 	test("compiles authoritative-window into vendor-only exact segments", () => {
 		const compiled = compileExactOrderBookExport(
 			exportRequest("authoritative_window"),

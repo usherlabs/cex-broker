@@ -73,12 +73,20 @@ function eligibleBundles(
 	request: MarketDataVendorBackfillRequest,
 	bundles: readonly ArchiveBundleEvidence[],
 ): ArchiveBundleEvidence[] {
-	return bundles.filter((bundle) => {
-		if (bundle.captureOrigin === "production_capture") {
-			return request.sourcePolicy === "fill_gaps";
-		}
-		return bundle.qualification?.state === "qualified";
-	});
+	const qualifiedVendorBundles = bundles.filter(
+		(bundle) =>
+			bundle.captureOrigin === "vendor_historical_backfill" &&
+			bundle.qualification?.state === "qualified",
+	);
+	const productionBundles = bundles.filter(
+		(bundle) => bundle.captureOrigin === "production_capture",
+	);
+	if (request.sourcePolicy === "authoritative_window") {
+		return qualifiedVendorBundles.length > 0
+			? qualifiedVendorBundles
+			: productionBundles;
+	}
+	return [...productionBundles, ...qualifiedVendorBundles];
 }
 
 function originPriority(

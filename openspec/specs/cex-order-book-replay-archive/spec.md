@@ -280,6 +280,11 @@ outer window MUST NOT bypass qualification or admit unrelated rows.
 - **THEN** the exporter MUST preserve canonical capture-core fields, exact query segments, and promotion identities needed by the consumer manifest
 - **AND** rows from unselected intervals or bundles MUST be excluded
 
+#### Scenario: Authoritative production archive hit is exported
+- **WHEN** an `authoritative_window` selection contains only qualified production archive intervals because no qualified vendor bundle was selected
+- **THEN** the exporter MUST accept and bind that pure production selection
+- **AND** an `authoritative_window` selection that mixes production and vendor origins MUST be rejected
+
 #### Scenario: Initial selection intersects checksum conflicts
 - **WHEN** relevant level or summary conflict views contain a logical snapshot in the requested scope and coverage window
 - **THEN** archive preflight MUST fail before complete, partial, or missing classification

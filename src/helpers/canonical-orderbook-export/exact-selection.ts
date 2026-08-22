@@ -91,6 +91,16 @@ function assertSelectionLinks(selection: ArchiveSelectionWire): Candidate[] {
 	const requested = selection.requested_intervals.map((interval, index) =>
 		intervalMs(interval, `requested_interval_${index}`),
 	);
+	if (
+		selection.source_policy === "authoritative_window" &&
+		new Set(
+			selection.selected_intervals.map((selected) => selected.capture_origin),
+		).size > 1
+	) {
+		throw new ExactOrderBookExportError(
+			"authoritative_selection_mixes_capture_origins",
+		);
+	}
 
 	return selection.selected_intervals.map((selected, index) => {
 		const selectedMs = intervalMs(selected, `selected_interval_${index}`);
@@ -108,12 +118,6 @@ function assertSelectionLinks(selection: ArchiveSelectionWire): Candidate[] {
 		}
 		if (!requested.some((interval) => contains(interval, selectedMs))) {
 			throw new ExactOrderBookExportError("selected_interval_outside_request");
-		}
-		if (
-			selection.source_policy === "authoritative_window" &&
-			selected.capture_origin !== "vendor_historical_backfill"
-		) {
-			throw new ExactOrderBookExportError("authoritative_selection_not_vendor");
 		}
 		if (selected.capture_origin === "vendor_historical_backfill") {
 			const qualification = bundle.qualification;

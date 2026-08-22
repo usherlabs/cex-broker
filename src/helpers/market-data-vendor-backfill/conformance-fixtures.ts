@@ -11,9 +11,9 @@ import {
 } from "./contracts";
 import { jcsSha256 } from "./identity";
 import {
-	CAPABILITY_POLICY,
 	EFFECTIVE_ACQUISITION_POLICY_PIN,
 	EFFECTIVE_ADAPTER_POLICY_PIN,
+	LEGACY_CAPABILITY_POLICY,
 	RESOURCE_POLICY,
 	SCHEMA_MANIFEST,
 } from "./manifests";
@@ -96,8 +96,8 @@ const requestContent = {
 	},
 	product_pins: {
 		capability_policy: {
-			policy_id: CAPABILITY_POLICY.policy_id,
-			policy_sha256: CAPABILITY_POLICY.policy_sha256,
+			policy_id: LEGACY_CAPABILITY_POLICY.policy_id,
+			policy_sha256: LEGACY_CAPABILITY_POLICY.policy_sha256,
 		},
 		resource_policy: {
 			policy_id: RESOURCE_POLICY.policy_id,
@@ -255,7 +255,7 @@ export const CONFORMANCE_FIXTURES = Object.freeze({
 		promotion_identity_sha256: promotionReceipt.promotion_identity_sha256,
 		receipt_id: promotionReceipt.receipt_id,
 		result_sha256: result.result_sha256,
-		capability_policy_sha256: CAPABILITY_POLICY.policy_sha256,
+		capability_policy_sha256: LEGACY_CAPABILITY_POLICY.policy_sha256,
 		resource_policy_sha256: RESOURCE_POLICY.policy_sha256,
 	},
 	jcs_edge_vector: jcsEdgeVector,

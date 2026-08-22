@@ -536,6 +536,16 @@ export class QualifiedOrderBookArchiveReader {
 					typeof row.capture_bundle_id === "string" &&
 					typeof row.normalized_row_checksum === "string",
 			),
+			...(request.sourcePolicy === "fill_gaps"
+				? {
+						coverageSourceTimesMs: [
+							...baseline.selection.support_anchors.map((anchor) =>
+								Date.parse(anchor.source_time),
+							),
+							...summaries.map((row) => numberField(row, "source_time_ms")),
+						],
+					}
+				: {}),
 		});
 		return { ...semantic, captureBundleId };
 	}

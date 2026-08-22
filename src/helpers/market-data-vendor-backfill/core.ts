@@ -15,8 +15,10 @@ import {
 	type ProviderObjectEvidence,
 	promotionReceiptCodec,
 } from "./contracts";
+import { providerAcquisitionRequest } from "./cryptohftdata";
 import { jcsCanonicalize } from "./identity";
 import {
+	CAPABILITY_POLICY,
 	EFFECTIVE_ACQUISITION_POLICY_PIN,
 	EFFECTIVE_ADAPTER_POLICY_PIN,
 	RESOURCE_POLICY,
@@ -453,6 +455,17 @@ export async function runMarketDataVendorBackfill(
 			{ reasonSubcode: "resource_policy_scope_exceeded" },
 		);
 	}
+	if (
+		request.sourcePolicy === "fill_gaps" &&
+		(request.productPins?.capability_policy.policy_id !==
+			CAPABILITY_POLICY.policy_id ||
+			request.productPins.capability_policy.policy_sha256 !==
+				CAPABILITY_POLICY.policy_sha256)
+	) {
+		return outcome(request, "capability_unsupported", "scope_unsupported", {
+			reasonSubcode: "fill_gaps_requires_capability_policy_v2",
+		});
+	}
 
 	let capability: ProviderCapability | undefined;
 	try {
@@ -500,14 +513,15 @@ export async function runMarketDataVendorBackfill(
 	let dataset: ProviderDataset;
 	let normalized: NormalizedBackfill;
 	try {
+		const acquisitionRequest = providerAcquisitionRequest(request);
 		dataset = await dependencies.providers.acquire(
-			request,
+			acquisitionRequest,
 			capability,
 			credential,
 		);
 		const bundleId = captureBundleId(request, capability, dataset);
 		normalized = await dependencies.providers.normalize(
-			request,
+			acquisitionRequest,
 			capability,
 			dataset,
 			bundleId,

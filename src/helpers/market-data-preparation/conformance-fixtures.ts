@@ -1,4 +1,5 @@
 import { CONFORMANCE_FIXTURES as V1_CONFORMANCE_FIXTURES } from "../market-data-vendor-backfill/conformance-fixtures";
+import { CAPABILITY_POLICY } from "../market-data-vendor-backfill/manifests";
 import {
 	BACKFILL_RESULT_V2_SCHEMA_ID,
 	CANONICAL_ORDERBOOK_EXPORT_REQUEST_SCHEMA_ID,
@@ -128,7 +129,10 @@ const productPin = preparationProductPinCodec.decode({
 	schema_pins: PREPARATION_SCHEMA_ARTIFACTS.map(
 		({ schema_id, schema_sha256 }) => ({ schema_id, schema_sha256 }),
 	),
-	capability_policy: legacyResult.capability_policy,
+	capability_policy: {
+		policy_id: CAPABILITY_POLICY.policy_id,
+		policy_sha256: CAPABILITY_POLICY.policy_sha256,
+	},
 	resource_policy: legacyResult.resource_policy,
 });
 

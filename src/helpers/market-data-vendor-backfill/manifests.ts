@@ -11,16 +11,18 @@ import requiredClockSchema from "./schemas/required-clock.schema.json" with {
 };
 import resultSchema from "./schemas/result.schema.json" with { type: "json" };
 
-export const CAPABILITY_POLICY_ID =
+export const LEGACY_CAPABILITY_POLICY_ID =
 	"market-data-vendor-backfill-capabilities/v1" as const;
+export const CAPABILITY_POLICY_ID =
+	"market-data-vendor-backfill-capabilities/v2" as const;
 export const RESOURCE_POLICY_ID =
 	"market-data-vendor-backfill-resources/v1" as const;
 export const ADAPTER_POLICY_ID = "cryptohftdata-orderbook-adapter/v1" as const;
 export const ACQUISITION_POLICY_ID =
 	"cryptohftdata-hourly-acquisition/v1" as const;
 
-const capabilityPolicyContent = {
-	policy_id: CAPABILITY_POLICY_ID,
+const legacyCapabilityPolicyContent = {
+	policy_id: LEGACY_CAPABILITY_POLICY_ID,
 	provider: "cryptohftdata",
 	adapter_policy: {
 		policy_id: ADAPTER_POLICY_ID,
@@ -45,6 +47,20 @@ const capabilityPolicyContent = {
 			max_depth: 400,
 		},
 	],
+} as const;
+
+export const LEGACY_CAPABILITY_POLICY = Object.freeze({
+	...legacyCapabilityPolicyContent,
+	policy_sha256: jcsSha256(legacyCapabilityPolicyContent),
+});
+
+const capabilityPolicyContent = {
+	...legacyCapabilityPolicyContent,
+	policy_id: CAPABILITY_POLICY_ID,
+	profiles: legacyCapabilityPolicyContent.profiles.map((profile) => ({
+		...profile,
+		source_policies: ["authoritative_window", "fill_gaps"] as const,
+	})),
 } as const;
 
 export const CAPABILITY_POLICY = Object.freeze({
@@ -75,12 +91,12 @@ export const RESOURCE_POLICY = Object.freeze({
 
 export const EFFECTIVE_ADAPTER_POLICY_PIN = Object.freeze({
 	policy_id: ADAPTER_POLICY_ID,
-	policy_sha256: jcsSha256(capabilityPolicyContent.adapter_policy),
+	policy_sha256: jcsSha256(legacyCapabilityPolicyContent.adapter_policy),
 });
 
 export const EFFECTIVE_ACQUISITION_POLICY_PIN = Object.freeze({
 	policy_id: ACQUISITION_POLICY_ID,
-	policy_sha256: jcsSha256(capabilityPolicyContent.acquisition_policy),
+	policy_sha256: jcsSha256(legacyCapabilityPolicyContent.acquisition_policy),
 });
 
 const schemaArtifacts = [
