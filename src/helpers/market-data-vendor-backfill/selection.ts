@@ -82,7 +82,8 @@ function eligibleBundles(
 		(bundle) => bundle.captureOrigin === "production_capture",
 	);
 	if (request.sourcePolicy === "authoritative_window") {
-		return qualifiedVendorBundles.length > 0
+		const vendorSupport = chooseSupport(request, qualifiedVendorBundles);
+		return vendorSupport.length === request.requiredClockTargetsMs.length
 			? qualifiedVendorBundles
 			: productionBundles;
 	}
