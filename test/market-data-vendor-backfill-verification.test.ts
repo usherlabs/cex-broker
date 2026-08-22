@@ -102,6 +102,33 @@ describe("FIET-1017 semantic promotion verification", () => {
 		});
 	});
 
+	test("fill_gaps proves full coverage from retained archive and exact candidate rows", () => {
+		const archiveTarget = 1_700_000_900_000;
+		const vendorTarget = 1_700_001_800_000;
+		const candidate = rows().map((entry) => ({
+			...entry,
+			row: { ...entry.row, source_time_ms: vendorTarget - 1_000 },
+		}));
+		const result = verifySemanticPromotion({
+			request: validBackfillRequest({
+				sourcePolicy: "fill_gaps",
+				requiredClockTargetsMs: [archiveTarget, vendorTarget],
+				maxPriorAsOfLagMs: 2_000,
+			}),
+			normalizedRows: candidate,
+			...evidence({
+				candidateRows: candidate,
+				coverageSourceTimesMs: [archiveTarget - 1_000, vendorTarget - 1_000],
+			}),
+		});
+
+		expect(result).toMatchObject({
+			passed: true,
+			reasonCode: "semantic_promotion_verified",
+			coverageVerified: true,
+		});
+	});
+
 	test("maps every semantic verification gate to a stable fail-closed reason", () => {
 		const base = {
 			request: validBackfillRequest({

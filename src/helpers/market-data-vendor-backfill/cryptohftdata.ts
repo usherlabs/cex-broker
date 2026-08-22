@@ -45,7 +45,7 @@ export type CryptoHftDataCapabilityProfile = Readonly<{
 		| "event_time_final_update_id_object";
 	sequenceSemantics: "binance_u_U_pu" | "okx_seq_id_prev_seq_id";
 	constructionModes: readonly ["sampled_top_n_snapshot"];
-	sourcePolicies: readonly ["authoritative_window"];
+	sourcePolicies: readonly ("authoritative_window" | "fill_gaps")[];
 }>;
 
 // This profile is exported for explicit enablement by a conformance-tested
@@ -86,7 +86,7 @@ export const CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE: CryptoHftDataCapabilityProf
 		snapshotGrouping: "event_time_final_update_id_object",
 		sequenceSemantics: "okx_seq_id_prev_seq_id",
 		constructionModes: ["sampled_top_n_snapshot"] as const,
-		sourcePolicies: ["authoritative_window"] as const,
+		sourcePolicies: ["authoritative_window", "fill_gaps"] as const,
 	});
 
 export class CryptoHftDataError extends Error {
@@ -169,6 +169,26 @@ export function enumerateCryptoHftDataObjects(
 	providerExchangeId: string,
 	resolvedSymbol: string,
 ): string[] {
+	if (request.sourcePolicy === "fill_gaps") {
+		const hours = new Set<number>();
+		for (const targetTimeMs of request.requiredClockTargetsMs) {
+			const firstHour =
+				Math.floor(
+					Math.max(0, targetTimeMs - request.budgets.maxBoundaryLookbackMs) /
+						HOUR_MS,
+				) * HOUR_MS;
+			const lastHour = Math.floor(targetTimeMs / HOUR_MS) * HOUR_MS;
+			for (let hourMs = firstHour; hourMs <= lastHour; hourMs += HOUR_MS) {
+				hours.add(hourMs);
+			}
+		}
+		return [...hours]
+			.sort((left, right) => left - right)
+			.map((hourMs) => {
+				const utc = utcHourPath(hourMs);
+				return `${providerExchangeId}/${utc.date}/${utc.hour}/${resolvedSymbol}_orderbook.parquet.zst`;
+			});
+	}
 	const firstHour =
 		Math.floor(
 			(request.window.startTimeMs - request.budgets.maxBoundaryLookbackMs) /
@@ -186,6 +206,33 @@ export function enumerateCryptoHftDataObjects(
 		);
 	}
 	return objects;
+}
+
+function initialArchiveCoversTarget(
+	request: MarketDataVendorBackfillRequest,
+	targetTimeMs: number,
+): boolean {
+	return (request.initialSelection?.support_anchors ?? []).some((anchor) => {
+		const sourceTimeMs = Date.parse(anchor.source_time);
+		return (
+			Number.isSafeInteger(sourceTimeMs) &&
+			sourceTimeMs <= targetTimeMs &&
+			targetTimeMs - sourceTimeMs <= request.maxPriorAsOfLagMs
+		);
+	});
+}
+
+export function providerAcquisitionRequest(
+	request: MarketDataVendorBackfillRequest,
+): MarketDataVendorBackfillRequest {
+	if (request.sourcePolicy !== "fill_gaps") return request;
+	const requiredClockTargetsMs = request.requiredClockTargetsMs.filter(
+		(targetTimeMs) => !initialArchiveCoversTarget(request, targetTimeMs),
+	);
+	if (requiredClockTargetsMs.length === 0) {
+		throw new CryptoHftDataError("fill_gaps_has_no_uncovered_clock_targets");
+	}
+	return { ...request, requiredClockTargetsMs };
 }
 
 function unsignedString(

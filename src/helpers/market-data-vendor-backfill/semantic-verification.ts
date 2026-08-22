@@ -103,11 +103,17 @@ function requestedShapeMatches(
 function requiredClockCoverage(
 	request: MarketDataVendorBackfillRequest,
 	rows: readonly BackfillArchiveRow[],
+	coverageSourceTimesMs?: readonly number[],
 ): boolean {
-	const summaryTimes = rows
-		.filter(({ table }) => table === "market_data.cex_order_book_depth_summary")
-		.map(({ row }) => {
-			const value = row.source_time_ms;
+	const summaryTimes = (
+		coverageSourceTimesMs ??
+		rows
+			.filter(
+				({ table }) => table === "market_data.cex_order_book_depth_summary",
+			)
+			.map(({ row }) => row.source_time_ms)
+	)
+		.map((value) => {
 			if (
 				typeof value !== "number" &&
 				(typeof value !== "string" || !/^\d+$/.test(value))
@@ -144,6 +150,7 @@ export type SemanticPromotionEvidence = {
 	suffixDigestAfter: string;
 	seamVerified: boolean;
 	exporterCompatible: boolean;
+	coverageSourceTimesMs?: readonly number[];
 };
 
 export type SemanticPromotionResult = {
@@ -220,6 +227,7 @@ export function verifySemanticPromotion(
 	const coverageVerified = requiredClockCoverage(
 		evidence.request,
 		evidence.candidateRows,
+		evidence.coverageSourceTimesMs,
 	);
 	if (!coverageVerified) {
 		return {

@@ -111,6 +111,7 @@ const backfillAssets = [
 	["schemas/archive-selection.schema.json", "schemas/archive-selection.schema.json"],
 	["schemas/promotion-receipt.schema.json", "schemas/promotion-receipt.schema.json"],
 	["policies/capability-policy.json", "policies/capability-policy.json"],
+	["policies/capability-policy-v2.json", "policies/capability-policy-v2.json"],
 	["policies/resource-policy.json", "policies/resource-policy.json"],
 	["fixtures/conformance-v1.json", "fixtures/conformance-v1.json"],
 ] as const;
@@ -132,7 +133,8 @@ const preparationAssets = [
 	["./src/helpers/market-data-preparation/schemas/canonical-orderbook-export-request.schema.json", "schemas/canonical-orderbook-export-request-v1.schema.json"],
 	["./src/helpers/market-data-preparation/schemas/canonical-orderbook-export-result.schema.json", "schemas/canonical-orderbook-export-result-v1.schema.json"],
 	["./src/helpers/market-data-preparation/schemas/preparation-product-pin.schema.json", "schemas/preparation-product-pin-v1.schema.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/capability-policy.json", "policies/capability-policy.json"],
+	["./src/helpers/market-data-vendor-backfill/policies/capability-policy-v2.json", "policies/capability-policy.json"],
+	["./src/helpers/market-data-vendor-backfill/policies/capability-policy.json", "policies/capability-policy-v1.json"],
 	["./src/helpers/market-data-vendor-backfill/policies/resource-policy.json", "policies/resource-policy.json"],
 ] as const;
 for (const [sourcePath, outputPath] of preparationAssets) {

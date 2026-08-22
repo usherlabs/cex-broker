@@ -16,7 +16,7 @@ UTC RFC3339 timestamps, unsafe integers, and floating-point hashed wire fields
 MUST be rejected. A document digest MUST omit only its own digest field.
 
 #### Scenario: TypeScript and Python validate the same fixture
-- **WHEN** CEX, Fiet TEE, and Maker load a published golden fixture
+- **WHEN** CEX and Maker load a published golden fixture
 - **THEN** every implementation MUST validate the same document and compute the same canonical digest
 - **AND** official RFC 8785 edge vectors MUST have identical hashes
 
@@ -51,9 +51,11 @@ reference to origin/qualification/receipt metadata.
 
 #### Scenario: Source policy resolves coverage
 - **WHEN** `authoritative_window` resolves coverage
-- **THEN** only promoted vendor bundles MUST be returned
+- **THEN** qualified vendor bundles MUST be preferred when any cover the clock
+- **AND** otherwise qualified production archive coverage MUST be returned without vendor acquisition
 - **WHEN** `fill_gaps` resolves coverage
 - **THEN** retained production intervals and promoted gaps MUST be returned with archive-wins precedence
+- **AND** provider acquisition MUST be restricted to required-clock targets missing from the retained initial selection plus only the pinned boundary lookback
 
 #### Scenario: Qualified request is repeated
 - **WHEN** an identical qualified vendor request is preflighted again
@@ -127,7 +129,7 @@ stable reason code, optional stable subcode, and secret-free diagnostics. Only
 `already_covered` and `promoted` are success statuses.
 
 #### Scenario: Core API is consumed as a library
-- **WHEN** Fiet TEE or a conformance harness imports the worker package subpath
+- **WHEN** an offline preparation consumer or conformance harness imports the worker package subpath
 - **THEN** it MUST be able to invoke the core function with explicit
   dependencies
 - **AND** importing the subpath MUST NOT register RPC handlers, start the broker,
@@ -179,6 +181,11 @@ because an API key is present.
 - **AND** it MUST record provider exchange ID, resolved symbol, object paths or
   stable object identities, response checksums, row counts, and adapter version
   without retaining credentials
+
+#### Scenario: Fill-gaps coverage is verified as one timeline
+- **WHEN** a supported `fill_gaps` request retains qualified production anchors and acquires vendor rows only for missing targets
+- **THEN** semantic coverage MUST be proven over the union of retained and candidate source times
+- **AND** exact candidate normalization MUST still be proven only against the acquired vendor rows
 
 #### Scenario: Download exceeds request budget
 - **WHEN** the next provider object would exceed the request's maximum files,

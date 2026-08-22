@@ -5,7 +5,11 @@ import Ajv2020, {
 import { z } from "zod";
 import { sha256Canonical } from "../market-data-archive/capture-contract";
 import { assertDocumentSha256, documentSha256, jcsSha256 } from "./identity";
-import { CAPABILITY_POLICY, RESOURCE_POLICY } from "./manifests";
+import {
+	CAPABILITY_POLICY,
+	LEGACY_CAPABILITY_POLICY,
+	RESOURCE_POLICY,
+} from "./manifests";
 import archiveSelectionSchemaJson from "./schemas/archive-selection.schema.json" with {
 	type: "json",
 };
@@ -438,11 +442,17 @@ export const backfillRequestCodec = {
 				"idempotency_key does not match canonical business fields",
 			);
 		}
+		const capabilityPolicyMatches = [
+			CAPABILITY_POLICY,
+			LEGACY_CAPABILITY_POLICY,
+		].some(
+			(policy) =>
+				request.product_pins.capability_policy.policy_id === policy.policy_id &&
+				request.product_pins.capability_policy.policy_sha256 ===
+					policy.policy_sha256,
+		);
 		if (
-			request.product_pins.capability_policy.policy_id !==
-				CAPABILITY_POLICY.policy_id ||
-			request.product_pins.capability_policy.policy_sha256 !==
-				CAPABILITY_POLICY.policy_sha256 ||
+			!capabilityPolicyMatches ||
 			request.product_pins.resource_policy.policy_id !==
 				RESOURCE_POLICY.policy_id ||
 			request.product_pins.resource_policy.policy_sha256 !==

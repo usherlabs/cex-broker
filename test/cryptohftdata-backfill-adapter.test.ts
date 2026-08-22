@@ -9,6 +9,7 @@ import {
 	cryptoHftDataCapabilityFor,
 	decodeCryptoHftParquetZstd,
 	enumerateCryptoHftDataObjects,
+	providerAcquisitionRequest,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
 import { validBackfillRequest } from "./market-data-vendor-backfill-contract.test";
 
@@ -141,6 +142,63 @@ describe("CryptoHFTData capability and acquisition", () => {
 			providerExchangeId: "okx_spot",
 			resolvedSymbol: "ARB-USDT",
 		});
+		expect(
+			cryptoHftDataCapabilityFor(
+				validBackfillRequest({ ...request, sourcePolicy: "fill_gaps" }),
+				provenProfiles,
+			),
+		).toEqual({
+			provider: "cryptohftdata",
+			adapterVersion: "cryptohftdata-orderbook/v2",
+			providerExchangeId: "okx_spot",
+			resolvedSymbol: "ARB-USDT",
+		});
+	});
+
+	test("fill_gaps acquires only required-clock targets not covered by retained archive anchors", () => {
+		const first = Date.UTC(2026, 7, 18, 9, 15);
+		const covered = Date.UTC(2026, 7, 18, 10, 15);
+		const missing = Date.UTC(2026, 7, 18, 12, 15);
+		const request = validBackfillRequest({
+			sourcePolicy: "fill_gaps",
+			window: { startTimeMs: first, endTimeMs: missing + 60_000 },
+			requiredClockTargetsMs: [first, covered, missing],
+			maxPriorAsOfLagMs: 60_000,
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxBoundaryLookbackMs: 3_600_000,
+			},
+			initialSelection: {
+				...({} as NonNullable<
+					ReturnType<typeof validBackfillRequest>["initialSelection"]
+				>),
+				support_anchors: [
+					{
+						capture_bundle_id: "a".repeat(64),
+						raw_capture_id: "b".repeat(64),
+						snapshot_id: "c".repeat(64),
+						source_time: new Date(covered - 1_000).toISOString(),
+						normalized_summary_checksum: "d".repeat(64),
+						metadata_ref: {
+							capture_origin: "production_capture",
+							qualification_event_id: null,
+							receipt_id: null,
+						},
+					},
+				],
+			},
+		});
+
+		const acquisition = providerAcquisitionRequest(request);
+		expect(acquisition.requiredClockTargetsMs).toEqual([first, missing]);
+		expect(
+			enumerateCryptoHftDataObjects(acquisition, "okx_spot", "ARB-USDT"),
+		).toEqual([
+			"okx_spot/2026-08-18/08/ARB-USDT_orderbook.parquet.zst",
+			"okx_spot/2026-08-18/09/ARB-USDT_orderbook.parquet.zst",
+			"okx_spot/2026-08-18/11/ARB-USDT_orderbook.parquet.zst",
+			"okx_spot/2026-08-18/12/ARB-USDT_orderbook.parquet.zst",
+		]);
 	});
 
 	test("enumerates bounded UTC-hour object paths including initialization lookback", () => {

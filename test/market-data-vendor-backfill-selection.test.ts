@@ -57,6 +57,51 @@ function firstSupportAnchor(bundle: ArchiveBundleEvidence) {
 }
 
 describe("exact archive selection resolver", () => {
+	test("authoritative_window reuses complete production coverage when no qualified vendor exists", () => {
+		const selection = resolveArchiveSelection({
+			request,
+			bundles: [evidence("production_capture")],
+			resolvedAtMs: Date.parse("2026-08-20T12:00:02.000Z"),
+		});
+
+		expect(selection.coverage_class).toBe("complete");
+		expect(selection.bundles).toHaveLength(1);
+		expect(selection.bundles[0]?.capture_origin).toBe("production_capture");
+	});
+
+	test("authoritative_window falls back to complete production when qualified vendor coverage is stale", () => {
+		const target = request.requiredClockTargetsMs[0] as number;
+		const productionEvidence = evidence("production_capture");
+		const vendorEvidence = evidence("vendor_historical_backfill");
+		const selection = resolveArchiveSelection({
+			request,
+			bundles: [
+				evidence("production_capture", {
+					supportAnchors: [
+						{
+							...firstSupportAnchor(productionEvidence),
+							sourceTimeMs: target - 1,
+						},
+					],
+				}),
+				evidence("vendor_historical_backfill", {
+					supportAnchors: [
+						{
+							...firstSupportAnchor(vendorEvidence),
+							sourceTimeMs: target - request.maxPriorAsOfLagMs - 1,
+						},
+					],
+				}),
+			],
+			resolvedAtMs: target,
+		});
+
+		expect(selection.coverage_class).toBe("complete");
+		expect(
+			selection.bundles.map(({ capture_origin }) => capture_origin),
+		).toEqual(["production_capture"]);
+	});
+
 	test("authoritative_window selects only qualified vendor bundles", () => {
 		const selection = resolveArchiveSelection({
 			request,
@@ -94,7 +139,7 @@ describe("exact archive selection resolver", () => {
 		);
 	});
 
-	test("accepts the exact lag boundary and rejects future or stale anchors", () => {
+	test("accepts the exact lag boundary and rejects future or stale vendor-only coverage", () => {
 		const target = request.requiredClockTargetsMs[0] as number;
 		const vendorEvidence = evidence("vendor_historical_backfill");
 		const atBoundary = evidence("vendor_historical_backfill", {
@@ -130,7 +175,7 @@ describe("exact archive selection resolver", () => {
 					bundles: [unsupported],
 					resolvedAtMs: target,
 				}).coverage_class,
-			).toBe("partial");
+			).toBe("missing");
 		}
 	});
 
