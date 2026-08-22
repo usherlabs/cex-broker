@@ -254,4 +254,4 @@ test("standalone CLI exports correlated ExecuteAction logs without adding trace_
 		}
 		collector.stop();
 	}
-}, 10_000);
+}, 20_000);

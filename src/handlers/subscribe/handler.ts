@@ -151,6 +151,12 @@ async function writeSubscribeError(
 	}
 }
 
+function grpcStatusName(status: unknown): string {
+	return typeof status === "number"
+		? (grpc.status[status] ?? "UNKNOWN")
+		: "UNKNOWN";
+}
+
 function getBinanceEventMarketId(
 	event: Record<string, unknown>,
 ): string | null {
@@ -375,6 +381,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		};
 		let terminalLogged = false;
 		let terminalOutcome: "completed" | "error" = "completed";
+		let terminalGrpcStatus = "OK";
 		let streamClosed = false;
 		let ownedBroker: Exchange | null = null;
 		let ownedBrokerClosePromise: Promise<unknown> | undefined;
@@ -409,6 +416,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				...operationalFields,
 				duration_ms: Date.now() - subscribeStartTime,
 				outcome,
+				grpc_status: outcome === "cancelled" ? "CANCELLED" : terminalGrpcStatus,
 			};
 			if (outcome === "error") {
 				log.withMetadata(fields).error("Subscribe failed");
@@ -418,14 +426,19 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				log.withMetadata(fields).info("Subscribe ended");
 			}
 		};
-		const writeTerminalError = async (frame: SubscribeResponse) => {
+		const writeTerminalError = async (
+			frame: SubscribeResponse,
+			status = grpc.status.UNKNOWN,
+		) => {
 			terminalOutcome = "error";
+			terminalGrpcStatus = grpcStatusName(status);
 			await writeSubscribeError(call, isStreamClosed, frame);
 		};
 
 		log.withMetadata(operationalFields).info("Subscribe started");
 
 		call.once("cancelled", () => {
+			terminalGrpcStatus = "CANCELLED";
 			markStreamClosed();
 			logTerminalOutcome("cancelled");
 		});
@@ -443,6 +456,11 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		call.once("error", (error) => {
 			markStreamClosed();
 			terminalOutcome = "error";
+			terminalGrpcStatus = grpcStatusName(
+				typeof error === "object" && error !== null && "code" in error
+					? error.code
+					: undefined,
+			);
 			logTerminalOutcome(call.cancelled ? "cancelled" : "error");
 			otelMetrics?.recordCounter("subscribe_errors_total", 1, {
 				error_type: error instanceof Error ? error.message : "unknown",
@@ -451,6 +469,7 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 
 		if (!authenticateRequest(call, whitelistIps)) {
 			terminalOutcome = "error";
+			terminalGrpcStatus = "PERMISSION_DENIED";
 			otelMetrics?.recordCounter("subscribe_errors_total", 1, {
 				error_type: "permission_denied",
 			});
@@ -475,14 +494,17 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			});
 
 			if (!cex || !symbol) {
-				await writeTerminalError({
-					data: JSON.stringify({
-						error: "cex, symbol, and type are required",
-					}),
-					timestamp: Date.now(),
-					symbol: symbol || "",
-					type: subscriptionType,
-				});
+				await writeTerminalError(
+					{
+						data: JSON.stringify({
+							error: "cex, symbol, and type are required",
+						}),
+						timestamp: Date.now(),
+						symbol: symbol || "",
+						type: subscriptionType,
+					},
+					grpc.status.INVALID_ARGUMENT,
+				);
 				return;
 			}
 
@@ -545,14 +567,17 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			const broker = selectedBroker ?? createPublicBroker(normalizedCex);
 
 			if (!broker) {
-				await writeTerminalError({
-					data: JSON.stringify({
-						error: "Exchange not registered and no API metadata found",
-					}),
-					timestamp: Date.now(),
-					symbol,
-					type: subscriptionType,
-				});
+				await writeTerminalError(
+					{
+						data: JSON.stringify({
+							error: "Exchange not registered and no API metadata found",
+						}),
+						timestamp: Date.now(),
+						symbol,
+						type: subscriptionType,
+					},
+					grpc.status.NOT_FOUND,
+				);
 				return;
 			}
 			if (!selectedBrokerAccount) {
@@ -592,14 +617,17 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			) {
 				const accountBroker = selectedBrokerAccount?.exchange ?? selectedBroker;
 				if (!accountBroker) {
-					await writeTerminalError({
-						data: JSON.stringify({
-							error: "Binance account subscriptions require API credentials",
-						}),
-						timestamp: Date.now(),
-						symbol: resolvedSymbol,
-						type: subscriptionType,
-					});
+					await writeTerminalError(
+						{
+							data: JSON.stringify({
+								error: "Binance account subscriptions require API credentials",
+							}),
+							timestamp: Date.now(),
+							symbol: resolvedSymbol,
+							type: subscriptionType,
+						},
+						grpc.status.FAILED_PRECONDITION,
+					);
 					return;
 				}
 				const marketId =
@@ -609,14 +637,18 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 				let userDataSource: UserDataSubscription | undefined;
 				if (selectedBrokerAccount) {
 					if (!userDataStreamSupervisor) {
-						await writeTerminalError({
-							data: JSON.stringify({
-								error: "Configured account user-data supervisor is unavailable",
-							}),
-							timestamp: Date.now(),
-							symbol: resolvedSymbol,
-							type: subscriptionType,
-						});
+						await writeTerminalError(
+							{
+								data: JSON.stringify({
+									error:
+										"Configured account user-data supervisor is unavailable",
+								}),
+								timestamp: Date.now(),
+								symbol: resolvedSymbol,
+								type: subscriptionType,
+							},
+							grpc.status.FAILED_PRECONDITION,
+						);
 						return;
 					}
 					userDataSource = userDataStreamSupervisor.subscribe({
@@ -701,22 +733,28 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					break;
 
 				default:
-					await writeTerminalError({
-						data: JSON.stringify({ error: "Invalid subscription type" }),
-						timestamp: Date.now(),
-						symbol,
-						type: subscriptionType,
-					});
+					await writeTerminalError(
+						{
+							data: JSON.stringify({ error: "Invalid subscription type" }),
+							timestamp: Date.now(),
+							symbol,
+							type: subscriptionType,
+						},
+						grpc.status.INVALID_ARGUMENT,
+					);
 			}
 		} catch (error) {
 			log.error("Error in Subscribe stream:", error);
 			const message = getErrorMessage(error);
-			await writeTerminalError({
-				data: JSON.stringify({ error: `Internal server error: ${message}` }),
-				timestamp: Date.now(),
-				symbol: "",
-				type: subscriptionType,
-			});
+			await writeTerminalError(
+				{
+					data: JSON.stringify({ error: `Internal server error: ${message}` }),
+					timestamp: Date.now(),
+					symbol: "",
+					type: subscriptionType,
+				},
+				grpc.status.INTERNAL,
+			);
 		} finally {
 			call.off("cancelled", closeOwnedBrokerOnCallEnd);
 			call.off("error", closeOwnedBrokerOnCallEnd);

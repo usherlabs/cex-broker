@@ -13,6 +13,7 @@ import type {
 import type { BrokerPoolEntry } from "../src/helpers/broker";
 import { Action, SubscriptionType } from "../src/helpers/constants";
 import { log } from "../src/helpers/logger";
+import type { PublicMarketDataFeedSupervisor } from "../src/helpers/public-market-data-feed";
 import { TRACE_METADATA_KEY } from "../src/helpers/trace-context";
 import type { PolicyConfig } from "../src/types";
 import { CapturingOtelMetrics } from "./order-telemetry-fixtures";
@@ -130,7 +131,7 @@ function createSubscribeCall(
 }
 
 type CapturedOperationalLog = {
-	level: "info" | "error";
+	level: "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 	message: unknown;
 	metadata: Record<string, unknown>;
 };
@@ -140,23 +141,20 @@ function captureOperationalLogs() {
 	const info = spyOn(log, "info").mockImplementation(() => {});
 	const error = spyOn(log, "error").mockImplementation(() => {});
 	const withMetadata = spyOn(log, "withMetadata").mockImplementation(
-		(metadata) =>
-			({
-				info: (message: unknown) => {
-					entries.push({
-						level: "info",
-						message,
-						metadata: metadata ?? {},
-					});
-				},
-				error: (message: unknown) => {
-					entries.push({
-						level: "error",
-						message,
-						metadata: metadata ?? {},
-					});
-				},
-			}) as ReturnType<typeof log.withMetadata>,
+		(metadata) => {
+			const record =
+				(level: CapturedOperationalLog["level"]) => (message: unknown) => {
+					entries.push({ level, message, metadata: metadata ?? {} });
+				};
+			return {
+				trace: record("trace"),
+				debug: record("debug"),
+				info: record("info"),
+				warn: record("warn"),
+				error: record("error"),
+				fatal: record("fatal"),
+			} as ReturnType<typeof log.withMetadata>;
+		},
 	);
 
 	return {
@@ -179,7 +177,9 @@ function findLogEntry(
 }
 
 function expectNoTraceMetricDimension(metrics: CapturingOtelMetrics): void {
-	for (const metric of [...metrics.counters, ...metrics.histograms]) {
+	const recorded = [...metrics.counters, ...metrics.histograms];
+	expect(recorded.length).toBeGreaterThan(0);
+	for (const metric of recorded) {
 		expect(metric.labels).not.toHaveProperty("trace_id");
 	}
 }
@@ -317,6 +317,52 @@ describe("FIET-601 operational trace correlation", () => {
 		}
 	});
 
+	test("Subscribe logs a correlated normal completion with OK status", async () => {
+		const captured = captureOperationalLogs();
+		const metrics = new CapturingOtelMetrics();
+		const fixture = createSubscribeCall(
+			{
+				cex: "binance",
+				symbol: "BTC/USDT",
+				type: SubscriptionType.TICKER,
+			},
+			metadataWithTraceId(OTEL_TRACE_ID),
+		);
+		const publicMarketDataFeedSupervisor = {
+			subscribe: async () => ({
+				close: () => {},
+				async *[Symbol.asyncIterator]() {},
+			}),
+		} as unknown as PublicMarketDataFeedSupervisor;
+		const handler = createSubscribeHandler({
+			brokers: {},
+			whitelistIps: ["*"],
+			otelMetrics: metrics.asOtelMetrics(),
+			publicMarketDataFeedSupervisor,
+		});
+
+		try {
+			await handler(fixture.call);
+
+			const completionLogs = captured.entries.filter(
+				(entry) => entry.message === "Subscribe ended",
+			);
+			expect(completionLogs).toHaveLength(1);
+			expect(completionLogs[0]?.metadata).toEqual({
+				cex: "binance",
+				symbol: "BTC/USDT",
+				subscription_type: "TICKER",
+				duration_ms: expect.any(Number),
+				outcome: "completed",
+				grpc_status: "OK",
+				trace_id: OTEL_TRACE_ID,
+			});
+			expectNoTraceMetricDimension(metrics);
+		} finally {
+			captured.restore();
+		}
+	});
+
 	test("Subscribe logs one correlated cancellation and keeps trace_id out of metrics", async () => {
 		const captured = captureOperationalLogs();
 		const metrics = new CapturingOtelMetrics();
@@ -372,6 +418,7 @@ describe("FIET-601 operational trace correlation", () => {
 				subscription_type: "BALANCE",
 				duration_ms: expect.any(Number),
 				outcome: "cancelled",
+				grpc_status: "CANCELLED",
 				trace_id: OTEL_TRACE_ID,
 			});
 			expectNoTraceMetricDimension(metrics);
@@ -416,7 +463,47 @@ describe("FIET-601 operational trace correlation", () => {
 				subscription_type: "BALANCE",
 				duration_ms: expect.any(Number),
 				outcome: "error",
+				grpc_status: "UNKNOWN",
 				trace_id: UUID_TRACE_ID,
+			});
+			expectNoTraceMetricDimension(metrics);
+		} finally {
+			captured.restore();
+		}
+	});
+
+	test("Subscribe preserves a concrete gRPC status for rejected calls", async () => {
+		const captured = captureOperationalLogs();
+		const metrics = new CapturingOtelMetrics();
+		const fixture = createSubscribeCall(
+			{
+				cex: "binance",
+				symbol: "BTC/USDT",
+				type: SubscriptionType.ORDERBOOK,
+			},
+			metadataWithTraceId(OTEL_TRACE_ID),
+		);
+		const handler = createSubscribeHandler({
+			brokers: {},
+			whitelistIps: ["192.0.2.1"],
+			otelMetrics: metrics.asOtelMetrics(),
+		});
+
+		try {
+			await handler(fixture.call);
+
+			const failureLogs = captured.entries.filter(
+				(entry) => entry.message === "Subscribe failed",
+			);
+			expect(failureLogs).toHaveLength(1);
+			expect(failureLogs[0]?.metadata).toEqual({
+				cex: "binance",
+				symbol: "BTC/USDT",
+				subscription_type: "ORDERBOOK",
+				duration_ms: expect.any(Number),
+				outcome: "error",
+				grpc_status: "PERMISSION_DENIED",
+				trace_id: OTEL_TRACE_ID,
 			});
 			expectNoTraceMetricDimension(metrics);
 		} finally {
