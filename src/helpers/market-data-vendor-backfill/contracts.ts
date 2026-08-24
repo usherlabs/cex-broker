@@ -9,6 +9,7 @@ import {
 	CAPABILITY_POLICY,
 	LEGACY_CAPABILITY_POLICY,
 	LEGACY_RESOURCE_POLICY,
+	PREVIOUS_CAPABILITY_POLICY,
 	RESOURCE_POLICY,
 } from "./manifests";
 import archiveSelectionSchemaJson from "./schemas/archive-selection.schema.json" with {
@@ -445,6 +446,7 @@ export const backfillRequestCodec = {
 		}
 		const capabilityPolicyMatches = [
 			CAPABILITY_POLICY,
+			PREVIOUS_CAPABILITY_POLICY,
 			LEGACY_CAPABILITY_POLICY,
 		].some(
 			(policy) =>
@@ -680,7 +682,20 @@ export function decodeBackfillRunDocuments(input: {
 		}
 		return targetTimeMs;
 	});
-	const capabilityProfile = CAPABILITY_POLICY.profiles.find(
+	const capabilityPolicy = [
+		CAPABILITY_POLICY,
+		PREVIOUS_CAPABILITY_POLICY,
+		LEGACY_CAPABILITY_POLICY,
+	].find(
+		(policy) =>
+			wire.product_pins.capability_policy.policy_id === policy.policy_id &&
+			wire.product_pins.capability_policy.policy_sha256 ===
+				policy.policy_sha256,
+	);
+	if (!capabilityPolicy) {
+		throw new Error("request capability policy pin is unsupported");
+	}
+	const capabilityProfile = capabilityPolicy.profiles.find(
 		(profile) =>
 			profile.exchange === wire.scope.exchange &&
 			profile.market_type === wire.scope.market_type &&
@@ -701,9 +716,7 @@ export function decodeBackfillRunDocuments(input: {
 		idempotencyKey: wire.idempotency_key,
 		providerPolicy: {
 			provider: "cryptohftdata",
-			allowedAdapterVersions: [
-				CAPABILITY_POLICY.adapter_policy.adapter_version,
-			],
+			allowedAdapterVersions: [capabilityPolicy.adapter_policy.adapter_version],
 		},
 		scope: {
 			exchange: wire.scope.exchange,
@@ -726,7 +739,7 @@ export function decodeBackfillRunDocuments(input: {
 			maxDurationMs: resourcePolicy.limits.max_duration_ms,
 			maxBoundaryLookbackMs: Math.min(
 				resourcePolicy.limits.max_boundary_lookback_ms,
-				CAPABILITY_POLICY.acquisition_policy.initialization_lookback_ms,
+				capabilityPolicy.acquisition_policy.initialization_lookback_ms,
 			),
 		},
 		expectedProduct: {

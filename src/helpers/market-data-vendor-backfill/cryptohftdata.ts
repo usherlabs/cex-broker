@@ -4,6 +4,7 @@ import { parquetReadObjects } from "hyparquet";
 import { buildCanonicalOrderBookRows } from "../market-data-archive/canonical-orderbook";
 import {
 	CHECKSUM_ALGORITHM,
+	canonicalSerialize,
 	MARKET_CAPTURE_SCHEMA_VERSION,
 	sha256Canonical,
 } from "../market-data-archive/capture-contract";
@@ -409,204 +410,216 @@ function applyRows(
 	}
 }
 
-export function reconstructCryptoHftDataOrderBooks(
-	request: MarketDataVendorBackfillRequest,
-	inputRows: readonly CryptoHftDataOrderBookRow[],
-	profile: CryptoHftDataCapabilityProfile = CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
-): ReconstructedCryptoHftBook[] {
-	const rows = inputRows
-		.map((row, index) => ({
-			...validatedRow(request, row),
-			originalIndex: index,
-		}))
-		.sort(
-			(left, right) =>
-				left.eventTimeMs - right.eventTimeMs ||
-				left.originalIndex - right.originalIndex,
-		);
-	const groups: Array<ReturnType<typeof validatedRow>[]> = [];
-	for (const row of rows) {
-		const current = groups.at(-1);
-		if (
-			!current ||
-			groupKey(current[0] as ReturnType<typeof validatedRow>, profile) !==
-				groupKey(row, profile)
-		) {
-			groups.push([row]);
-		} else {
-			current.push(row);
-		}
+class StreamingBookReconstructor {
+	private readonly targets: readonly number[];
+	private readonly samples: ReconstructedCryptoHftBook[] = [];
+	private targetIndex = 0;
+	private state: BookState | undefined;
+	private previousFinalUpdateId: bigint | undefined;
+
+	constructor(
+		private readonly request: MarketDataVendorBackfillRequest,
+		private readonly profile: CryptoHftDataCapabilityProfile,
+	) {
+		this.targets = [...request.requiredClockTargetsMs];
 	}
 
-	const earliestTargetTimeMs = Math.min(...request.requiredClockTargetsMs);
-	const latestTargetTimeMs = Math.max(...request.requiredClockTargetsMs);
-	const anchorIndex = groups.findIndex((group) => {
-		const first = group[0] as ReturnType<typeof validatedRow>;
-		return (
-			first.event_type === "snapshot" &&
-			first.eventTimeMs <= earliestTargetTimeMs
-		);
-	});
-	if (anchorIndex < 0) {
-		throw new CryptoHftDataError("update_before_snapshot");
-	}
-
-	let state: BookState | undefined;
-	let previousFinalUpdateId: bigint | undefined;
-	const states: BookState[] = [];
-	for (const group of groups.slice(anchorIndex)) {
-		const first = group[0] as ReturnType<typeof validatedRow>;
-		if (first.eventTimeMs > latestTargetTimeMs) break;
-		if (first.event_type === "snapshot") {
-			const sequence = snapshotSequence(first, profile);
-			for (const row of group) {
-				if (snapshotSequence(row, profile) !== sequence) {
-					throw new CryptoHftDataError("ambiguous_snapshot_group");
-				}
-			}
+	push(inputRows: readonly CryptoHftDataOrderBookRow[]): void {
+		const rows = inputRows
+			.map((row, index) => ({
+				...validatedRow(this.request, row),
+				originalIndex: index,
+			}))
+			.sort(
+				(left, right) =>
+					left.eventTimeMs - right.eventTimeMs ||
+					left.originalIndex - right.originalIndex,
+			);
+		const groups: Array<ReturnType<typeof validatedRow>[]> = [];
+		for (const row of rows) {
+			const current = groups.at(-1);
 			if (
-				profile.sequenceSemantics === "binance_u_U_pu" &&
-				previousFinalUpdateId !== undefined &&
-				BigInt(sequence) < previousFinalUpdateId
+				!current ||
+				groupKey(
+					current[0] as ReturnType<typeof validatedRow>,
+					this.profile,
+				) !== groupKey(row, this.profile)
 			) {
-				throw new CryptoHftDataError("snapshot_sequence_regression");
-			}
-			state = {
-				bids: new Map(),
-				asks: new Map(),
-				sequence,
-				sourceTimeMs: first.eventTimeMs,
-				receivedTimeMs: Math.max(
-					...group.map(({ receivedTimeMs }) => receivedTimeMs),
-				),
-				datasetObjectIdentity: first.dataset_object_identity,
-				datasetObjectChecksum: first.dataset_object_checksum,
-			};
-			applyRows(state, group);
-			previousFinalUpdateId = BigInt(sequence);
-		} else {
-			if (!state || previousFinalUpdateId === undefined) {
-				throw new CryptoHftDataError("update_before_snapshot");
-			}
-			const finalUpdate = BigInt(
-				unsignedString(
-					first.final_update_id,
-					"final_update_id",
-					true,
-				) as string,
-			);
-			if (profile.sequenceSemantics === "okx_seq_id_prev_seq_id") {
-				if (
-					!absent(first.first_update_id) ||
-					!absent(first.prev_final_update_id)
-				) {
-					throw new CryptoHftDataError("ambiguous_update_group");
-				}
-				const previous = unsignedString(
-					first.last_update_id,
-					"last_update_id",
-					true,
-				) as string;
-				for (const row of group) {
-					if (
-						!absent(row.first_update_id) ||
-						!absent(row.prev_final_update_id) ||
-						unsignedString(row.final_update_id, "final_update_id", true) !==
-							finalUpdate.toString() ||
-						unsignedString(row.last_update_id, "last_update_id", true) !==
-							previous
-					) {
-						throw new CryptoHftDataError("ambiguous_update_group");
-					}
-				}
-				if (BigInt(previous) !== previousFinalUpdateId) {
-					throw new CryptoHftDataError("update_chain_gap");
-				}
+				groups.push([row]);
 			} else {
-				const firstUpdate = BigInt(
-					unsignedString(
-						first.first_update_id,
-						"first_update_id",
-						true,
-					) as string,
-				);
-				const previous = unsignedString(
-					first.prev_final_update_id,
-					"prev_final_update_id",
-				);
-				for (const row of group) {
-					if (
-						unsignedString(row.first_update_id, "first_update_id", true) !==
-							firstUpdate.toString() ||
-						unsignedString(row.final_update_id, "final_update_id", true) !==
-							finalUpdate.toString() ||
-						unsignedString(row.prev_final_update_id, "prev_final_update_id") !==
-							previous
-					) {
-						throw new CryptoHftDataError("ambiguous_update_group");
-					}
-				}
-				const expected = previousFinalUpdateId + 1n;
-				if (
-					firstUpdate > expected ||
-					finalUpdate < expected ||
-					(previous !== undefined && BigInt(previous) !== previousFinalUpdateId)
-				) {
-					throw new CryptoHftDataError("update_chain_gap");
-				}
+				current.push(row);
 			}
-			applyRows(state, group);
-			state.sequence = finalUpdate.toString();
-			state.sourceTimeMs = first.eventTimeMs;
-			state.receivedTimeMs = Math.max(
-				...group.map(({ receivedTimeMs }) => receivedTimeMs),
-			);
-			state.datasetObjectIdentity = first.dataset_object_identity;
-			state.datasetObjectChecksum = first.dataset_object_checksum;
-			previousFinalUpdateId = finalUpdate;
 		}
-		if (state) {
-			states.push({
-				...state,
-				bids: new Map(state.bids),
-				asks: new Map(state.asks),
-			});
+		for (const group of groups) {
+			const first = group[0] as ReturnType<typeof validatedRow>;
+			this.sampleBefore(first.eventTimeMs);
+			if (this.targetIndex >= this.targets.length) return;
+			if (first.event_type === "snapshot") this.applySnapshot(group);
+			else if (this.state) this.applyUpdate(group);
 		}
 	}
 
-	const samples: ReconstructedCryptoHftBook[] = [];
-	for (const targetTimeMs of request.requiredClockTargetsMs) {
-		let prior: BookState | undefined;
-		for (const candidate of states) {
-			if (candidate.sourceTimeMs > targetTimeMs) break;
-			prior = candidate;
-		}
-		if (
-			!prior ||
-			targetTimeMs - prior.sourceTimeMs > request.maxPriorAsOfLagMs
+	finish(): ReconstructedCryptoHftBook[] {
+		this.sampleBefore(Number.POSITIVE_INFINITY);
+		return this.samples;
+	}
+
+	private sampleBefore(nextEventTimeMs: number): void {
+		while (
+			this.targetIndex < this.targets.length &&
+			(this.targets[this.targetIndex] as number) < nextEventTimeMs
 		) {
-			throw new CryptoHftDataError("required_clock_coverage_insufficient");
+			this.sample(this.targets[this.targetIndex] as number);
+			this.targetIndex += 1;
 		}
-		const bids = sortedSide(prior.bids, "bid").slice(0, request.depth);
-		const asks = sortedSide(prior.asks, "ask").slice(0, request.depth);
+	}
+
+	private sample(targetTimeMs: number): void {
+		const state = this.state;
+		if (
+			!state ||
+			state.sourceTimeMs > targetTimeMs ||
+			targetTimeMs - state.sourceTimeMs > this.request.maxPriorAsOfLagMs
+		) {
+			throw new CryptoHftDataError(
+				state
+					? "required_clock_coverage_insufficient"
+					: "update_before_snapshot",
+			);
+		}
+		const bids = sortedSide(state.bids, "bid").slice(0, this.request.depth);
+		const asks = sortedSide(state.asks, "ask").slice(0, this.request.depth);
 		if (bids.length === 0 || asks.length === 0) {
 			throw new CryptoHftDataError("book_side_missing");
 		}
 		if ((bids[0]?.[0] as number) >= (asks[0]?.[0] as number)) {
 			throw new CryptoHftDataError("book_crossed_or_locked");
 		}
-		samples.push({
+		this.samples.push({
 			targetTimeMs,
-			sourceTimeMs: prior.sourceTimeMs,
-			receivedTimeMs: prior.receivedTimeMs,
-			sequence: prior.sequence,
+			sourceTimeMs: state.sourceTimeMs,
+			receivedTimeMs: state.receivedTimeMs,
+			sequence: state.sequence,
 			bids,
 			asks,
-			datasetObjectIdentity: prior.datasetObjectIdentity,
-			datasetObjectChecksum: prior.datasetObjectChecksum,
+			datasetObjectIdentity: state.datasetObjectIdentity,
+			datasetObjectChecksum: state.datasetObjectChecksum,
 		});
 	}
-	return samples;
+
+	private applySnapshot(group: ReturnType<typeof validatedRow>[]): void {
+		const first = group[0] as ReturnType<typeof validatedRow>;
+		const sequence = snapshotSequence(first, this.profile);
+		if (group.some((row) => snapshotSequence(row, this.profile) !== sequence)) {
+			throw new CryptoHftDataError("ambiguous_snapshot_group");
+		}
+		if (
+			this.profile.sequenceSemantics === "binance_u_U_pu" &&
+			this.previousFinalUpdateId !== undefined &&
+			BigInt(sequence) < this.previousFinalUpdateId
+		) {
+			throw new CryptoHftDataError("snapshot_sequence_regression");
+		}
+		this.state = {
+			bids: new Map(),
+			asks: new Map(),
+			sequence,
+			sourceTimeMs: first.eventTimeMs,
+			receivedTimeMs: Math.max(...group.map((row) => row.receivedTimeMs)),
+			datasetObjectIdentity: first.dataset_object_identity,
+			datasetObjectChecksum: first.dataset_object_checksum,
+		};
+		applyRows(this.state, group);
+		this.previousFinalUpdateId = BigInt(sequence);
+	}
+
+	private applyUpdate(group: ReturnType<typeof validatedRow>[]): void {
+		const first = group[0] as ReturnType<typeof validatedRow>;
+		const state = this.state as BookState;
+		const previousFinalUpdateId = this.previousFinalUpdateId as bigint;
+		const finalUpdate = BigInt(
+			unsignedString(first.final_update_id, "final_update_id", true) as string,
+		);
+		if (this.profile.sequenceSemantics === "okx_seq_id_prev_seq_id") {
+			if (
+				!absent(first.first_update_id) ||
+				!absent(first.prev_final_update_id)
+			) {
+				throw new CryptoHftDataError("ambiguous_update_group");
+			}
+			const previous = unsignedString(
+				first.last_update_id,
+				"last_update_id",
+				true,
+			) as string;
+			if (
+				group.some(
+					(row) =>
+						!absent(row.first_update_id) ||
+						!absent(row.prev_final_update_id) ||
+						unsignedString(row.final_update_id, "final_update_id", true) !==
+							finalUpdate.toString() ||
+						unsignedString(row.last_update_id, "last_update_id", true) !==
+							previous,
+				)
+			) {
+				throw new CryptoHftDataError("ambiguous_update_group");
+			}
+			if (BigInt(previous) !== previousFinalUpdateId) {
+				throw new CryptoHftDataError("update_chain_gap");
+			}
+		} else {
+			const firstUpdate = BigInt(
+				unsignedString(
+					first.first_update_id,
+					"first_update_id",
+					true,
+				) as string,
+			);
+			const previous = unsignedString(
+				first.prev_final_update_id,
+				"prev_final_update_id",
+			);
+			if (
+				group.some(
+					(row) =>
+						unsignedString(row.first_update_id, "first_update_id", true) !==
+							firstUpdate.toString() ||
+						unsignedString(row.final_update_id, "final_update_id", true) !==
+							finalUpdate.toString() ||
+						unsignedString(row.prev_final_update_id, "prev_final_update_id") !==
+							previous,
+				)
+			) {
+				throw new CryptoHftDataError("ambiguous_update_group");
+			}
+			const expected = previousFinalUpdateId + 1n;
+			if (
+				firstUpdate > expected ||
+				finalUpdate < expected ||
+				(previous !== undefined && BigInt(previous) !== previousFinalUpdateId)
+			) {
+				throw new CryptoHftDataError("update_chain_gap");
+			}
+		}
+		applyRows(state, group);
+		state.sequence = finalUpdate.toString();
+		state.sourceTimeMs = first.eventTimeMs;
+		state.receivedTimeMs = Math.max(...group.map((row) => row.receivedTimeMs));
+		state.datasetObjectIdentity = first.dataset_object_identity;
+		state.datasetObjectChecksum = first.dataset_object_checksum;
+		this.previousFinalUpdateId = finalUpdate;
+	}
+}
+
+export function reconstructCryptoHftDataOrderBooks(
+	request: MarketDataVendorBackfillRequest,
+	inputRows: readonly CryptoHftDataOrderBookRow[],
+	profile: CryptoHftDataCapabilityProfile = CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
+): ReconstructedCryptoHftBook[] {
+	const reconstructor = new StreamingBookReconstructor(request, profile);
+	reconstructor.push(inputRows);
+	return reconstructor.finish();
 }
 
 function sha256Bytes(bytes: Uint8Array): string {
@@ -735,6 +748,31 @@ export class CryptoHftDataAdapter {
 		return cryptoHftDataCapabilityFor(request, this.profiles);
 	}
 
+	private findProfile(
+		request: MarketDataVendorBackfillRequest,
+		capability: ProviderCapability,
+	): CryptoHftDataCapabilityProfile | undefined {
+		return this.profiles.find(
+			(candidate) =>
+				candidate.exchange === request.scope.exchange.trim().toLowerCase() &&
+				candidate.tradingPair === request.scope.tradingPair &&
+				candidate.sourceSymbol === request.scope.sourceSymbol &&
+				candidate.marketType === request.scope.marketType &&
+				candidate.providerExchangeId === capability.providerExchangeId,
+		);
+	}
+
+	private profileFor(
+		request: MarketDataVendorBackfillRequest,
+		capability: ProviderCapability,
+	): CryptoHftDataCapabilityProfile {
+		const profile = this.findProfile(request, capability);
+		if (!profile) {
+			throw new CryptoHftDataError("profile_semantics_unavailable");
+		}
+		return profile;
+	}
+
 	async discoverSymbols(providerExchangeId: string): Promise<string[]> {
 		if (!/^[a-z0-9_]+$/.test(providerExchangeId)) {
 			throw new CryptoHftDataError("symbol_discovery_exchange_invalid");
@@ -779,6 +817,7 @@ export class CryptoHftDataAdapter {
 		capability: ProviderCapability,
 		credential: unknown,
 	): Promise<ProviderDataset<CryptoHftDataOrderBookRow>> {
+		const profile = this.findProfile(request, capability);
 		const apiKey =
 			credential && typeof credential === "object"
 				? (credential as { apiKey?: unknown }).apiKey
@@ -809,6 +848,13 @@ export class CryptoHftDataAdapter {
 		let totalRows = 0;
 		const objects: ProviderObjectEvidence[] = [];
 		const rows: CryptoHftDataOrderBookRow[] = [];
+		const reconstructor =
+			profile?.sequenceSemantics === "okx_seq_id_prev_seq_id"
+				? new StreamingBookReconstructor(request, profile)
+				: undefined;
+		const semanticHash = createHash("sha256");
+		let firstSemanticRow = true;
+		semanticHash.update("[");
 		for (const path of paths) {
 			if (this.nowMs() - started > request.budgets.maxDurationMs) {
 				throw new CryptoHftDataError("budget_max_duration_exceeded");
@@ -846,19 +892,27 @@ export class CryptoHftDataAdapter {
 				rows: decoded.length,
 			};
 			objects.push(object);
+			const parsedRows: CryptoHftDataOrderBookRow[] = [];
 			for (const decodedRow of decoded) {
 				const parsed = parsedDatasetRow(decodedRow, object);
 				validatedRow(request, parsed);
-				rows.push(parsed);
+				semanticHash.update(firstSemanticRow ? "" : ",");
+				semanticHash.update(canonicalSerialize(parsed));
+				firstSemanticRow = false;
+				parsedRows.push(parsed);
 			}
+			if (reconstructor) reconstructor.push(parsedRows);
+			else rows.push(...parsedRows);
 		}
 		if (this.nowMs() - started > request.budgets.maxDurationMs) {
 			throw new CryptoHftDataError("budget_max_duration_exceeded");
 		}
+		semanticHash.update("]");
 		return {
 			objects,
 			rows,
-			vendorSemanticDigest: sha256Canonical(rows),
+			reconstructedBooks: reconstructor?.finish(),
+			vendorSemanticDigest: semanticHash.digest("hex"),
 		};
 	}
 
@@ -868,22 +922,14 @@ export class CryptoHftDataAdapter {
 		dataset: ProviderDataset,
 		captureBundleId: string,
 	): Promise<NormalizedBackfill> {
-		const profile = this.profiles.find(
-			(candidate) =>
-				candidate.exchange === request.scope.exchange.trim().toLowerCase() &&
-				candidate.tradingPair === request.scope.tradingPair &&
-				candidate.sourceSymbol === request.scope.sourceSymbol &&
-				candidate.marketType === request.scope.marketType &&
-				candidate.providerExchangeId === capability.providerExchangeId,
-		);
-		if (!profile) {
-			throw new CryptoHftDataError("profile_semantics_unavailable");
-		}
-		const samples = reconstructCryptoHftDataOrderBooks(
-			request,
-			dataset.rows as CryptoHftDataOrderBookRow[],
-			profile,
-		);
+		const profile = this.profileFor(request, capability);
+		const samples = dataset.reconstructedBooks
+			? (dataset.reconstructedBooks as ReconstructedCryptoHftBook[])
+			: reconstructCryptoHftDataOrderBooks(
+					request,
+					dataset.rows as CryptoHftDataOrderBookRow[],
+					profile,
+				);
 		const context: MarketCaptureContext = {
 			source: EXTERNAL_BACKFILL_SOURCE,
 			deploymentId: "market-data-vendor-backfill",

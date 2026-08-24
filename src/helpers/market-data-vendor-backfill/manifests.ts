@@ -13,14 +13,18 @@ import resultSchema from "./schemas/result.schema.json" with { type: "json" };
 
 export const LEGACY_CAPABILITY_POLICY_ID =
 	"market-data-vendor-backfill-capabilities/v1" as const;
-export const CAPABILITY_POLICY_ID =
+export const PREVIOUS_CAPABILITY_POLICY_ID =
 	"market-data-vendor-backfill-capabilities/v2" as const;
+export const CAPABILITY_POLICY_ID =
+	"market-data-vendor-backfill-capabilities/v3" as const;
 export const LEGACY_RESOURCE_POLICY_ID =
 	"market-data-vendor-backfill-resources/v1" as const;
 export const RESOURCE_POLICY_ID =
 	"market-data-vendor-backfill-resources/v2" as const;
 export const ADAPTER_POLICY_ID = "cryptohftdata-orderbook-adapter/v1" as const;
 export const ACQUISITION_POLICY_ID =
+	"cryptohftdata-hourly-acquisition/v2" as const;
+const LEGACY_ACQUISITION_POLICY_ID =
 	"cryptohftdata-hourly-acquisition/v1" as const;
 
 const legacyCapabilityPolicyContent = {
@@ -31,7 +35,7 @@ const legacyCapabilityPolicyContent = {
 		adapter_version: "cryptohftdata-orderbook/v2",
 	},
 	acquisition_policy: {
-		policy_id: ACQUISITION_POLICY_ID,
+		policy_id: LEGACY_ACQUISITION_POLICY_ID,
 		object_granularity: "utc_hour",
 		authentication: "bearer",
 		initialization_lookback_ms: 0,
@@ -56,9 +60,9 @@ export const LEGACY_CAPABILITY_POLICY = Object.freeze({
 	policy_sha256: jcsSha256(legacyCapabilityPolicyContent),
 });
 
-const capabilityPolicyContent = {
+const previousCapabilityPolicyContent = {
 	...legacyCapabilityPolicyContent,
-	policy_id: CAPABILITY_POLICY_ID,
+	policy_id: PREVIOUS_CAPABILITY_POLICY_ID,
 	profiles: [
 		...legacyCapabilityPolicyContent.profiles.map((profile) => ({
 			...profile,
@@ -76,6 +80,21 @@ const capabilityPolicyContent = {
 			max_depth: 400,
 		},
 	],
+} as const;
+
+export const PREVIOUS_CAPABILITY_POLICY = Object.freeze({
+	...previousCapabilityPolicyContent,
+	policy_sha256: jcsSha256(previousCapabilityPolicyContent),
+});
+
+const capabilityPolicyContent = {
+	...previousCapabilityPolicyContent,
+	policy_id: CAPABILITY_POLICY_ID,
+	acquisition_policy: {
+		...previousCapabilityPolicyContent.acquisition_policy,
+		policy_id: ACQUISITION_POLICY_ID,
+		initialization_lookback_ms: 7 * 24 * 60 * 60 * 1_000,
+	},
 } as const;
 
 export const CAPABILITY_POLICY = Object.freeze({
@@ -125,7 +144,7 @@ export const EFFECTIVE_ADAPTER_POLICY_PIN = Object.freeze({
 
 export const EFFECTIVE_ACQUISITION_POLICY_PIN = Object.freeze({
 	policy_id: ACQUISITION_POLICY_ID,
-	policy_sha256: jcsSha256(legacyCapabilityPolicyContent.acquisition_policy),
+	policy_sha256: jcsSha256(capabilityPolicyContent.acquisition_policy),
 });
 
 const schemaArtifacts = [

@@ -38,6 +38,7 @@ export type ProviderDataset<Row = unknown> = {
 	objects: ProviderObjectEvidence[];
 	vendorSemanticDigest: string;
 	rows: Row[];
+	reconstructedBooks?: unknown[];
 };
 
 export type NormalizedBackfill = {
@@ -471,7 +472,7 @@ export async function runMarketDataVendorBackfill(
 				CAPABILITY_POLICY.policy_sha256)
 	) {
 		return outcome(request, "capability_unsupported", "scope_unsupported", {
-			reasonSubcode: "fill_gaps_requires_capability_policy_v2",
+			reasonSubcode: "fill_gaps_requires_capability_policy_v3",
 		});
 	}
 

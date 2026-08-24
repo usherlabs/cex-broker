@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { zstdCompressSync } from "node:zlib";
 import { parquetWriteBuffer } from "hyparquet-writer";
+import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 import {
 	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
@@ -312,6 +313,90 @@ describe("CryptoHFTData capability and acquisition", () => {
 		);
 	});
 
+	test("streams OKX objects into required-clock books without retaining raw updates", async () => {
+		const firstHour = Date.UTC(2026, 7, 18, 9);
+		const request = validBackfillRequest({
+			providerPolicy: {
+				provider: "cryptohftdata",
+				allowedAdapterVersions: ["cryptohftdata-orderbook/v2"],
+			},
+			scope: {
+				exchange: "okx",
+				tradingPair: "ARB-USDT",
+				sourceSymbol: "ARB-USDT",
+				marketType: "spot",
+				feed: "ORDERBOOK",
+			},
+			window: { startTimeMs: firstHour, endTimeMs: firstHour + 2 * 3_600_000 },
+			requiredClockTargetsMs: [
+				firstHour + 30 * 60_000,
+				firstHour + 90 * 60_000,
+			],
+			maxPriorAsOfLagMs: 5_000,
+			sourcePolicy: "fill_gaps",
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 2,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		let objectIndex = 0;
+		const adapter = new CryptoHftDataAdapter({
+			profiles: provenProfiles,
+			fetch: async (input) =>
+				String(input).endsWith("/jwt-token")
+					? Response.json({ jwt_token: "jwt" })
+					: new Response(new Uint8Array([++objectIndex])),
+			decode: async () => {
+				const hour = firstHour + (objectIndex - 1) * 3_600_000;
+				const snapshotSequence = String(200 + objectIndex * 100);
+				const updateSequence = String(Number(snapshotSequence) + 1);
+				return [
+					...(["bid", "ask"] as const).map((side) => ({
+						received_time: String(BigInt(hour + 1_000) * 1_000_000n),
+						event_time: String(hour),
+						symbol: "ARB-USDT",
+						event_type: "snapshot",
+						first_update_id: null,
+						final_update_id: snapshotSequence,
+						prev_final_update_id: null,
+						last_update_id: "-1",
+						side,
+						price: side === "bid" ? "99" : "101",
+						quantity: "10",
+					})),
+					...(["bid", "ask"] as const).map((side) => ({
+						received_time: String(BigInt(hour + 30 * 60_000) * 1_000_000n),
+						event_time: String(hour + 30 * 60_000 - 1_000),
+						symbol: "ARB-USDT",
+						event_type: "update",
+						first_update_id: null,
+						final_update_id: updateSequence,
+						prev_final_update_id: null,
+						last_update_id: snapshotSequence,
+						side,
+						price: side === "bid" ? "99" : "101",
+						quantity: "11",
+					})),
+				];
+			},
+		});
+		const providerCapability = capability(request);
+		const dataset = await adapter.acquire(request, providerCapability, {
+			apiKey: "secret",
+		});
+
+		expect(dataset.rows).toEqual([]);
+		expect(dataset.reconstructedBooks).toHaveLength(2);
+		const normalized = await adapter.normalize(
+			request,
+			providerCapability,
+			dataset,
+			"c".repeat(64),
+		);
+		expect(normalized.rows).toHaveLength(6);
+	});
+
 	test("fails before fetching when the enumerated object count exceeds budget", async () => {
 		let called = false;
 		const request = validBackfillRequest({
@@ -453,7 +538,18 @@ describe("CryptoHFTData capability and acquisition", () => {
 				String(input).endsWith("/jwt-token")
 					? Response.json({ jwt_token: "jwt" })
 					: new Response(new Uint8Array([1, 2, 3])),
-			decode: async () => [],
+			decode: async () => [
+				{
+					received_time: "1751364600000000000",
+					event_time: "1751364600000",
+					symbol: "BTCUSDT",
+					event_type: "snapshot",
+					last_update_id: "1",
+					side: "bid",
+					price: "100",
+					quantity: "1",
+				},
+			],
 		});
 		const providerCapability = capability(request);
 		const first = await adapter.acquire(request, providerCapability, {
@@ -464,6 +560,7 @@ describe("CryptoHFTData capability and acquisition", () => {
 		});
 		expect(first.objects[0]?.checksum).toBe(second.objects[0]?.checksum);
 		expect(first.vendorSemanticDigest).toBe(second.vendorSemanticDigest);
+		expect(first.vendorSemanticDigest).toBe(sha256Canonical(first.rows));
 	});
 
 	test("normalizes reconstructed samples through shared canonical provenance without narrowing UInt64 sequences", async () => {

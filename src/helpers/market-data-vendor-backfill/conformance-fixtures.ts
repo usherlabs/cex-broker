@@ -11,7 +11,6 @@ import {
 } from "./contracts";
 import { jcsSha256 } from "./identity";
 import {
-	EFFECTIVE_ACQUISITION_POLICY_PIN,
 	EFFECTIVE_ADAPTER_POLICY_PIN,
 	LEGACY_CAPABILITY_POLICY,
 	LEGACY_RESOURCE_POLICY,
@@ -126,7 +125,10 @@ const promotionReceipt = finalizePromotionReceipt({
 		capability_policy: request.product_pins.capability_policy,
 		resource_policy: request.product_pins.resource_policy,
 		adapter_policy: EFFECTIVE_ADAPTER_POLICY_PIN,
-		acquisition_policy: EFFECTIVE_ACQUISITION_POLICY_PIN,
+		acquisition_policy: {
+			policy_id: LEGACY_CAPABILITY_POLICY.acquisition_policy.policy_id,
+			policy_sha256: jcsSha256(LEGACY_CAPABILITY_POLICY.acquisition_policy),
+		},
 	},
 	capture_bundle_id: captureBundleId,
 	scope,
