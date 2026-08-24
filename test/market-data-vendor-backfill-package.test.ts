@@ -79,6 +79,7 @@ describe("market-data vendor backfill package boundary", () => {
 			"schemas/promotion-receipt.schema.json",
 			"policies/capability-policy.json",
 			"policies/resource-policy.json",
+			"policies/resource-policy-v2.json",
 			"fixtures/conformance-v1.json",
 		]) {
 			expect(

@@ -15,8 +15,10 @@ export const LEGACY_CAPABILITY_POLICY_ID =
 	"market-data-vendor-backfill-capabilities/v1" as const;
 export const CAPABILITY_POLICY_ID =
 	"market-data-vendor-backfill-capabilities/v2" as const;
-export const RESOURCE_POLICY_ID =
+export const LEGACY_RESOURCE_POLICY_ID =
 	"market-data-vendor-backfill-resources/v1" as const;
+export const RESOURCE_POLICY_ID =
+	"market-data-vendor-backfill-resources/v2" as const;
 export const ADAPTER_POLICY_ID = "cryptohftdata-orderbook-adapter/v1" as const;
 export const ACQUISITION_POLICY_ID =
 	"cryptohftdata-hourly-acquisition/v1" as const;
@@ -57,10 +59,23 @@ export const LEGACY_CAPABILITY_POLICY = Object.freeze({
 const capabilityPolicyContent = {
 	...legacyCapabilityPolicyContent,
 	policy_id: CAPABILITY_POLICY_ID,
-	profiles: legacyCapabilityPolicyContent.profiles.map((profile) => ({
-		...profile,
-		source_policies: ["authoritative_window", "fill_gaps"] as const,
-	})),
+	profiles: [
+		...legacyCapabilityPolicyContent.profiles.map((profile) => ({
+			...profile,
+			source_policies: ["authoritative_window", "fill_gaps"] as const,
+		})),
+		{
+			exchange: "okx",
+			market_type: "spot",
+			feed: "ORDERBOOK",
+			canonical_trading_pair: "ARB-USDC",
+			provider_exchange_id: "okx_spot",
+			resolved_symbol: "ARB-USDC",
+			construction_modes: ["sampled_top_n_snapshot"],
+			source_policies: ["authoritative_window", "fill_gaps"],
+			max_depth: 400,
+		},
+	],
 } as const;
 
 export const CAPABILITY_POLICY = Object.freeze({
@@ -68,8 +83,8 @@ export const CAPABILITY_POLICY = Object.freeze({
 	policy_sha256: jcsSha256(capabilityPolicyContent),
 });
 
-const resourcePolicyContent = {
-	policy_id: RESOURCE_POLICY_ID,
+const legacyResourcePolicyContent = {
+	policy_id: LEGACY_RESOURCE_POLICY_ID,
 	limits: {
 		max_files: 10_000,
 		max_bytes: 100 * 1024 * 1024 * 1024,
@@ -81,6 +96,20 @@ const resourcePolicyContent = {
 		max_depth: 500,
 		max_window_ms: 7 * 24 * 60 * 60 * 1_000,
 		max_required_events: 100_000,
+	},
+} as const;
+
+export const LEGACY_RESOURCE_POLICY = Object.freeze({
+	...legacyResourcePolicyContent,
+	policy_sha256: jcsSha256(legacyResourcePolicyContent),
+});
+
+const resourcePolicyContent = {
+	...legacyResourcePolicyContent,
+	policy_id: RESOURCE_POLICY_ID,
+	request_bounds: {
+		...legacyResourcePolicyContent.request_bounds,
+		max_window_ms: 31 * 24 * 60 * 60 * 1_000,
 	},
 } as const;
 

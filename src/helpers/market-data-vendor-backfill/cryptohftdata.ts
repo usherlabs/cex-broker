@@ -89,6 +89,27 @@ export const CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE: CryptoHftDataCapabilityProf
 		sourcePolicies: ["authoritative_window", "fill_gaps"] as const,
 	});
 
+// This profile uses the same live-proven OKX sequence and timestamp semantics
+// as ARB-USDT. Provider discovery and conformance evidence pin ARB-USDC as a
+// distinct source symbol; venue identity must never imply quote substitution.
+export const CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE: CryptoHftDataCapabilityProfile =
+	Object.freeze({
+		profileId: "cryptohftdata/okx_spot/ARB-USDC/v1",
+		exchange: "okx",
+		tradingPair: "ARB-USDC",
+		sourceSymbol: "ARB-USDC",
+		marketType: "spot",
+		providerExchangeId: "okx_spot",
+		historyStartMs: CRYPTOHFTDATA_HISTORY_START_MS,
+		maxDepth: 400,
+		eventTimeUnit: "milliseconds",
+		receivedTimeUnit: "nanoseconds",
+		snapshotGrouping: "event_time_final_update_id_object",
+		sequenceSemantics: "okx_seq_id_prev_seq_id",
+		constructionModes: ["sampled_top_n_snapshot"] as const,
+		sourcePolicies: ["authoritative_window", "fill_gaps"] as const,
+	});
+
 export class CryptoHftDataError extends Error {
 	constructor(readonly reason: string) {
 		super(`CryptoHFTData backfill failed: ${reason}`);

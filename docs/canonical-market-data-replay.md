@@ -113,13 +113,22 @@ promotion receipts is the commit marker.
 
 The CryptoHFTData registry is default-empty. Explicit profile injection is
 required; API-key possession never enables a venue or symbol. Adapter v2 adds
-the live-proven `CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE` alongside the synthetic
-Binance contract profile. OKX snapshots use `final_update_id=seqId` and
+the independently live-proven `CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE` and
+`CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE` alongside the synthetic Binance schema
+profile. The quote assets are distinct source identities; the adapter never
+substitutes USDT for USDC. OKX snapshots use `final_update_id=seqId` and
 `last_update_id=-1`; updates use `final_update_id=seqId` and
 `last_update_id=prevSeqId`. Replay ignores an update-only prefix before the
 first complete snapshot but requires every applied update to link to the current
-sequence. It rejects MEXC, `fill_gaps`, exact L2, unknown symbols, and ambiguous
-timestamp or sequence semantics before credential resolution.
+sequence. The pinned OKX profiles admit `fill_gaps`; MEXC, exact L2, unknown
+symbols, and ambiguous timestamp or sequence semantics are rejected before
+credential resolution.
+
+Resource policy v1 remains byte-stable with its seven-day request bound.
+Preparation products pin resource policy v2, whose 31-day bound supports a
+calendar-month thesis window while retaining the independent file, byte, row,
+duration, depth, and required-event caps. A request is evaluated against the
+exact resource-policy identity it pins.
 
 Secrets are dependency inputs, never request fields. Provider API keys are used only to obtain a short-lived token; downloads use a bearer header. ClickHouse read credentials belong to the injected archive reader, and forwarder authentication uses an HTTP bearer header. None belongs in request/result JSON, receipt hashes, URLs, argv, logs, or retained error bodies. Deterministic `batch_id` values make bounded producer-owned retries safe; the worker does not use the live-strategy spool and never writes ClickHouse directly.
 
@@ -128,6 +137,7 @@ The opt-in real-provider check acquires and validates one hourly object but prin
 ```bash
 CRYPTOHFTDATA_CONFORMANCE_ENABLED=1 \
 CRYPTOHFTDATA_CONFORMANCE_START_MS=1787045235308 \
+CRYPTOHFTDATA_CONFORMANCE_TRADING_PAIR=ARB-USDC \
 CRYPTOHFTDATA_API_KEY="<injected-secret>" \
 bun run test:conformance:market-data-vendor-backfill
 ```
@@ -161,10 +171,13 @@ approved positive-control variable
 `MARKET_DATA_VENDOR_BACKFILL_SMOKE_START_MS`; the workflow has no push,
 pull-request, or scheduled trigger.
 
-The approved positive control is OKX Spot ARB-USDT beginning at
-`2026-08-18T09:27:15.308Z` (`1787045235308`). The hourly object contains an
-800-row complete snapshot (400 bids and 400 asks) followed by a linked update
-chain. The earlier tested Binance Spot BTC-USDT objects remain unsupported for
+The approved positive controls are OKX Spot ARB-USDT and ARB-USDC beginning at
+`2026-08-18T09:27:15.308Z` (`1787045235308`). Each hourly object contains a
+complete 400-level-per-side snapshot followed by a linked update chain. The
+ARB-USDC proof object is
+`okx_spot/2026-08-18/09/ARB-USDC_orderbook.parquet.zst`, with SHA-256
+`cef5f0ca79c97af44bdfe6f428fa66bb8bbde7817d3e3b72eb91e85b69521145`.
+The earlier tested Binance Spot BTC-USDT objects remain unsupported for
 this gate because they contain updates without a snapshot reset; the worker
 continues to reject them with `update_before_snapshot` rather than synthesize an
 initial historical book.

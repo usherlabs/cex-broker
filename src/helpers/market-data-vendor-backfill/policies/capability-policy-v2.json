@@ -22,7 +22,18 @@
 			"construction_modes": ["sampled_top_n_snapshot"],
 			"source_policies": ["authoritative_window", "fill_gaps"],
 			"max_depth": 400
+		},
+		{
+			"exchange": "okx",
+			"market_type": "spot",
+			"feed": "ORDERBOOK",
+			"canonical_trading_pair": "ARB-USDC",
+			"provider_exchange_id": "okx_spot",
+			"resolved_symbol": "ARB-USDC",
+			"construction_modes": ["sampled_top_n_snapshot"],
+			"source_policies": ["authoritative_window", "fill_gaps"],
+			"max_depth": 400
 		}
 	],
-	"policy_sha256": "a1bce5936b00ca6f8c8d338b57eddbaf6d48e6f9c40566c4beae76630e969c5a"
+	"policy_sha256": "1dc3f918c6de98d4f65dc1439e16e8c8e0269b5eb9063e3617a52e457fdc24d1"
 }

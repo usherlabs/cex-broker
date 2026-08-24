@@ -38,6 +38,7 @@ import {
 	runMarketDataVendorBackfill,
 } from "../helpers/market-data-vendor-backfill/core";
 import {
+	CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 	CryptoHftDataAdapter,
 } from "../helpers/market-data-vendor-backfill/cryptohftdata";
@@ -138,7 +139,10 @@ export function createBackfillDependenciesFromEnv(
 			}),
 		),
 		providers: new CryptoHftDataAdapter({
-			profiles: [CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE],
+			profiles: [
+				CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
+				CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
+			],
 		}),
 		forwarder: createArchiveForwarderClient({
 			url: forwarderUrl,

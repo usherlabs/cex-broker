@@ -66,6 +66,26 @@ describe("market-data vendor backfill provider conformance harness", () => {
 		).toEqual(["okx_spot/2026-08-18/09/ARB-USDT_orderbook.parquet.zst"]);
 	});
 
+	test("builds the independently pinned ARB-USDC conformance request", () => {
+		const startTimeMs = Date.UTC(2026, 7, 18, 9, 27, 15, 308);
+		const documents = buildCryptoHftDataConformanceDocuments(
+			startTimeMs,
+			"ARB-USDC",
+		);
+		const request = buildCryptoHftDataConformanceRequest(
+			startTimeMs,
+			"ARB-USDC",
+		);
+		expect(documents.request.scope.trading_pair).toBe("ARB-USDC");
+		expect(request.scope).toMatchObject({
+			tradingPair: "ARB-USDC",
+			sourceSymbol: "ARB-USDC",
+		});
+		expect(
+			enumerateCryptoHftDataObjects(request, "okx_spot", "ARB-USDC"),
+		).toEqual(["okx_spot/2026-08-18/09/ARB-USDC_orderbook.parquet.zst"]);
+	});
+
 	test("projects only identities, counts, and hashes—not decoded rows or secrets", () => {
 		const secret = "licensed-provider-payload-and-secret";
 		const evidence = toHashOnlyConformanceEvidence(

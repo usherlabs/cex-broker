@@ -390,6 +390,9 @@ describe("final-v1 market-data vendor backfill wire contracts", () => {
 		);
 		expect(() => assertPolicyDocumentIdentity(CAPABILITY_POLICY)).not.toThrow();
 		expect(() => assertPolicyDocumentIdentity(RESOURCE_POLICY)).not.toThrow();
+		expect(RESOURCE_POLICY.request_bounds.max_window_ms).toBe(
+			31 * 24 * 60 * 60 * 1_000,
+		);
 	});
 
 	test("publishes golden fixtures for every schema and identity family", () => {
