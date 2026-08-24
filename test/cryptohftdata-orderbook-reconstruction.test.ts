@@ -210,6 +210,37 @@ describe("CryptoHFTData snapshot/update reconstruction", () => {
 		).toThrow("update_chain_gap");
 	});
 
+	test("reports safe sequence diagnostics for an OKX update-chain gap", () => {
+		let thrown: unknown;
+		try {
+			reconstructCryptoHftDataOrderBooks(
+				okxRequest(),
+				[
+					okxEvent({ side: "bid" }),
+					okxEvent({ side: "ask", price: "101" }),
+					okxEvent({
+						event_type: "update",
+						event_time: String(okxTarget),
+						received_time: String(BigInt(okxTarget + 1_000) * 1_000_000n),
+						final_update_id: "5",
+						last_update_id: "199",
+					}),
+				],
+				CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
+			);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(CryptoHftDataError);
+		expect((thrown as CryptoHftDataError).diagnostics).toMatchObject({
+			event_time_ms: okxTarget,
+			expected_previous_sequence: "200",
+			observed_previous_sequence: "199",
+			observed_final_sequence: "5",
+		});
+	});
+
 	test("rejects OKX rows when no snapshot anchors the earliest required clock", () => {
 		expect(() =>
 			reconstructCryptoHftDataOrderBooks(

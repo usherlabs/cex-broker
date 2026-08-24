@@ -472,46 +472,51 @@ class StreamingBookReconstructor {
 	finish(): ReconstructedCryptoHftBook[] {
 		this.sampleBefore(Number.POSITIVE_INFINITY);
 		if (this.missingSamples.length > 0) {
-			const first = this
-				.missingSamples[0] as (typeof this.missingSamples)[number];
-			const last = this.missingSamples.at(
-				-1,
-			) as (typeof this.missingSamples)[number];
-			const observedLags = this.missingSamples.flatMap((sample) =>
-				sample.asofLagMs === undefined ? [] : [sample.asofLagMs],
-			);
-			const missingDates = [
-				...new Set(
-					this.missingSamples.map((sample) =>
-						new Date(sample.targetTimeMs).toISOString().slice(0, 10),
-					),
-				),
-			].join(",");
 			throw new CryptoHftDataError(
-				observedLags.length > 0
+				this.missingSamples.some((sample) => sample.asofLagMs !== undefined)
 					? "required_clock_coverage_insufficient"
 					: "update_before_snapshot",
-				{
-					target_time_ms: first.targetTimeMs,
-					...(first.sourceTimeMs === undefined
-						? {}
-						: { source_time_ms: first.sourceTimeMs }),
-					...(first.asofLagMs === undefined
-						? {}
-						: { asof_lag_ms: first.asofLagMs }),
-					max_prior_asof_lag_ms: this.request.maxPriorAsOfLagMs,
-					missing_target_count: this.missingSamples.length,
-					covered_target_count: this.samples.length,
-					first_missing_target_time_ms: first.targetTimeMs,
-					last_missing_target_time_ms: last.targetTimeMs,
-					...(observedLags.length === 0
-						? {}
-						: { max_observed_asof_lag_ms: Math.max(...observedLags) }),
-					missing_target_dates_utc: missingDates,
-				},
+				this.missingClockDiagnostics(),
 			);
 		}
 		return this.samples;
+	}
+
+	private missingClockDiagnostics(): Record<string, string | number | boolean> {
+		if (this.missingSamples.length === 0) return {};
+		const first = this
+			.missingSamples[0] as (typeof this.missingSamples)[number];
+		const last = this.missingSamples.at(
+			-1,
+		) as (typeof this.missingSamples)[number];
+		const observedLags = this.missingSamples.flatMap((sample) =>
+			sample.asofLagMs === undefined ? [] : [sample.asofLagMs],
+		);
+		const missingDates = [
+			...new Set(
+				this.missingSamples.map((sample) =>
+					new Date(sample.targetTimeMs).toISOString().slice(0, 10),
+				),
+			),
+		].join(",");
+		return {
+			target_time_ms: first.targetTimeMs,
+			...(first.sourceTimeMs === undefined
+				? {}
+				: { source_time_ms: first.sourceTimeMs }),
+			...(first.asofLagMs === undefined
+				? {}
+				: { asof_lag_ms: first.asofLagMs }),
+			max_prior_asof_lag_ms: this.request.maxPriorAsOfLagMs,
+			missing_target_count: this.missingSamples.length,
+			covered_target_count: this.samples.length,
+			first_missing_target_time_ms: first.targetTimeMs,
+			last_missing_target_time_ms: last.targetTimeMs,
+			...(observedLags.length === 0
+				? {}
+				: { max_observed_asof_lag_ms: Math.max(...observedLags) }),
+			missing_target_dates_utc: missingDates,
+		};
 	}
 
 	private sampleBefore(nextEventTimeMs: number): void {
@@ -621,7 +626,13 @@ class StreamingBookReconstructor {
 				throw new CryptoHftDataError("ambiguous_update_group");
 			}
 			if (BigInt(previous) !== previousFinalUpdateId) {
-				throw new CryptoHftDataError("update_chain_gap");
+				throw new CryptoHftDataError("update_chain_gap", {
+					event_time_ms: first.eventTimeMs,
+					expected_previous_sequence: previousFinalUpdateId.toString(),
+					observed_previous_sequence: previous,
+					observed_final_sequence: finalUpdate.toString(),
+					...this.missingClockDiagnostics(),
+				});
 			}
 		} else {
 			const firstUpdate = BigInt(
