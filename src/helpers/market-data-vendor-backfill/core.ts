@@ -531,6 +531,7 @@ export async function runMarketDataVendorBackfill(
 
 	let dataset: ProviderDataset;
 	let normalized: NormalizedBackfill;
+	let failurePhase = "acquire";
 	try {
 		const acquisitionRequest = providerAcquisitionRequest(request);
 		dataset = await dependencies.providers.acquire(
@@ -539,6 +540,7 @@ export async function runMarketDataVendorBackfill(
 			credential,
 		);
 		const bundleId = captureBundleId(request, capability, dataset);
+		failurePhase = "normalize";
 		normalized = await dependencies.providers.normalize(
 			acquisitionRequest,
 			capability,
@@ -557,8 +559,18 @@ export async function runMarketDataVendorBackfill(
 				? "resource_limit_exceeded"
 				: reason,
 			...(error instanceof CryptoHftDataError
-				? { diagnostics: { ...error.diagnostics } }
-				: { diagnostics: { error_class: safeErrorClass(error) } }),
+				? {
+						diagnostics: {
+							...error.diagnostics,
+							failure_phase: error.diagnostics.failure_phase ?? failurePhase,
+						},
+					}
+				: {
+						diagnostics: {
+							error_class: safeErrorClass(error),
+							failure_phase: failurePhase,
+						},
+					}),
 		});
 	}
 

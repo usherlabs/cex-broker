@@ -283,7 +283,7 @@ describe("runMarketDataVendorBackfill final-v1 resilience", () => {
 			status: "vendor_fetch_failed",
 			reasonCode: "vendor_fetch_failed",
 			reasonSubcode: "provider_dataset_invalid",
-			diagnostics: { error_class: "Error" },
+			diagnostics: { error_class: "Error", failure_phase: "acquire" },
 		});
 		expect(JSON.stringify(result)).not.toContain(secret);
 	});

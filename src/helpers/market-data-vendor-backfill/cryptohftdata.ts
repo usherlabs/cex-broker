@@ -126,6 +126,22 @@ export class CryptoHftDataError extends Error {
 	}
 }
 
+function providerObjectFailure(
+	error: unknown,
+	reason: string,
+	datasetObjectIdentity: string,
+	failurePhase: string,
+): CryptoHftDataError {
+	return new CryptoHftDataError(
+		error instanceof CryptoHftDataError ? error.reason : reason,
+		{
+			...(error instanceof CryptoHftDataError ? error.diagnostics : {}),
+			dataset_object_identity: datasetObjectIdentity,
+			failure_phase: failurePhase,
+		},
+	);
+}
+
 export type CryptoHftDataOrderBookRow = {
 	received_time: string | number | bigint;
 	event_time: string | number | bigint;
@@ -958,9 +974,19 @@ export class CryptoHftDataAdapter {
 			}
 			const endpoint = new URL("/download", this.baseUrl);
 			endpoint.searchParams.set("file", path);
-			const response = await this.request(endpoint, {
-				headers: { Authorization: `Bearer ${tokenBody.jwt_token}` },
-			});
+			let response: Response;
+			try {
+				response = await this.request(endpoint, {
+					headers: { Authorization: `Bearer ${tokenBody.jwt_token}` },
+				});
+			} catch (error) {
+				throw providerObjectFailure(
+					error,
+					"provider_object_request_failed",
+					path,
+					"request",
+				);
+			}
 			if (!response.ok) throw new CryptoHftDataError("object_download_failed");
 			const declaredBytes = Number(response.headers.get("content-length"));
 			if (
@@ -969,15 +995,35 @@ export class CryptoHftDataAdapter {
 			) {
 				throw new CryptoHftDataError("budget_max_bytes_exceeded");
 			}
-			const bytes = await readBoundedObject(
-				response,
-				request.budgets.maxBytes - totalBytes,
-			);
+			let bytes: Uint8Array;
+			try {
+				bytes = await readBoundedObject(
+					response,
+					request.budgets.maxBytes - totalBytes,
+				);
+			} catch (error) {
+				throw providerObjectFailure(
+					error,
+					"provider_object_read_failed",
+					path,
+					"read",
+				);
+			}
 			totalBytes += bytes.byteLength;
 			if (totalBytes > request.budgets.maxBytes) {
 				throw new CryptoHftDataError("budget_max_bytes_exceeded");
 			}
-			const decoded = await this.decode(bytes);
+			let decoded: Record<string, unknown>[];
+			try {
+				decoded = await this.decode(bytes);
+			} catch (error) {
+				throw providerObjectFailure(
+					error,
+					"provider_object_decode_failed",
+					path,
+					"decode",
+				);
+			}
 			totalRows += decoded.length;
 			if (totalRows > request.budgets.maxRows) {
 				throw new CryptoHftDataError("budget_max_rows_exceeded");
@@ -989,17 +1035,26 @@ export class CryptoHftDataAdapter {
 				rows: decoded.length,
 			};
 			objects.push(object);
-			const parsedRows: CryptoHftDataOrderBookRow[] = [];
-			for (const decodedRow of decoded) {
-				const parsed = parsedDatasetRow(decodedRow, object);
-				validatedRow(request, parsed);
-				semanticHash.update(firstSemanticRow ? "" : ",");
-				semanticHash.update(canonicalSerialize(parsed));
-				firstSemanticRow = false;
-				parsedRows.push(parsed);
+			try {
+				const parsedRows: CryptoHftDataOrderBookRow[] = [];
+				for (const decodedRow of decoded) {
+					const parsed = parsedDatasetRow(decodedRow, object);
+					validatedRow(request, parsed);
+					semanticHash.update(firstSemanticRow ? "" : ",");
+					semanticHash.update(canonicalSerialize(parsed));
+					firstSemanticRow = false;
+					parsedRows.push(parsed);
+				}
+				if (reconstructor) reconstructor.push(parsedRows);
+				else rows.push(...parsedRows);
+			} catch (error) {
+				throw providerObjectFailure(
+					error,
+					"provider_object_validation_failed",
+					path,
+					"validate_and_fold",
+				);
 			}
-			if (reconstructor) reconstructor.push(parsedRows);
-			else rows.push(...parsedRows);
 		}
 		if (this.nowMs() - started > request.budgets.maxDurationMs) {
 			throw new CryptoHftDataError("budget_max_duration_exceeded");
@@ -1081,14 +1136,22 @@ export class CryptoHftDataAdapter {
 					},
 				});
 			} catch (error) {
+				const diagnostics = {
+					target_time_ms: sample.targetTimeMs,
+					source_time_ms: sample.sourceTimeMs,
+					dataset_object_identity: sample.datasetObjectIdentity,
+					failure_phase: "normalize",
+				};
 				if (error instanceof OrderBookValidationError) {
 					throw new CryptoHftDataError("canonical_orderbook_invalid", {
-						target_time_ms: sample.targetTimeMs,
-						source_time_ms: sample.sourceTimeMs,
+						...diagnostics,
 						validation_reason: error.reason,
 					});
 				}
-				throw error;
+				throw new CryptoHftDataError(
+					"canonical_normalization_failed",
+					diagnostics,
+				);
 			}
 			return [...canonical.levels, canonical.summary];
 		}) as BackfillArchiveRow[];

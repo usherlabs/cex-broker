@@ -490,6 +490,44 @@ describe("CryptoHFTData capability and acquisition", () => {
 		).rejects.toMatchObject<Partial<CryptoHftDataError>>({ reason });
 	});
 
+	test("attributes opaque provider object failures without reflecting error text", async () => {
+		const secret = "provider-response-secret";
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [JULY_2025 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		const adapter = new CryptoHftDataAdapter({
+			fetch: async (input) =>
+				String(input).endsWith("/jwt-token")
+					? Response.json({ jwt_token: "jwt" })
+					: new Response(new Uint8Array([1, 2, 3])),
+			decode: async () => {
+				throw new Error(`opaque decoder failure ${secret}`);
+			},
+		});
+
+		let caught: CryptoHftDataError | undefined;
+		try {
+			await adapter.acquire(request, capability(request), { apiKey: "secret" });
+		} catch (error) {
+			caught = error as CryptoHftDataError;
+		}
+		expect(caught).toMatchObject({
+			reason: "provider_object_decode_failed",
+			diagnostics: {
+				dataset_object_identity:
+					"binance_spot/2025-07-01/10/BTCUSDT_orderbook.parquet.zst",
+				failure_phase: "decode",
+			},
+		});
+		expect(JSON.stringify(caught)).not.toContain(secret);
+	});
+
 	test("fails closed when the duration budget expires", async () => {
 		const request = validBackfillRequest({
 			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
@@ -671,6 +709,54 @@ describe("CryptoHFTData capability and acquisition", () => {
 				target_time_ms: target,
 				source_time_ms: target - 1_000,
 				validation_reason: "bid levels are not strictly descending",
+			},
+		});
+	});
+
+	test("attributes opaque canonical failures to the required-clock sample", async () => {
+		const target = JULY_2025 + 30_000;
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [target],
+			maxPriorAsOfLagMs: 60_000,
+		});
+		const object = {
+			identity: "binance_spot/2025-07-01/10/BTCUSDT_orderbook.parquet.zst",
+			checksum: "a".repeat(64),
+			bytes: 123,
+			rows: 2,
+		};
+
+		await expect(
+			new CryptoHftDataAdapter({ profiles: provenProfiles }).normalize(
+				request,
+				capability(request),
+				{
+					objects: [object],
+					vendorSemanticDigest: "b".repeat(64),
+					rows: [],
+					reconstructedBooks: [
+						{
+							targetTimeMs: target,
+							sourceTimeMs: target - 1_000,
+							receivedTimeMs: target,
+							sequence: "1",
+							bids: null as unknown as number[][],
+							asks: [[101, 1]],
+							datasetObjectIdentity: object.identity,
+							datasetObjectChecksum: object.checksum,
+						},
+					],
+				},
+				"c".repeat(64),
+			),
+		).rejects.toMatchObject<Partial<CryptoHftDataError>>({
+			reason: "canonical_normalization_failed",
+			diagnostics: {
+				target_time_ms: target,
+				source_time_ms: target - 1_000,
+				dataset_object_identity: object.identity,
+				failure_phase: "normalize",
 			},
 		});
 	});
