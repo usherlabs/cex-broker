@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
+	CryptoHftDataError,
 	type CryptoHftDataOrderBookRow,
 	reconstructCryptoHftDataOrderBooks,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
@@ -299,5 +300,84 @@ describe("CryptoHFTData snapshot/update reconstruction", () => {
 		expect(() => reconstructCryptoHftDataOrderBooks(request, rows)).toThrow(
 			reason,
 		);
+	});
+
+	test("reports safe clock diagnostics for stale prior-as-of samples", () => {
+		let thrown: unknown;
+		try {
+			reconstructCryptoHftDataOrderBooks(
+				validBackfillRequest({
+					window: {
+						startTimeMs: target - 20_000,
+						endTimeMs: target + 1_000,
+					},
+					requiredClockTargetsMs: [target],
+					maxPriorAsOfLagMs: 5_000,
+				}),
+				[
+					event({ event_time: String(target - 10_000), side: "bid" }),
+					event({
+						event_time: String(target - 10_000),
+						side: "ask",
+						price: "101",
+					}),
+				],
+			);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(CryptoHftDataError);
+		expect((thrown as CryptoHftDataError).reason).toBe(
+			"required_clock_coverage_insufficient",
+		);
+		expect((thrown as CryptoHftDataError).diagnostics).toEqual({
+			target_time_ms: target,
+			source_time_ms: target - 10_000,
+			asof_lag_ms: 10_000,
+			max_prior_asof_lag_ms: 5_000,
+			missing_target_count: 1,
+			covered_target_count: 0,
+			first_missing_target_time_ms: target,
+			last_missing_target_time_ms: target,
+			max_observed_asof_lag_ms: 10_000,
+			missing_target_dates_utc: new Date(target).toISOString().slice(0, 10),
+		});
+	});
+
+	test("scans the full clock before reporting insufficient coverage", () => {
+		const laterTarget = target + 20_000;
+		let thrown: unknown;
+		try {
+			reconstructCryptoHftDataOrderBooks(
+				validBackfillRequest({
+					window: {
+						startTimeMs: target - 20_000,
+						endTimeMs: laterTarget + 1_000,
+					},
+					requiredClockTargetsMs: [target, laterTarget],
+					maxPriorAsOfLagMs: 5_000,
+				}),
+				[
+					event({ event_time: String(target - 10_000), side: "bid" }),
+					event({
+						event_time: String(target - 10_000),
+						side: "ask",
+						price: "101",
+					}),
+				],
+			);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(CryptoHftDataError);
+		expect((thrown as CryptoHftDataError).diagnostics).toMatchObject({
+			missing_target_count: 2,
+			covered_target_count: 0,
+			first_missing_target_time_ms: target,
+			last_missing_target_time_ms: laterTarget,
+			max_observed_asof_lag_ms: 30_000,
+		});
 	});
 });

@@ -112,7 +112,12 @@ export const CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE: CryptoHftDataCapabilityProf
 	});
 
 export class CryptoHftDataError extends Error {
-	constructor(readonly reason: string) {
+	constructor(
+		readonly reason: string,
+		readonly diagnostics: Readonly<
+			Record<string, string | number | boolean>
+		> = {},
+	) {
 		super(`CryptoHFTData backfill failed: ${reason}`);
 		this.name = "CryptoHftDataError";
 	}
@@ -413,6 +418,11 @@ function applyRows(
 class StreamingBookReconstructor {
 	private readonly targets: readonly number[];
 	private readonly samples: ReconstructedCryptoHftBook[] = [];
+	private readonly missingSamples: Array<{
+		targetTimeMs: number;
+		sourceTimeMs?: number;
+		asofLagMs?: number;
+	}> = [];
 	private targetIndex = 0;
 	private state: BookState | undefined;
 	private previousFinalUpdateId: bigint | undefined;
@@ -461,6 +471,46 @@ class StreamingBookReconstructor {
 
 	finish(): ReconstructedCryptoHftBook[] {
 		this.sampleBefore(Number.POSITIVE_INFINITY);
+		if (this.missingSamples.length > 0) {
+			const first = this
+				.missingSamples[0] as (typeof this.missingSamples)[number];
+			const last = this.missingSamples.at(
+				-1,
+			) as (typeof this.missingSamples)[number];
+			const observedLags = this.missingSamples.flatMap((sample) =>
+				sample.asofLagMs === undefined ? [] : [sample.asofLagMs],
+			);
+			const missingDates = [
+				...new Set(
+					this.missingSamples.map((sample) =>
+						new Date(sample.targetTimeMs).toISOString().slice(0, 10),
+					),
+				),
+			].join(",");
+			throw new CryptoHftDataError(
+				observedLags.length > 0
+					? "required_clock_coverage_insufficient"
+					: "update_before_snapshot",
+				{
+					target_time_ms: first.targetTimeMs,
+					...(first.sourceTimeMs === undefined
+						? {}
+						: { source_time_ms: first.sourceTimeMs }),
+					...(first.asofLagMs === undefined
+						? {}
+						: { asof_lag_ms: first.asofLagMs }),
+					max_prior_asof_lag_ms: this.request.maxPriorAsOfLagMs,
+					missing_target_count: this.missingSamples.length,
+					covered_target_count: this.samples.length,
+					first_missing_target_time_ms: first.targetTimeMs,
+					last_missing_target_time_ms: last.targetTimeMs,
+					...(observedLags.length === 0
+						? {}
+						: { max_observed_asof_lag_ms: Math.max(...observedLags) }),
+					missing_target_dates_utc: missingDates,
+				},
+			);
+		}
 		return this.samples;
 	}
 
@@ -481,11 +531,16 @@ class StreamingBookReconstructor {
 			state.sourceTimeMs > targetTimeMs ||
 			targetTimeMs - state.sourceTimeMs > this.request.maxPriorAsOfLagMs
 		) {
-			throw new CryptoHftDataError(
-				state
-					? "required_clock_coverage_insufficient"
-					: "update_before_snapshot",
-			);
+			this.missingSamples.push({
+				targetTimeMs,
+				...(state
+					? {
+							sourceTimeMs: state.sourceTimeMs,
+							asofLagMs: Math.abs(targetTimeMs - state.sourceTimeMs),
+						}
+					: {}),
+			});
+			return;
 		}
 		const bids = sortedSide(state.bids, "bid").slice(0, this.request.depth);
 		const asks = sortedSide(state.asks, "ask").slice(0, this.request.depth);

@@ -287,6 +287,30 @@ describe("runMarketDataVendorBackfill final-v1 resilience", () => {
 		expect(JSON.stringify(result)).not.toContain(secret);
 	});
 
+	test("retains only adapter-authored safe provider diagnostics", async () => {
+		const deps = dependencies();
+		deps.providers.acquire = async () => {
+			throw new CryptoHftDataError("required_clock_coverage_insufficient", {
+				target_time_ms: 1_700_000_900_000,
+				source_time_ms: 1_700_000_890_000,
+				asof_lag_ms: 10_000,
+				max_prior_asof_lag_ms: 5_000,
+			});
+		};
+
+		expect(await runMarketDataVendorBackfill(documents, deps)).toMatchObject({
+			status: "vendor_fetch_failed",
+			reasonCode: "vendor_fetch_failed",
+			reasonSubcode: "required_clock_coverage_insufficient",
+			diagnostics: {
+				target_time_ms: 1_700_000_900_000,
+				source_time_ms: 1_700_000_890_000,
+				asof_lag_ms: 10_000,
+				max_prior_asof_lag_ms: 5_000,
+			},
+		});
+	});
+
 	test("maps every terminal dependency gate to a closed final-v1 outcome", async () => {
 		const missingCredentials = dependencies();
 		missingCredentials.credentials.resolve = async () => undefined;

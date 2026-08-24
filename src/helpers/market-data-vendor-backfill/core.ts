@@ -15,7 +15,10 @@ import {
 	type ProviderObjectEvidence,
 	promotionReceiptCodec,
 } from "./contracts";
-import { providerAcquisitionRequest } from "./cryptohftdata";
+import {
+	CryptoHftDataError,
+	providerAcquisitionRequest,
+} from "./cryptohftdata";
 import { jcsCanonicalize } from "./identity";
 import {
 	CAPABILITY_POLICY,
@@ -546,6 +549,9 @@ export async function runMarketDataVendorBackfill(
 			reasonSubcode: reason.startsWith("budget_")
 				? "resource_limit_exceeded"
 				: reason,
+			...(error instanceof CryptoHftDataError
+				? { diagnostics: { ...error.diagnostics } }
+				: {}),
 		});
 	}
 
