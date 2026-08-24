@@ -21,6 +21,7 @@ import {
 	CAPABILITY_POLICY,
 	EFFECTIVE_ACQUISITION_POLICY_PIN,
 	EFFECTIVE_ADAPTER_POLICY_PIN,
+	LEGACY_RESOURCE_POLICY,
 	RESOURCE_POLICY,
 } from "./manifests";
 import {
@@ -386,12 +387,19 @@ function assertForwarderPreflight(
 function resourcePolicyScopeExceeded(
 	request: MarketDataVendorBackfillRequest,
 ): boolean {
+	const policy = [RESOURCE_POLICY, LEGACY_RESOURCE_POLICY].find(
+		(candidate) =>
+			request.productPins?.resource_policy.policy_id === candidate.policy_id &&
+			request.productPins.resource_policy.policy_sha256 ===
+				candidate.policy_sha256,
+	);
+	if (!policy) return true;
 	return (
-		request.depth > RESOURCE_POLICY.request_bounds.max_depth ||
+		request.depth > policy.request_bounds.max_depth ||
 		request.window.endTimeMs - request.window.startTimeMs >
-			RESOURCE_POLICY.request_bounds.max_window_ms ||
+			policy.request_bounds.max_window_ms ||
 		request.requiredClockTargetsMs.length >
-			RESOURCE_POLICY.request_bounds.max_required_events
+			policy.request_bounds.max_required_events
 	);
 }
 

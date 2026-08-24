@@ -1,0 +1,16 @@
+{
+	"policy_id": "market-data-vendor-backfill-resources/v2",
+	"limits": {
+		"max_files": 10000,
+		"max_bytes": 107374182400,
+		"max_rows": 1000000000,
+		"max_duration_ms": 86400000,
+		"max_boundary_lookback_ms": 604800000
+	},
+	"request_bounds": {
+		"max_depth": 500,
+		"max_window_ms": 2678400000,
+		"max_required_events": 100000
+	},
+	"policy_sha256": "5c095c9af4450a0dd110cae04215b9188c6522ab16f4524a41b6122b154160a2"
+}

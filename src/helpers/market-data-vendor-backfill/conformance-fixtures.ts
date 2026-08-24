@@ -14,7 +14,7 @@ import {
 	EFFECTIVE_ACQUISITION_POLICY_PIN,
 	EFFECTIVE_ADAPTER_POLICY_PIN,
 	LEGACY_CAPABILITY_POLICY,
-	RESOURCE_POLICY,
+	LEGACY_RESOURCE_POLICY,
 	SCHEMA_MANIFEST,
 } from "./manifests";
 import { finalizePromotionReceipt } from "./promotion";
@@ -100,8 +100,8 @@ const requestContent = {
 			policy_sha256: LEGACY_CAPABILITY_POLICY.policy_sha256,
 		},
 		resource_policy: {
-			policy_id: RESOURCE_POLICY.policy_id,
-			policy_sha256: RESOURCE_POLICY.policy_sha256,
+			policy_id: LEGACY_RESOURCE_POLICY.policy_id,
+			policy_sha256: LEGACY_RESOURCE_POLICY.policy_sha256,
 		},
 	},
 	production_authorization_id: authorizationId,
@@ -256,7 +256,7 @@ export const CONFORMANCE_FIXTURES = Object.freeze({
 		receipt_id: promotionReceipt.receipt_id,
 		result_sha256: result.result_sha256,
 		capability_policy_sha256: LEGACY_CAPABILITY_POLICY.policy_sha256,
-		resource_policy_sha256: RESOURCE_POLICY.policy_sha256,
+		resource_policy_sha256: LEGACY_RESOURCE_POLICY.policy_sha256,
 	},
 	jcs_edge_vector: jcsEdgeVector,
 	hashes: { jcs_edge_vector_sha256: jcsSha256(jcsEdgeVector) },

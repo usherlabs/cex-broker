@@ -113,6 +113,7 @@ const backfillAssets = [
 	["policies/capability-policy.json", "policies/capability-policy.json"],
 	["policies/capability-policy-v2.json", "policies/capability-policy-v2.json"],
 	["policies/resource-policy.json", "policies/resource-policy.json"],
+	["policies/resource-policy-v2.json", "policies/resource-policy-v2.json"],
 	["fixtures/conformance-v1.json", "fixtures/conformance-v1.json"],
 ] as const;
 
@@ -135,7 +136,8 @@ const preparationAssets = [
 	["./src/helpers/market-data-preparation/schemas/preparation-product-pin.schema.json", "schemas/preparation-product-pin-v1.schema.json"],
 	["./src/helpers/market-data-vendor-backfill/policies/capability-policy-v2.json", "policies/capability-policy.json"],
 	["./src/helpers/market-data-vendor-backfill/policies/capability-policy.json", "policies/capability-policy-v1.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/resource-policy.json", "policies/resource-policy.json"],
+	["./src/helpers/market-data-vendor-backfill/policies/resource-policy-v2.json", "policies/resource-policy.json"],
+	["./src/helpers/market-data-vendor-backfill/policies/resource-policy.json", "policies/resource-policy-v1.json"],
 ] as const;
 for (const [sourcePath, outputPath] of preparationAssets) {
 	const destination = `${preparationAssetOutput}/${outputPath}`;

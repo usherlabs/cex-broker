@@ -14,6 +14,7 @@ import {
 } from "../src/helpers/market-data-vendor-backfill/contracts";
 import type { ProviderDataset } from "../src/helpers/market-data-vendor-backfill/core";
 import {
+	CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 	CryptoHftDataAdapter,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
@@ -47,6 +48,8 @@ export type CryptoHftDataConformanceDocuments = {
 	requiredClock: RequiredClockWire;
 };
 
+export type CryptoHftDataConformancePair = "ARB-USDC" | "ARB-USDT";
+
 function deterministicUuid(startTimeMs: number, role: string): string {
 	const hex = createHash("sha256")
 		.update(`market-data-vendor-backfill-conformance:${startTimeMs}:${role}`)
@@ -56,6 +59,7 @@ function deterministicUuid(startTimeMs: number, role: string): string {
 
 export function buildCryptoHftDataConformanceDocuments(
 	startTimeMs: number,
+	tradingPair: CryptoHftDataConformancePair = "ARB-USDT",
 ): CryptoHftDataConformanceDocuments {
 	if (
 		!Number.isSafeInteger(startTimeMs) ||
@@ -63,10 +67,15 @@ export function buildCryptoHftDataConformanceDocuments(
 	) {
 		throw new Error("conformance_start_time_invalid");
 	}
+	if (tradingPair !== "ARB-USDC" && tradingPair !== "ARB-USDT") {
+		throw new Error("conformance_pair_unsupported");
+	}
+	const runUuid = (role: string) =>
+		deterministicUuid(startTimeMs, `${tradingPair}:${role}`);
 	const endTimeMs = startTimeMs + CONFORMANCE_WINDOW_MS;
 	const scope = {
 		exchange: "okx",
-		trading_pair: "ARB-USDT",
+		trading_pair: tradingPair,
 		market_type: "spot",
 		feed: "ORDERBOOK",
 	} as const;
@@ -76,11 +85,11 @@ export function buildCryptoHftDataConformanceDocuments(
 	};
 	const requiredClock = finalizeRequiredClock({
 		schema_id: REQUIRED_CLOCK_SCHEMA_ID,
-		clock_id: deterministicUuid(startTimeMs, "clock"),
+		clock_id: runUuid("clock"),
 		created_at: new Date(startTimeMs).toISOString(),
 		targets: [
 			{
-				target_id: deterministicUuid(startTimeMs, "target"),
+				target_id: runUuid("target"),
 				target_at: new Date(
 					startTimeMs + CONFORMANCE_WINDOW_MS / 2,
 				).toISOString(),
@@ -109,8 +118,8 @@ export function buildCryptoHftDataConformanceDocuments(
 	});
 	const requestContent = {
 		schema_id: BACKFILL_REQUEST_SCHEMA_ID,
-		request_id: deterministicUuid(startTimeMs, "request"),
-		attempt_id: deterministicUuid(startTimeMs, "attempt"),
+		request_id: runUuid("request"),
+		attempt_id: runUuid("attempt"),
 		scope,
 		window,
 		depth: 20,
@@ -137,10 +146,7 @@ export function buildCryptoHftDataConformanceDocuments(
 				policy_sha256: RESOURCE_POLICY.policy_sha256,
 			},
 		},
-		production_authorization_id: deterministicUuid(
-			startTimeMs,
-			"production-authorization",
-		),
+		production_authorization_id: runUuid("production-authorization"),
 	} as const;
 	return {
 		request: {
@@ -153,9 +159,10 @@ export function buildCryptoHftDataConformanceDocuments(
 
 export function buildCryptoHftDataConformanceRequest(
 	startTimeMs: number,
+	tradingPair: CryptoHftDataConformancePair = "ARB-USDT",
 ): MarketDataVendorBackfillRequest {
 	return decodeBackfillRunDocuments(
-		buildCryptoHftDataConformanceDocuments(startTimeMs),
+		buildCryptoHftDataConformanceDocuments(startTimeMs, tradingPair),
 	);
 }
 
@@ -182,14 +189,21 @@ export function toHashOnlyConformanceEvidence(
 
 export async function runCryptoHftDataConformance(input: {
 	startTimeMs: number;
+	tradingPair?: CryptoHftDataConformancePair;
 	apiKey: string;
 	fetch?: typeof globalThis.fetch;
 }) {
 	if (!input.apiKey.trim()) throw new Error("cryptohftdata_api_key_missing");
-	const request = buildCryptoHftDataConformanceRequest(input.startTimeMs);
+	const request = buildCryptoHftDataConformanceRequest(
+		input.startTimeMs,
+		input.tradingPair,
+	);
 	const adapter = new CryptoHftDataAdapter({
 		fetch: input.fetch,
-		profiles: [CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE],
+		profiles: [
+			CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
+			CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
+		],
 	});
 	const capability = adapter.capabilityFor(request);
 	if (!capability) throw new Error("conformance_profile_unsupported");
@@ -210,6 +224,8 @@ if (import.meta.main) {
 	);
 	const evidence = await runCryptoHftDataConformance({
 		startTimeMs,
+		tradingPair: (process.env.CRYPTOHFTDATA_CONFORMANCE_TRADING_PAIR ??
+			"ARB-USDT") as CryptoHftDataConformancePair,
 		apiKey: process.env.CRYPTOHFTDATA_API_KEY ?? "",
 	});
 	console.log(JSON.stringify(evidence, null, 2));

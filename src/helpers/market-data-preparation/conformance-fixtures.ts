@@ -1,5 +1,8 @@
 import { CONFORMANCE_FIXTURES as V1_CONFORMANCE_FIXTURES } from "../market-data-vendor-backfill/conformance-fixtures";
-import { CAPABILITY_POLICY } from "../market-data-vendor-backfill/manifests";
+import {
+	CAPABILITY_POLICY,
+	RESOURCE_POLICY,
+} from "../market-data-vendor-backfill/manifests";
 import {
 	BACKFILL_RESULT_V2_SCHEMA_ID,
 	CANONICAL_ORDERBOOK_EXPORT_REQUEST_SCHEMA_ID,
@@ -90,7 +93,10 @@ const backfillResult = finalizeBackfillResultV2({
 	schema_manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V2.manifest_sha256,
 	producer: backfillProducer,
 	capability_policy: legacyResult.capability_policy,
-	resource_policy: legacyResult.resource_policy,
+	resource_policy: {
+		policy_id: RESOURCE_POLICY.policy_id,
+		policy_sha256: RESOURCE_POLICY.policy_sha256,
+	},
 	started_at: legacyResult.started_at,
 	completed_at: legacyResult.completed_at,
 	outcome: legacyResult.outcome,
@@ -133,7 +139,10 @@ const productPin = preparationProductPinCodec.decode({
 		policy_id: CAPABILITY_POLICY.policy_id,
 		policy_sha256: CAPABILITY_POLICY.policy_sha256,
 	},
-	resource_policy: legacyResult.resource_policy,
+	resource_policy: {
+		policy_id: RESOURCE_POLICY.policy_id,
+		policy_sha256: RESOURCE_POLICY.policy_sha256,
+	},
 });
 
 export const PREPARATION_CONFORMANCE_FIXTURES = Object.freeze({

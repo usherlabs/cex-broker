@@ -8,6 +8,7 @@ import { assertDocumentSha256, documentSha256, jcsSha256 } from "./identity";
 import {
 	CAPABILITY_POLICY,
 	LEGACY_CAPABILITY_POLICY,
+	LEGACY_RESOURCE_POLICY,
 	RESOURCE_POLICY,
 } from "./manifests";
 import archiveSelectionSchemaJson from "./schemas/archive-selection.schema.json" with {
@@ -451,13 +452,16 @@ export const backfillRequestCodec = {
 				request.product_pins.capability_policy.policy_sha256 ===
 					policy.policy_sha256,
 		);
-		if (
-			!capabilityPolicyMatches ||
-			request.product_pins.resource_policy.policy_id !==
-				RESOURCE_POLICY.policy_id ||
-			request.product_pins.resource_policy.policy_sha256 !==
-				RESOURCE_POLICY.policy_sha256
-		) {
+		const resourcePolicyMatches = [
+			RESOURCE_POLICY,
+			LEGACY_RESOURCE_POLICY,
+		].some(
+			(policy) =>
+				request.product_pins.resource_policy.policy_id === policy.policy_id &&
+				request.product_pins.resource_policy.policy_sha256 ===
+					policy.policy_sha256,
+		);
+		if (!capabilityPolicyMatches || !resourcePolicyMatches) {
 			throw new Error(
 				"request policy pins do not match the effective package policies",
 			);
@@ -683,6 +687,14 @@ export function decodeBackfillRunDocuments(input: {
 			profile.feed === wire.scope.feed &&
 			profile.canonical_trading_pair === wire.scope.trading_pair,
 	);
+	const resourcePolicy = [RESOURCE_POLICY, LEGACY_RESOURCE_POLICY].find(
+		(policy) =>
+			wire.product_pins.resource_policy.policy_id === policy.policy_id &&
+			wire.product_pins.resource_policy.policy_sha256 === policy.policy_sha256,
+	);
+	if (!resourcePolicy) {
+		throw new Error("request resource policy pin is unsupported");
+	}
 	return {
 		schemaVersion: BACKFILL_REQUEST_SCHEMA_VERSION,
 		requestId: wire.request_id,
@@ -708,12 +720,12 @@ export function decodeBackfillRunDocuments(input: {
 		maxPriorAsOfLagMs: wire.coverage_policy.max_asof_lag_ms,
 		sourcePolicy: wire.source_policy,
 		budgets: {
-			maxFiles: RESOURCE_POLICY.limits.max_files,
-			maxBytes: RESOURCE_POLICY.limits.max_bytes,
-			maxRows: RESOURCE_POLICY.limits.max_rows,
-			maxDurationMs: RESOURCE_POLICY.limits.max_duration_ms,
+			maxFiles: resourcePolicy.limits.max_files,
+			maxBytes: resourcePolicy.limits.max_bytes,
+			maxRows: resourcePolicy.limits.max_rows,
+			maxDurationMs: resourcePolicy.limits.max_duration_ms,
 			maxBoundaryLookbackMs: Math.min(
-				RESOURCE_POLICY.limits.max_boundary_lookback_ms,
+				resourcePolicy.limits.max_boundary_lookback_ms,
 				CAPABILITY_POLICY.acquisition_policy.initialization_lookback_ms,
 			),
 		},

@@ -3,6 +3,7 @@ import { zstdCompressSync } from "node:zlib";
 import { parquetWriteBuffer } from "hyparquet-writer";
 import {
 	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
+	CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 	CryptoHftDataAdapter,
 	type CryptoHftDataError,
@@ -16,6 +17,7 @@ import { validBackfillRequest } from "./market-data-vendor-backfill-contract.tes
 const JULY_2025 = Date.UTC(2025, 6, 1, 10, 10);
 const provenProfiles = [
 	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
+	CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 ];
 
@@ -153,6 +155,41 @@ describe("CryptoHFTData capability and acquisition", () => {
 			providerExchangeId: "okx_spot",
 			resolvedSymbol: "ARB-USDT",
 		});
+	});
+
+	test("advertises the pinned OKX Spot ARB-USDC profile with v2 semantics", () => {
+		const request = validBackfillRequest({
+			providerPolicy: {
+				provider: "cryptohftdata",
+				allowedAdapterVersions: ["cryptohftdata-orderbook/v2"],
+			},
+			scope: {
+				exchange: "okx",
+				tradingPair: "ARB-USDC",
+				sourceSymbol: "ARB-USDC",
+				marketType: "spot",
+				feed: "ORDERBOOK",
+			},
+			window: {
+				startTimeMs: Date.UTC(2026, 7, 18, 9, 27, 15, 308),
+				endTimeMs: Date.UTC(2026, 7, 18, 9, 28, 15, 308),
+			},
+			requiredClockTargetsMs: [Date.UTC(2026, 7, 18, 9, 27, 45, 308)],
+			depth: 20,
+		});
+
+		expect(cryptoHftDataCapabilityFor(request, provenProfiles)).toEqual({
+			provider: "cryptohftdata",
+			adapterVersion: "cryptohftdata-orderbook/v2",
+			providerExchangeId: "okx_spot",
+			resolvedSymbol: "ARB-USDC",
+		});
+		expect(
+			cryptoHftDataCapabilityFor(
+				validBackfillRequest({ ...request, sourcePolicy: "fill_gaps" }),
+				provenProfiles,
+			),
+		).toMatchObject({ resolvedSymbol: "ARB-USDC" });
 	});
 
 	test("fill_gaps acquires only required-clock targets not covered by retained archive anchors", () => {
