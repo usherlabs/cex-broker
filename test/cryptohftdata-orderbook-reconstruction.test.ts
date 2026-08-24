@@ -241,6 +241,48 @@ describe("CryptoHFTData snapshot/update reconstruction", () => {
 		});
 	});
 
+	test("re-anchors after an OKX gap when a complete snapshot precedes the next required clock", () => {
+		const gapTime = okxSnapshotTime + 10_000;
+		const recoveryTime = okxSnapshotTime + 20_000;
+		const reconstructed = reconstructCryptoHftDataOrderBooks(
+			okxRequest(),
+			[
+				okxEvent({ side: "bid" }),
+				okxEvent({ side: "ask", price: "101" }),
+				okxEvent({
+					event_type: "update",
+					event_time: String(gapTime),
+					received_time: String(BigInt(gapTime + 1_000) * 1_000_000n),
+					final_update_id: "201",
+					last_update_id: "199",
+				}),
+				okxEvent({
+					event_time: String(recoveryTime),
+					received_time: String(BigInt(recoveryTime + 1_000) * 1_000_000n),
+					final_update_id: "300",
+					last_update_id: "-1",
+					side: "bid",
+				}),
+				okxEvent({
+					event_time: String(recoveryTime),
+					received_time: String(BigInt(recoveryTime + 1_000) * 1_000_000n),
+					final_update_id: "300",
+					last_update_id: "-1",
+					side: "ask",
+					price: "101",
+				}),
+			],
+			CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
+		);
+
+		expect(reconstructed).toHaveLength(1);
+		expect(reconstructed[0]).toMatchObject({
+			targetTimeMs: okxTarget,
+			sourceTimeMs: recoveryTime,
+			sequence: "300",
+		});
+	});
+
 	test("rejects OKX rows when no snapshot anchors the earliest required clock", () => {
 		expect(() =>
 			reconstructCryptoHftDataOrderBooks(

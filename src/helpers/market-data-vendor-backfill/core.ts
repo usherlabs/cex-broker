@@ -322,6 +322,13 @@ function stableFailureReason(error: unknown, fallback: string): string {
 	return fallback;
 }
 
+function safeErrorClass(error: unknown): string {
+	if (error instanceof RangeError) return "RangeError";
+	if (error instanceof TypeError) return "TypeError";
+	if (error instanceof SyntaxError) return "SyntaxError";
+	return "Error";
+}
+
 function assertArchivePreflight(
 	request: MarketDataVendorBackfillRequest,
 	resolution: ArchivePreflightResolution,
@@ -551,7 +558,7 @@ export async function runMarketDataVendorBackfill(
 				: reason,
 			...(error instanceof CryptoHftDataError
 				? { diagnostics: { ...error.diagnostics } }
-				: {}),
+				: { diagnostics: { error_class: safeErrorClass(error) } }),
 		});
 	}
 

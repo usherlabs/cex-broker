@@ -624,4 +624,54 @@ describe("CryptoHFTData capability and acquisition", () => {
 			expect(row.normalized_row_checksum).toMatch(/^[a-f0-9]{64}$/);
 		}
 	});
+
+	test("reports safe required-clock context for canonical normalization failures", async () => {
+		const target = JULY_2025 + 30_000;
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [target],
+			maxPriorAsOfLagMs: 60_000,
+		});
+		const object = {
+			identity: "binance_spot/2025-07-01/10/BTCUSDT_orderbook.parquet.zst",
+			checksum: "a".repeat(64),
+			bytes: 123,
+			rows: 2,
+		};
+
+		await expect(
+			new CryptoHftDataAdapter({ profiles: provenProfiles }).normalize(
+				request,
+				capability(request),
+				{
+					objects: [object],
+					vendorSemanticDigest: "b".repeat(64),
+					rows: [],
+					reconstructedBooks: [
+						{
+							targetTimeMs: target,
+							sourceTimeMs: target - 1_000,
+							receivedTimeMs: target,
+							sequence: "1",
+							bids: [
+								[100, 1],
+								[100, 2],
+							],
+							asks: [[101, 1]],
+							datasetObjectIdentity: object.identity,
+							datasetObjectChecksum: object.checksum,
+						},
+					],
+				},
+				"c".repeat(64),
+			),
+		).rejects.toMatchObject<Partial<CryptoHftDataError>>({
+			reason: "canonical_orderbook_invalid",
+			diagnostics: {
+				target_time_ms: target,
+				source_time_ms: target - 1_000,
+				validation_reason: "bid levels are not strictly descending",
+			},
+		});
+	});
 });

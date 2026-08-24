@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { decompress } from "fzstd";
 import { parquetReadObjects } from "hyparquet";
-import { buildCanonicalOrderBookRows } from "../market-data-archive/canonical-orderbook";
+import {
+	buildCanonicalOrderBookRows,
+	OrderBookValidationError,
+} from "../market-data-archive/canonical-orderbook";
 import {
 	CHECKSUM_ALGORITHM,
 	canonicalSerialize,
@@ -423,6 +426,12 @@ class StreamingBookReconstructor {
 		sourceTimeMs?: number;
 		asofLagMs?: number;
 	}> = [];
+	private readonly sequenceGaps: Array<{
+		eventTimeMs: number;
+		expectedPreviousSequence: string;
+		observedPreviousSequence: string;
+		observedFinalSequence: string;
+	}> = [];
 	private targetIndex = 0;
 	private state: BookState | undefined;
 	private previousFinalUpdateId: bigint | undefined;
@@ -473,10 +482,15 @@ class StreamingBookReconstructor {
 		this.sampleBefore(Number.POSITIVE_INFINITY);
 		if (this.missingSamples.length > 0) {
 			throw new CryptoHftDataError(
-				this.missingSamples.some((sample) => sample.asofLagMs !== undefined)
-					? "required_clock_coverage_insufficient"
-					: "update_before_snapshot",
-				this.missingClockDiagnostics(),
+				this.sequenceGaps.length > 0
+					? "update_chain_gap"
+					: this.missingSamples.some((sample) => sample.asofLagMs !== undefined)
+						? "required_clock_coverage_insufficient"
+						: "update_before_snapshot",
+				{
+					...this.sequenceGapDiagnostics(),
+					...this.missingClockDiagnostics(),
+				},
 			);
 		}
 		return this.samples;
@@ -516,6 +530,21 @@ class StreamingBookReconstructor {
 				? {}
 				: { max_observed_asof_lag_ms: Math.max(...observedLags) }),
 			missing_target_dates_utc: missingDates,
+		};
+	}
+
+	private sequenceGapDiagnostics(): Record<string, string | number | boolean> {
+		if (this.sequenceGaps.length === 0) return {};
+		const first = this.sequenceGaps[0] as (typeof this.sequenceGaps)[number];
+		const last = this.sequenceGaps.at(-1) as (typeof this.sequenceGaps)[number];
+		return {
+			event_time_ms: first.eventTimeMs,
+			expected_previous_sequence: first.expectedPreviousSequence,
+			observed_previous_sequence: first.observedPreviousSequence,
+			observed_final_sequence: first.observedFinalSequence,
+			sequence_gap_count: this.sequenceGaps.length,
+			first_sequence_gap_event_time_ms: first.eventTimeMs,
+			last_sequence_gap_event_time_ms: last.eventTimeMs,
 		};
 	}
 
@@ -626,13 +655,15 @@ class StreamingBookReconstructor {
 				throw new CryptoHftDataError("ambiguous_update_group");
 			}
 			if (BigInt(previous) !== previousFinalUpdateId) {
-				throw new CryptoHftDataError("update_chain_gap", {
-					event_time_ms: first.eventTimeMs,
-					expected_previous_sequence: previousFinalUpdateId.toString(),
-					observed_previous_sequence: previous,
-					observed_final_sequence: finalUpdate.toString(),
-					...this.missingClockDiagnostics(),
+				this.sequenceGaps.push({
+					eventTimeMs: first.eventTimeMs,
+					expectedPreviousSequence: previousFinalUpdateId.toString(),
+					observedPreviousSequence: previous,
+					observedFinalSequence: finalUpdate.toString(),
 				});
+				this.state = undefined;
+				this.previousFinalUpdateId = undefined;
+				return;
 			}
 		} else {
 			const firstUpdate = BigInt(
@@ -1031,22 +1062,34 @@ export class CryptoHftDataAdapter {
 				receivedTimeMs: sample.receivedTimeMs,
 				checksumAlgorithm: CHECKSUM_ALGORITHM,
 			};
-			const canonical = buildCanonicalOrderBookRows({
-				context,
-				rawCapture,
-				depthLimit: request.depth,
-				constructionMode: request.constructionMode,
-				snapshot: {
-					bids: sample.bids,
-					asks: sample.asks,
-					timestamp: sample.sourceTimeMs,
-					receivedTimestamp: sample.receivedTimeMs,
-					exchange: request.scope.exchange,
-					symbol: request.scope.tradingPair,
+			let canonical: ReturnType<typeof buildCanonicalOrderBookRows>;
+			try {
+				canonical = buildCanonicalOrderBookRows({
+					context,
+					rawCapture,
 					depthLimit: request.depth,
-					sequence: sample.sequence,
-				},
-			});
+					constructionMode: request.constructionMode,
+					snapshot: {
+						bids: sample.bids,
+						asks: sample.asks,
+						timestamp: sample.sourceTimeMs,
+						receivedTimestamp: sample.receivedTimeMs,
+						exchange: request.scope.exchange,
+						symbol: request.scope.tradingPair,
+						depthLimit: request.depth,
+						sequence: sample.sequence,
+					},
+				});
+			} catch (error) {
+				if (error instanceof OrderBookValidationError) {
+					throw new CryptoHftDataError("canonical_orderbook_invalid", {
+						target_time_ms: sample.targetTimeMs,
+						source_time_ms: sample.sourceTimeMs,
+						validation_reason: error.reason,
+					});
+				}
+				throw error;
+			}
 			return [...canonical.levels, canonical.summary];
 		}) as BackfillArchiveRow[];
 		return {
