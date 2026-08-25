@@ -415,6 +415,15 @@ describe("CryptoHFTData snapshot/update reconstruction", () => {
 			last_missing_target_time_ms: target,
 			max_observed_asof_lag_ms: 10_000,
 			missing_target_dates_utc: new Date(target).toISOString().slice(0, 10),
+			total_target_count: 1,
+			unanchored_target_count: 0,
+			future_state_target_count: 0,
+			covered_target_count_lag_1000_ms: 0,
+			covered_target_count_lag_2000_ms: 0,
+			covered_target_count_lag_5000_ms: 0,
+			covered_target_count_lag_10000_ms: 1,
+			covered_target_count_lag_30000_ms: 1,
+			covered_target_count_lag_60000_ms: 1,
 		});
 	});
 

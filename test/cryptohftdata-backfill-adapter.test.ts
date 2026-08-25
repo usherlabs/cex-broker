@@ -528,6 +528,123 @@ describe("CryptoHFTData capability and acquisition", () => {
 		expect(JSON.stringify(caught)).not.toContain(secret);
 	});
 
+	test("retries only the failed provider object and admits its stable successful bytes", async () => {
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [JULY_2025 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		let downloads = 0;
+		const adapter = new CryptoHftDataAdapter({
+			fetch: async (input) => {
+				if (String(input).endsWith("/jwt-token")) {
+					return Response.json({ jwt_token: "jwt" });
+				}
+				downloads += 1;
+				if (downloads === 1) throw new Error("transient provider failure");
+				return new Response(new Uint8Array([1, 2, 3]));
+			},
+			decode: async () => [
+				{
+					received_time: "1751364600000000000",
+					event_time: "1751364600000",
+					symbol: "BTCUSDT",
+					event_type: "snapshot",
+					last_update_id: "1",
+					side: "bid",
+					price: "100",
+					quantity: "1",
+				},
+			],
+		});
+
+		const dataset = await adapter.acquire(request, capability(request), {
+			apiKey: "secret",
+		});
+
+		expect(downloads).toBe(2);
+		expect(dataset.objects).toHaveLength(1);
+		expect(dataset.rows).toHaveLength(1);
+	});
+
+	test("quarantines a stable corrupt provider object after three attempts", async () => {
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [JULY_2025 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		let downloads = 0;
+		const adapter = new CryptoHftDataAdapter({
+			fetch: async (input) => {
+				if (String(input).endsWith("/jwt-token")) {
+					return Response.json({ jwt_token: "jwt" });
+				}
+				downloads += 1;
+				return new Response(new Uint8Array([1, 2, 3]));
+			},
+			decode: async () => {
+				throw new Error("corrupt parquet");
+			},
+		});
+
+		await expect(
+			adapter.acquire(request, capability(request), { apiKey: "secret" }),
+		).rejects.toMatchObject<Partial<CryptoHftDataError>>({
+			reason: "provider_object_decode_failed",
+			diagnostics: {
+				attempt_count: 3,
+				quarantined: true,
+				dataset_object_checksum:
+					"039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+			},
+		});
+		expect(downloads).toBe(3);
+	});
+
+	test("quarantines a provider object whose bytes change between retries", async () => {
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [JULY_2025 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		let downloads = 0;
+		const adapter = new CryptoHftDataAdapter({
+			fetch: async (input) => {
+				if (String(input).endsWith("/jwt-token")) {
+					return Response.json({ jwt_token: "jwt" });
+				}
+				downloads += 1;
+				return new Response(new Uint8Array([downloads]));
+			},
+			decode: async () => {
+				throw new Error("corrupt parquet");
+			},
+		});
+
+		await expect(
+			adapter.acquire(request, capability(request), { apiKey: "secret" }),
+		).rejects.toMatchObject<Partial<CryptoHftDataError>>({
+			reason: "provider_object_checksum_conflict",
+			diagnostics: {
+				attempt_count: 2,
+				quarantined: true,
+			},
+		});
+		expect(downloads).toBe(2);
+	});
+
 	test("fails closed when the duration budget expires", async () => {
 		const request = validBackfillRequest({
 			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },

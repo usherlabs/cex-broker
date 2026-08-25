@@ -142,6 +142,28 @@ function providerObjectFailure(
 	);
 }
 
+const PROVIDER_OBJECT_MAX_ATTEMPTS = 3;
+const RETRYABLE_PROVIDER_OBJECT_FAILURES = new Set([
+	"provider_object_request_failed",
+	"object_download_failed",
+	"provider_object_read_failed",
+	"provider_object_decode_failed",
+	"provider_object_validation_failed",
+]);
+
+function quarantinedProviderObjectFailure(
+	error: CryptoHftDataError,
+	attemptCount: number,
+	checksum?: string,
+): CryptoHftDataError {
+	return new CryptoHftDataError(error.reason, {
+		...error.diagnostics,
+		...(checksum ? { dataset_object_checksum: checksum } : {}),
+		attempt_count: attemptCount,
+		quarantined: true,
+	});
+}
+
 export type CryptoHftDataOrderBookRow = {
 	received_time: string | number | bigint;
 	event_time: string | number | bigint;
@@ -435,8 +457,16 @@ function applyRows(
 }
 
 class StreamingBookReconstructor {
+	private static readonly DIAGNOSTIC_LAG_THRESHOLDS_MS = [
+		1_000, 2_000, 5_000, 10_000, 30_000, 60_000,
+	] as const;
 	private readonly targets: readonly number[];
 	private readonly samples: ReconstructedCryptoHftBook[] = [];
+	private readonly clockObservations: Array<{
+		targetTimeMs: number;
+		sourceTimeMs?: number;
+		asofLagMs?: number;
+	}> = [];
 	private readonly missingSamples: Array<{
 		targetTimeMs: number;
 		sourceTimeMs?: number;
@@ -529,6 +559,19 @@ class StreamingBookReconstructor {
 				),
 			),
 		].join(",");
+		const coverageByLag = Object.fromEntries(
+			StreamingBookReconstructor.DIAGNOSTIC_LAG_THRESHOLDS_MS.map(
+				(threshold) => [
+					`covered_target_count_lag_${threshold}_ms`,
+					this.clockObservations.filter(
+						(observation) =>
+							observation.sourceTimeMs !== undefined &&
+							observation.sourceTimeMs <= observation.targetTimeMs &&
+							(observation.asofLagMs as number) <= threshold,
+					).length,
+				],
+			),
+		);
 		return {
 			target_time_ms: first.targetTimeMs,
 			...(first.sourceTimeMs === undefined
@@ -546,6 +589,16 @@ class StreamingBookReconstructor {
 				? {}
 				: { max_observed_asof_lag_ms: Math.max(...observedLags) }),
 			missing_target_dates_utc: missingDates,
+			total_target_count: this.clockObservations.length,
+			unanchored_target_count: this.clockObservations.filter(
+				(observation) => observation.sourceTimeMs === undefined,
+			).length,
+			future_state_target_count: this.clockObservations.filter(
+				(observation) =>
+					observation.sourceTimeMs !== undefined &&
+					observation.sourceTimeMs > observation.targetTimeMs,
+			).length,
+			...coverageByLag,
 		};
 	}
 
@@ -576,6 +629,15 @@ class StreamingBookReconstructor {
 
 	private sample(targetTimeMs: number): void {
 		const state = this.state;
+		this.clockObservations.push({
+			targetTimeMs,
+			...(state
+				? {
+						sourceTimeMs: state.sourceTimeMs,
+						asofLagMs: Math.abs(targetTimeMs - state.sourceTimeMs),
+					}
+				: {}),
+		});
 		if (
 			!state ||
 			state.sourceTimeMs > targetTimeMs ||
@@ -969,92 +1031,154 @@ export class CryptoHftDataAdapter {
 		let firstSemanticRow = true;
 		semanticHash.update("[");
 		for (const path of paths) {
-			if (this.nowMs() - started > request.budgets.maxDurationMs) {
-				throw new CryptoHftDataError("budget_max_duration_exceeded");
-			}
 			const endpoint = new URL("/download", this.baseUrl);
 			endpoint.searchParams.set("file", path);
-			let response: Response;
-			try {
-				response = await this.request(endpoint, {
-					headers: { Authorization: `Bearer ${tokenBody.jwt_token}` },
-				});
-			} catch (error) {
-				throw providerObjectFailure(
-					error,
-					"provider_object_request_failed",
-					path,
-					"request",
-				);
-			}
-			if (!response.ok) throw new CryptoHftDataError("object_download_failed");
-			const declaredBytes = Number(response.headers.get("content-length"));
-			if (
-				Number.isFinite(declaredBytes) &&
-				totalBytes + declaredBytes > request.budgets.maxBytes
+			let accepted:
+				| {
+						object: ProviderObjectEvidence;
+						parsedRows: CryptoHftDataOrderBookRow[];
+				  }
+				| undefined;
+			let observedChecksum: string | undefined;
+			for (
+				let attempt = 1;
+				attempt <= PROVIDER_OBJECT_MAX_ATTEMPTS;
+				attempt += 1
 			) {
-				throw new CryptoHftDataError("budget_max_bytes_exceeded");
-			}
-			let bytes: Uint8Array;
-			try {
-				bytes = await readBoundedObject(
-					response,
-					request.budgets.maxBytes - totalBytes,
-				);
-			} catch (error) {
-				throw providerObjectFailure(
-					error,
-					"provider_object_read_failed",
-					path,
-					"read",
-				);
-			}
-			totalBytes += bytes.byteLength;
-			if (totalBytes > request.budgets.maxBytes) {
-				throw new CryptoHftDataError("budget_max_bytes_exceeded");
-			}
-			let decoded: Record<string, unknown>[];
-			try {
-				decoded = await this.decode(bytes);
-			} catch (error) {
-				throw providerObjectFailure(
-					error,
-					"provider_object_decode_failed",
-					path,
-					"decode",
-				);
-			}
-			totalRows += decoded.length;
-			if (totalRows > request.budgets.maxRows) {
-				throw new CryptoHftDataError("budget_max_rows_exceeded");
-			}
-			const object = {
-				identity: path,
-				checksum: sha256Bytes(bytes),
-				bytes: bytes.byteLength,
-				rows: decoded.length,
-			};
-			objects.push(object);
-			try {
-				const parsedRows: CryptoHftDataOrderBookRow[] = [];
-				for (const decodedRow of decoded) {
-					const parsed = parsedDatasetRow(decodedRow, object);
-					validatedRow(request, parsed);
-					semanticHash.update(firstSemanticRow ? "" : ",");
-					semanticHash.update(canonicalSerialize(parsed));
-					firstSemanticRow = false;
-					parsedRows.push(parsed);
+				if (this.nowMs() - started > request.budgets.maxDurationMs) {
+					throw new CryptoHftDataError("budget_max_duration_exceeded");
 				}
-				if (reconstructor) reconstructor.push(parsedRows);
-				else rows.push(...parsedRows);
-			} catch (error) {
-				throw providerObjectFailure(
-					error,
-					"provider_object_validation_failed",
-					path,
-					"validate_and_fold",
-				);
+				try {
+					let response: Response;
+					try {
+						response = await this.request(endpoint, {
+							headers: { Authorization: `Bearer ${tokenBody.jwt_token}` },
+						});
+					} catch (error) {
+						throw providerObjectFailure(
+							error,
+							"provider_object_request_failed",
+							path,
+							"request",
+						);
+					}
+					if (!response.ok) {
+						throw providerObjectFailure(
+							new CryptoHftDataError("object_download_failed"),
+							"object_download_failed",
+							path,
+							"request",
+						);
+					}
+					const declaredBytes = Number(response.headers.get("content-length"));
+					if (
+						Number.isFinite(declaredBytes) &&
+						totalBytes + declaredBytes > request.budgets.maxBytes
+					) {
+						throw new CryptoHftDataError("budget_max_bytes_exceeded");
+					}
+					let bytes: Uint8Array;
+					try {
+						bytes = await readBoundedObject(
+							response,
+							request.budgets.maxBytes - totalBytes,
+						);
+					} catch (error) {
+						throw providerObjectFailure(
+							error,
+							"provider_object_read_failed",
+							path,
+							"read",
+						);
+					}
+					totalBytes += bytes.byteLength;
+					if (totalBytes > request.budgets.maxBytes) {
+						throw new CryptoHftDataError("budget_max_bytes_exceeded");
+					}
+					const checksum = sha256Bytes(bytes);
+					if (observedChecksum && observedChecksum !== checksum) {
+						throw new CryptoHftDataError("provider_object_checksum_conflict", {
+							dataset_object_identity: path,
+							failure_phase: "checksum",
+							attempt_count: attempt,
+							quarantined: true,
+						});
+					}
+					observedChecksum = checksum;
+					let decoded: Record<string, unknown>[];
+					try {
+						decoded = await this.decode(bytes);
+					} catch (error) {
+						throw providerObjectFailure(
+							error,
+							"provider_object_decode_failed",
+							path,
+							"decode",
+						);
+					}
+					if (totalRows + decoded.length > request.budgets.maxRows) {
+						throw new CryptoHftDataError("budget_max_rows_exceeded");
+					}
+					const object = {
+						identity: path,
+						checksum,
+						bytes: bytes.byteLength,
+						rows: decoded.length,
+					};
+					const parsedRows: CryptoHftDataOrderBookRow[] = [];
+					try {
+						for (const decodedRow of decoded) {
+							const parsed = parsedDatasetRow(decodedRow, object);
+							validatedRow(request, parsed);
+							parsedRows.push(parsed);
+						}
+					} catch (error) {
+						throw providerObjectFailure(
+							error,
+							"provider_object_validation_failed",
+							path,
+							"validate",
+						);
+					}
+					accepted = { object, parsedRows };
+					break;
+				} catch (error) {
+					const failure =
+						error instanceof CryptoHftDataError
+							? error
+							: providerObjectFailure(
+									error,
+									"provider_object_request_failed",
+									path,
+									"request",
+								);
+					if (
+						!RETRYABLE_PROVIDER_OBJECT_FAILURES.has(failure.reason) ||
+						attempt === PROVIDER_OBJECT_MAX_ATTEMPTS
+					) {
+						throw attempt === PROVIDER_OBJECT_MAX_ATTEMPTS &&
+							RETRYABLE_PROVIDER_OBJECT_FAILURES.has(failure.reason)
+							? quarantinedProviderObjectFailure(
+									failure,
+									attempt,
+									observedChecksum,
+								)
+							: failure;
+					}
+				}
 			}
+			if (!accepted) {
+				throw new CryptoHftDataError("provider_object_acquisition_incomplete");
+			}
+			totalRows += accepted.object.rows;
+			objects.push(accepted.object);
+			for (const parsed of accepted.parsedRows) {
+				semanticHash.update(firstSemanticRow ? "" : ",");
+				semanticHash.update(canonicalSerialize(parsed));
+				firstSemanticRow = false;
+			}
+			if (reconstructor) reconstructor.push(accepted.parsedRows);
+			else rows.push(...accepted.parsedRows);
 		}
 		if (this.nowMs() - started > request.budgets.maxDurationMs) {
 			throw new CryptoHftDataError("budget_max_duration_exceeded");
