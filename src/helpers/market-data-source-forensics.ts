@@ -808,6 +808,7 @@ export async function commitSourceQualificationEvidence(input: {
 	qualificationFileName: string;
 	ledger: SourceForensicsLedgerWire;
 	createdAt: string;
+	sourceAccepted: boolean;
 	cleanupLicensedPayloads?: () => void | Promise<void>;
 }): Promise<SourceQualificationRecordWire> {
 	assertSidecarBasename(input.ledgerFileName);
@@ -837,6 +838,7 @@ export async function commitSourceQualificationEvidence(input: {
 				complete: ledger.complete,
 			},
 			qualified:
+				input.sourceAccepted &&
 				ledger.complete &&
 				ledger.summary.affected_target_count === 0 &&
 				ledger.summary.unresolved_record_count === 0,
