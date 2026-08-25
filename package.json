@@ -22,10 +22,6 @@
 			"import": "./dist/market-data-vendor-backfill.js",
 			"types": "./dist/market-data-vendor-backfill.d.ts"
 		},
-		"./market-data-vendor-backfill/schema-manifest.json": "./dist/market-data-vendor-backfill/schema-manifest.json",
-		"./market-data-vendor-backfill/schemas/*": "./dist/market-data-vendor-backfill/schemas/*",
-		"./market-data-vendor-backfill/policies/*": "./dist/market-data-vendor-backfill/policies/*",
-		"./market-data-vendor-backfill/fixtures/*": "./dist/market-data-vendor-backfill/fixtures/*",
 		"./market-data-preparation": {
 			"import": "./dist/market-data-preparation.js",
 			"types": "./dist/market-data-preparation.d.ts"

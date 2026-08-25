@@ -4,6 +4,7 @@ import {
 	type ArchiveSelectionWire,
 	archiveSelectionCodec,
 	type BackfillArchiveRow,
+	BackfillRequestValidationError,
 	decodeBackfillRunDocuments,
 	EXTERNAL_BACKFILL_SOURCE,
 	type FinalBackfillStatus,
@@ -24,11 +25,11 @@ import {
 	CAPABILITY_POLICY,
 	EFFECTIVE_ACQUISITION_POLICY_PIN,
 	EFFECTIVE_ADAPTER_POLICY_PIN,
-	LEGACY_RESOURCE_POLICY,
 	RESOURCE_POLICY,
 } from "./manifests";
 import {
 	finalizePromotionReceipt,
+	promotionReceiptMatchesCurrentPolicies,
 	promotionReceiptToArchiveRow,
 } from "./promotion";
 import {
@@ -253,6 +254,18 @@ function buildPromotionReceipt(
 	) {
 		throw new Error("decoded final-v1 request context is missing");
 	}
+	if (
+		request.productPins.capability_policy.policy_id !==
+			CAPABILITY_POLICY.policy_id ||
+		request.productPins.capability_policy.policy_sha256 !==
+			CAPABILITY_POLICY.policy_sha256 ||
+		request.productPins.resource_policy.policy_id !==
+			RESOURCE_POLICY.policy_id ||
+		request.productPins.resource_policy.policy_sha256 !==
+			RESOURCE_POLICY.policy_sha256
+	) {
+		throw new Error("promotion receipt requires the current policy tuple");
+	}
 	return finalizePromotionReceipt({
 		schema_id: PROMOTION_RECEIPT_SCHEMA_ID,
 		verified_at: new Date(verificationTimeMs).toISOString(),
@@ -329,6 +342,41 @@ function safeErrorClass(error: unknown): string {
 	return "Error";
 }
 
+function safeCryptoHftDiagnostics(
+	error: CryptoHftDataError,
+	failurePhase: string,
+): Record<string, string | number | boolean> {
+	const diagnostics = error.diagnostics;
+	if (
+		"dataset_object_identity" in diagnostics ||
+		"dataset_object_checksum" in diagnostics
+	) {
+		const safe: Record<string, string | number | boolean> = {};
+		for (const key of [
+			"dataset_object_identity",
+			"dataset_object_checksum",
+			"failure_phase",
+			"attempt_count",
+			"quarantined",
+		] as const) {
+			const value = diagnostics[key];
+			if (
+				typeof value === "string" ||
+				typeof value === "number" ||
+				typeof value === "boolean"
+			) {
+				safe[key] = value;
+			}
+		}
+		if (!("failure_phase" in safe)) safe.failure_phase = failurePhase;
+		return safe;
+	}
+	return {
+		...diagnostics,
+		failure_phase: diagnostics.failure_phase ?? failurePhase,
+	};
+}
+
 function assertArchivePreflight(
 	request: MarketDataVendorBackfillRequest,
 	resolution: ArchivePreflightResolution,
@@ -349,12 +397,16 @@ function assertArchivePreflight(
 		receiptById.set(receipt.receipt_id, receipt);
 	}
 	for (const bundle of selection.bundles) {
-		if (
-			bundle.capture_origin === "vendor_historical_backfill" &&
-			(!bundle.qualification ||
-				!receiptById.has(bundle.qualification.receipt_id))
-		) {
-			throw new Error("vendor selection lacks its validated stored receipt");
+		if (bundle.capture_origin === "vendor_historical_backfill") {
+			const receipt = bundle.qualification
+				? receiptById.get(bundle.qualification.receipt_id)
+				: undefined;
+			if (!receipt) {
+				throw new Error("vendor selection lacks its validated stored receipt");
+			}
+			if (!promotionReceiptMatchesCurrentPolicies(receipt)) {
+				throw new Error("vendor selection receipt is not current-qualified");
+			}
 		}
 	}
 	if (
@@ -398,19 +450,12 @@ function assertForwarderPreflight(
 function resourcePolicyScopeExceeded(
 	request: MarketDataVendorBackfillRequest,
 ): boolean {
-	const policy = [RESOURCE_POLICY, LEGACY_RESOURCE_POLICY].find(
-		(candidate) =>
-			request.productPins?.resource_policy.policy_id === candidate.policy_id &&
-			request.productPins.resource_policy.policy_sha256 ===
-				candidate.policy_sha256,
-	);
-	if (!policy) return true;
 	return (
-		request.depth > policy.request_bounds.max_depth ||
+		request.depth > RESOURCE_POLICY.request_bounds.max_depth ||
 		request.window.endTimeMs - request.window.startTimeMs >
-			policy.request_bounds.max_window_ms ||
+			RESOURCE_POLICY.request_bounds.max_window_ms ||
 		request.requiredClockTargetsMs.length >
-			policy.request_bounds.max_required_events
+			RESOURCE_POLICY.request_bounds.max_required_events
 	);
 }
 
@@ -434,8 +479,12 @@ export async function runMarketDataVendorBackfill(
 			request: documents.request,
 			requiredClock: documents.requiredClock,
 		});
-	} catch {
-		return outcome(undefined, "request_invalid", "request_invalid");
+	} catch (error) {
+		return outcome(undefined, "request_invalid", "request_invalid", {
+			...(error instanceof BackfillRequestValidationError
+				? { reasonSubcode: error.reasonSubcode }
+				: {}),
+		});
 	}
 
 	let initialResolution: ArchivePreflightResolution;
@@ -560,10 +609,7 @@ export async function runMarketDataVendorBackfill(
 				: reason,
 			...(error instanceof CryptoHftDataError
 				? {
-						diagnostics: {
-							...error.diagnostics,
-							failure_phase: error.diagnostics.failure_phase ?? failurePhase,
-						},
+						diagnostics: safeCryptoHftDiagnostics(error, failurePhase),
 					}
 				: {
 						diagnostics: {

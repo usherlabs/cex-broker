@@ -1,0 +1,256 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://schemas.usher.so/cex-order-book-depth-summary-parquet-projection/v1",
+	"title": "CEX order-book depth-summary Parquet capture-core projection v1",
+	"canonical_schema_id": "cex-order-book-canonical/v1",
+	"file_name": "order_book_depth_summary.parquet",
+	"parquet_metadata": {
+		"key_value_metadata": []
+	},
+	"columns": [
+		{
+			"name": "source",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "deployment_id",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "capture_bundle_id",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": true
+		},
+		{
+			"name": "exchange",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "symbol",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "trading_pair",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "source_symbol",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "asset_type",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "feed",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "provider",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "source_mode",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "capture_origin",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "source_time_ms",
+			"physical_type": "INT64",
+			"logical_type": "UINT_64",
+			"nullable": false
+		},
+		{
+			"name": "received_time_ms",
+			"physical_type": "INT64",
+			"logical_type": "UINT_64",
+			"nullable": false
+		},
+		{
+			"name": "raw_capture_id",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": true
+		},
+		{
+			"name": "raw_capture_scope",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": true
+		},
+		{
+			"name": "schema_version",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "checksum_algorithm",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "raw_checksum",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": true
+		},
+		{
+			"name": "provenance_complete",
+			"physical_type": "INT32",
+			"logical_type": "UINT_8",
+			"nullable": false
+		},
+		{
+			"name": "snapshot_id",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "construction_mode",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "gap_policy",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		},
+		{
+			"name": "depth_limit",
+			"physical_type": "INT32",
+			"logical_type": "UINT_16",
+			"nullable": false
+		},
+		{
+			"name": "sequence",
+			"physical_type": "INT64",
+			"logical_type": "UINT_64",
+			"nullable": true
+		},
+		{
+			"name": "exact_l2_reconstruction_complete",
+			"physical_type": "INT32",
+			"logical_type": "UINT_8",
+			"nullable": false
+		},
+		{
+			"name": "best_bid",
+			"physical_type": "FIXED_LEN_BYTE_ARRAY",
+			"logical_type": "DECIMAL(38,18)",
+			"nullable": false
+		},
+		{
+			"name": "best_ask",
+			"physical_type": "FIXED_LEN_BYTE_ARRAY",
+			"logical_type": "DECIMAL(38,18)",
+			"nullable": false
+		},
+		{
+			"name": "best_bid_amount",
+			"physical_type": "FIXED_LEN_BYTE_ARRAY",
+			"logical_type": "DECIMAL(38,18)",
+			"nullable": false
+		},
+		{
+			"name": "best_ask_amount",
+			"physical_type": "FIXED_LEN_BYTE_ARRAY",
+			"logical_type": "DECIMAL(38,18)",
+			"nullable": false
+		},
+		{
+			"name": "mid_price",
+			"physical_type": "FIXED_LEN_BYTE_ARRAY",
+			"logical_type": "DECIMAL(38,18)",
+			"nullable": false
+		},
+		{
+			"name": "spread",
+			"physical_type": "FIXED_LEN_BYTE_ARRAY",
+			"logical_type": "DECIMAL(38,18)",
+			"nullable": false
+		},
+		{
+			"name": "spread_bps",
+			"physical_type": "DOUBLE",
+			"logical_type": null,
+			"nullable": false
+		},
+		{
+			"name": "staleness_ms",
+			"physical_type": "INT64",
+			"logical_type": "UINT_64",
+			"nullable": false
+		},
+		{
+			"name": "bid_level_count",
+			"physical_type": "INT32",
+			"logical_type": "UINT_16",
+			"nullable": false
+		},
+		{
+			"name": "ask_level_count",
+			"physical_type": "INT32",
+			"logical_type": "UINT_16",
+			"nullable": false
+		},
+		{
+			"name": "measurement_bands_bps",
+			"physical_type": "LIST",
+			"logical_type": "LIST<UINT_32>",
+			"nullable": false
+		},
+		{
+			"name": "bid_depth_by_band",
+			"physical_type": "LIST",
+			"logical_type": "LIST<DECIMAL(38,18)>",
+			"nullable": false
+		},
+		{
+			"name": "ask_depth_by_band",
+			"physical_type": "LIST",
+			"logical_type": "LIST<DECIMAL(38,18)>",
+			"nullable": false
+		},
+		{
+			"name": "normalized_row_checksum",
+			"physical_type": "BYTE_ARRAY",
+			"logical_type": "UTF8",
+			"nullable": false
+		}
+	],
+	"metadata": {
+		"cex.canonical_schema_id": "cex-order-book-canonical/v1",
+		"cex.projection_schema_id": "https://schemas.usher.so/cex-order-book-depth-summary-parquet-projection/v1"
+	}
+}

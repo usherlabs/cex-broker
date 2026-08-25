@@ -1,6 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -100,6 +106,15 @@ try {
 			"utf8",
 		),
 	);
+	if (
+		manifest.schema_id !==
+			"https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v3" ||
+		manifest.artifacts?.length !== 12
+	) {
+		throw new Error(
+			"tarball does not contain the closed manifest-v3 schema set",
+		);
+	}
 	const capabilityPolicy = JSON.parse(
 		readFileSync(
 			path.join(
@@ -126,7 +141,7 @@ try {
 		},
 		{
 			product_id: "cex-canonical-orderbook-export",
-			product_version: "cex-canonical-orderbook-export/v1",
+			product_version: "cex-canonical-orderbook-export/v2",
 			relative_path: "dist/commands/cex-canonical-orderbook-export.js",
 		},
 	].map((pin) => ({
@@ -135,6 +150,36 @@ try {
 			readFileSync(path.join(extracted, pin.relative_path)),
 		),
 	}));
+	const runtimeGitHeads = new Set();
+	for (const pin of executablePins) {
+		const attempt = path.join(temporaryRoot, `${pin.product_id}-identity`);
+		mkdirSync(attempt, { mode: 0o700 });
+		const requestPath = path.join(attempt, "request.json");
+		const resultPath = path.join(attempt, "result.json");
+		writeFileSync(requestPath, "{invalid-json\n", { mode: 0o600 });
+		execFileSync(
+			process.execPath,
+			[
+				path.join(extracted, pin.relative_path),
+				"run",
+				"--request",
+				requestPath,
+				"--result",
+				resultPath,
+			],
+			{ stdio: "pipe" },
+		);
+		const result = JSON.parse(readFileSync(resultPath, "utf8"));
+		runtimeGitHeads.add(result.producer?.package?.git_head);
+	}
+	if (
+		runtimeGitHeads.size !== 1 ||
+		![...runtimeGitHeads].every((value) => /^[0-9a-f]{40}$/.test(value)) ||
+		(registryComplete &&
+			![...runtimeGitHeads].includes(options.get("npm-git-head")))
+	) {
+		throw new Error("npm gitHead and runtime producer git heads disagree");
+	}
 	const evidence = {
 		schema_id: "cex-market-data-preparation-release-evidence/v1",
 		status: registryComplete
@@ -179,7 +224,7 @@ try {
 		const integrity = options.get("registry-integrity");
 		const npmGitHead = options.get("npm-git-head");
 		const productPin = {
-			schema_id: "cex-market-data-preparation-product-pin/v1",
+			schema_id: "cex-market-data-preparation-product-pin/v2",
 			package: {
 				name: "@usherlabs/cex-broker",
 				version: packageDocument.version,

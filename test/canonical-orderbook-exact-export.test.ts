@@ -18,6 +18,10 @@ import {
 } from "../src/helpers/market-data-preparation/contracts";
 import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
 import { finalizeArchiveSelection } from "../src/helpers/market-data-vendor-backfill/contracts";
+import {
+	LEVELS_PARQUET_FIXTURE,
+	SUMMARY_PARQUET_FIXTURE,
+} from "./fixtures/canonical-orderbook-parquet";
 
 const START = "2026-08-18T09:27:10.000Z";
 const OVERLAP_START = "2026-08-18T09:27:12.000Z";
@@ -223,7 +227,6 @@ describe("exact canonical order-book export selection", () => {
 	test("exports conflict-free qualified rows and binds every query to exact segments", async () => {
 		const root = await mkdtemp(path.join(os.tmpdir(), "cex-exact-export-"));
 		const request = exportRequest("fill_gaps");
-		const parquet = new TextEncoder().encode("PAR1payloadPAR1");
 		const queries: Array<{
 			sql: string;
 			parameters: Readonly<Record<string, string | number | readonly string[]>>;
@@ -236,7 +239,11 @@ describe("exact canonical order-book export selection", () => {
 				client: {
 					async execute(sql, parameters, format) {
 						queries.push({ sql, parameters, format });
-						if (format === "Parquet") return parquet;
+						if (format === "Parquet") {
+							return sql.includes("cex_order_book_levels_replay_qualified")
+								? LEVELS_PARQUET_FIXTURE
+								: SUMMARY_PARQUET_FIXTURE;
+						}
 						if (sql.includes("cex_archive_cluster_identity")) {
 							return new TextEncoder().encode(
 								'{"environment":"production","cluster":"cex-archive-primary"}\n',
@@ -259,13 +266,17 @@ describe("exact canonical order-book export selection", () => {
 					},
 				},
 			});
-			expect(exported.levels).toEqual({
+			expect(exported.levels).toMatchObject({
 				file_name: "order_book_levels.parquet",
 				rows: 40,
-				bytes: parquet.byteLength,
-				sha256: createHash("sha256").update(parquet).digest("hex"),
+				bytes: LEVELS_PARQUET_FIXTURE.byteLength,
+				sha256: createHash("sha256")
+					.update(LEVELS_PARQUET_FIXTURE)
+					.digest("hex"),
 			});
-			expect(await readFile(exported.levelsPath)).toEqual(Buffer.from(parquet));
+			expect(await readFile(exported.levelsPath)).toEqual(
+				Buffer.from(LEVELS_PARQUET_FIXTURE),
+			);
 			expect(exported.promotionReceiptIds).toEqual(
 				request.selection.receipt_ids,
 			);

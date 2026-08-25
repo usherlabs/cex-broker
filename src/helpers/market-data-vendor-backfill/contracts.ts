@@ -5,13 +5,7 @@ import Ajv2020, {
 import { z } from "zod";
 import { sha256Canonical } from "../market-data-archive/capture-contract";
 import { assertDocumentSha256, documentSha256, jcsSha256 } from "./identity";
-import {
-	CAPABILITY_POLICY,
-	LEGACY_CAPABILITY_POLICY,
-	LEGACY_RESOURCE_POLICY,
-	PREVIOUS_CAPABILITY_POLICY,
-	RESOURCE_POLICY,
-} from "./manifests";
+import { CAPABILITY_POLICY, RESOURCE_POLICY } from "./manifests";
 import archiveSelectionSchemaJson from "./schemas/archive-selection.schema.json" with {
 	type: "json",
 };
@@ -24,15 +18,11 @@ import requestSchemaJson from "./schemas/request.schema.json" with {
 import requiredClockSchemaJson from "./schemas/required-clock.schema.json" with {
 	type: "json",
 };
-import resultSchemaJson from "./schemas/result.schema.json" with {
-	type: "json",
-};
 
 export const BACKFILL_REQUEST_SCHEMA_ID = requestSchemaJson.$id;
 export const REQUIRED_CLOCK_SCHEMA_ID = requiredClockSchemaJson.$id;
 export const ARCHIVE_SELECTION_SCHEMA_ID = archiveSelectionSchemaJson.$id;
 export const PROMOTION_RECEIPT_SCHEMA_ID = promotionReceiptSchemaJson.$id;
-export const BACKFILL_RESULT_SCHEMA_ID = resultSchemaJson.$id;
 
 export type FixedUtcTimestamp = string;
 export type Sha256Hex = string;
@@ -196,40 +186,32 @@ export const FINAL_BACKFILL_STATUSES = [
 
 export type FinalBackfillStatus = (typeof FINAL_BACKFILL_STATUSES)[number];
 
-export type BackfillJobResultWire = {
-	schema_id: typeof BACKFILL_RESULT_SCHEMA_ID;
-	result_sha256: Sha256Hex;
-	job_id: LowercaseUuid;
-	request_file_sha256: Sha256Hex | null;
-	executable_sha256: Sha256Hex;
-	schema_manifest_sha256: Sha256Hex;
-	cex_package: {
-		name: "@usherlabs/cex-broker";
-		version: string;
-		package_sha256: Sha256Hex;
-	};
-	capability_policy: { policy_id: string; policy_sha256: Sha256Hex };
-	resource_policy: { policy_id: string; policy_sha256: Sha256Hex };
-	build: { fiet_tee_commit: string; created_at: FixedUtcTimestamp };
-	started_at: FixedUtcTimestamp;
-	completed_at: FixedUtcTimestamp;
-	outcome: {
-		status: FinalBackfillStatus;
-		reason_code: string;
-		reason_subcode: string | null;
-		request_id: LowercaseUuid | null;
-		idempotency_key: Sha256Hex | null;
-		target: { environment: string; cluster: string } | null;
-		selection: ArchiveSelectionWire | null;
-		receipt: PromotionReceiptWire | null;
-		diagnostics: Record<string, string | number | boolean>;
-	};
+export type BackfillOutcomeWire = {
+	status: FinalBackfillStatus;
+	reason_code: string;
+	reason_subcode: string | null;
+	request_id: LowercaseUuid | null;
+	idempotency_key: Sha256Hex | null;
+	target: { environment: string; cluster: string } | null;
+	selection: ArchiveSelectionWire | null;
+	receipt: PromotionReceiptWire | null;
+	diagnostics: Record<string, string | number | boolean>;
 };
 
 type Codec<T> = {
 	decode(value: unknown): T;
 	is(value: unknown): value is T;
 };
+
+export class BackfillRequestValidationError extends Error {
+	constructor(
+		readonly reasonSubcode: string,
+		message: string,
+	) {
+		super(message);
+		this.name = "BackfillRequestValidationError";
+	}
+}
 
 function describeAjvErrors(errors: ErrorObject[] | null | undefined): string {
 	return (errors ?? [])
@@ -296,7 +278,6 @@ const validateRequiredClock = ajv.compile(requiredClockSchemaJson);
 const validateArchiveSelection = ajv.getSchema(ARCHIVE_SELECTION_SCHEMA_ID);
 const validatePromotionReceipt = ajv.getSchema(PROMOTION_RECEIPT_SCHEMA_ID);
 const validateBackfillRequest = ajv.compile(requestSchemaJson);
-const validateBackfillResult = ajv.compile(resultSchemaJson);
 if (!validateArchiveSelection || !validatePromotionReceipt) {
 	throw new Error("Backfill referenced schemas were not registered");
 }
@@ -384,33 +365,6 @@ export const promotionReceiptCodec = codec<PromotionReceiptWire>(
 	},
 );
 
-export const backfillResultCodec = codec<BackfillJobResultWire>(
-	validateBackfillResult,
-	(result) => {
-		assertDocumentSha256(result, "result_sha256");
-		const startedAt = fixedTimestampMs(result.started_at, "started_at");
-		const completedAt = fixedTimestampMs(result.completed_at, "completed_at");
-		if (completedAt < startedAt)
-			throw new Error("completed_at precedes started_at");
-		if (result.outcome.selection)
-			archiveSelectionCodec.decode(result.outcome.selection);
-		if (result.outcome.receipt)
-			promotionReceiptCodec.decode(result.outcome.receipt);
-		if (
-			result.outcome.status === "promoted" &&
-			(!result.outcome.selection || !result.outcome.receipt)
-		) {
-			throw new Error("promoted outcome requires selection and receipt");
-		}
-		if (
-			result.outcome.status === "already_covered" &&
-			!result.outcome.selection
-		) {
-			throw new Error("already_covered outcome requires selection");
-		}
-	},
-);
-
 function wireIdempotencyBusinessFields(
 	request: Omit<BackfillRequestWire, "idempotency_key"> & {
 		idempotency_key?: string;
@@ -444,28 +398,19 @@ export const backfillRequestCodec = {
 				"idempotency_key does not match canonical business fields",
 			);
 		}
-		const capabilityPolicyMatches = [
-			CAPABILITY_POLICY,
-			PREVIOUS_CAPABILITY_POLICY,
-			LEGACY_CAPABILITY_POLICY,
-		].some(
-			(policy) =>
-				request.product_pins.capability_policy.policy_id === policy.policy_id &&
-				request.product_pins.capability_policy.policy_sha256 ===
-					policy.policy_sha256,
-		);
-		const resourcePolicyMatches = [
-			RESOURCE_POLICY,
-			LEGACY_RESOURCE_POLICY,
-		].some(
-			(policy) =>
-				request.product_pins.resource_policy.policy_id === policy.policy_id &&
-				request.product_pins.resource_policy.policy_sha256 ===
-					policy.policy_sha256,
-		);
-		if (!capabilityPolicyMatches || !resourcePolicyMatches) {
-			throw new Error(
-				"request policy pins do not match the effective package policies",
+		if (
+			request.product_pins.capability_policy.policy_id !==
+				CAPABILITY_POLICY.policy_id ||
+			request.product_pins.capability_policy.policy_sha256 !==
+				CAPABILITY_POLICY.policy_sha256 ||
+			request.product_pins.resource_policy.policy_id !==
+				RESOURCE_POLICY.policy_id ||
+			request.product_pins.resource_policy.policy_sha256 !==
+				RESOURCE_POLICY.policy_sha256
+		) {
+			throw new BackfillRequestValidationError(
+				"current_policy_tuple_required",
+				"request policy pins must match the exact capability-v3/resource-v2 tuple",
 			);
 		}
 		if (
@@ -526,21 +471,8 @@ export function finalizeArchiveSelection(
 	});
 }
 
-export function finalizeBackfillResult(
-	result: Omit<BackfillJobResultWire, "result_sha256"> &
-		Partial<Pick<BackfillJobResultWire, "result_sha256">>,
-): BackfillJobResultWire {
-	const { result_sha256: _resultSha256, ...content } = result;
-	return backfillResultCodec.decode({
-		...content,
-		result_sha256: documentSha256(content, "result_sha256"),
-	});
-}
-
 export const BACKFILL_REQUEST_SCHEMA_VERSION =
 	"market-data-vendor-backfill-request/v1" as const;
-export const BACKFILL_RESULT_SCHEMA_VERSION =
-	"market-data-vendor-backfill-result/v1" as const;
 export const BACKFILL_PROMOTION_SCHEMA_VERSION =
 	"market-data-vendor-backfill-promotion-receipt/v1" as const;
 export const EXTERNAL_BACKFILL_SOURCE = "external_backfill" as const;
@@ -682,41 +614,22 @@ export function decodeBackfillRunDocuments(input: {
 		}
 		return targetTimeMs;
 	});
-	const capabilityPolicy = [
-		CAPABILITY_POLICY,
-		PREVIOUS_CAPABILITY_POLICY,
-		LEGACY_CAPABILITY_POLICY,
-	].find(
-		(policy) =>
-			wire.product_pins.capability_policy.policy_id === policy.policy_id &&
-			wire.product_pins.capability_policy.policy_sha256 ===
-				policy.policy_sha256,
-	);
-	if (!capabilityPolicy) {
-		throw new Error("request capability policy pin is unsupported");
-	}
-	const capabilityProfile = capabilityPolicy.profiles.find(
+	const capabilityProfile = CAPABILITY_POLICY.profiles.find(
 		(profile) =>
 			profile.exchange === wire.scope.exchange &&
 			profile.market_type === wire.scope.market_type &&
 			profile.feed === wire.scope.feed &&
 			profile.canonical_trading_pair === wire.scope.trading_pair,
 	);
-	const resourcePolicy = [RESOURCE_POLICY, LEGACY_RESOURCE_POLICY].find(
-		(policy) =>
-			wire.product_pins.resource_policy.policy_id === policy.policy_id &&
-			wire.product_pins.resource_policy.policy_sha256 === policy.policy_sha256,
-	);
-	if (!resourcePolicy) {
-		throw new Error("request resource policy pin is unsupported");
-	}
 	return {
 		schemaVersion: BACKFILL_REQUEST_SCHEMA_VERSION,
 		requestId: wire.request_id,
 		idempotencyKey: wire.idempotency_key,
 		providerPolicy: {
 			provider: "cryptohftdata",
-			allowedAdapterVersions: [capabilityPolicy.adapter_policy.adapter_version],
+			allowedAdapterVersions: [
+				CAPABILITY_POLICY.adapter_policy.adapter_version,
+			],
 		},
 		scope: {
 			exchange: wire.scope.exchange,
@@ -733,13 +646,13 @@ export function decodeBackfillRunDocuments(input: {
 		maxPriorAsOfLagMs: wire.coverage_policy.max_asof_lag_ms,
 		sourcePolicy: wire.source_policy,
 		budgets: {
-			maxFiles: resourcePolicy.limits.max_files,
-			maxBytes: resourcePolicy.limits.max_bytes,
-			maxRows: resourcePolicy.limits.max_rows,
-			maxDurationMs: resourcePolicy.limits.max_duration_ms,
+			maxFiles: RESOURCE_POLICY.limits.max_files,
+			maxBytes: RESOURCE_POLICY.limits.max_bytes,
+			maxRows: RESOURCE_POLICY.limits.max_rows,
+			maxDurationMs: RESOURCE_POLICY.limits.max_duration_ms,
 			maxBoundaryLookbackMs: Math.min(
-				resourcePolicy.limits.max_boundary_lookback_ms,
-				capabilityPolicy.acquisition_policy.initialization_lookback_ms,
+				RESOURCE_POLICY.limits.max_boundary_lookback_ms,
+				CAPABILITY_POLICY.acquisition_policy.initialization_lookback_ms,
 			),
 		},
 		expectedProduct: {
@@ -942,13 +855,3 @@ export const promotionReceiptSchema: z.ZodType<PromotionReceipt> = z
 	.refine(({ endTimeMs, startTimeMs }) => endTimeMs > startTimeMs, {
 		message: "promotion window must be increasing",
 	});
-
-export type BackfillResult = {
-	schemaVersion: typeof BACKFILL_RESULT_SCHEMA_VERSION;
-	requestId: string;
-	idempotencyKey?: string;
-	status: BackfillStatus;
-	reasonCode: string;
-	receipt?: PromotionReceipt;
-	diagnostics?: Record<string, string | number | boolean>;
-};

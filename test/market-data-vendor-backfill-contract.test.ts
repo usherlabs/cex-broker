@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
 	BACKFILL_REQUEST_SCHEMA_VERSION,
-	BACKFILL_RESULT_SCHEMA_VERSION,
 	backfillRequestSchema,
 	createBackfillIdempotencyKey,
 	type MarketDataVendorBackfillRequest,
@@ -59,9 +58,6 @@ describe("market-data vendor backfill contracts", () => {
 		const request = validBackfillRequest();
 		expect(parseBackfillRequest(request)).toEqual(request);
 		expect(createBackfillIdempotencyKey(request)).toBe(request.idempotencyKey);
-		expect(BACKFILL_RESULT_SCHEMA_VERSION).toBe(
-			"market-data-vendor-backfill-result/v1",
-		);
 	});
 
 	test("request identity excludes caller attempt identity but binds business scope", () => {

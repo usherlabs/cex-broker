@@ -15,6 +15,11 @@ import type {
 	MarketCaptureContext,
 	RawCapture,
 } from "../market-data-archive/types";
+import type {
+	ReconstructionObservation,
+	ReconstructionObservationSink,
+	SourceObjectEvidence,
+} from "../market-data-source-forensics";
 import {
 	type BackfillArchiveRow,
 	EXTERNAL_BACKFILL_SOURCE,
@@ -30,6 +35,36 @@ import { semanticDigest } from "./semantic-verification";
 export const CRYPTOHFTDATA_ADAPTER_VERSION =
 	"cryptohftdata-orderbook/v2" as const;
 export const CRYPTOHFTDATA_API_URL = "https://api.cryptohftdata.com" as const;
+export const DIAGNOSTIC_LAG_THRESHOLDS_MS = [
+	1_000, 2_000, 5_000, 10_000, 30_000, 60_000,
+] as const;
+export const BACKFILL_CLOCK_DIAGNOSTIC_KEYS = [
+	"target_time_ms",
+	"source_time_ms",
+	"asof_lag_ms",
+	"max_prior_asof_lag_ms",
+	"missing_target_count",
+	"covered_target_count",
+	"first_missing_target_time_ms",
+	"last_missing_target_time_ms",
+	"max_observed_asof_lag_ms",
+	"missing_target_dates_utc",
+	"total_target_count",
+	"unanchored_target_count",
+	"future_state_target_count",
+	...DIAGNOSTIC_LAG_THRESHOLDS_MS.map(
+		(threshold) => `covered_target_count_lag_${threshold}_ms` as const,
+	),
+] as const;
+export const BACKFILL_SEQUENCE_DIAGNOSTIC_KEYS = [
+	"event_time_ms",
+	"expected_previous_sequence",
+	"observed_previous_sequence",
+	"observed_final_sequence",
+	"sequence_gap_count",
+	"first_sequence_gap_event_time_ms",
+	"last_sequence_gap_event_time_ms",
+] as const;
 const CRYPTOHFTDATA_HISTORY_START_MS = Date.UTC(2025, 5, 28);
 const HOUR_MS = 60 * 60 * 1_000;
 
@@ -457,9 +492,6 @@ function applyRows(
 }
 
 class StreamingBookReconstructor {
-	private static readonly DIAGNOSTIC_LAG_THRESHOLDS_MS = [
-		1_000, 2_000, 5_000, 10_000, 30_000, 60_000,
-	] as const;
 	private readonly targets: readonly number[];
 	private readonly samples: ReconstructedCryptoHftBook[] = [];
 	private readonly clockObservations: Array<{
@@ -485,11 +517,37 @@ class StreamingBookReconstructor {
 	constructor(
 		private readonly request: MarketDataVendorBackfillRequest,
 		private readonly profile: CryptoHftDataCapabilityProfile,
+		private readonly observer?: ReconstructionObservationSink,
 	) {
 		this.targets = [...request.requiredClockTargetsMs];
 	}
 
 	push(inputRows: readonly CryptoHftDataOrderBookRow[]): void {
+		const observedObjects = new Map<string, SourceObjectEvidence>();
+		for (const row of inputRows) {
+			const existing = observedObjects.get(row.dataset_object_identity);
+			observedObjects.set(row.dataset_object_identity, {
+				identity: row.dataset_object_identity,
+				checksums: [
+					...new Set([
+						...(existing?.checksums ?? []),
+						row.dataset_object_checksum,
+					]),
+				].sort(),
+				attempt_count: 1,
+				quarantined: false,
+			});
+		}
+		for (const object of observedObjects.values()) {
+			this.observe({ type: "provider_object_boundary", object });
+			if (object.checksums.length > 1) {
+				this.observe({
+					type: "provider_object_checksum_conflict",
+					object: { ...object, quarantined: true },
+					affected_target_times_ms: this.targets.slice(this.targetIndex),
+				});
+			}
+		}
 		const rows = inputRows
 			.map((row, index) => ({
 				...validatedRow(this.request, row),
@@ -522,6 +580,23 @@ class StreamingBookReconstructor {
 			if (first.event_type === "snapshot") this.applySnapshot(group);
 			else if (this.state) this.applyUpdate(group);
 		}
+	}
+
+	private observe(observation: ReconstructionObservation): void {
+		try {
+			this.observer?.observe(observation);
+		} catch {
+			// Qualification evidence must never affect production reconstruction.
+		}
+	}
+
+	private objectEvidence(state: BookState): SourceObjectEvidence {
+		return {
+			identity: state.datasetObjectIdentity,
+			checksums: [state.datasetObjectChecksum],
+			attempt_count: 1,
+			quarantined: false,
+		};
 	}
 
 	finish(): ReconstructedCryptoHftBook[] {
@@ -560,17 +635,15 @@ class StreamingBookReconstructor {
 			),
 		].join(",");
 		const coverageByLag = Object.fromEntries(
-			StreamingBookReconstructor.DIAGNOSTIC_LAG_THRESHOLDS_MS.map(
-				(threshold) => [
-					`covered_target_count_lag_${threshold}_ms`,
-					this.clockObservations.filter(
-						(observation) =>
-							observation.sourceTimeMs !== undefined &&
-							observation.sourceTimeMs <= observation.targetTimeMs &&
-							(observation.asofLagMs as number) <= threshold,
-					).length,
-				],
-			),
+			DIAGNOSTIC_LAG_THRESHOLDS_MS.map((threshold) => [
+				`covered_target_count_lag_${threshold}_ms`,
+				this.clockObservations.filter(
+					(observation) =>
+						observation.sourceTimeMs !== undefined &&
+						observation.sourceTimeMs <= observation.targetTimeMs &&
+						(observation.asofLagMs as number) <= threshold,
+				).length,
+			]),
 		);
 		return {
 			target_time_ms: first.targetTimeMs,
@@ -643,6 +716,18 @@ class StreamingBookReconstructor {
 			state.sourceTimeMs > targetTimeMs ||
 			targetTimeMs - state.sourceTimeMs > this.request.maxPriorAsOfLagMs
 		) {
+			this.observe({
+				type: "required_clock_sample",
+				target_time_ms: targetTimeMs,
+				source_time_ms: state?.sourceTimeMs ?? null,
+				lag_ms: state ? Math.abs(targetTimeMs - state.sourceTimeMs) : null,
+				status: !state
+					? "unanchored"
+					: state.sourceTimeMs > targetTimeMs
+						? "future"
+						: "stale",
+				object: state ? this.objectEvidence(state) : null,
+			});
 			this.missingSamples.push({
 				targetTimeMs,
 				...(state
@@ -654,6 +739,14 @@ class StreamingBookReconstructor {
 			});
 			return;
 		}
+		this.observe({
+			type: "required_clock_sample",
+			target_time_ms: targetTimeMs,
+			source_time_ms: state.sourceTimeMs,
+			lag_ms: targetTimeMs - state.sourceTimeMs,
+			status: "covered",
+			object: this.objectEvidence(state),
+		});
 		const bids = sortedSide(state.bids, "bid").slice(0, this.request.depth);
 		const asks = sortedSide(state.asks, "ask").slice(0, this.request.depth);
 		if (bids.length === 0 || asks.length === 0) {
@@ -676,6 +769,7 @@ class StreamingBookReconstructor {
 
 	private applySnapshot(group: ReturnType<typeof validatedRow>[]): void {
 		const first = group[0] as ReturnType<typeof validatedRow>;
+		const reanchored = this.state === undefined && this.sequenceGaps.length > 0;
 		const sequence = snapshotSequence(first, this.profile);
 		if (group.some((row) => snapshotSequence(row, this.profile) !== sequence)) {
 			throw new CryptoHftDataError("ambiguous_snapshot_group");
@@ -698,6 +792,15 @@ class StreamingBookReconstructor {
 		};
 		applyRows(this.state, group);
 		this.previousFinalUpdateId = BigInt(sequence);
+		this.observe({
+			type: reanchored ? "reanchor" : "snapshot_anchor",
+			anchor: {
+				event_time_ms: first.eventTimeMs,
+				sequence,
+				object_identity: first.dataset_object_identity,
+				object_checksum: first.dataset_object_checksum,
+			},
+		});
 	}
 
 	private applyUpdate(group: ReturnType<typeof validatedRow>[]): void {
@@ -733,6 +836,26 @@ class StreamingBookReconstructor {
 				throw new CryptoHftDataError("ambiguous_update_group");
 			}
 			if (BigInt(previous) !== previousFinalUpdateId) {
+				this.observe({
+					type: "sequence_discontinuity",
+					sequence: {
+						expected_previous: previousFinalUpdateId.toString(),
+						observed_previous: previous,
+						observed_final: finalUpdate.toString(),
+						event_time_ms: first.eventTimeMs,
+					},
+					object: {
+						identity: first.dataset_object_identity,
+						checksums: [first.dataset_object_checksum],
+						attempt_count: 1,
+						quarantined: false,
+					},
+				});
+				this.observe({
+					type: "invalidation",
+					event_time_ms: first.eventTimeMs,
+					reason: "update_chain_gap",
+				});
 				this.sequenceGaps.push({
 					eventTimeMs: first.eventTimeMs,
 					expectedPreviousSequence: previousFinalUpdateId.toString(),
@@ -791,8 +914,13 @@ export function reconstructCryptoHftDataOrderBooks(
 	request: MarketDataVendorBackfillRequest,
 	inputRows: readonly CryptoHftDataOrderBookRow[],
 	profile: CryptoHftDataCapabilityProfile = CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
+	observer?: ReconstructionObservationSink,
 ): ReconstructedCryptoHftBook[] {
-	const reconstructor = new StreamingBookReconstructor(request, profile);
+	const reconstructor = new StreamingBookReconstructor(
+		request,
+		profile,
+		observer,
+	);
 	reconstructor.push(inputRows);
 	return reconstructor.finish();
 }
@@ -812,12 +940,13 @@ export async function decodeCryptoHftParquetZstd(
 	return parquetReadObjects({ file: buffer });
 }
 
-type CryptoHftDataAdapterOptions = {
+export type CryptoHftDataAdapterOptions = {
 	baseUrl?: string;
 	fetch?: typeof fetch;
 	nowMs?: () => number;
 	decode?: (bytes: Uint8Array) => Promise<Record<string, unknown>[]>;
 	profiles?: readonly CryptoHftDataCapabilityProfile[];
+	observer?: ReconstructionObservationSink;
 };
 
 function parsedDatasetRow(
@@ -908,6 +1037,7 @@ export class CryptoHftDataAdapter {
 		bytes: Uint8Array,
 	) => Promise<Record<string, unknown>[]>;
 	private readonly profiles: readonly CryptoHftDataCapabilityProfile[];
+	private readonly observer?: ReconstructionObservationSink;
 
 	constructor(options: CryptoHftDataAdapterOptions = {}) {
 		this.baseUrl = options.baseUrl ?? CRYPTOHFTDATA_API_URL;
@@ -915,6 +1045,15 @@ export class CryptoHftDataAdapter {
 		this.nowMs = options.nowMs ?? Date.now;
 		this.decode = options.decode ?? decodeCryptoHftParquetZstd;
 		this.profiles = options.profiles ?? [];
+		this.observer = options.observer;
+	}
+
+	private observe(observation: ReconstructionObservation): void {
+		try {
+			this.observer?.observe(observation);
+		} catch {
+			// Evidence collection cannot alter acquisition or reconstruction.
+		}
 	}
 
 	capabilityFor(
@@ -1025,7 +1164,7 @@ export class CryptoHftDataAdapter {
 		const rows: CryptoHftDataOrderBookRow[] = [];
 		const reconstructor =
 			profile?.sequenceSemantics === "okx_seq_id_prev_seq_id"
-				? new StreamingBookReconstructor(request, profile)
+				? new StreamingBookReconstructor(request, profile, this.observer)
 				: undefined;
 		const semanticHash = createHash("sha256");
 		let firstSemanticRow = true;
@@ -1097,6 +1236,16 @@ export class CryptoHftDataAdapter {
 					}
 					const checksum = sha256Bytes(bytes);
 					if (observedChecksum && observedChecksum !== checksum) {
+						this.observe({
+							type: "provider_object_checksum_conflict",
+							object: {
+								identity: path,
+								checksums: [observedChecksum, checksum].sort(),
+								attempt_count: attempt,
+								quarantined: true,
+							},
+							affected_target_times_ms: request.requiredClockTargetsMs,
+						});
 						throw new CryptoHftDataError("provider_object_checksum_conflict", {
 							dataset_object_identity: path,
 							failure_phase: "checksum",
