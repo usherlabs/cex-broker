@@ -3,9 +3,10 @@
 ### Requirement: Source forensics observes the one current reconstruction path
 CEX Broker SHALL produce source-forensics evidence by observing the same
 capability-v3 OKX reconstruction implementation used by the backfill file job.
-Forensics MUST be a library observer invoked only by the CEX qualification
-harness; it MUST NOT add a third preparation executable or a Maker request
-field. It MUST NOT select another adapter, loosen validation, synthesize state,
+Forensics MUST be a library observer invoked by the CEX qualification and
+source-tape package-library operations; it MUST NOT add a third preparation
+executable or a Maker-policy request field. It MUST NOT select another adapter,
+loosen validation, synthesize state,
 change the required clock or freshness policy, or create a second acceptance
 path. Enabling evidence collection, including evidence overflow, MUST NOT
 change reconstructed rows, samples, failure classification, detailed subcode,
@@ -132,134 +133,141 @@ promotion.
 - **THEN** the ledger MUST classify `valid_inactive_market_state` with its object, anchor, target, and lag evidence
 - **AND** those targets MUST remain failed and non-promotable under the unchanged freshness rule
 
-### Requirement: Qualification, derivation, and source enumeration are separate gates
+### Requirement: Qualification, source partitioning, and source enumeration are separate CEX facts
 A pair SHALL pass strict CEX source qualification only when
 `source_reconstruction_accepted = true`, its ledger and target dispositions are
 complete, and every submitted target is `fresh_within_bound` with one
-prior-only, non-crossed, two-sided, depth-valid state within 5,000 ms. A
-zero-affected unresolved record MAY remain nonblocking for this submitted-clock
+prior-only, non-crossed, two-sided, depth-valid state within the request's bound.
+A zero-affected unresolved record MAY remain nonblocking for this submitted-clock
 predicate.
 
-`derivation_eligible` SHALL instead require a complete ledger, complete exact
-required-clock dispositions, zero disqualifying targets, and all disposition
-evidence retained. It MAY be true for a nominal clock containing positively
-proven inactivity and MUST NOT overload `qualified`.
+`source_partition_complete` SHALL instead require a complete ledger, complete
+exact required-clock dispositions, zero disqualifying targets, and all
+disposition evidence retained. It MAY be true for a required clock containing
+positively proven inactivity and MUST NOT overload `qualified`.
 
-`candidate_c_source_enumeration_eligible` SHALL require
-`derivation_eligible` plus positive complete provider-object/selected-interval
-inventory and no unresolved sequence, provider-row-loss, object-boundary,
-stable-corruption, checksum, or mutable-byte evidence anywhere in the fixed
-window that could hide or alter a policy-neutral OKX change. A zero-affected
-unresolved sequence gap therefore MAY leave Candidate A submitted-clock
-qualification intact but MUST block Candidate C source enumeration. Positively
-classified `valid_inactive_market_state` remains enumeration-eligible.
+`source_event_enumeration_eligible` SHALL require positive complete
+provider-object and selected-interval inventory plus no unresolved sequence,
+provider-row-loss, object-boundary, stable-corruption, checksum, mutable-byte,
+or omitted-evidence condition anywhere in the requested window that could hide,
+omit, reorder, or alter a policy-neutral source event. A zero-affected
+unresolved sequence gap therefore MAY leave submitted-clock qualification
+intact but MUST block source-event enumeration. Positively classified
+`valid_inactive_market_state` remains enumeration-eligible.
+
+These are source facts, not Maker decisions. CEX MUST NOT emit
+`derivation_eligible`, Candidate-role, admitted-clock, policy-invocation, or
+`reference_depth_stale` verdicts.
 
 #### Scenario: One pair remains incomplete
-- **WHEN** either pair has at least one affected required target or an incomplete ledger
-- **THEN** CEX MUST NOT claim that the two-pair source dependency is qualified
-- **AND** Maker MAY retain the pair-specific failure matrix but MUST publish no atomic accepted input
+- **WHEN** a pair has at least one disqualifying required target or an incomplete ledger
+- **THEN** that pair MUST remain unqualified and retain its pair-local evidence
+- **AND** CEX MUST NOT infer or emit an aggregate verdict for any sibling pair
 
-#### Scenario: Both pair ledgers pass
-- **WHEN** both complete pair-local ledgers report zero affected required targets under the unchanged clock and freshness rules
-- **THEN** CEX MAY proceed with pair-scoped promotion, exact selection, export, and successor release evidence
-- **AND** Maker's aggregate acceptance and thesis proof MUST remain separate
+#### Scenario: A gap affects no submitted target
+- **WHEN** a sequence discontinuity re-anchors before the next submitted target but could hide an OKX change inside the requested window
+- **THEN** the required clock MAY still qualify if every submitted target is fresh
+- **AND** `source_event_enumeration_eligible` MUST be false until the discontinuity is positively resolved
 
-#### Scenario: A gap affects no Candidate A target
-- **WHEN** a sequence discontinuity re-anchors before the next Candidate A target but could hide an OKX change inside the fixed window
-- **THEN** Candidate A's admitted clock MAY still qualify if every submitted target is fresh
-- **AND** `candidate_c_source_enumeration_eligible` MUST be false until the discontinuity is positively resolved
+### Requirement: CEX required clocks are role-neutral
+CEX SHALL bind and qualify the exact supplied required-clock bytes, target IDs,
+target times, projection hash, pair, window, construction mode, current policy
+pins, and freshness bound. The ledger codec MUST receive that authoritative
+clock context and reject an unknown, duplicated, omitted, changed, or
+misordered target. Every disposition's retained record references MUST resolve
+and the referenced record interval MUST contain or affect that target.
 
-### Requirement: Candidate A is bootstrap evidence, not the final nominal clock
-The exact 2,808-target ARB-USDC and 932-target ARB-USDT clocks SHALL be treated
-as Candidate A bootstrap qualification clocks. Candidate C SHALL be the final
-`nominal_policy_opportunity_clock` constructed by Maker from DEX changes,
-policy-relevant changes selected from a CEX policy-neutral OKX input tape, and
-freshness expiries. Candidate C's fresh subset SHALL be the final
-`admitted_policy_required_clock`. CEX targets MUST partition into fresh,
-proven-inactive, and disqualifying targets; Maker policy invocations MUST
-partition into admitted and `reference_depth_stale` invocations. Completion
-requires the Candidate C disqualifying set to be empty.
+CEX MUST NOT distinguish bootstrap, nominal, or admitted Maker clocks in its
+request or qualification logic. Candidate A/B/C names,
+`nominal_policy_opportunity_clock`, `admitted_policy_required_clock`, Maker
+scheduler/configuration fingerprints, DEX inputs, target-to-invocation
+projections, blocked dispositions, and Maker derivation descriptors remain
+outside CEX qualification authority.
 
-#### Scenario: Candidate A dispositions are complete
-- **WHEN** both sparse Candidate A clocks have complete derivation-eligible ledgers
-- **THEN** they MAY support bootstrap admitted-clock qualification and input-tape production
-- **AND** they MUST NOT support a full-timeline or final nominal-clock claim
+#### Scenario: Two Maker clock roles contain identical CEX inputs
+- **WHEN** two requests supply byte-identical required clocks and CEX policy inputs but Maker assigns them different orchestration roles
+- **THEN** CEX qualification behavior and identities MUST be identical
+- **AND** no role selector or Maker descriptor may alter the CEX outcome
 
-### Requirement: Candidate C receives a source-complete policy-neutral OKX input tape
-CEX SHALL produce a Candidate C input tape only when the bootstrap admitted
-clock passed strict qualification, provider-object enumeration is positively
-complete, `candidate_c_source_enumeration_eligible = true`, and the exported
-tape contains the complete policy-neutral OKX top-100 state/freshness-change
-stream for the fixed window. The tape SHALL contain one bound initialization
-state and one canonical state after every sequence-valid OKX event group that
-changes the top-100 book or advances the valid source time/sequence used for
-freshness. It MUST scan the complete provider window independently of the
-submitted Candidate A targets and MUST NOT filter changes using Maker policy.
+### Requirement: The package exposes a source-complete policy-neutral OKX tape operation
+CEX SHALL expose a server-independent package-library operation that produces a
+complete policy-neutral OKX top-100 state/freshness-change stream for one pair
+and bounded window when provider-object enumeration is positively complete and
+`source_event_enumeration_eligible = true`. The tape SHALL contain one bound
+initialization state and one canonical state after every sequence-valid OKX
+event group that changes the top-100 book or advances the valid source
+time/sequence used for freshness. It MUST scan the complete provider window
+independently of any submitted required-clock targets and MUST NOT filter
+changes using Maker policy.
 
-The tape SHALL use a new pinned qualification capability and construction-mode
-identity; it MUST NOT label these rows `sampled_top_n_snapshot`. It SHALL enter
-Parquet through the normal archive-forwarder, promotion, qualification,
-exact-selection, replay-qualified-view, and exporter-v2 machinery in the
-disposable `sandbox/cex-archive-local` archive. No qualification-only Parquet
-writer MAY claim normal selection, receipt, promotion, or exporter identities.
-The existing levels and depth-summary Parquet projection schemas MAY be reused
+The tape SHALL use the pinned policy-neutral qualification capability and
+construction-mode identity; it MUST NOT label these rows
+`sampled_top_n_snapshot`. It SHALL enter Parquet through the normal
+archive-forwarder, promotion, qualification, exact-selection,
+replay-qualified-view, and exporter-v2 machinery in the disposable
+`sandbox/cex-archive-local` archive. No qualification-only Parquet writer MAY
+claim normal selection, receipt, promotion, or exporter identities. The
+existing levels and depth-summary Parquet projection schemas MAY be reused
 because the tape emits canonical full book states with the same physical
-columns, but the tape manifest MUST bind construction identity, canonical
-schema, capability, adapter and acquisition policies, complete
-expected/observed object inventory, sandbox selection/receipt/export
-identities, artifact hashes, exact state count, and fixed window. This adds no
-package schema: schema manifest v3 remains exactly twelve entries, while
-dependent policy and product-pin identities MUST be regenerated before the
-release commit is frozen.
+columns. Existing qualification-record and exporter-result documents SHALL bind
+the construction identity, canonical schema, capability, adapter and
+acquisition policies, complete expected/observed object inventory, sandbox
+selection/receipt/export identities, artifact hashes, exact state count, and
+window. This adds no package schema: schema manifest v3 remains exactly twelve
+entries.
 
-Tape acquisition SHALL submit at most four complete states per reconstructor
-yield, 1,000 canonical rows and 5,242,880 JSON bytes per forwarder batch, and
-one in-flight forwarder request. Every submitted batch MUST be acknowledged
-before reading the next provider object. The tape SHALL contain exactly one
+Tape acquisition SHALL yield at most four complete states from the
+reconstructor before downstream backpressure is observed, submit at most 1,000
+canonical rows and 5,242,880 JSON bytes per forwarder batch, and allow exactly
+one forwarder request in flight. Every submitted batch MUST be acknowledged
+before the next provider object is read. The tape SHALL contain exactly one
 initialization/support state, which MAY precede the window, followed only by
 state changes with source times in `[window.start, window.end)`; it MUST emit no
 event at the exclusive end boundary.
 
-`candidate_c_input_tape_eligible` SHALL require bootstrap admitted
-qualification, `candidate_c_source_enumeration_eligible`, positive complete
-inventory, a complete state-change projection, and matching pinned schema,
-construction-mode, capability, policy, and artifact identities.
+`source_tape_eligible` SHALL require `source_event_enumeration_eligible`,
+positive complete inventory, a complete state-change projection, and matching
+pinned schema, construction-mode, capability, policy, archive, selection,
+export, and artifact identities. It MUST NOT require or interpret a Maker
+bootstrap/admitted clock or Maker derivation descriptor.
 
-#### Scenario: Candidate A export contains only sampled states
-- **WHEN** the ordinary clock-bound backfill exports only the 2,808 or 932 Candidate A snapshots
-- **THEN** that export MUST be ineligible as a Candidate C input tape
-- **AND** Maker MUST NOT infer omitted OKX change timestamps from it
+#### Scenario: A clock-bound export contains only sampled states
+- **WHEN** an ordinary clock-bound backfill exports only states selected at its required targets
+- **THEN** that export MUST be ineligible as a source-complete tape
+- **AND** a caller MUST NOT infer omitted OKX change timestamps from it
 
 #### Scenario: Expected and observed source inventories differ
 - **WHEN** any expected provider object or selected interval is missing, duplicated, mutable, or not bound to its observed checksum
-- **THEN** `candidate_c_input_tape_eligible` MUST be false even if no submitted clock target was affected
-- **AND** no Candidate C materialization may use that tape
+- **THEN** `source_tape_eligible` MUST be false even if no submitted clock target was affected
+- **AND** no success tape artifact may be committed
 
-#### Scenario: Tape production fails after retaining partial evidence
-- **WHEN** provider acquisition, reconstruction, forwarder admission, promotion, selection, or export fails for either pair
-- **THEN** the affected pair MUST commit no tape Parquet or success manifest
-- **AND** the two-pair harness MUST commit a durable failure verdict naming the pair, a stable reason, the hashes of retained partial evidence, and any earlier passing pair manifest and artifact hashes
-- **AND** pair-prefixed Parquet names MUST prevent one pair from overwriting the other
-- **AND** success and failure finalization MUST remove the stale opposite top-level verdict
+#### Scenario: Tape archive semantics are verified
+- **WHEN** the source tape is routed through the disposable archive and exported
+- **THEN** streaming expected-versus-observed semantic digests MUST bind every canonical state and boundary
+- **AND** seam and coverage verdicts MUST be calculated from actual tape rows and source inventory rather than counts, empty boundary digests, or asserted booleans
 
-### Requirement: Maker derivation is versioned and capacity-preflighted
-CEX's repository-only qualification harness SHALL validate the Maker-owned
-`reference-depth-clock-derivation-descriptor/v1` against a pinned schema ID and
-canonical hash without adding it to the normal request or twelve-entry package
-manifest. The descriptor SHALL bind its bootstrap/final stage, materializer
-identity/version, Maker policy/configuration fingerprint, sole scheduler
-identity, DEX input hashes, eligible bootstrap tape and CEX evidence identities,
-original and admitted clocks/projections, exact target mapping, blocked
-dispositions hash, exact CEX-target and Maker-invocation counts, current policy
-pins, depth 100, `fill_gaps`, 5,000 ms, and the freshness-expiry rule.
+#### Scenario: Tape production fails after a valid attempt directory exists
+- **WHEN** provider acquisition, reconstruction, forwarder admission, promotion, selection, or export throws or returns an invalid outcome for one pair
+- **THEN** that pair MUST commit a durable closed failure result naming the stable reason and retained partial-evidence hashes
+- **AND** it MUST commit no tape Parquet or success manifest, while pair-prefixed paths prevent collision with independent attempts
 
-Maker SHALL materialize Candidate C without truncation. If its exact CEX target
-count exceeds the current 100,000-target resource ceiling, CEX MUST fail closed
-before request construction and require a coordinated representation,
-partitioning, or resource-policy specification decision. Economically distinct
-Maker invocations MUST NOT be deduplicated to fit the ceiling.
+### Requirement: Maker derivation and capacity semantics remain outside CEX
+CEX SHALL treat Maker derivation and capacity semantics as external caller
+concerns. Maker MAY use the source-complete tape and CEX target dispositions to
+construct its own policy clocks, invocation projections, blocked outcomes, and
+versioned derivation descriptor. CEX MUST NOT ship or validate the Maker
+descriptor schema as qualification authority and MUST NOT validate scheduler
+ordering, DEX input, Maker policy/configuration, target-to-invocation, or
+blocked-outcome semantics.
 
-#### Scenario: Freshness reaches exactly 5,000 ms
-- **WHEN** a controller evaluation observes `target_time - prior_source_time = 5000`
-- **THEN** it remains fresh and no expiry target is created at that instant
-- **AND** expiry is the first actual `native_chronological_scheduler_v2` controller opportunity for which age is strictly greater than 5,000 ms, with a same-timestamp qualifying source update processed first
+Maker SHALL preflight its untruncated target count before request construction.
+CEX SHALL independently reject any received required clock above the current
+100,000-target resource ceiling. CEX MUST NOT merge or deduplicate targets to
+fit, but it has no authority over the number of Maker policy invocations mapped
+to one CEX target.
+
+#### Scenario: A Maker descriptor is invalid
+- **WHEN** a Maker-owned derivation descriptor has an invalid scheduler,
+  DEX-input, mapping, or blocked-outcome binding
+- **THEN** Maker MUST reject it before consumer proof
+- **AND** CEX MUST NOT acquire that semantic validation responsibility

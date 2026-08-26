@@ -24,6 +24,16 @@ real loader, its four final files, and atomic two-pair publication. CEX owns the
 provider source, reconstruction, qualification, exact selection, promotion,
 export, release, and CEX-side evidence.
 
+At implementation checkpoint
+`3481f4e386c349af748684b87f9b2a50695141fe`, all deterministic tests passed, but
+the repository-only qualification tooling also owned Candidate A/C labels,
+Maker derivation-descriptor validation, Candidate C capacity decisions, and a
+two-pair thesis verdict. That is the wrong ownership boundary even though the
+underlying CEX data-plane work is reusable. This amendment keeps provider,
+reconstruction, source-forensics, archive, and export authority in CEX while
+moving the multi-stage preparation state machine and all policy semantics to
+Maker before any successor version is reserved.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -35,8 +45,14 @@ export, release, and CEX-side evidence.
 - Generate complete, bounded source-forensics evidence without creating a
   second reconstruction algorithm or acceptance path.
 - Produce a source-complete, policy-neutral OKX top-100 state-change tape so
-  Maker can materialize Candidate C without inferring changes from Candidate A
-  samples.
+  a caller can enumerate policy-relevant clocks without inferring changes from
+  sparse required-clock samples.
+- Export the source-tape runner as a CEX-owned package-library operation that a
+  Maker-owned local shim or sidecar can invoke without checking out this
+  repository or importing broker/server code.
+- Keep CEX qualification role-neutral: it proves an exact caller-supplied clock
+  against authoritative source evidence but does not interpret why the caller
+  constructed that clock.
 - Preserve the small atomic backfill result and Maker-consumed summary
   diagnostics while providing detailed qualification evidence separately.
 - Give each exported Parquet projection an immutable physical schema identity
@@ -54,6 +70,9 @@ export, release, and CEX-side evidence.
   construction identity rather than changing sampled-snapshot meaning or
   becoming a normal Maker backfill request mode.
 - Adding a CEX multi-pair request or aggregate result.
+- Owning Candidate A/B/C terminology, Maker scheduler/configuration semantics,
+  DEX inputs, target-to-policy-invocation mappings, admitted-clock derivation,
+  `reference_depth_stale`, or a Maker derivation descriptor.
 - Running Maker strategy, policy, backtest, loader, thesis, or final artifact
   publication inside CEX Broker.
 - Treating MEXC execution products, Binance depth, quote conversion, or a
@@ -222,15 +241,18 @@ not renamed. The backfill product remains
 `cex-canonical-orderbook-export/v2`.
 
 Release identity is frozen before any identity-bound live evidence. CEX first
-queries npm and reserves an unused successor, commits that version with every
+closes the pre-freeze conformance blockers and publishes its role-neutral
+package-library boundary for deterministic Maker integration. It then queries
+npm and reserves an unused successor, commits that version with every
 implementation and generated identity, merges PR #155, and freezes the exact
-clean merge commit. Deterministic and live Candidate A/C gates then run from a
-clean checkout of that commit. The tag and registry package MUST name that same
-commit; registry URL, npm integrity, tarball SHA-256, npm `gitHead`, and
-executable hashes are derived from independently downloaded registry bytes and
-verified in a fresh extraction. A merge, rebase, squash, version change, or
-other byte/`gitHead` change invalidates pre-freeze identity-bound evidence and
-requires the affected gates to rerun.
+clean merge commit. Deterministic and live pair-local CEX gates then run from a
+clean checkout of that commit while Maker owns the cross-stage sequence. The
+tag and registry package MUST name that same commit; registry URL, npm
+integrity, tarball SHA-256, npm `gitHead`, and executable hashes are derived
+from independently downloaded registry bytes and verified in a fresh
+extraction. A merge, rebase, squash, version change, or other byte/`gitHead`
+change invalidates pre-freeze identity-bound evidence and requires the affected
+gates to rerun.
 
 Alternative considered: mutate exporter result v1 or product pin v1 in place.
 Rejected because Maker pins their existing JCS identities and must fail closed
@@ -271,33 +293,41 @@ the exact command, Bun/Node versions, environment assumptions, and failing
 assertions. The repository-declared unit command is also required even if the
 external command differs.
 
-### 11. Candidate A is bootstrap evidence and dispositions are three-way
+### 11. Required-clock dispositions are role-neutral CEX source evidence
 
-The existing 2,808-target ARB-USDC and 932-target ARB-USDT clocks are Candidate
-A bootstrap clocks, not the final nominal timeline. Forensics ledger v1 gains
-a separate ordered `target_dispositions` array that reconciles every original
-target as fresh within 5,000 ms, positively proven inactive, or disqualifying.
-Maker expands those target dispositions across every mapped policy invocation
-and remains the sole owner of admitted clocks and `reference_depth_stale`
-runtime outcomes.
+Forensics ledger v1 has a separate ordered `target_dispositions` array that
+reconciles every target in the exact supplied required clock as fresh within
+the caller's bound, positively proven inactive, or disqualifying. The codec is
+contextual: it receives the authoritative required-clock document and rejects
+unknown, duplicate, omitted, or altered target identities, as well as retained
+record references whose intervals do not contain or affect the referenced
+target.
 
-`qualified`, `derivation_eligible`, and
-`candidate_c_source_enumeration_eligible` are distinct predicates. Strict
-qualification requires accepted reconstruction and all-fresh submitted
-targets. Derivation eligibility permits proven inactivity but no disqualifying
-target. Enumeration eligibility additionally rejects any window-wide
-unresolved source evidence that could hide or alter an OKX event, including a
-sequence gap that affected zero Candidate A targets.
+CEX calls the supplied artifact only a required clock. Names such as Candidate
+A, Candidate B, Candidate C, `nominal_policy_opportunity_clock`, and
+`admitted_policy_required_clock` are Maker-owned roles and MUST NOT appear as
+CEX behavioral selectors or qualification verdicts. CEX exposes strict
+`qualified`, exact `source_partition_complete`, and window-wide
+`source_event_enumeration_eligible` facts. Strict qualification requires
+accepted reconstruction and all-fresh submitted targets. Source partition
+completeness permits positively proven inactivity but no disqualifying target.
+Source-event enumeration eligibility additionally rejects any unresolved
+window-wide evidence that could hide, omit, reorder, or alter a policy-neutral
+OKX event, including a sequence gap that affects no submitted target.
 
-### 12. Candidate C uses a source-complete sandbox-qualified tape
+Maker decides whether a complete three-way source partition can be used to
+derive an admitted clock, expands target dispositions across policy
+invocations, and owns every `reference_depth_stale` outcome.
 
-An ordinary Candidate A backfill emits only clock-sampled snapshots and cannot
-enumerate Candidate C. The qualification harness therefore asks the same OKX
-reconstructor to continue through the full source window and stream one bound
-initialization state plus a canonical top-100 state after every sequence-valid
-event group that changes the top-100 book or advances the source
-time/sequence used for freshness. This projection is policy-neutral:
-CEX validates source continuity and emits states; Maker decides which changes
+### 12. CEX exposes a generic source-complete sandbox-qualified tape
+
+A clock-sampled backfill cannot enumerate policy opportunities that occur
+between supplied targets. The CEX source-tape operation therefore asks the same
+OKX reconstructor to continue through the full bounded source window and stream
+one bound initialization state plus a canonical top-100 state after every
+sequence-valid event group that changes the top-100 book or advances the source
+time/sequence used for freshness. This projection is policy-neutral: CEX
+validates source continuity and emits states; the caller decides which changes
 are policy-relevant.
 
 The tape uses the normal candidate/archive-forwarder, promotion, qualification,
@@ -326,53 +356,76 @@ uncommitted partial Parquet, and commits no success manifest.
 
 The physical levels and depth-summary Parquet projections remain those already
 in schema manifest v3, so the package remains at exactly twelve schemas. The
-tape does not reuse `sampled_top_n_snapshot` semantics. A new qualification
+tape does not reuse `sampled_top_n_snapshot` semantics. The qualification
 capability and construction identity bind full-window scanning, positive
 expected/observed object inventory, top-100 state projection,
 adapter/acquisition versions, sandbox selection/receipt/export identities, and
 artifact hashes. Those identity changes regenerate policy and product-pin
 hashes before the release commit is frozen.
 
-Alternative considered: derive Candidate C from Candidate A snapshots.
-Rejected because omitted change timestamps are unrecoverable and later
-qualification cannot detect targets that were never enumerated.
+The operation is exported from the server-independent package-library subpath.
+It returns existing CEX qualification-record and exporter-result documents; a
+Maker-owned shim composes their hashes with Maker inputs. It is not a third
+standalone executable and does not add a thirteenth package schema.
 
-### 13. Maker returns one versioned derivation descriptor
+Alternative considered: derive a policy clock from sparse required-clock
+snapshots. Rejected because omitted change timestamps are unrecoverable and
+later qualification cannot detect targets that were never enumerated.
 
-Maker owns `reference-depth-clock-derivation-descriptor/v1`; CEX retains a
-qualification-only schema copy and canonical hash outside the normal request
-and twelve-entry npm manifest. It binds materializer and configuration
-identities, the sole scheduler, DEX inputs, the eligible OKX tape, CEX evidence,
-original/admitted clock identities, mappings, per-target invocation expansion,
-blocked dispositions, and the exact freshness-expiry rule. Exactly 5,000 ms is
-fresh; expiry is the first actual controller opportunity whose age is strictly
-greater, under `native_chronological_scheduler_v2` same-timestamp ordering.
+### 13. Maker owns derivation, capacity, and the orchestration descriptor
 
-Candidate C is materialized untruncated. A preflight records both CEX-target and
-Maker-invocation counts. More than 100,000 CEX targets stops before request
-construction and requires an explicit representation, partitioning, or resource
-policy decision; economically distinct invocations are never deduplicated to
-fit the ceiling.
+Maker owns `reference-depth-clock-derivation-descriptor/v1`, its canonical
+schema, materializer and configuration identities, scheduler identity, DEX
+inputs, source-tape bindings, original/admitted clock identities, mappings,
+per-target invocation expansion, blocked dispositions, and the freshness-expiry
+rule. CEX MUST NOT carry a copy of that schema as qualification authority and
+MUST NOT validate Maker scheduler, policy, DEX, mapping, or blocked-outcome
+semantics.
 
-### 14. The two-pair gate always commits a durable verdict
+Maker materializes its final policy clock without truncation and records both
+CEX-target and Maker-invocation counts. It stops before constructing a CEX
+request if the target count exceeds the published CEX resource ceiling; CEX
+independently enforces that ceiling on every received request. Economically
+distinct Maker invocations are never deduplicated to fit. CEX validates only
+its own input schemas and exact request/clock/evidence identities.
 
-The repository-only orchestrator runs ARB-USDC and ARB-USDT as one bounded
-qualification gate while retaining pair-scoped artifacts. On success it writes
-one top-level success manifest binding both pair manifests and their hashes. On
-any failure it writes a top-level failure verdict that names the failed pair,
-uses a closed stable reason, and binds every retained partial-evidence hash.
-Absence of a success manifest is never the only failure signal. Failure commits
-no tape Parquet or success manifest for the affected pair. Pair-prefixed
-Parquet names prevent the second pair from overwriting the first, and a later
-failure verdict retains the earlier passing pair's manifest and artifact
-hashes. Success removes any stale failure verdict; failure removes any stale
-top-level success manifest.
+### 14. CEX durability is pair-local; Maker owns the aggregate verdict
+
+Every CEX pair attempt with a valid caller-owned attempt directory commits
+exactly one durable success or failure result. Invalid output directories remain
+a precondition failure because no safe result location exists. After a valid
+attempt directory is established, thrown or invalid pair outcomes are converted
+to a closed stable failure result; absence of a success document is never the
+only failure signal. A failed attempt commits no successful Parquet descriptor
+or success manifest for that pair.
+
+The CEX library and file jobs do not run ARB-USDC and ARB-USDT as one thesis
+transaction. Pair-prefixed file names remain required so independent attempts
+cannot overwrite one another, but Maker owns ordering, retry, partial-evidence
+retention across pairs, and the atomic two-pair success/failure verdict.
 
 The request target remains exactly `sandbox/cex-archive-local`, and the harness
 uses the request's exact authorization ID and the disposable local cluster.
 The forwarder's stable scope value `production` is an existing
 mutation-authorization class, not an assertion that the target environment is
 production. The guard is not renamed, bypassed, or weakened.
+
+### 15. Process placement does not transfer source or archive authority
+
+Maker provides the one operator-facing preparation command and may run the
+pinned CEX package-library operation in a local Node process, Docker sidecar, or
+equivalent closed sandbox beside the emulator. This removes manual repository
+handoffs without moving CryptoHFTData adapter semantics or ClickHouse market
+data mutation into Maker. The CEX operation still obtains provider-read and
+forwarder-write authority according to its allowlist, and only the CEX
+archive-forwarder writes the `market_data` archive. Maker receives immutable
+evidence and exported products, never direct market-data write authority.
+
+CEX implementation MUST NOT import Maker code. Maker may import the published
+server-independent CEX package subpath and supervise it. A formatter-only CEX
+boundary is explicitly insufficient because schema-conforming rows alone do
+not prove provider immutability, sequence continuity, complete enumeration, or
+qualification.
 
 ## Risks / Trade-offs
 
@@ -403,6 +456,14 @@ production. The guard is not renamed, bypassed, or weakened.
 - [Maker and CEX schema pins drift during the breaking exporter update] → Land
   generated CEX fixtures first, then update Maker from the published registry
   artifact and require cross-language conformance before acceptance.
+- [A repository-local CEX coordinator quietly reacquires Maker policy ownership]
+  → Keep CEX operations pair-local and role-neutral; assert that Candidate
+  names, DEX/scheduler inputs, invocation projections, and aggregate verdicts
+  are absent from the published CEX behavioral surface.
+- [Moving the coordinator to Maker turns CEX into a formatter-only trust proxy]
+  → Retain provider acquisition, venue reconstruction, source forensics,
+  enumeration, archive admission, promotion, and export inside the CEX-owned
+  package implementation invoked by Maker.
 
 ## Migration Plan
 
@@ -424,15 +485,23 @@ production. The guard is not renamed, bypassed, or weakened.
 6. Run unit, build, type, lint, package, conformance, ClickHouse, image-smoke,
    and secret-reflection checks and retain GREEN evidence for the reproduced
    external unit command.
-7. Query npm for an unused successor, commit the version with all implementation
+7. Correct the pre-freeze streaming, required-clock membership/causality,
+   pair-local durability, input-binding, and tape/archive semantic verification
+   defects. Export the role-neutral source-tape package-library operation and
+   remove Candidate, Maker-descriptor, capacity, and pair-aggregation semantics
+   from CEX.
+8. Have Maker prove deterministic invocation of the package-library operation
+   and ownership of the cross-stage/pair state machine without using live
+   credentials.
+9. Query npm for an unused successor, commit the version with all implementation
    and generated identities, merge PR #155, and freeze the exact clean merge
    commit.
-8. From a clean checkout of that commit, run deterministic checks followed by
-   the Candidate A bootstrap, source-enumeration, sandbox tape, Candidate C,
-   final admitted-clock, promotion, selection, and export gates for both pairs.
-9. Tag and publish that exact commit, independently download and audit the
+10. From a clean checkout, let Maker invoke pair-local CEX source-tape
+    preparation, derive its policy clocks, and submit each exact required clock
+    for CEX disposition, promotion, selection, and export.
+11. Tag and publish that exact commit, independently download and audit the
    registry bytes, and derive the final product pin from the registry artifact.
-10. Have Maker adopt the registry product pin, repeat final consumer and
+12. Have Maker adopt the registry product pin, repeat final consumer and
     full-timeline proof, and land immutable evidence through a follow-up
     evidence PR. No production deployment is part of this migration.
 
@@ -444,9 +513,6 @@ rollback.
 
 ## Open Questions
 
-- What exact command and environment produced the user-reported failing unit
-  suite? The implementation task cannot close until that runner is captured and
-  reproduced or its environmental difference is proven.
 - Can corrected immutable CryptoHFTData objects satisfy the full common window,
   or will the ledger require a vendor escalation? No alternate provider is
   authorized by this change.

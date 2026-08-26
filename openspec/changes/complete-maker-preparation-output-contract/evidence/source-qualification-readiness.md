@@ -1,5 +1,12 @@
 # Source Qualification Readiness — 2026-08-26
 
+> **Historical checkpoint:** The deterministic facts in this document remain
+> evidence for commit `3481f4e386c349af748684b87f9b2a50695141fe`, but its
+> operator sequence is superseded by
+> `ownership-boundary-reassessment.md`. Do not reserve a successor version or
+> freeze release identity until the reopened role-neutral boundary and
+> pre-freeze conformance tasks are complete.
+
 ## Current gate
 
 The CEX-owned deterministic implementation and disposable sandbox tooling are

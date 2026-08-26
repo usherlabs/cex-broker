@@ -11,7 +11,9 @@ runner. Acceptance SHALL also require one complete pair-scoped `fill_gaps`,
 depth-100 output chain for each of OKX Spot ARB-USDT and ARB-USDC: successful
 backfill outcome, complete exact selection, current promotion receipt for every
 selected vendor bundle, successful exact export, and independent Maker
-descriptor and real-loader consumption.
+orchestration evidence and real-loader consumption. CEX acceptance remains
+pair-local; Maker owns the aggregate two-pair verdict and the semantic validity
+of its derivation descriptor.
 
 #### Scenario: Pull-request checks pass but source outputs are incomplete
 - **WHEN** repository checks are green but either pair lacks complete current qualification, exact selection, exact export, or Maker consumer proof
@@ -33,6 +35,12 @@ Each command MUST run after the npm tarball is extracted into an otherwise
 empty directory without a sibling checkout, external `node_modules`, Python,
 DuckDB, Bun, `PATH` product discovery, the gRPC server, `ExecuteAction`, or an
 always-on broker process.
+
+The same npm package SHALL expose the role-neutral source-tape preparation
+operation through its server-independent library subpath. That operation is not
+a third bin and MUST return existing CEX qualification-record and
+exporter-result evidence without importing Maker code or interpreting Maker
+clock roles.
 
 #### Scenario: Extracted product is invoked
 - **WHEN** either command is launched by its exact relative path from an extracted package
@@ -161,8 +169,9 @@ versions SHALL remain `market-data-vendor-backfill/v1` and
 CEX SHALL query npm and reserve an unused successor version before live
 qualification. It SHALL commit that version with all implementation and
 generated identities, merge PR #155, freeze the exact clean merge commit, and
-run deterministic and live Candidate A/C gates from a clean checkout of that
-commit. The tag and published registry package MUST identify the same commit.
+run deterministic and live pair-local CEX gates from a clean checkout of that
+commit under the Maker-owned cross-stage workflow. The tag and published
+registry package MUST identify the same commit.
 Any merge, rebase, squash, version change, generated-identity change, or other
 package-byte change after a gate invalidates its identity-bound evidence.
 

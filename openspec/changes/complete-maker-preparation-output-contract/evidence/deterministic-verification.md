@@ -5,6 +5,12 @@ Recorded on `2026-08-26` from branch
 `8206ad4d73f5f2cfd32012d648b29db6b7ee3134` plus the uncommitted
 OpenSpec implementation. This is pre-freeze engineering evidence only.
 
+> **Historical checkpoint:** The commands and results below remain evidence of
+> the recorded implementation state. Their Candidate-named architecture and
+> release next steps are superseded by
+> `ownership-boundary-reassessment.md`; no version may be reserved until the
+> reopened role-neutral boundary and pre-freeze conformance tasks are complete.
+
 ## Repository and contract gates
 
 - Bun `1.3.12`; Node `v22.22.2`.
