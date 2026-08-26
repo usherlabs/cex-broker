@@ -55,9 +55,11 @@ emulator. Process placement does not transfer source or archive authority.
 | Four-state bound | Remains a CEX blocker. Yielding must be bounded inside the reconstructor before provider-object accumulation. |
 | Clock partition proof | Remains a CEX blocker. Validation must use the authoritative required clock and prove exact target membership plus record-interval causality. |
 | Maker descriptor binding | Removed from CEX authority. Maker validates its scheduler, DEX, policy, mapping, and blocked-outcome descriptor semantics. |
-| Durable verdict | Split by boundary. CEX guarantees one durable result for every pair attempt after a safe attempt directory exists; Maker guarantees the aggregate two-pair verdict. |
+| Durable verdict | Split by boundary. The operation-specific qualification-record-v1 branch is CEX's terminal source-tape result for every pair attempt after a safe attempt directory exists; Maker guarantees the aggregate two-pair verdict. |
 | Candidate A binding | Generalized. CEX binds the exact request and required clock without interpreting a Candidate role. |
 | Tape semantic verification | Remains a CEX blocker. Actual semantic digests, source inventory, seams, and coverage must replace counts, empty boundary digests, or asserted booleans. |
+| Tape invocation/evidence circularity | Remains a CEX blocker. The closed source-tape package API and its ledger/qualification-record branch bind pair/window source evidence without accepting or inventing a required clock. |
+| Tape release identity | Remains a CEX blocker. Product pin v2 must bind the role-neutral source-tape capability plus runtime/declaration hashes separately from the exactly two executable identities. |
 
 Candidate bootstrap and admitted-clock qualification may remain separate steps
 in Maker's state machine. CEX sees only independent, content-addressed

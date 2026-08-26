@@ -1,8 +1,10 @@
 # Source Qualification Readiness — 2026-08-26
 
-> **Historical checkpoint:** The deterministic facts in this document remain
-> evidence for commit `3481f4e386c349af748684b87f9b2a50695141fe`, but its
-> operator sequence is superseded by
+> **Historical checkpoint:** The verified repository command outcomes in this
+> document remain evidence for commit
+> `3481f4e386c349af748684b87f9b2a50695141fe`, but later probes invalidated its
+> reconstructor-bound and universal-verdict readiness claims. Its operator
+> sequence is superseded by
 > `ownership-boundary-reassessment.md`. Do not reserve a successor version or
 > freeze release identity until the reopened role-neutral boundary and
 > pre-freeze conformance tasks are complete.
@@ -10,8 +12,10 @@
 ## Current gate
 
 The CEX-owned deterministic implementation and disposable sandbox tooling are
-ready. Live Candidate A/C qualification, release, registry audit, and Maker
-consumer proof remain intentionally pending. No successful live source
+partially implemented but are not pre-freeze ready. The reopened role-neutral
+library, contextual evidence, bounded reconstruction, semantic archive, and
+pair-local terminal-result tasks remain pending, as do live qualification,
+release, registry audit, and Maker consumer proof. No successful live source
 qualification, production promotion, publication, or Maker acceptance is
 claimed here.
 
@@ -23,10 +27,11 @@ The fixed 24-complete-UTC-day half-open window remains
 | ARB-USDC | 2,808 | `b112ca68-fe37-56b5-b510-e2c10fbdeaf7` | `de6f9c589a08358978d442601b28bec9af6a3c2c84427007762d499a7a1b4d48` |
 | ARB-USDT | 932 | `73a3eed5-fbc5-533f-ac39-db07640b245a` | `646e252907ebc1d3d2cd6dab2984982503588955b748a0b14fa1ea788a23a538` |
 
-These are Candidate A bootstrap clocks, not the final
-`nominal_policy_opportunity_clock`. Maker must construct Candidate C only after
-the admitted Candidate A clocks qualify and CEX positively proves the complete
-policy-neutral OKX input tape.
+Maker documentation classifies these as Candidate A bootstrap clocks rather
+than its final `nominal_policy_opportunity_clock`. That classification and any
+ordering between Maker clocks remain Maker-owned. The CEX source-tape operation
+does not accept these clocks; if Maker later submits either through the generic
+required-clock interface, CEX treats it role-neutrally.
 
 ## Exact Maker inputs
 
@@ -56,13 +61,13 @@ a fresh verdict:
 - future-state targets: zero;
 - the strict prior-as-of ceiling remains 5,000 ms.
 
-Fresh CEX ledgers must classify every nominal target as fresh, positively
+Fresh clock-qualification ledgers must classify every submitted target as fresh, positively
 inactive, or disqualifying. Proven inactivity is retained in the fixed-window
 Maker timeline as `reference_depth_stale`; it does not authorize a shifted
 window, stale CEX depth, or vendor escalation. Any disqualifying or
 contradictory evidence remains failed.
 
-## Prepared CEX tooling
+## Historical CEX tooling checkpoint
 
 The repository now contains separate, repository-only boundaries for:
 
@@ -72,7 +77,9 @@ The repository now contains separate, repository-only boundaries for:
 4. bounded archive-forwarder submission with one in-flight batch;
 5. the normal sandbox-local promotion, current receipt, qualification,
    replay-qualified exact selection, and exporter-v2 path;
-6. pair-prefixed durable Parquet outputs and an atomic two-pair verdict; and
+6. pair-prefixed paths plus a repository-only two-pair harness whose thrown
+   failure path was not durable and whose aggregate ownership is superseded by
+   Maker-owned orchestration; and
 7. release-freeze validation across package version, merge commit, tag, and
    registry `gitHead`.
 
@@ -83,22 +90,32 @@ and validates reported server version `24.8.14.39`. The forwarder's stable
 `production` scope remains the existing mutation-authorization class; it is
 not a production-environment claim and is not weakened.
 
-## Gates that remain external or live
+## Gates that remain
 
+- Complete reopened OpenSpec sections 9 and 10, including the closed
+  `market-data-source-tape/v1` package API, operation-specific ledger/
+  qualification-record union, role-neutral capability/product pins, true
+  reconstructor yielding, semantic archive proof, and pair-local terminal
+  commits.
+- Have Maker prove deterministic import and invocation of the product-pinned
+  source-tape library and its ownership of cross-stage/cross-pair orchestration
+  without live credentials.
 - Query npm and reserve an unused successor version.
 - Commit all implementation and generated identities, merge PR #155, and
   freeze the exact clean merge commit before identity-bound evidence.
 - Retrieve the licensed provider credential through the approved Vault path
   without printing or persisting it.
-- Transfer the exact Maker Candidate A input bundle and run both bootstrap
-  dispositions from the frozen commit.
+- Have Maker invoke pair-local CEX source-tape preparation over the fixed window
+  from the frozen commit without supplying a required clock or Candidate role.
 - Remediate CEX adapter defects or escalate only classifications that actually
   prove provider corruption, row loss, or mutable bytes.
-- Obtain Maker's admitted bootstrap clocks and versioned descriptors, qualify
-  them, and pass positive Candidate C source-enumeration and input-tape gates.
-- Have Maker materialize untruncated Candidate C and capacity-preflight it;
-  more than 100,000 CEX targets requires a specification decision.
-- Run final Candidate C disposition and admitted-clock qualification.
+- Have Maker materialize and capacity-preflight its untruncated policy clocks
+  from the eligible tape, then submit each through the role-neutral CEX
+  required-clock interface; more than 100,000 CEX targets requires a
+  specification decision before request construction.
+- Run exhaustive role-neutral dispositions and strict admitted-clock
+  qualification while Maker alone validates its derivation descriptors,
+  invocation mappings, blocked outcomes, and aggregate verdict.
 - Tag and publish the exact frozen commit, audit an independent registry
   download, then have Maker adopt that registry product and final product pin.
 - Land immutable evidence through a follow-up evidence PR.
@@ -115,8 +132,10 @@ licensed conformance probe correctly fails closed unless explicitly enabled.
 - build and Node package import/construction: passed;
 - changed-file Biome and `git diff --check`: passed;
 - strict OpenSpec validation: passed;
-- package extraction audit: passed for local candidate `0.2.50` with diagnostic
-  tarball SHA-256
+- historical package extraction audit: passed for local candidate `0.2.50` with
+  two bins and twelve schemas, but it did not verify the final role-neutral
+  source-tape library entry, declaration, capability, or terminal-record union;
+  task 9.10 must rerun it. The diagnostic tarball SHA-256 was
   `25390a8b5fe355bc4f53068d5e11828e57b87907a6d3d03efa994797a6b0de40`;
 - pinned disposable ClickHouse bootstrap, archive schema/identity,
   authorization preflight, and cleanup: passed.

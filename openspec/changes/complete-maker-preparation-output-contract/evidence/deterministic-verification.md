@@ -5,11 +5,14 @@ Recorded on `2026-08-26` from branch
 `8206ad4d73f5f2cfd32012d648b29db6b7ee3134` plus the uncommitted
 OpenSpec implementation. This is pre-freeze engineering evidence only.
 
-> **Historical checkpoint:** The commands and results below remain evidence of
-> the recorded implementation state. Their Candidate-named architecture and
-> release next steps are superseded by
-> `ownership-boundary-reassessment.md`; no version may be reserved until the
-> reopened role-neutral boundary and pre-freeze conformance tasks are complete.
+> **Historical checkpoint with invalidated assertions:** The command outcomes
+> below remain evidence of the recorded implementation state, but later direct
+> probes disproved the claimed reconstructor-level four-state bound and universal
+> durable two-pair failure verdict. Those statements are corrected below rather
+> than retained as passing evidence. Candidate-named architecture and release
+> next steps are superseded by `ownership-boundary-reassessment.md`; no version
+> may be reserved until the reopened role-neutral boundary and pre-freeze
+> conformance tasks are complete.
 
 ## Repository and contract gates
 
@@ -25,14 +28,16 @@ OpenSpec implementation. This is pre-freeze engineering evidence only.
   --no-interactive`: passed.
 - `git diff --check`: passed.
 
-## Candidate C and sandbox gates
+## Historical Candidate C and sandbox observations
 
 - Full-window OKX object enumeration is independent of sparse Candidate A
   targets.
-- Tape reconstruction streams at most four states per yield, submits at most
-  1,000 rows and 5,242,880 JSON bytes per forwarder batch, permits exactly one
-  in-flight submission, and waits for acknowledgement before the next provider
-  object.
+- The downstream writer split an already accumulated provider-object state array
+  into four-state chunks. It did **not** prove reconstructor-level bounded
+  yielding: the reconstructor retained every state for one provider object until
+  `push()` completed. OpenSpec task 10.2 is therefore reopened. The separate
+  1,000-row, 5,242,880-byte, one-in-flight forwarder limits remain implemented
+  but require re-verification after the reconstructor fix.
 - Deterministic tests cover the sole initialization state, changes in
   `[start, end)`, the exclusive end boundary, cross-object sequencing, and a
   change omitted by Candidate A sampling.
@@ -40,10 +45,11 @@ OpenSpec implementation. This is pre-freeze engineering evidence only.
   qualification event, replay-qualified exact selection, and exporter-v2
   identities. The public Maker/backfill request does not acquire the
   qualification-only tape construction mode.
-- Pair artifacts are pair-prefixed. A second-pair failure cannot overwrite the
-  first pair, and its durable verdict retains the first pair manifest/artifact
-  hashes plus the failing pair's partial-evidence hashes. Stale opposite
-  top-level verdicts are removed.
+- Pair artifacts are pair-prefixed, but a thrown `runPair()` path escaped before
+  committing the top-level verdict. The prior test covered returned failures,
+  not every thrown outcome, so it did **not** establish universal durability.
+  Aggregate two-pair finalization is now Maker-owned; CEX task 10.5 must prove a
+  terminal qualification-record-v1 result independently for each pair.
 - Release-freeze tests reject dirty or mismatched package-version, merge-head,
   tag, and registry-`gitHead` inputs.
 
@@ -84,22 +90,28 @@ reserved and no registry bytes were used.
   contradictory evidence.
 - The licensed-provider conformance command was invoked without live enablement
   and failed closed with its explicit opt-in error, as designed.
-- Pair failure removes that pair's Parquet and manifest and commits a stable
-  top-level verdict; failure is not represented only by missing success.
+- Some returned pair failures removed Parquet/manifest output and committed a
+  stable verdict, but direct throws could leave failure represented only by
+  absence. This assertion is invalidated and replaced by reopened pair-local
+  qualification-record finalization task 10.5.
 
 ## Operational gates intentionally not claimed
 
 OpenSpec tasks 8.1–8.15 remain pending. Their required order is:
 
-1. reserve an unused npm successor;
-2. commit all bytes and identities, merge PR #155, and freeze the exact clean
+1. complete the reopened role-neutral package and pre-freeze conformance tasks,
+   including deterministic Maker invocation without live credentials;
+2. reserve an unused npm successor, commit all bytes and identities, merge PR
+   #155, and freeze the exact clean
    merge commit;
-3. run deterministic and live Candidate A/C gates from a clean checkout of
-   that commit;
-4. tag and publish that exact commit;
-5. independently audit registry bytes and derive the registry product pin;
-6. have Maker adopt the registry product and repeat final consumer proof; and
-7. land immutable evidence through a follow-up evidence PR.
+3. let Maker invoke pair-local CEX source-tape preparation and submit its
+   independently derived clocks through the role-neutral required-clock API;
+4. complete pair-local source, archive, and export gates plus Maker's aggregate
+   and consumer proof from that frozen commit;
+5. tag and publish that exact commit;
+6. independently audit registry bytes and derive the registry product pin;
+7. have Maker adopt the registry product and repeat final consumer proof; and
+8. land immutable evidence through a follow-up evidence PR.
 
 Any package-byte or `gitHead` change invalidates identity-bound live evidence.
 No live source qualification, tag, publication, registry audit, production
