@@ -11,6 +11,7 @@
 		"schema_manifest",
 		"schema_pins",
 		"capability_policy",
+		"candidate_c_input_tape_capability",
 		"resource_policy"
 	],
 	"properties": {
@@ -105,6 +106,7 @@
 			}
 		},
 		"capability_policy": { "$ref": "#/$defs/policyPin" },
+		"candidate_c_input_tape_capability": { "$ref": "#/$defs/policyPin" },
 		"resource_policy": { "$ref": "#/$defs/policyPin" }
 	},
 	"$defs": {

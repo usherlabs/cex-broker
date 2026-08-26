@@ -73,15 +73,42 @@
 
 ## 8. Qualify, Publish, and Close the Cross-Repository Boundary
 
-- [ ] 8.1 Freeze one common 20-to-30-complete-UTC-day candidate and independent ARB-USDT and ARB-USDC clock IDs, hashes, and exact event counts without changing the 5,000 ms bound or resource-policy ceiling.
-- [ ] 8.2 Run full-window capability-v3 qualification for each pair and retain one complete content-addressed forensic ledger and qualification record per pair.
-- [ ] 8.3 Classify every sequence, unanchored, stale, future-state, object, checksum, and boundary failure; fix only evidenced CEX defects or prepare a secret-free vendor escalation for stable upstream defects.
-- [ ] 8.4 Repeat complete-window qualification after every correction until both ledgers are complete with zero affected required targets, zero future state, and no unresolved classifications.
-- [ ] 8.5 Run ClickHouse-first `fill_gaps` at depth 100 for each pair and retain a current `promoted` or `already_covered` result, complete exact selection, required current receipts, archive-wins lineage, and coherent current identities.
-- [ ] 8.6 Run exporter v2 for each complete selection and verify exact query identity, selected segments, receipt IDs, schema-identified descriptors, and Parquet contents.
-- [ ] 8.7 Choose a fresh successor package version only after deterministic checks and both source-qualification gates pass.
-- [ ] 8.8 Publish the successor, independently download the registry tarball, and audit npm integrity, tarball SHA-256, npm `gitHead`, package contents, policies, manifest v3, all twelve schemas, and both executable hashes.
-- [ ] 8.9 Generate and check in final product pin v2 from audited registry bytes; do not use local candidate identities as release evidence.
-- [ ] 8.10 Have Maker update schema copies and product pin, validate both pair outputs, run its real loader, and bind consumer proof to CEX results, selections, receipts, query identities, and descriptors.
-- [ ] 8.11 Record final CEX acceptance evidence showing both pair-scoped output chains pass while Maker retains ownership of atomic two-pair publication, final artifacts, policy proof, and thesis execution.
-- [x] 8.12 Review the final diff for no live legacy policy/result path, no Fiet TEE dependency, no Maker domain logic in CEX, no server import from preparation products, and no weakening of file-job or source qualification safety.
+- [ ] 8.1 Query npm and reserve an unused successor version; do not derive final registry hashes from local bytes.
+- [ ] 8.2 Commit that version with every implementation and generated identity, merge PR #155, and freeze the exact clean merge commit that will be tagged and published. Any merge/rebase/squash or byte/`gitHead` change after this point invalidates identity-bound evidence.
+- [ ] 8.3 From a clean checkout of the frozen commit, rerun deterministic acceptance and the exact 2,808-target ARB-USDC and 932-target ARB-USDT Candidate A bootstrap clocks over the fixed 24-day window, producing an exhaustive three-way target disposition for each clock; do not describe Candidate A as the final nominal timeline.
+- [ ] 8.4 Classify and remediate every Candidate A disqualifying target until each nominal ledger is complete, disposition-complete, derivation-eligible, and has no contradictory evidence.
+- [ ] 8.5 Have Maker derive the Candidate A bootstrap admitted clocks and versioned derivation descriptors, preserving the original clock bytes only when no target was removed and otherwise regenerating every clock/target identity and exact mapping.
+- [ ] 8.6 Strictly qualify both bootstrap admitted clocks with `source_reconstruction_accepted`, all-fresh dispositions, and the unchanged 5,000 ms bound.
+- [ ] 8.7 Prove positive fixed-window provider-object enumeration and source-enumeration eligibility; a zero-Candidate-A-target unresolved gap remains a Candidate C enumeration blocker.
+- [ ] 8.8 In disposable `sandbox/cex-archive-local`, generate and backpressure-submit the policy-neutral source-complete OKX input tape only after both bootstrap gates pass; use normal promotion, current receipts, replay-qualified exact selection, and exporter v2, and bind the immutable ClickHouse image/server identity, complete inventory, projection schemas, artifact hashes, and exact event/state counts.
+- [ ] 8.9 Have Maker materialize Candidate C without truncation from DEX inputs, the eligible OKX tape, the sole scheduler, and the strict-greater-than freshness-expiry rule; record exact CEX-target and Maker-invocation counts and fail closed before a CEX request if Candidate C exceeds 100,000 targets.
+- [ ] 8.10 Run exhaustive Candidate C disposition for both pairs, remediate every disqualifying target, and have Maker derive the final admitted clocks plus per-invocation `reference_depth_stale` blocked outcomes.
+- [ ] 8.11 Validate the final Maker derivation descriptors and strictly qualify the final admitted clocks before pair-scoped ClickHouse-first `fill_gaps`, depth-100 promotion, exact selection, and exporter-v2 publication.
+- [ ] 8.12 Tag and publish the exact frozen commit, independently download and audit the registry tarball, and derive the product pin from its registry URL, integrity, tarball SHA-256, npm `gitHead`, regenerated policies, manifest v3, all twelve schemas, and executable hashes.
+- [ ] 8.13 Have Maker adopt the independently downloaded registry product and final product pin, validate both pair outputs, run its real loader and full-timeline replay, and bind admitted plus blocked runtime denominators to the CEX evidence chain.
+- [ ] 8.14 Land the immutable qualification/release evidence through a follow-up evidence PR; do not deploy the qualification archive or forwarder to production.
+- [ ] 8.15 Review the final diff and evidence for no live legacy policy/result path, no Fiet TEE dependency, no Maker domain logic in CEX, no server import from preparation products, no Candidate A full-timeline claim, no pre-freeze identity evidence, and no weakening of file-job, authorization, or source qualification safety.
+
+## 9. Implement Candidate C Derivation and Input-Tape Gates
+
+- [x] 9.1 Extend unpublished forensic ledger v1 with deterministic `target_dispositions`, exact fresh/inactive/disqualifying/omitted counts, `disposition_complete`, required-clock reconciliation, retained-record references, and whole-ledger record/byte limits.
+- [x] 9.2 Make failure classification record/target-scoped, reject contradictory overlapping evidence, and deduplicate bounded original-plus-adjacent re-fetches by provider-object identity before final hashes.
+- [x] 9.3 Add separate `derivation_eligible` and `candidate_c_source_enumeration_eligible` predicates; keep `qualified` strictly all-fresh and require `source_reconstruction_accepted`, while allowing a zero-affected unresolved gap to be nonblocking only for the submitted clock.
+- [x] 9.4 Bind the complete expected and observed provider-object/selected-interval inventory so source-enumeration eligibility is positively proved rather than inferred from missing defects.
+- [x] 9.5 Add the qualification-only policy-neutral OKX top-100 state/freshness-change tape on the production reconstructor: one initialization state plus every sequence-valid event group that changes top-100 state or advances valid freshness evidence, independent of submitted clock targets and without Maker policy filtering.
+- [x] 9.6 Pin a new tape construction/capability identity and regenerate dependent policy and product-pin identities; retain exactly twelve package schemas by reusing the levels and depth-summary physical projections only after validating their state-tape semantics.
+- [x] 9.7 Add a Maker-owned `reference-depth-clock-derivation-descriptor/v1` schema copy and pinned hash to the repo-only qualification harness, including stage, materializer, policy/configuration, scheduler, DEX/tape inputs, mappings, counts, clocks, ledgers, blocked dispositions, and exact freshness-expiry rule.
+- [x] 9.8 Add deterministic Candidate C capacity preflight that observes the untruncated target and Maker-invocation projection, rejects more than 100,000 CEX targets before request construction, and never deduplicates economically distinct invocations.
+- [x] 9.9 Add worst-case 100,000-target canonical-size, partition equality, target-to-invocation expansion, positive inventory, tape completeness, 5,000/5,001 ms boundary, same-timestamp ordering, non-affecting-gap, contradictory-evidence, and descriptor-tampering tests.
+- [x] 9.10 Re-run unit, type, build, generated-identity, package, strict OpenSpec, and secret-reflection validation; record the remaining credential/source/Maker-owned operational work in a handoff without marking it complete.
+
+## 10. Prepare the Frozen-Commit Sandbox Qualification Tooling
+
+- [x] 10.1 Pin the disposable ClickHouse runtime to `clickhouse/clickhouse-server:24.8.14.39@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b` and bind the resolved image identity plus reported `24.8.14.39` server version in the bundle manifest.
+- [x] 10.2 Replace whole-window tape accumulation with a bounded sink: at most four states per reconstructor yield, 1,000 rows and 5,242,880 JSON bytes per forwarder batch, exactly one in-flight submission, and acknowledgement before the next provider object is read.
+- [x] 10.3 Enforce exactly one initialization/support state, permit it before the fixed window, include only changes in `[start, end)`, and add exclusive-end and cross-object boundary tests.
+- [x] 10.4 Route tape rows through the disposable sandbox's normal archive-forwarder, promotion, qualification, exact-selection, replay-qualified-view, and exporter-v2 path; reject any success identity from a separate qualification-only Parquet writer.
+- [x] 10.5 Add an atomic two-pair top-level verdict: success binds both pair manifests; failure names the pair and stable reason, binds retained partial-evidence hashes, and commits no tape Parquet or success manifest for the failed pair.
+- [x] 10.6 Prove the harness uses the request's exact authorization ID and `sandbox/cex-archive-local` target while retaining the stable `production` mutation-authorization class without bypass or weakening.
+- [x] 10.7 Add release-freeze validation that rejects dirty/non-frozen checkouts and evidence whose package version, git head, tag, or registry `gitHead` differs; leave version reservation, merge, live gates, tag, publish, registry audit, and Maker registry adoption pending.
+- [x] 10.8 Re-run targeted RED/GREEN tests, repository unit suite, type/build, changed-file formatting, strict OpenSpec validation, package audit, ClickHouse smoke, and secret-reflection checks without licensed live qualification or publication.

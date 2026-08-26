@@ -32,6 +32,14 @@ provider credentials or archive-forwarder-write authority. Fiet TEE MUST NOT be
 a build, executable, wrapper, release, gitlink, provenance, or runtime
 dependency of either product.
 
+The Candidate C tape qualification harness SHALL use a disposable local
+ClickHouse and forwarder whose target identity is exactly
+`sandbox/cex-archive-local`. The forwarder's stable `production` scope SHALL be
+treated only as the existing mutation-authorization class; it MUST NOT be
+interpreted as the target environment and MUST NOT be weakened for sandbox
+execution. The harness SHALL send the request's exact authorization ID,
+environment, and cluster on preflight.
+
 #### Scenario: Reader locates the preparation boundary
 - **WHEN** an operator compares the file jobs with the broker, collector, archive-forwarder, Maker, and Fiet TEE
 - **THEN** the architecture MUST state that neither file job is an always-on service, broker RPC/action, collector responsibility, vendor-fetch feature of the forwarder, or Fiet TEE executable

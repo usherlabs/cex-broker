@@ -154,7 +154,10 @@ export type PromotionReceiptWire = {
 	scope: CanonicalScopeWire;
 	window: { start_at: FixedUtcTimestamp; end_at: FixedUtcTimestamp };
 	depth: number;
-	construction_mode: "sampled_top_n_snapshot" | "exact_l2_reconstruction";
+	construction_mode:
+		| "sampled_top_n_snapshot"
+		| "exact_l2_reconstruction"
+		| "policy_neutral_top_n_state_change_tape/v1";
 	canonical_schema: { schema_id: string; schema_sha256: Sha256Hex };
 	coverage_policy: CoveragePolicyWire;
 	selection_sha256: Sha256Hex;
@@ -805,7 +808,10 @@ export type PromotionReceipt = {
 	startTimeMs: number;
 	endTimeMs: number;
 	depth: number;
-	constructionMode: "sampled_top_n_snapshot" | "exact_l2_reconstruction";
+	constructionMode:
+		| "sampled_top_n_snapshot"
+		| "exact_l2_reconstruction"
+		| "policy_neutral_top_n_state_change_tape/v1";
 	canonicalSchemaVersion: string;
 	checksumAlgorithm: "sha256-canonical-json-v1";
 	vendorSemanticDigest: string;
@@ -839,6 +845,7 @@ export const promotionReceiptSchema: z.ZodType<PromotionReceipt> = z
 		constructionMode: z.enum([
 			"sampled_top_n_snapshot",
 			"exact_l2_reconstruction",
+			"policy_neutral_top_n_state_change_tape/v1",
 		]),
 		canonicalSchemaVersion: nonEmpty,
 		checksumAlgorithm: z.literal("sha256-canonical-json-v1"),

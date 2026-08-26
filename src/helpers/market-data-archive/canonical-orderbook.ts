@@ -120,6 +120,9 @@ function commonEvidenceFields(
 		depthLimit: number;
 		eventTimeMs: number;
 		receivedTimeMs: number;
+		constructionMode:
+			| OrderBookConstructionMode
+			| "policy_neutral_top_n_state_change_tape/v1";
 	},
 ): Record<string, unknown> {
 	return {
@@ -127,7 +130,7 @@ function commonEvidenceFields(
 		source_time_ms: input.eventTimeMs,
 		received_time_ms: input.receivedTimeMs,
 		snapshot_id: input.snapshotId,
-		construction_mode: "sampled_top_n_snapshot",
+		construction_mode: input.constructionMode,
 		gap_policy: "record_gap",
 		depth_limit: input.depthLimit,
 		sequence: input.sequence,
@@ -141,7 +144,9 @@ export function buildCanonicalOrderBookRows(input: {
 	rawCapture: RawCapture;
 	depthLimit: number;
 	measurementBandsBps?: readonly number[];
-	constructionMode?: OrderBookConstructionMode;
+	constructionMode?:
+		| OrderBookConstructionMode
+		| "policy_neutral_top_n_state_change_tape/v1";
 }): CanonicalOrderBookRows {
 	if (
 		!Number.isSafeInteger(input.depthLimit) ||
@@ -210,6 +215,7 @@ export function buildCanonicalOrderBookRows(input: {
 		depthLimit: input.depthLimit,
 		eventTimeMs,
 		receivedTimeMs,
+		constructionMode: input.constructionMode ?? "sampled_top_n_snapshot",
 	});
 
 	const levels: BrokerArchiveRow[] = (

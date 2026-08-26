@@ -3,6 +3,7 @@ import { zstdCompressSync } from "node:zlib";
 import { parquetWriteBuffer } from "hyparquet-writer";
 import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 import {
+	CANDIDATE_C_TAPE_MAX_STATES_PER_YIELD,
 	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
@@ -11,6 +12,7 @@ import {
 	cryptoHftDataCapabilityFor,
 	decodeCryptoHftParquetZstd,
 	enumerateCryptoHftDataObjects,
+	enumerateCryptoHftDataWindowObjects,
 	providerAcquisitionRequest,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
 import { validBackfillRequest } from "./market-data-vendor-backfill-contract.test";
@@ -261,6 +263,25 @@ describe("CryptoHFTData capability and acquisition", () => {
 		]);
 	});
 
+	test("enumerates a complete tape window independently of sparse fill-gaps targets", () => {
+		const start = Date.UTC(2026, 7, 18, 9);
+		const request = validBackfillRequest({
+			sourcePolicy: "fill_gaps",
+			window: { startTimeMs: start, endTimeMs: start + 4 * 3_600_000 },
+			requiredClockTargetsMs: [start + 3 * 3_600_000 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		expect(
+			enumerateCryptoHftDataObjects(request, "okx_spot", "ARB-USDT"),
+		).toHaveLength(1);
+		expect(
+			enumerateCryptoHftDataWindowObjects(request, "okx_spot", "ARB-USDT"),
+		).toHaveLength(4);
+	});
+
 	test("uses X-API-Key only for JWT issuance and bearer headers for downloads", async () => {
 		const request = validBackfillRequest({
 			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
@@ -313,7 +334,7 @@ describe("CryptoHFTData capability and acquisition", () => {
 		);
 	});
 
-	test("streams OKX objects into required-clock books without retaining raw updates", async () => {
+	test("backpressures bounded OKX tape yields before reading the next provider object", async () => {
 		const firstHour = Date.UTC(2026, 7, 18, 9);
 		const request = validBackfillRequest({
 			providerPolicy: {
@@ -333,6 +354,7 @@ describe("CryptoHFTData capability and acquisition", () => {
 				firstHour + 90 * 60_000,
 			],
 			maxPriorAsOfLagMs: 5_000,
+			depth: 100,
 			sourcePolicy: "fill_gaps",
 			budgets: {
 				...validBackfillRequest().budgets,
@@ -341,12 +363,41 @@ describe("CryptoHFTData capability and acquisition", () => {
 			},
 		});
 		let objectIndex = 0;
+		const tapeBatches: number[] = [];
+		let releaseFirstBatch = () => {};
+		const firstBatchAccepted = new Promise<void>((resolve) => {
+			releaseFirstBatch = resolve;
+		});
+		let firstBatchObserved = false;
+		let firstBatchAcknowledged = false;
+		let secondObjectReadBeforeAck = false;
 		const adapter = new CryptoHftDataAdapter({
 			profiles: provenProfiles,
-			fetch: async (input) =>
-				String(input).endsWith("/jwt-token")
-					? Response.json({ jwt_token: "jwt" })
-					: new Response(new Uint8Array([++objectIndex])),
+			policyNeutralTapeSink: {
+				async writeBatch(states) {
+					tapeBatches.push(states.length);
+					expect(states.length).toBeLessThanOrEqual(
+						CANDIDATE_C_TAPE_MAX_STATES_PER_YIELD,
+					);
+					if (!firstBatchObserved) {
+						firstBatchObserved = true;
+						await firstBatchAccepted;
+						firstBatchAcknowledged = true;
+					}
+				},
+				async complete() {},
+				async abort() {},
+			},
+			fetch: async (input) => {
+				if (String(input).endsWith("/jwt-token")) {
+					return Response.json({ jwt_token: "jwt" });
+				}
+				objectIndex += 1;
+				if (objectIndex === 2 && !firstBatchAcknowledged) {
+					secondObjectReadBeforeAck = true;
+				}
+				return new Response(new Uint8Array([objectIndex]));
+			},
 			decode: async () => {
 				const hour = firstHour + (objectIndex - 1) * 3_600_000;
 				const snapshotSequence = String(200 + objectIndex * 100);
@@ -382,12 +433,18 @@ describe("CryptoHFTData capability and acquisition", () => {
 			},
 		});
 		const providerCapability = capability(request);
-		const dataset = await adapter.acquire(request, providerCapability, {
+		const acquisition = adapter.acquire(request, providerCapability, {
 			apiKey: "secret",
 		});
+		while (!firstBatchObserved) await Bun.sleep(1);
+		expect(objectIndex).toBe(1);
+		releaseFirstBatch();
+		const dataset = await acquisition;
 
 		expect(dataset.rows).toEqual([]);
 		expect(dataset.reconstructedBooks).toHaveLength(2);
+		expect(tapeBatches.reduce((sum, count) => sum + count, 0)).toBe(4);
+		expect(secondObjectReadBeforeAck).toBe(false);
 		const normalized = await adapter.normalize(
 			request,
 			providerCapability,

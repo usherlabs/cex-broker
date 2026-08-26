@@ -24,12 +24,12 @@
 		{
 			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-promotion-receipt/v1",
 			"path": "schemas/promotion-receipt-v1.schema.json",
-			"schema_sha256": "00c42aba3e4a26d4692ef5554273ed762c21fce8c07624bc970ff0b28884b099"
+			"schema_sha256": "95629b9d6d8544f84d42caac4e40c7995f4933836fbb974cb186d11293739438"
 		},
 		{
 			"schema_id": "https://schemas.usher.so/cex-canonical-orderbook-export-request/v1",
 			"path": "schemas/canonical-orderbook-export-request-v1.schema.json",
-			"schema_sha256": "50a698628b00204c927e28d8c7048345330fb17ab61f86addd3a04114debc0f3"
+			"schema_sha256": "f82096cd3e0fb8d513ad5a9dbdb817d1c6e3e56dbbde745d4d8ff3be7c1528eb"
 		},
 		{
 			"schema_id": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v2",
@@ -39,7 +39,7 @@
 		{
 			"schema_id": "cex-market-data-preparation-product-pin/v2",
 			"path": "schemas/preparation-product-pin-v2.schema.json",
-			"schema_sha256": "15cdc9f212ed5fc0d9453cc8f6420e0719d19e976b4c09f5782ef63929da8dfb"
+			"schema_sha256": "db89757a8222d85d2d19b436d682e7b8692b30bafe0bf2cd81077180962df93d"
 		},
 		{
 			"schema_id": "https://schemas.usher.so/cex-order-book-levels-parquet-projection/v1",
@@ -54,13 +54,13 @@
 		{
 			"schema_id": "https://schemas.usher.so/market-data-source-forensics-ledger/v1",
 			"path": "schemas/source-forensics-ledger-v1.schema.json",
-			"schema_sha256": "daa7ac2aa755df51f4689d829edab88deacc69397f3cc8b6eda6e1725ae7afb1"
+			"schema_sha256": "4d4bafcaf100851558984c80968178d64279e24b9d8d280cab81cf19c0c83fbb"
 		},
 		{
 			"schema_id": "https://schemas.usher.so/market-data-source-qualification-record/v1",
 			"path": "schemas/source-qualification-record-v1.schema.json",
-			"schema_sha256": "d5493e6f7a2e06b0e748383618a398cd1c974683c13c4323af1d36baa2f9c796"
+			"schema_sha256": "c2b3c69fba653cc338c561887345cc515f87ab15881fba40e1c57daa08c8aef2"
 		}
 	],
-	"manifest_sha256": "2101fe94dfaccb90fb582eebb9228137757b347f880fb41dbd86e652e356cb22"
+	"manifest_sha256": "bf6b1dc97133773f1b44f26e1b246e6a45895e507b26d03fb07476cf9b74402e"
 }

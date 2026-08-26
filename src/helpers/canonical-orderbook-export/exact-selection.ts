@@ -1,4 +1,8 @@
 import {
+	CANDIDATE_C_INPUT_TAPE_CAPABILITY,
+	CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE,
+} from "../candidate-c-input-tape";
+import {
 	type CanonicalOrderBookExportQuerySegment,
 	type CanonicalOrderBookExportRequestWire,
 	canonicalOrderBookExportRequestCodec,
@@ -344,8 +348,12 @@ export function compileExactOrderBookExport(
 		request,
 		segments,
 	);
-	parameters.current_capability_policy_id = CAPABILITY_POLICY.policy_id;
-	parameters.current_capability_policy_sha256 = CAPABILITY_POLICY.policy_sha256;
+	const currentCapability =
+		request.construction_mode === CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE
+			? CANDIDATE_C_INPUT_TAPE_CAPABILITY
+			: CAPABILITY_POLICY;
+	parameters.current_capability_policy_id = currentCapability.policy_id;
+	parameters.current_capability_policy_sha256 = currentCapability.policy_sha256;
 	parameters.current_resource_policy_id = RESOURCE_POLICY.policy_id;
 	parameters.current_resource_policy_sha256 = RESOURCE_POLICY.policy_sha256;
 	parameters.current_adapter_policy_id = EFFECTIVE_ADAPTER_POLICY_PIN.policy_id;

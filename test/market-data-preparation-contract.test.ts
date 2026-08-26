@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { CANDIDATE_C_INPUT_TAPE_CAPABILITY } from "../src/helpers/candidate-c-input-tape";
 import { PREPARATION_CONFORMANCE_FIXTURES } from "../src/helpers/market-data-preparation/conformance-fixtures";
 import {
 	BACKFILL_RESULT_V2_SCHEMA_ID,
@@ -94,6 +95,17 @@ describe("market-data preparation contracts", () => {
 				SOURCE_QUALIFICATION_RECORD_SCHEMA_ID,
 			]),
 		);
+	});
+
+	test("pins the qualification-only Candidate C input-tape capability", () => {
+		expect(
+			PREPARATION_CONFORMANCE_FIXTURES.documents.preparation_product_pin
+				.candidate_c_input_tape_capability,
+		).toEqual({
+			policy_id: CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_id,
+			policy_sha256: CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_sha256,
+		});
+		expect(PREPARATION_SCHEMA_ARTIFACTS).toHaveLength(12);
 	});
 
 	test("ships valid v2 backfill, exact export, and product-pin conformance documents", () => {

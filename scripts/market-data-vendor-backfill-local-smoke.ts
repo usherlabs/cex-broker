@@ -49,7 +49,11 @@ import {
 export const MARKET_DATA_VENDOR_BACKFILL_SMOKE_EVIDENCE_SCHEMA_VERSION =
 	"market-data-vendor-backfill-local-smoke/v1" as const;
 
-const CLICKHOUSE_IMAGE = "clickhouse/clickhouse-server:24.8";
+export const MARKET_DATA_QUALIFICATION_CLICKHOUSE_IMAGE =
+	"clickhouse/clickhouse-server:24.8.14.39@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b" as const;
+export const MARKET_DATA_QUALIFICATION_CLICKHOUSE_VERSION =
+	"24.8.14.39" as const;
+const CLICKHOUSE_IMAGE = MARKET_DATA_QUALIFICATION_CLICKHOUSE_IMAGE;
 const CLICKHOUSE_USER = "default";
 const SMOKE_MINIMUM_START_MS = Date.UTC(2025, 5, 28);
 
@@ -688,7 +692,7 @@ async function createDockerSmokeRuntime(
 				await Bun.sleep(250);
 			}
 		}
-		if (!version?.startsWith("24.8.")) {
+		if (version !== MARKET_DATA_QUALIFICATION_CLICKHOUSE_VERSION) {
 			throw new SmokeGateError("clickhouse_version_mismatch");
 		}
 		await ensureArchiveSchema(client);

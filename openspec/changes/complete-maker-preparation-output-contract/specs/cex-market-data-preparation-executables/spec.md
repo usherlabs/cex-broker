@@ -156,3 +156,22 @@ versions SHALL remain `market-data-vendor-backfill/v1` and
 - **WHEN** the published successor is unpacked into an empty directory
 - **THEN** every pinned schema, policy, manifest, executable, fixture, declaration, and runtime dependency MUST be present and hash-valid
 - **AND** both executables MUST run under Node 22 or newer without external repository state
+
+### Requirement: Identity-bound evidence uses the exact published commit
+CEX SHALL query npm and reserve an unused successor version before live
+qualification. It SHALL commit that version with all implementation and
+generated identities, merge PR #155, freeze the exact clean merge commit, and
+run deterministic and live Candidate A/C gates from a clean checkout of that
+commit. The tag and published registry package MUST identify the same commit.
+Any merge, rebase, squash, version change, generated-identity change, or other
+package-byte change after a gate invalidates its identity-bound evidence.
+
+#### Scenario: Qualification ran before the release identity was frozen
+- **WHEN** the qualified source tree is not byte- and gitHead-identical to the tagged registry release
+- **THEN** the affected deterministic and live identity-bound gates MUST be rerun from the frozen release commit
+- **AND** pre-merge evidence MUST NOT be used as final release evidence merely because its source behavior was equivalent
+
+#### Scenario: Maker consumed a local prerelease candidate
+- **WHEN** Maker has verified only local or pre-publication CEX artifacts
+- **THEN** cross-repository completion MUST remain open
+- **AND** Maker MUST independently download, pin, and verify the published registry product before final consumer proof is accepted

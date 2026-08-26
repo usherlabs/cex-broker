@@ -34,6 +34,9 @@ export, release, and CEX-side evidence.
   exporter read-only authority, and existing `cex-broker` bin behavior.
 - Generate complete, bounded source-forensics evidence without creating a
   second reconstruction algorithm or acceptance path.
+- Produce a source-complete, policy-neutral OKX top-100 state-change tape so
+  Maker can materialize Candidate C without inferring changes from Candidate A
+  samples.
 - Preserve the small atomic backfill result and Maker-consumed summary
   diagnostics while providing detailed qualification evidence separately.
 - Give each exported Parquet projection an immutable physical schema identity
@@ -45,8 +48,11 @@ export, release, and CEX-side evidence.
 
 **Non-Goals:**
 
-- Changing the 5,000 ms prior-as-of bound, Maker clocks, scheduler cadence,
-  construction mode, depth requirement, or ClickHouse-first `fill_gaps` policy.
+- Changing the 5,000 ms prior-as-of bound, scheduler cadence, depth requirement,
+  or ClickHouse-first `fill_gaps` policy. Candidate C clock derivation is
+  explicitly Maker-owned and the CEX qualification tape receives a distinct
+  construction identity rather than changing sampled-snapshot meaning or
+  becoming a normal Maker backfill request mode.
 - Adding a CEX multi-pair request or aggregate result.
 - Running Maker strategy, policy, backtest, loader, thesis, or final artifact
   publication inside CEX Broker.
@@ -215,10 +221,16 @@ not renamed. The backfill product remains
 `market-data-vendor-backfill/v1`; the exporter becomes
 `cex-canonical-orderbook-export/v2`.
 
-The registry tarball is built and published before final release evidence is
-generated. Registry URL, npm integrity, tarball SHA-256, npm `gitHead`, and
-executable hashes are derived from downloaded registry bytes and verified in a
-fresh extraction.
+Release identity is frozen before any identity-bound live evidence. CEX first
+queries npm and reserves an unused successor, commits that version with every
+implementation and generated identity, merges PR #155, and freezes the exact
+clean merge commit. Deterministic and live Candidate A/C gates then run from a
+clean checkout of that commit. The tag and registry package MUST name that same
+commit; registry URL, npm integrity, tarball SHA-256, npm `gitHead`, and
+executable hashes are derived from independently downloaded registry bytes and
+verified in a fresh extraction. A merge, rebase, squash, version change, or
+other byte/`gitHead` change invalidates pre-freeze identity-bound evidence and
+requires the affected gates to rerun.
 
 Alternative considered: mutate exporter result v1 or product pin v1 in place.
 Rejected because Maker pins their existing JCS identities and must fail closed
@@ -259,6 +271,109 @@ the exact command, Bun/Node versions, environment assumptions, and failing
 assertions. The repository-declared unit command is also required even if the
 external command differs.
 
+### 11. Candidate A is bootstrap evidence and dispositions are three-way
+
+The existing 2,808-target ARB-USDC and 932-target ARB-USDT clocks are Candidate
+A bootstrap clocks, not the final nominal timeline. Forensics ledger v1 gains
+a separate ordered `target_dispositions` array that reconciles every original
+target as fresh within 5,000 ms, positively proven inactive, or disqualifying.
+Maker expands those target dispositions across every mapped policy invocation
+and remains the sole owner of admitted clocks and `reference_depth_stale`
+runtime outcomes.
+
+`qualified`, `derivation_eligible`, and
+`candidate_c_source_enumeration_eligible` are distinct predicates. Strict
+qualification requires accepted reconstruction and all-fresh submitted
+targets. Derivation eligibility permits proven inactivity but no disqualifying
+target. Enumeration eligibility additionally rejects any window-wide
+unresolved source evidence that could hide or alter an OKX event, including a
+sequence gap that affected zero Candidate A targets.
+
+### 12. Candidate C uses a source-complete sandbox-qualified tape
+
+An ordinary Candidate A backfill emits only clock-sampled snapshots and cannot
+enumerate Candidate C. The qualification harness therefore asks the same OKX
+reconstructor to continue through the full source window and stream one bound
+initialization state plus a canonical top-100 state after every sequence-valid
+event group that changes the top-100 book or advances the source
+time/sequence used for freshness. This projection is policy-neutral:
+CEX validates source continuity and emits states; Maker decides which changes
+are policy-relevant.
+
+The tape uses the normal candidate/archive-forwarder, promotion, qualification,
+exact-selection, replay-qualified-view, and exporter-v2 machinery inside a
+disposable archive whose exact target is `sandbox/cex-archive-local`. Thus
+"not production-qualified" means that no row, receipt, selection, or artifact
+enters a production environment; it does not mean that the tape bypasses normal
+qualification identities. A separate qualification-only Parquet writer is not
+used and MUST NOT be represented as a normal selection, receipt, or exporter-v2
+result.
+
+The local ClickHouse runtime is immutable:
+`clickhouse/clickhouse-server:24.8.14.39@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b`.
+The bundle manifest binds that reference, resolved image ID/digest, and the
+reported server version `24.8.14.39`.
+
+Provider acquisition and tape archive submission are backpressured. The
+reconstructor yields at most four complete states at a time; canonical archive
+batches retain the existing maximum of 1,000 rows and 5,242,880 JSON bytes,
+with exactly one forwarder submission in flight. The current batch must be
+acknowledged before the next provider object is read. The projection contains
+exactly one initialization/support state, which may precede the window, and
+then only changes whose source time is in `[start, end)`; it emits nothing at
+the exclusive end boundary. Any failure aborts finalization, removes or leaves
+uncommitted partial Parquet, and commits no success manifest.
+
+The physical levels and depth-summary Parquet projections remain those already
+in schema manifest v3, so the package remains at exactly twelve schemas. The
+tape does not reuse `sampled_top_n_snapshot` semantics. A new qualification
+capability and construction identity bind full-window scanning, positive
+expected/observed object inventory, top-100 state projection,
+adapter/acquisition versions, sandbox selection/receipt/export identities, and
+artifact hashes. Those identity changes regenerate policy and product-pin
+hashes before the release commit is frozen.
+
+Alternative considered: derive Candidate C from Candidate A snapshots.
+Rejected because omitted change timestamps are unrecoverable and later
+qualification cannot detect targets that were never enumerated.
+
+### 13. Maker returns one versioned derivation descriptor
+
+Maker owns `reference-depth-clock-derivation-descriptor/v1`; CEX retains a
+qualification-only schema copy and canonical hash outside the normal request
+and twelve-entry npm manifest. It binds materializer and configuration
+identities, the sole scheduler, DEX inputs, the eligible OKX tape, CEX evidence,
+original/admitted clock identities, mappings, per-target invocation expansion,
+blocked dispositions, and the exact freshness-expiry rule. Exactly 5,000 ms is
+fresh; expiry is the first actual controller opportunity whose age is strictly
+greater, under `native_chronological_scheduler_v2` same-timestamp ordering.
+
+Candidate C is materialized untruncated. A preflight records both CEX-target and
+Maker-invocation counts. More than 100,000 CEX targets stops before request
+construction and requires an explicit representation, partitioning, or resource
+policy decision; economically distinct invocations are never deduplicated to
+fit the ceiling.
+
+### 14. The two-pair gate always commits a durable verdict
+
+The repository-only orchestrator runs ARB-USDC and ARB-USDT as one bounded
+qualification gate while retaining pair-scoped artifacts. On success it writes
+one top-level success manifest binding both pair manifests and their hashes. On
+any failure it writes a top-level failure verdict that names the failed pair,
+uses a closed stable reason, and binds every retained partial-evidence hash.
+Absence of a success manifest is never the only failure signal. Failure commits
+no tape Parquet or success manifest for the affected pair. Pair-prefixed
+Parquet names prevent the second pair from overwriting the first, and a later
+failure verdict retains the earlier passing pair's manifest and artifact
+hashes. Success removes any stale failure verdict; failure removes any stale
+top-level success manifest.
+
+The request target remains exactly `sandbox/cex-archive-local`, and the harness
+uses the request's exact authorization ID and the disposable local cluster.
+The forwarder's stable scope value `production` is an existing
+mutation-authorization class, not an assertion that the target environment is
+production. The guard is not renamed, bypassed, or weakened.
+
 ## Risks / Trade-offs
 
 - [Removing live legacy policy acceptance breaks callers pinned to older
@@ -281,9 +396,10 @@ external command differs.
 - [A source defect cannot be fixed in code] → Use the classification ledger to
   prepare a vendor escalation; do not weaken sequence, clock, depth, or
   freshness requirements.
-- [Publishing before the two-pair source gate creates another unusable release]
-  → Generate the final product pin only after source qualification, package
-  checks, and clean-extraction smoke pass.
+- [Freezing release bytes after qualification invalidates producer identity]
+  → Reserve and commit the successor, merge and freeze the exact release commit,
+  then run every identity-bound deterministic and live gate from a clean
+  checkout of that commit before tagging and publishing it unchanged.
 - [Maker and CEX schema pins drift during the breaking exporter update] → Land
   generated CEX fixtures first, then update Maker from the published registry
   artifact and require cross-language conformance before acceptance.
@@ -308,16 +424,17 @@ external command differs.
 6. Run unit, build, type, lint, package, conformance, ClickHouse, image-smoke,
    and secret-reflection checks and retain GREEN evidence for the reproduced
    external unit command.
-7. Freeze exact pair-local clock hashes/counts and run full `fill_gaps`,
-   depth-100 common-window qualification for ARB-USDT and ARB-USDC. Fix an
-   evidenced adapter defect or escalate stable upstream object defects; repeat
-   the whole window until both pair ledgers are complete and clean.
-8. Run pair-scoped promotion, exact selection, and exact export, then have Maker
-   validate both descriptors and consume both Parquet products with its real
-   loader.
-9. Publish the successor, download and audit the registry bytes in a clean Node
-   22 extraction, generate the final product pin from those bytes, and update
-   Maker's pin and schema copies.
+7. Query npm for an unused successor, commit the version with all implementation
+   and generated identities, merge PR #155, and freeze the exact clean merge
+   commit.
+8. From a clean checkout of that commit, run deterministic checks followed by
+   the Candidate A bootstrap, source-enumeration, sandbox tape, Candidate C,
+   final admitted-clock, promotion, selection, and export gates for both pairs.
+9. Tag and publish that exact commit, independently download and audit the
+   registry bytes, and derive the final product pin from the registry artifact.
+10. Have Maker adopt the registry product pin, repeat final consumer and
+    full-timeline proof, and land immutable evidence through a follow-up
+    evidence PR. No production deployment is part of this migration.
 
 Before Maker adopts the successor, rollback is simply withholding or reverting
 its product pin. After adoption, rollback selects the prior immutable package
@@ -333,5 +450,6 @@ rollback.
 - Can corrected immutable CryptoHFTData objects satisfy the full common window,
   or will the ledger require a vendor escalation? No alternate provider is
   authorized by this change.
-- The final package version and every registry-derived hash remain intentionally
-  unset until publication.
+- The successor version remains unset until the pre-qualification npm
+  reservation step. Registry-derived URL, integrity, tarball, and executable
+  hashes remain unset until post-publication independent audit.
