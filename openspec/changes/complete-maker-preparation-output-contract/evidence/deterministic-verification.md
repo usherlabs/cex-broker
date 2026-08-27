@@ -14,6 +14,76 @@ OpenSpec implementation. This is pre-freeze engineering evidence only.
 > may be reserved until the reopened role-neutral boundary and pre-freeze
 > conformance tasks are complete.
 
+## Bounded live source-tape diagnosis after the package-boundary gate
+
+On `2026-08-27`, a credentialed one-minute ARB-USDT probe against the real
+provider, local archive-forwarder, and local ClickHouse exposed two defects
+after the clean-extraction gate. The corrections are isolated on
+`ed/fiet-1043-source-tape-forwarder-admission` at
+`0a5b4fdeb72c5f01d718e2486211c64725984404` and remain unpublished.
+
+First, the role-neutral tape used deployment and construction identities that
+the production forwarder validator did not admit. The forwarder now accepts
+the stable external-backfill deployment with either the sampled snapshot or
+role-neutral state-change construction mode, applies that same validator to
+candidate, promotion, and qualification batches, and classifies a rejected
+submission durably as `source_tape_archive_failed`.
+
+After that repair, the complete packaged operation acquired and reconciled all
+169 expected provider objects, emitted 225 states, forwarded 45,000 level rows
+and 225 summary rows in 114 acknowledged batches, passed streaming semantic
+verification, and committed a current promotion receipt and qualification
+event. It then committed the expected failure branch with
+`source_tape_selection_failed`; no exporter or Parquet success descriptor was
+retained.
+
+The selection defect was a mismatch between two valid boundaries. The
+source-tape operation accepts no required clock, while the shared selection
+resolver required one and selected bundles only through required-clock support
+anchors. Its invocation-bound zero-target reference could therefore authorize
+neither selection context nor the just-promoted bundle. The corrected resolver
+uses that existing zero-target reference only for source-tape selection,
+requires one full-window current receipt whose request ID and idempotency key
+match the exact invocation, excludes unrelated qualified bundles, and rejects
+ambiguity. It does not synthesize a Maker clock or change ordinary
+required-clock selection.
+
+A read-only replay of the corrected selector against the exact promoted live
+rows returned `coverage_class = complete`, selected only capture bundle
+`39bc6dc9399b274ed5d99c21e1ed1b078fb4be6d9d310f08db08160cb391a917`,
+bound receipt
+`11f1be76f31239579ae3a662552b6ba7a84dc72827a9d4f6eff62a88dfbfed65`
+and qualification event `d2c191ec-8d3a-5e50-81dd-8a6bece74fce`, and retained
+an event count of zero with no support anchors. Focused selection, preparation,
+sandbox, and forwarder tests passed 20/20; the full repository suite passed
+986 tests with zero failures and 3,067 expectations. TypeScript and changed-file
+Biome checks passed.
+
+This bounded proof does not complete task 8.3 or claim a successful full
+package operation after the selector correction. The requested 20-to-30-day
+dual-pair run was intentionally not launched because the current acceptance
+requirements are operationally and logically inconsistent:
+
+- The observed tape emitted 225 full depth-100 states per minute. Linear
+  projection yields 6.48 million states and 1.296 billion level rows per pair
+  over 20 days, or 9.72 million states and 1.944 billion level rows per pair
+  over 30 days.
+- The two observed one-minute bundles occupy approximately 6.3 MB compressed
+  across level and summary tables, or about 3.15 MB per bundle. Linear
+  projection is approximately 85 GiB per pair for 20 days and 127 GiB per pair
+  for 30 days, before exports, temporary parts, merge overhead, or the second
+  pair. The host had 41 GiB free at diagnosis time.
+- Even a one-second Maker policy cadence produces 1,728,000 targets over 20
+  days and 2,592,000 over 30 days. Both exceed the unchanged 100,000-target
+  ceiling before source-tape changes are added. Therefore an untruncated
+  20-to-30-day nominal clock cannot pass task 8.5 under the current ceiling by
+  construction.
+
+No full-window source acquisition, second-pair acquisition, version change,
+tag, publication, or registry adoption was performed. Tasks 8.3 through 8.15
+remain open pending an explicit specification decision on clock partitioning or
+the target ceiling and on bounded source-tape storage/materialization.
+
 ## Self-contained dependency-boundary repair
 
 The superseding package-boundary run was completed on `2026-08-27` from clean
