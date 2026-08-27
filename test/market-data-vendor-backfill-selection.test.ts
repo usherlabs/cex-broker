@@ -8,6 +8,7 @@ import {
 	type ArchiveBundleEvidence,
 	resolveArchiveSelection,
 } from "../src/helpers/market-data-vendor-backfill/selection";
+import { SOURCE_TAPE_CONSTRUCTION_MODE } from "../src/helpers/source-tape";
 
 const request = decodeBackfillRunDocuments({
 	request: CONFORMANCE_FIXTURES.documents.request,
@@ -56,7 +57,66 @@ function firstSupportAnchor(bundle: ArchiveBundleEvidence) {
 	return anchor;
 }
 
+function vendorQualification() {
+	const qualification = evidence("vendor_historical_backfill").qualification;
+	if (!qualification) throw new Error("synthetic vendor bundle is unqualified");
+	return qualification;
+}
+
 describe("exact archive selection resolver", () => {
+	test("selects the exact full-window source-tape promotion without inventing a required clock", () => {
+		const sourceTapeRequest = {
+			...request,
+			constructionMode: SOURCE_TAPE_CONSTRUCTION_MODE,
+			depth: 100,
+			requiredClockTargetsMs: [],
+			requiredClock: undefined,
+			initialSelection: {
+				...request.initialSelection,
+				required_clock: {
+					clock_id: request.requestId,
+					clock_sha256: request.idempotencyKey,
+					event_count: 0,
+				},
+			},
+		};
+		const currentPromotion = evidence("vendor_historical_backfill", {
+			qualification: {
+				...vendorQualification(),
+				requestId: sourceTapeRequest.requestId,
+				idempotencyKey: sourceTapeRequest.idempotencyKey,
+			},
+		});
+		const unrelatedPromotion = evidence("vendor_historical_backfill", {
+			captureBundleId: "f".repeat(64),
+			qualification: {
+				...vendorQualification(),
+				requestId: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f199",
+				idempotencyKey: "9".repeat(64),
+			},
+			supportAnchors: [],
+		});
+
+		const selection = resolveArchiveSelection({
+			request: sourceTapeRequest,
+			bundles: [unrelatedPromotion, currentPromotion],
+			resolvedAtMs: Date.parse("2026-08-20T12:00:02.000Z"),
+		});
+
+		expect(selection.coverage_class).toBe("complete");
+		expect(selection.required_clock).toEqual(
+			sourceTapeRequest.initialSelection.required_clock,
+		);
+		expect(selection.bundles).toHaveLength(1);
+		expect(selection.bundles[0]?.capture_bundle_id).toBe(
+			currentPromotion.captureBundleId,
+		);
+		expect(selection.receipt_ids).toEqual([
+			currentPromotion.qualification?.receiptId,
+		]);
+		expect(selection.support_anchors).toEqual([]);
+	});
+
 	test("authoritative_window reuses complete production coverage when no qualified vendor exists", () => {
 		const selection = resolveArchiveSelection({
 			request,

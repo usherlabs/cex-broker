@@ -1,3 +1,4 @@
+import { SOURCE_TAPE_CONSTRUCTION_MODE } from "../source-tape";
 import {
 	ARCHIVE_SELECTION_SCHEMA_ID,
 	type ArchiveSelectionWire,
@@ -15,6 +16,8 @@ export type ArchiveQualificationEvidence = {
 	state: "qualified" | "quarantined" | "revoked";
 	receiptId: string;
 	promotionIdentitySha256: string;
+	requestId?: string;
+	idempotencyKey?: string;
 };
 
 export type ArchiveSupportAnchorEvidence = {
@@ -45,7 +48,8 @@ function assertStoredSelectionMatchesRequest(
 	request: MarketDataVendorBackfillRequest,
 	selection: ArchiveSelectionWire,
 ): void {
-	if (!request.requiredClock || !request.coveragePolicy) {
+	const requiredClock = selectionClockReference(request);
+	if (!requiredClock || !request.coveragePolicy) {
 		throw new Error("decoded request is missing final-v1 selection context");
 	}
 	const expectedScope = {
@@ -56,17 +60,61 @@ function assertStoredSelectionMatchesRequest(
 	};
 	if (
 		jcsSha256(selection.scope) !== jcsSha256(expectedScope) ||
-		selection.required_clock.clock_id !== request.requiredClock.clock_id ||
-		selection.required_clock.clock_sha256 !==
-			request.requiredClock.clock_sha256 ||
-		selection.required_clock.event_count !==
-			request.requiredClock.targets.length ||
+		selection.required_clock.clock_id !== requiredClock.clock_id ||
+		selection.required_clock.clock_sha256 !== requiredClock.clock_sha256 ||
+		selection.required_clock.event_count !== requiredClock.event_count ||
 		jcsSha256(selection.coverage_policy) !==
 			jcsSha256(request.coveragePolicy) ||
 		selection.source_policy !== request.sourcePolicy
 	) {
 		throw new Error("stored archive selection conflicts with request content");
 	}
+}
+
+function sourceTapeSelectionClock(
+	request: MarketDataVendorBackfillRequest,
+): ArchiveSelectionWire["required_clock"] | undefined {
+	const reference = request.initialSelection?.required_clock;
+	if (
+		request.constructionMode !== SOURCE_TAPE_CONSTRUCTION_MODE ||
+		request.requiredClockTargetsMs.length !== 0 ||
+		request.requiredClock !== undefined ||
+		!reference ||
+		reference.event_count !== 0 ||
+		reference.clock_id !== request.requestId ||
+		reference.clock_sha256 !== request.idempotencyKey
+	) {
+		return;
+	}
+	return reference;
+}
+
+function selectionClockReference(
+	request: MarketDataVendorBackfillRequest,
+): ArchiveSelectionWire["required_clock"] | undefined {
+	if (request.requiredClock) {
+		return {
+			clock_id: request.requiredClock.clock_id,
+			clock_sha256: request.requiredClock.clock_sha256,
+			event_count: request.requiredClock.targets.length,
+		};
+	}
+	return sourceTapeSelectionClock(request);
+}
+
+function sourceTapeEligibleBundles(
+	request: MarketDataVendorBackfillRequest,
+	bundles: readonly ArchiveBundleEvidence[],
+): ArchiveBundleEvidence[] {
+	return bundles.filter(
+		(bundle) =>
+			bundle.captureOrigin === "vendor_historical_backfill" &&
+			bundle.qualification?.state === "qualified" &&
+			bundle.qualification.requestId === request.requestId &&
+			bundle.qualification.idempotencyKey === request.idempotencyKey &&
+			bundle.startTimeMs <= request.window.startTimeMs &&
+			bundle.endTimeMs >= request.window.endTimeMs,
+	);
 }
 
 function eligibleBundles(
@@ -146,13 +194,24 @@ export function resolveArchiveSelection(input: {
 		return stored;
 	}
 	const { request } = input;
-	if (!request.requiredClock || !request.coveragePolicy) {
+	const requiredClock = selectionClockReference(request);
+	if (!requiredClock || !request.coveragePolicy) {
 		throw new Error("decoded request is missing final-v1 selection context");
 	}
-	const eligible = eligibleBundles(request, input.bundles);
-	const chosenSupport = chooseSupport(request, eligible);
+	const sourceTapeSelection = sourceTapeSelectionClock(request) !== undefined;
+	const eligible = sourceTapeSelection
+		? sourceTapeEligibleBundles(request, input.bundles)
+		: eligibleBundles(request, input.bundles);
+	if (sourceTapeSelection && eligible.length > 1) {
+		throw new Error("source tape selection is ambiguous");
+	}
+	const chosenSupport = sourceTapeSelection
+		? []
+		: chooseSupport(request, eligible);
 	const selectedBundleIds = new Set(
-		chosenSupport.map(({ bundle }) => bundle.captureBundleId),
+		sourceTapeSelection
+			? eligible.map((bundle) => bundle.captureBundleId)
+			: chosenSupport.map(({ bundle }) => bundle.captureBundleId),
 	);
 	const selectedBundles = eligible
 		.filter((bundle) => selectedBundleIds.has(bundle.captureBundleId))
@@ -188,8 +247,11 @@ export function resolveArchiveSelection(input: {
 				receipt_id: bundle.qualification?.receiptId ?? null,
 			},
 		}));
-	const coverageClass =
-		chosenSupport.length === request.requiredClockTargetsMs.length
+	const coverageClass = sourceTapeSelection
+		? selectedBundles.length === 1
+			? "complete"
+			: "missing"
+		: chosenSupport.length === request.requiredClockTargetsMs.length
 			? "complete"
 			: eligible.length === 0
 				? "missing"
@@ -204,11 +266,7 @@ export function resolveArchiveSelection(input: {
 			market_type: request.scope.marketType,
 			feed: request.scope.feed,
 		},
-		required_clock: {
-			clock_id: request.requiredClock.clock_id,
-			clock_sha256: request.requiredClock.clock_sha256,
-			event_count: request.requiredClock.targets.length,
-		},
+		required_clock: requiredClock,
 		coverage_policy: request.coveragePolicy,
 		source_policy: request.sourcePolicy,
 		coverage_class: coverageClass,

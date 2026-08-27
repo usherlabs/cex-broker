@@ -316,6 +316,9 @@ export class QualifiedOrderBookArchiveReader {
 		const receiptIdsSet = new Set(
 			currentReceipts.map((receipt) => receipt.receipt_id),
 		);
+		const receiptById = new Map(
+			currentReceipts.map((receipt) => [receipt.receipt_id, receipt]),
+		);
 		const grouped = new Map<string, ArchiveBundleEvidence>();
 		for (const row of summaries) {
 			const captureBundleId = String(row.capture_bundle_id);
@@ -325,6 +328,7 @@ export class QualifiedOrderBookArchiveReader {
 					: "production_capture";
 			const qualificationRow = qualificationByBundle.get(captureBundleId);
 			const receiptId = String(qualificationRow?.receipt_id ?? "");
+			const receipt = receiptById.get(receiptId);
 			const qualification =
 				captureOrigin === "vendor_historical_backfill" && qualificationRow
 					? {
@@ -339,6 +343,12 @@ export class QualifiedOrderBookArchiveReader {
 							promotionIdentitySha256: String(
 								qualificationRow.promotion_identity_sha256,
 							),
+							...(receipt
+								? {
+										requestId: receipt.request_id,
+										idempotencyKey: receipt.idempotency_key,
+									}
+								: {}),
 						}
 					: null;
 			if (
