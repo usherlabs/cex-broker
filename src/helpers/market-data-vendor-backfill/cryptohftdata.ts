@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import { decompress } from "fzstd";
 import { parquetReadObjects } from "hyparquet";
-import { buildCanonicalOrderBookRows } from "../market-data-archive/canonical-orderbook";
+import {
+	buildCanonicalOrderBookRows,
+	OrderBookValidationError,
+} from "../market-data-archive/canonical-orderbook";
 import {
 	CHECKSUM_ALGORITHM,
+	canonicalSerialize,
 	MARKET_CAPTURE_SCHEMA_VERSION,
 	sha256Canonical,
 } from "../market-data-archive/capture-contract";
@@ -11,6 +15,11 @@ import type {
 	MarketCaptureContext,
 	RawCapture,
 } from "../market-data-archive/types";
+import type {
+	ReconstructionObservation,
+	ReconstructionObservationSink,
+	SourceObjectEvidence,
+} from "../market-data-source-forensics";
 import {
 	type BackfillArchiveRow,
 	EXTERNAL_BACKFILL_SOURCE,
@@ -26,6 +35,39 @@ import { semanticDigest } from "./semantic-verification";
 export const CRYPTOHFTDATA_ADAPTER_VERSION =
 	"cryptohftdata-orderbook/v2" as const;
 export const CRYPTOHFTDATA_API_URL = "https://api.cryptohftdata.com" as const;
+export const DIAGNOSTIC_LAG_THRESHOLDS_MS = [
+	1_000, 2_000, 5_000, 10_000, 30_000, 60_000,
+] as const;
+export const SOURCE_TAPE_MAX_STATES_PER_YIELD = 4 as const;
+export const SOURCE_TAPE_MAX_BATCH_BYTES = 5_242_880 as const;
+export const SOURCE_TAPE_MAX_IN_FLIGHT = 1 as const;
+export const BACKFILL_CLOCK_DIAGNOSTIC_KEYS = [
+	"target_time_ms",
+	"source_time_ms",
+	"asof_lag_ms",
+	"max_prior_asof_lag_ms",
+	"missing_target_count",
+	"covered_target_count",
+	"first_missing_target_time_ms",
+	"last_missing_target_time_ms",
+	"max_observed_asof_lag_ms",
+	"missing_target_dates_utc",
+	"total_target_count",
+	"unanchored_target_count",
+	"future_state_target_count",
+	...DIAGNOSTIC_LAG_THRESHOLDS_MS.map(
+		(threshold) => `covered_target_count_lag_${threshold}_ms` as const,
+	),
+] as const;
+export const BACKFILL_SEQUENCE_DIAGNOSTIC_KEYS = [
+	"event_time_ms",
+	"expected_previous_sequence",
+	"observed_previous_sequence",
+	"observed_final_sequence",
+	"sequence_gap_count",
+	"first_sequence_gap_event_time_ms",
+	"last_sequence_gap_event_time_ms",
+] as const;
 const CRYPTOHFTDATA_HISTORY_START_MS = Date.UTC(2025, 5, 28);
 const HOUR_MS = 60 * 60 * 1_000;
 
@@ -111,10 +153,53 @@ export const CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE: CryptoHftDataCapabilityProf
 	});
 
 export class CryptoHftDataError extends Error {
-	constructor(readonly reason: string) {
+	constructor(
+		readonly reason: string,
+		readonly diagnostics: Readonly<
+			Record<string, string | number | boolean>
+		> = {},
+	) {
 		super(`CryptoHFTData backfill failed: ${reason}`);
 		this.name = "CryptoHftDataError";
 	}
+}
+
+function providerObjectFailure(
+	error: unknown,
+	reason: string,
+	datasetObjectIdentity: string,
+	failurePhase: string,
+): CryptoHftDataError {
+	return new CryptoHftDataError(
+		error instanceof CryptoHftDataError ? error.reason : reason,
+		{
+			...(error instanceof CryptoHftDataError ? error.diagnostics : {}),
+			dataset_object_identity: datasetObjectIdentity,
+			failure_phase: failurePhase,
+		},
+	);
+}
+
+const PROVIDER_OBJECT_MAX_ATTEMPTS = 3;
+const RETRYABLE_PROVIDER_OBJECT_FAILURES = new Set([
+	"provider_object_request_failed",
+	"object_download_failed",
+	"provider_object_read_failed",
+	"provider_object_decode_failed",
+	"provider_object_validation_failed",
+]);
+
+function quarantinedProviderObjectFailure(
+	error: CryptoHftDataError,
+	attemptCount: number,
+	checksum?: string,
+): CryptoHftDataError {
+	return new CryptoHftDataError(error.reason, {
+		...error.diagnostics,
+		...(checksum ? { dataset_object_checksum: checksum } : {}),
+		attempt_count: attemptCount,
+		quarantined: true,
+	});
 }
 
 export type CryptoHftDataOrderBookRow = {
@@ -145,6 +230,56 @@ export type ReconstructedCryptoHftBook = {
 	datasetObjectIdentity: string;
 	datasetObjectChecksum: string;
 };
+
+export type PolicyNeutralCryptoHftBookState = ReconstructedCryptoHftBook & {
+	tapeState: "initialization" | "change";
+};
+
+export type PolicyNeutralTapeSink = {
+	writeBatch(states: readonly PolicyNeutralCryptoHftBookState[]): Promise<void>;
+	complete(input: {
+		expectedObjectIdentities: readonly string[];
+		observedObjects: readonly ProviderObjectEvidence[];
+		stateCount: number;
+	}): Promise<void>;
+	abort(input: { reason: string; retainedStateCount: number }): Promise<void>;
+};
+
+function tapeStateBytes(state: PolicyNeutralCryptoHftBookState): number {
+	return new TextEncoder().encode(JSON.stringify(state)).byteLength;
+}
+
+async function writePolicyNeutralTapeStates(
+	sink: PolicyNeutralTapeSink,
+	states: readonly PolicyNeutralCryptoHftBookState[],
+): Promise<number> {
+	let written = 0;
+	let batch: PolicyNeutralCryptoHftBookState[] = [];
+	let batchBytes = 0;
+	const flush = async () => {
+		if (batch.length === 0) return;
+		await sink.writeBatch(batch);
+		written += batch.length;
+		batch = [];
+		batchBytes = 0;
+	};
+	for (const state of states) {
+		const bytes = tapeStateBytes(state);
+		if (bytes > SOURCE_TAPE_MAX_BATCH_BYTES) {
+			throw new CryptoHftDataError("source_tape_state_too_large");
+		}
+		if (
+			batch.length >= SOURCE_TAPE_MAX_STATES_PER_YIELD ||
+			batchBytes + bytes > SOURCE_TAPE_MAX_BATCH_BYTES
+		) {
+			await flush();
+		}
+		batch.push(state);
+		batchBytes += bytes;
+	}
+	await flush();
+	return written;
+}
 
 export function cryptoHftDataCapabilityFor(
 	request: MarketDataVendorBackfillRequest,
@@ -210,6 +345,18 @@ export function enumerateCryptoHftDataObjects(
 				return `${providerExchangeId}/${utc.date}/${utc.hour}/${resolvedSymbol}_orderbook.parquet.zst`;
 			});
 	}
+	return enumerateCryptoHftDataWindowObjects(
+		request,
+		providerExchangeId,
+		resolvedSymbol,
+	);
+}
+
+export function enumerateCryptoHftDataWindowObjects(
+	request: MarketDataVendorBackfillRequest,
+	providerExchangeId: string,
+	resolvedSymbol: string,
+): string[] {
 	const firstHour =
 		Math.floor(
 			(request.window.startTimeMs - request.budgets.maxBoundaryLookbackMs) /
@@ -409,204 +556,588 @@ function applyRows(
 	}
 }
 
-export function reconstructCryptoHftDataOrderBooks(
-	request: MarketDataVendorBackfillRequest,
-	inputRows: readonly CryptoHftDataOrderBookRow[],
-	profile: CryptoHftDataCapabilityProfile = CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
-): ReconstructedCryptoHftBook[] {
-	const rows = inputRows
-		.map((row, index) => ({
-			...validatedRow(request, row),
-			originalIndex: index,
-		}))
-		.sort(
-			(left, right) =>
-				left.eventTimeMs - right.eventTimeMs ||
-				left.originalIndex - right.originalIndex,
-		);
-	const groups: Array<ReturnType<typeof validatedRow>[]> = [];
-	for (const row of rows) {
-		const current = groups.at(-1);
-		if (
-			!current ||
-			groupKey(current[0] as ReturnType<typeof validatedRow>, profile) !==
-				groupKey(row, profile)
-		) {
-			groups.push([row]);
-		} else {
-			current.push(row);
+class StreamingBookReconstructor {
+	private readonly targets: readonly number[];
+	private readonly samples: ReconstructedCryptoHftBook[] = [];
+	private readonly clockObservations: Array<{
+		targetTimeMs: number;
+		sourceTimeMs?: number;
+		asofLagMs?: number;
+	}> = [];
+	private readonly missingSamples: Array<{
+		targetTimeMs: number;
+		sourceTimeMs?: number;
+		asofLagMs?: number;
+	}> = [];
+	private readonly sequenceGaps: Array<{
+		eventTimeMs: number;
+		expectedPreviousSequence: string;
+		observedPreviousSequence: string;
+		observedFinalSequence: string;
+	}> = [];
+	private readonly policyNeutralTape: PolicyNeutralCryptoHftBookState[] = [];
+	private tapeInitializationEmitted = false;
+	private targetIndex = 0;
+	private state: BookState | undefined;
+	private previousFinalUpdateId: bigint | undefined;
+
+	constructor(
+		private readonly request: MarketDataVendorBackfillRequest,
+		private readonly profile: CryptoHftDataCapabilityProfile,
+		private readonly observer?: ReconstructionObservationSink,
+		private readonly options: { collectPolicyNeutralTape?: boolean } = {},
+	) {
+		this.targets = [...request.requiredClockTargetsMs];
+	}
+
+	push(inputRows: readonly CryptoHftDataOrderBookRow[]): void {
+		for (const group of this.inputGroups(inputRows)) {
+			if (!this.processGroup(group)) return;
 		}
 	}
 
-	const earliestTargetTimeMs = Math.min(...request.requiredClockTargetsMs);
-	const latestTargetTimeMs = Math.max(...request.requiredClockTargetsMs);
-	const anchorIndex = groups.findIndex((group) => {
-		const first = group[0] as ReturnType<typeof validatedRow>;
-		return (
-			first.event_type === "snapshot" &&
-			first.eventTimeMs <= earliestTargetTimeMs
-		);
-	});
-	if (anchorIndex < 0) {
-		throw new CryptoHftDataError("update_before_snapshot");
+	async pushPolicyNeutralTape(
+		inputRows: readonly CryptoHftDataOrderBookRow[],
+		sink: PolicyNeutralTapeSink,
+		onStatesWritten: (count: number) => void,
+	): Promise<void> {
+		for (const group of this.inputGroups(inputRows)) {
+			if (!this.processGroup(group)) break;
+			if (this.policyNeutralTape.length >= SOURCE_TAPE_MAX_STATES_PER_YIELD) {
+				const states = this.drainPolicyNeutralTape();
+				const written = await writePolicyNeutralTapeStates(sink, states);
+				onStatesWritten(written);
+			}
+		}
+		const states = this.drainPolicyNeutralTape();
+		if (states.length > 0) {
+			const written = await writePolicyNeutralTapeStates(sink, states);
+			onStatesWritten(written);
+		}
 	}
 
-	let state: BookState | undefined;
-	let previousFinalUpdateId: bigint | undefined;
-	const states: BookState[] = [];
-	for (const group of groups.slice(anchorIndex)) {
-		const first = group[0] as ReturnType<typeof validatedRow>;
-		if (first.eventTimeMs > latestTargetTimeMs) break;
-		if (first.event_type === "snapshot") {
-			const sequence = snapshotSequence(first, profile);
-			for (const row of group) {
-				if (snapshotSequence(row, profile) !== sequence) {
-					throw new CryptoHftDataError("ambiguous_snapshot_group");
-				}
-			}
-			if (
-				profile.sequenceSemantics === "binance_u_U_pu" &&
-				previousFinalUpdateId !== undefined &&
-				BigInt(sequence) < previousFinalUpdateId
-			) {
-				throw new CryptoHftDataError("snapshot_sequence_regression");
-			}
-			state = {
-				bids: new Map(),
-				asks: new Map(),
-				sequence,
-				sourceTimeMs: first.eventTimeMs,
-				receivedTimeMs: Math.max(
-					...group.map(({ receivedTimeMs }) => receivedTimeMs),
-				),
-				datasetObjectIdentity: first.dataset_object_identity,
-				datasetObjectChecksum: first.dataset_object_checksum,
-			};
-			applyRows(state, group);
-			previousFinalUpdateId = BigInt(sequence);
-		} else {
-			if (!state || previousFinalUpdateId === undefined) {
-				throw new CryptoHftDataError("update_before_snapshot");
-			}
-			const finalUpdate = BigInt(
-				unsignedString(
-					first.final_update_id,
-					"final_update_id",
-					true,
-				) as string,
-			);
-			if (profile.sequenceSemantics === "okx_seq_id_prev_seq_id") {
-				if (
-					!absent(first.first_update_id) ||
-					!absent(first.prev_final_update_id)
-				) {
-					throw new CryptoHftDataError("ambiguous_update_group");
-				}
-				const previous = unsignedString(
-					first.last_update_id,
-					"last_update_id",
-					true,
-				) as string;
-				for (const row of group) {
-					if (
-						!absent(row.first_update_id) ||
-						!absent(row.prev_final_update_id) ||
-						unsignedString(row.final_update_id, "final_update_id", true) !==
-							finalUpdate.toString() ||
-						unsignedString(row.last_update_id, "last_update_id", true) !==
-							previous
-					) {
-						throw new CryptoHftDataError("ambiguous_update_group");
-					}
-				}
-				if (BigInt(previous) !== previousFinalUpdateId) {
-					throw new CryptoHftDataError("update_chain_gap");
-				}
-			} else {
-				const firstUpdate = BigInt(
-					unsignedString(
-						first.first_update_id,
-						"first_update_id",
-						true,
-					) as string,
-				);
-				const previous = unsignedString(
-					first.prev_final_update_id,
-					"prev_final_update_id",
-				);
-				for (const row of group) {
-					if (
-						unsignedString(row.first_update_id, "first_update_id", true) !==
-							firstUpdate.toString() ||
-						unsignedString(row.final_update_id, "final_update_id", true) !==
-							finalUpdate.toString() ||
-						unsignedString(row.prev_final_update_id, "prev_final_update_id") !==
-							previous
-					) {
-						throw new CryptoHftDataError("ambiguous_update_group");
-					}
-				}
-				const expected = previousFinalUpdateId + 1n;
-				if (
-					firstUpdate > expected ||
-					finalUpdate < expected ||
-					(previous !== undefined && BigInt(previous) !== previousFinalUpdateId)
-				) {
-					throw new CryptoHftDataError("update_chain_gap");
-				}
-			}
-			applyRows(state, group);
-			state.sequence = finalUpdate.toString();
-			state.sourceTimeMs = first.eventTimeMs;
-			state.receivedTimeMs = Math.max(
-				...group.map(({ receivedTimeMs }) => receivedTimeMs),
-			);
-			state.datasetObjectIdentity = first.dataset_object_identity;
-			state.datasetObjectChecksum = first.dataset_object_checksum;
-			previousFinalUpdateId = finalUpdate;
-		}
-		if (state) {
-			states.push({
-				...state,
-				bids: new Map(state.bids),
-				asks: new Map(state.asks),
+	private inputGroups(
+		inputRows: readonly CryptoHftDataOrderBookRow[],
+	): Array<ReturnType<typeof validatedRow>[]> {
+		const observedObjects = new Map<string, SourceObjectEvidence>();
+		for (const row of inputRows) {
+			const existing = observedObjects.get(row.dataset_object_identity);
+			observedObjects.set(row.dataset_object_identity, {
+				identity: row.dataset_object_identity,
+				checksums: [
+					...new Set([
+						...(existing?.checksums ?? []),
+						row.dataset_object_checksum,
+					]),
+				].sort(),
+				attempt_count: 1,
+				quarantined: false,
 			});
 		}
+		for (const object of observedObjects.values()) {
+			this.observe({ type: "provider_object_boundary", object });
+			if (object.checksums.length > 1) {
+				this.observe({
+					type: "provider_object_checksum_conflict",
+					object: { ...object, quarantined: true },
+					affected_target_times_ms: this.targets.slice(this.targetIndex),
+				});
+			}
+		}
+		const rows = inputRows
+			.map((row, index) => ({
+				...validatedRow(this.request, row),
+				originalIndex: index,
+			}))
+			.sort(
+				(left, right) =>
+					left.eventTimeMs - right.eventTimeMs ||
+					left.originalIndex - right.originalIndex,
+			);
+		const groups: Array<ReturnType<typeof validatedRow>[]> = [];
+		for (const row of rows) {
+			const current = groups.at(-1);
+			if (
+				!current ||
+				groupKey(
+					current[0] as ReturnType<typeof validatedRow>,
+					this.profile,
+				) !== groupKey(row, this.profile)
+			) {
+				groups.push([row]);
+			} else {
+				current.push(row);
+			}
+		}
+		return groups;
 	}
 
-	const samples: ReconstructedCryptoHftBook[] = [];
-	for (const targetTimeMs of request.requiredClockTargetsMs) {
-		let prior: BookState | undefined;
-		for (const candidate of states) {
-			if (candidate.sourceTimeMs > targetTimeMs) break;
-			prior = candidate;
+	private processGroup(group: ReturnType<typeof validatedRow>[]): boolean {
+		const first = group[0] as ReturnType<typeof validatedRow>;
+		this.sampleBefore(first.eventTimeMs);
+		if (
+			this.options.collectPolicyNeutralTape &&
+			first.eventTimeMs >= this.request.window.endTimeMs
+		) {
+			return false;
 		}
 		if (
-			!prior ||
-			targetTimeMs - prior.sourceTimeMs > request.maxPriorAsOfLagMs
+			this.options.collectPolicyNeutralTape &&
+			!this.tapeInitializationEmitted &&
+			first.eventTimeMs >= this.request.window.startTimeMs &&
+			this.state
 		) {
-			throw new CryptoHftDataError("required_clock_coverage_insufficient");
+			this.capturePolicyNeutralState("initialization");
 		}
-		const bids = sortedSide(prior.bids, "bid").slice(0, request.depth);
-		const asks = sortedSide(prior.asks, "ask").slice(0, request.depth);
+		if (
+			this.targetIndex >= this.targets.length &&
+			!this.options.collectPolicyNeutralTape
+		) {
+			return false;
+		}
+		if (first.event_type === "snapshot") this.applySnapshot(group);
+		else if (this.state) this.applyUpdate(group);
+		if (
+			this.options.collectPolicyNeutralTape &&
+			this.state &&
+			first.eventTimeMs >= this.request.window.startTimeMs &&
+			first.eventTimeMs < this.request.window.endTimeMs
+		) {
+			this.capturePolicyNeutralState(
+				this.tapeInitializationEmitted ? "change" : "initialization",
+			);
+		}
+		return true;
+	}
+
+	drainPolicyNeutralTape(): PolicyNeutralCryptoHftBookState[] {
+		return this.policyNeutralTape.splice(0, this.policyNeutralTape.length);
+	}
+
+	private capturePolicyNeutralState(
+		tapeState: PolicyNeutralCryptoHftBookState["tapeState"],
+	): void {
+		const state = this.state;
+		if (!state) return;
+		const bids = sortedSide(state.bids, "bid").slice(0, this.request.depth);
+		const asks = sortedSide(state.asks, "ask").slice(0, this.request.depth);
 		if (bids.length === 0 || asks.length === 0) {
 			throw new CryptoHftDataError("book_side_missing");
 		}
 		if ((bids[0]?.[0] as number) >= (asks[0]?.[0] as number)) {
 			throw new CryptoHftDataError("book_crossed_or_locked");
 		}
-		samples.push({
-			targetTimeMs,
-			sourceTimeMs: prior.sourceTimeMs,
-			receivedTimeMs: prior.receivedTimeMs,
-			sequence: prior.sequence,
+		this.policyNeutralTape.push({
+			tapeState,
+			targetTimeMs: state.sourceTimeMs,
+			sourceTimeMs: state.sourceTimeMs,
+			receivedTimeMs: state.receivedTimeMs,
+			sequence: state.sequence,
 			bids,
 			asks,
-			datasetObjectIdentity: prior.datasetObjectIdentity,
-			datasetObjectChecksum: prior.datasetObjectChecksum,
+			datasetObjectIdentity: state.datasetObjectIdentity,
+			datasetObjectChecksum: state.datasetObjectChecksum,
+		});
+		this.tapeInitializationEmitted = true;
+	}
+
+	private observe(observation: ReconstructionObservation): void {
+		try {
+			this.observer?.observe(observation);
+		} catch {
+			// Qualification evidence must never affect production reconstruction.
+		}
+	}
+
+	private objectEvidence(state: BookState): SourceObjectEvidence {
+		return {
+			identity: state.datasetObjectIdentity,
+			checksums: [state.datasetObjectChecksum],
+			attempt_count: 1,
+			quarantined: false,
+		};
+	}
+
+	finish(): ReconstructedCryptoHftBook[] {
+		this.sampleBefore(Number.POSITIVE_INFINITY);
+		if (this.missingSamples.length > 0) {
+			throw new CryptoHftDataError(
+				this.sequenceGaps.length > 0
+					? "update_chain_gap"
+					: this.missingSamples.some((sample) => sample.asofLagMs !== undefined)
+						? "required_clock_coverage_insufficient"
+						: "update_before_snapshot",
+				{
+					...this.sequenceGapDiagnostics(),
+					...this.missingClockDiagnostics(),
+				},
+			);
+		}
+		return this.samples;
+	}
+
+	finishPolicyNeutralTape(): PolicyNeutralCryptoHftBookState[] {
+		this.finish();
+		if (this.sequenceGaps.length > 0) {
+			throw new CryptoHftDataError("update_chain_gap", {
+				...this.sequenceGapDiagnostics(),
+			});
+		}
+		if (!this.tapeInitializationEmitted && this.state) {
+			this.capturePolicyNeutralState("initialization");
+		}
+		if (!this.tapeInitializationEmitted) {
+			throw new CryptoHftDataError("update_before_snapshot");
+		}
+		return this.policyNeutralTape;
+	}
+
+	async finishPolicyNeutralTapeToSink(
+		sink: PolicyNeutralTapeSink,
+		onStatesWritten: (count: number) => void,
+	): Promise<void> {
+		this.finishPolicyNeutralTape();
+		const states = this.drainPolicyNeutralTape();
+		if (states.length > 0) {
+			const written = await writePolicyNeutralTapeStates(sink, states);
+			onStatesWritten(written);
+		}
+	}
+
+	private missingClockDiagnostics(): Record<string, string | number | boolean> {
+		if (this.missingSamples.length === 0) return {};
+		const first = this
+			.missingSamples[0] as (typeof this.missingSamples)[number];
+		const last = this.missingSamples.at(
+			-1,
+		) as (typeof this.missingSamples)[number];
+		const observedLags = this.missingSamples.flatMap((sample) =>
+			sample.asofLagMs === undefined ? [] : [sample.asofLagMs],
+		);
+		const missingDates = [
+			...new Set(
+				this.missingSamples.map((sample) =>
+					new Date(sample.targetTimeMs).toISOString().slice(0, 10),
+				),
+			),
+		].join(",");
+		const coverageByLag = Object.fromEntries(
+			DIAGNOSTIC_LAG_THRESHOLDS_MS.map((threshold) => [
+				`covered_target_count_lag_${threshold}_ms`,
+				this.clockObservations.filter(
+					(observation) =>
+						observation.sourceTimeMs !== undefined &&
+						observation.sourceTimeMs <= observation.targetTimeMs &&
+						(observation.asofLagMs as number) <= threshold,
+				).length,
+			]),
+		);
+		return {
+			target_time_ms: first.targetTimeMs,
+			...(first.sourceTimeMs === undefined
+				? {}
+				: { source_time_ms: first.sourceTimeMs }),
+			...(first.asofLagMs === undefined
+				? {}
+				: { asof_lag_ms: first.asofLagMs }),
+			max_prior_asof_lag_ms: this.request.maxPriorAsOfLagMs,
+			missing_target_count: this.missingSamples.length,
+			covered_target_count: this.samples.length,
+			first_missing_target_time_ms: first.targetTimeMs,
+			last_missing_target_time_ms: last.targetTimeMs,
+			...(observedLags.length === 0
+				? {}
+				: { max_observed_asof_lag_ms: Math.max(...observedLags) }),
+			missing_target_dates_utc: missingDates,
+			total_target_count: this.clockObservations.length,
+			unanchored_target_count: this.clockObservations.filter(
+				(observation) => observation.sourceTimeMs === undefined,
+			).length,
+			future_state_target_count: this.clockObservations.filter(
+				(observation) =>
+					observation.sourceTimeMs !== undefined &&
+					observation.sourceTimeMs > observation.targetTimeMs,
+			).length,
+			...coverageByLag,
+		};
+	}
+
+	private sequenceGapDiagnostics(): Record<string, string | number | boolean> {
+		if (this.sequenceGaps.length === 0) return {};
+		const first = this.sequenceGaps[0] as (typeof this.sequenceGaps)[number];
+		const last = this.sequenceGaps.at(-1) as (typeof this.sequenceGaps)[number];
+		return {
+			event_time_ms: first.eventTimeMs,
+			expected_previous_sequence: first.expectedPreviousSequence,
+			observed_previous_sequence: first.observedPreviousSequence,
+			observed_final_sequence: first.observedFinalSequence,
+			sequence_gap_count: this.sequenceGaps.length,
+			first_sequence_gap_event_time_ms: first.eventTimeMs,
+			last_sequence_gap_event_time_ms: last.eventTimeMs,
+		};
+	}
+
+	private sampleBefore(nextEventTimeMs: number): void {
+		while (
+			this.targetIndex < this.targets.length &&
+			(this.targets[this.targetIndex] as number) < nextEventTimeMs
+		) {
+			this.sample(this.targets[this.targetIndex] as number);
+			this.targetIndex += 1;
+		}
+	}
+
+	private sample(targetTimeMs: number): void {
+		const state = this.state;
+		this.clockObservations.push({
+			targetTimeMs,
+			...(state
+				? {
+						sourceTimeMs: state.sourceTimeMs,
+						asofLagMs: Math.abs(targetTimeMs - state.sourceTimeMs),
+					}
+				: {}),
+		});
+		if (
+			!state ||
+			state.sourceTimeMs > targetTimeMs ||
+			targetTimeMs - state.sourceTimeMs > this.request.maxPriorAsOfLagMs
+		) {
+			this.observe({
+				type: "required_clock_sample",
+				target_time_ms: targetTimeMs,
+				source_time_ms: state?.sourceTimeMs ?? null,
+				lag_ms: state ? Math.abs(targetTimeMs - state.sourceTimeMs) : null,
+				status: !state
+					? "unanchored"
+					: state.sourceTimeMs > targetTimeMs
+						? "future"
+						: "stale",
+				object: state ? this.objectEvidence(state) : null,
+			});
+			this.missingSamples.push({
+				targetTimeMs,
+				...(state
+					? {
+							sourceTimeMs: state.sourceTimeMs,
+							asofLagMs: Math.abs(targetTimeMs - state.sourceTimeMs),
+						}
+					: {}),
+			});
+			return;
+		}
+		this.observe({
+			type: "required_clock_sample",
+			target_time_ms: targetTimeMs,
+			source_time_ms: state.sourceTimeMs,
+			lag_ms: targetTimeMs - state.sourceTimeMs,
+			status: "covered",
+			object: this.objectEvidence(state),
+		});
+		const bids = sortedSide(state.bids, "bid").slice(0, this.request.depth);
+		const asks = sortedSide(state.asks, "ask").slice(0, this.request.depth);
+		if (bids.length === 0 || asks.length === 0) {
+			throw new CryptoHftDataError("book_side_missing");
+		}
+		if ((bids[0]?.[0] as number) >= (asks[0]?.[0] as number)) {
+			throw new CryptoHftDataError("book_crossed_or_locked");
+		}
+		this.samples.push({
+			targetTimeMs,
+			sourceTimeMs: state.sourceTimeMs,
+			receivedTimeMs: state.receivedTimeMs,
+			sequence: state.sequence,
+			bids,
+			asks,
+			datasetObjectIdentity: state.datasetObjectIdentity,
+			datasetObjectChecksum: state.datasetObjectChecksum,
 		});
 	}
-	return samples;
+
+	private applySnapshot(group: ReturnType<typeof validatedRow>[]): void {
+		const first = group[0] as ReturnType<typeof validatedRow>;
+		const reanchored = this.state === undefined && this.sequenceGaps.length > 0;
+		const sequence = snapshotSequence(first, this.profile);
+		if (group.some((row) => snapshotSequence(row, this.profile) !== sequence)) {
+			throw new CryptoHftDataError("ambiguous_snapshot_group");
+		}
+		if (
+			this.profile.sequenceSemantics === "binance_u_U_pu" &&
+			this.previousFinalUpdateId !== undefined &&
+			BigInt(sequence) < this.previousFinalUpdateId
+		) {
+			throw new CryptoHftDataError("snapshot_sequence_regression");
+		}
+		this.state = {
+			bids: new Map(),
+			asks: new Map(),
+			sequence,
+			sourceTimeMs: first.eventTimeMs,
+			receivedTimeMs: Math.max(...group.map((row) => row.receivedTimeMs)),
+			datasetObjectIdentity: first.dataset_object_identity,
+			datasetObjectChecksum: first.dataset_object_checksum,
+		};
+		applyRows(this.state, group);
+		this.previousFinalUpdateId = BigInt(sequence);
+		this.observe({
+			type: reanchored ? "reanchor" : "snapshot_anchor",
+			anchor: {
+				event_time_ms: first.eventTimeMs,
+				sequence,
+				object_identity: first.dataset_object_identity,
+				object_checksum: first.dataset_object_checksum,
+			},
+		});
+	}
+
+	private applyUpdate(group: ReturnType<typeof validatedRow>[]): void {
+		const first = group[0] as ReturnType<typeof validatedRow>;
+		const state = this.state as BookState;
+		const previousFinalUpdateId = this.previousFinalUpdateId as bigint;
+		const finalUpdate = BigInt(
+			unsignedString(first.final_update_id, "final_update_id", true) as string,
+		);
+		if (this.profile.sequenceSemantics === "okx_seq_id_prev_seq_id") {
+			if (
+				!absent(first.first_update_id) ||
+				!absent(first.prev_final_update_id)
+			) {
+				throw new CryptoHftDataError("ambiguous_update_group");
+			}
+			const previous = unsignedString(
+				first.last_update_id,
+				"last_update_id",
+				true,
+			) as string;
+			if (
+				group.some(
+					(row) =>
+						!absent(row.first_update_id) ||
+						!absent(row.prev_final_update_id) ||
+						unsignedString(row.final_update_id, "final_update_id", true) !==
+							finalUpdate.toString() ||
+						unsignedString(row.last_update_id, "last_update_id", true) !==
+							previous,
+				)
+			) {
+				throw new CryptoHftDataError("ambiguous_update_group");
+			}
+			if (BigInt(previous) !== previousFinalUpdateId) {
+				this.observe({
+					type: "sequence_discontinuity",
+					sequence: {
+						expected_previous: previousFinalUpdateId.toString(),
+						observed_previous: previous,
+						observed_final: finalUpdate.toString(),
+						event_time_ms: first.eventTimeMs,
+					},
+					object: {
+						identity: first.dataset_object_identity,
+						checksums: [first.dataset_object_checksum],
+						attempt_count: 1,
+						quarantined: false,
+					},
+				});
+				this.observe({
+					type: "invalidation",
+					event_time_ms: first.eventTimeMs,
+					reason: "update_chain_gap",
+				});
+				this.sequenceGaps.push({
+					eventTimeMs: first.eventTimeMs,
+					expectedPreviousSequence: previousFinalUpdateId.toString(),
+					observedPreviousSequence: previous,
+					observedFinalSequence: finalUpdate.toString(),
+				});
+				this.state = undefined;
+				this.previousFinalUpdateId = undefined;
+				return;
+			}
+		} else {
+			const firstUpdate = BigInt(
+				unsignedString(
+					first.first_update_id,
+					"first_update_id",
+					true,
+				) as string,
+			);
+			const previous = unsignedString(
+				first.prev_final_update_id,
+				"prev_final_update_id",
+			);
+			if (
+				group.some(
+					(row) =>
+						unsignedString(row.first_update_id, "first_update_id", true) !==
+							firstUpdate.toString() ||
+						unsignedString(row.final_update_id, "final_update_id", true) !==
+							finalUpdate.toString() ||
+						unsignedString(row.prev_final_update_id, "prev_final_update_id") !==
+							previous,
+				)
+			) {
+				throw new CryptoHftDataError("ambiguous_update_group");
+			}
+			const expected = previousFinalUpdateId + 1n;
+			if (
+				firstUpdate > expected ||
+				finalUpdate < expected ||
+				(previous !== undefined && BigInt(previous) !== previousFinalUpdateId)
+			) {
+				throw new CryptoHftDataError("update_chain_gap");
+			}
+		}
+		applyRows(state, group);
+		state.sequence = finalUpdate.toString();
+		state.sourceTimeMs = first.eventTimeMs;
+		state.receivedTimeMs = Math.max(...group.map((row) => row.receivedTimeMs));
+		state.datasetObjectIdentity = first.dataset_object_identity;
+		state.datasetObjectChecksum = first.dataset_object_checksum;
+		this.previousFinalUpdateId = finalUpdate;
+	}
+}
+
+export function reconstructCryptoHftDataOrderBooks(
+	request: MarketDataVendorBackfillRequest,
+	inputRows: readonly CryptoHftDataOrderBookRow[],
+	profile: CryptoHftDataCapabilityProfile = CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
+	observer?: ReconstructionObservationSink,
+): ReconstructedCryptoHftBook[] {
+	const reconstructor = new StreamingBookReconstructor(
+		request,
+		profile,
+		observer,
+	);
+	reconstructor.push(inputRows);
+	return reconstructor.finish();
+}
+
+/**
+ * Qualification-only full-window policy-neutral source projection.
+ * It uses the production OKX grouping, validation, sequence and mutation path,
+ * but continues after the submitted clock is exhausted and emits no Maker
+ * policy decisions.
+ */
+export function reconstructCryptoHftDataPolicyNeutralTape(
+	request: MarketDataVendorBackfillRequest,
+	inputRows: readonly CryptoHftDataOrderBookRow[],
+	profile: CryptoHftDataCapabilityProfile,
+	observer?: ReconstructionObservationSink,
+): PolicyNeutralCryptoHftBookState[] {
+	if (
+		profile.sequenceSemantics !== "okx_seq_id_prev_seq_id" ||
+		request.depth !== 100
+	) {
+		throw new CryptoHftDataError("source_tape_scope_unsupported");
+	}
+	const reconstructor = new StreamingBookReconstructor(
+		request,
+		profile,
+		observer,
+		{ collectPolicyNeutralTape: true },
+	);
+	reconstructor.push(inputRows);
+	return reconstructor.finishPolicyNeutralTape();
 }
 
 function sha256Bytes(bytes: Uint8Array): string {
@@ -624,12 +1155,14 @@ export async function decodeCryptoHftParquetZstd(
 	return parquetReadObjects({ file: buffer });
 }
 
-type CryptoHftDataAdapterOptions = {
+export type CryptoHftDataAdapterOptions = {
 	baseUrl?: string;
 	fetch?: typeof fetch;
 	nowMs?: () => number;
 	decode?: (bytes: Uint8Array) => Promise<Record<string, unknown>[]>;
 	profiles?: readonly CryptoHftDataCapabilityProfile[];
+	observer?: ReconstructionObservationSink;
+	policyNeutralTapeSink?: PolicyNeutralTapeSink;
 };
 
 function parsedDatasetRow(
@@ -720,6 +1253,9 @@ export class CryptoHftDataAdapter {
 		bytes: Uint8Array,
 	) => Promise<Record<string, unknown>[]>;
 	private readonly profiles: readonly CryptoHftDataCapabilityProfile[];
+	private readonly observer?: ReconstructionObservationSink;
+	private readonly collectPolicyNeutralTape: boolean;
+	private readonly policyNeutralTapeSink?: PolicyNeutralTapeSink;
 
 	constructor(options: CryptoHftDataAdapterOptions = {}) {
 		this.baseUrl = options.baseUrl ?? CRYPTOHFTDATA_API_URL;
@@ -727,12 +1263,48 @@ export class CryptoHftDataAdapter {
 		this.nowMs = options.nowMs ?? Date.now;
 		this.decode = options.decode ?? decodeCryptoHftParquetZstd;
 		this.profiles = options.profiles ?? [];
+		this.observer = options.observer;
+		this.policyNeutralTapeSink = options.policyNeutralTapeSink;
+		this.collectPolicyNeutralTape = options.policyNeutralTapeSink !== undefined;
+	}
+
+	private observe(observation: ReconstructionObservation): void {
+		try {
+			this.observer?.observe(observation);
+		} catch {
+			// Evidence collection cannot alter acquisition or reconstruction.
+		}
 	}
 
 	capabilityFor(
 		request: MarketDataVendorBackfillRequest,
 	): ProviderCapability | undefined {
 		return cryptoHftDataCapabilityFor(request, this.profiles);
+	}
+
+	private findProfile(
+		request: MarketDataVendorBackfillRequest,
+		capability: ProviderCapability,
+	): CryptoHftDataCapabilityProfile | undefined {
+		return this.profiles.find(
+			(candidate) =>
+				candidate.exchange === request.scope.exchange.trim().toLowerCase() &&
+				candidate.tradingPair === request.scope.tradingPair &&
+				candidate.sourceSymbol === request.scope.sourceSymbol &&
+				candidate.marketType === request.scope.marketType &&
+				candidate.providerExchangeId === capability.providerExchangeId,
+		);
+	}
+
+	private profileFor(
+		request: MarketDataVendorBackfillRequest,
+		capability: ProviderCapability,
+	): CryptoHftDataCapabilityProfile {
+		const profile = this.findProfile(request, capability);
+		if (!profile) {
+			throw new CryptoHftDataError("profile_semantics_unavailable");
+		}
+		return profile;
 	}
 
 	async discoverSymbols(providerExchangeId: string): Promise<string[]> {
@@ -779,6 +1351,38 @@ export class CryptoHftDataAdapter {
 		capability: ProviderCapability,
 		credential: unknown,
 	): Promise<ProviderDataset<CryptoHftDataOrderBookRow>> {
+		let retainedStateCount = 0;
+		try {
+			const result = await this.acquireInternal(
+				request,
+				capability,
+				credential,
+				(count) => {
+					retainedStateCount += count;
+				},
+			);
+			return result;
+		} catch (error) {
+			if (this.policyNeutralTapeSink) {
+				const reason =
+					error instanceof CryptoHftDataError
+						? error.reason
+						: "source_tape_acquisition_failed";
+				await this.policyNeutralTapeSink
+					.abort({ reason, retainedStateCount })
+					.catch(() => {});
+			}
+			throw error;
+		}
+	}
+
+	private async acquireInternal(
+		request: MarketDataVendorBackfillRequest,
+		capability: ProviderCapability,
+		credential: unknown,
+		onTapeStatesWritten: (count: number) => void,
+	): Promise<ProviderDataset<CryptoHftDataOrderBookRow>> {
+		const profile = this.findProfile(request, capability);
 		const apiKey =
 			credential && typeof credential === "object"
 				? (credential as { apiKey?: unknown }).apiKey
@@ -786,11 +1390,24 @@ export class CryptoHftDataAdapter {
 		if (typeof apiKey !== "string" || apiKey.length === 0) {
 			throw new CryptoHftDataError("credentials_invalid");
 		}
-		const paths = enumerateCryptoHftDataObjects(
-			request,
-			capability.providerExchangeId,
-			capability.resolvedSymbol,
-		);
+		if (
+			this.collectPolicyNeutralTape &&
+			(profile?.sequenceSemantics !== "okx_seq_id_prev_seq_id" ||
+				request.depth !== 100)
+		) {
+			throw new CryptoHftDataError("source_tape_scope_unsupported");
+		}
+		const paths = this.policyNeutralTapeSink
+			? enumerateCryptoHftDataWindowObjects(
+					request,
+					capability.providerExchangeId,
+					capability.resolvedSymbol,
+				)
+			: enumerateCryptoHftDataObjects(
+					request,
+					capability.providerExchangeId,
+					capability.resolvedSymbol,
+				);
 		if (paths.length > request.budgets.maxFiles) {
 			throw new CryptoHftDataError("budget_max_files_exceeded");
 		}
@@ -807,58 +1424,222 @@ export class CryptoHftDataAdapter {
 
 		let totalBytes = 0;
 		let totalRows = 0;
+		let emittedTapeStateCount = 0;
 		const objects: ProviderObjectEvidence[] = [];
 		const rows: CryptoHftDataOrderBookRow[] = [];
+		const reconstructor =
+			profile?.sequenceSemantics === "okx_seq_id_prev_seq_id"
+				? new StreamingBookReconstructor(request, profile, this.observer, {
+						collectPolicyNeutralTape: this.collectPolicyNeutralTape,
+					})
+				: undefined;
+		const semanticHash = createHash("sha256");
+		let firstSemanticRow = true;
+		semanticHash.update("[");
 		for (const path of paths) {
-			if (this.nowMs() - started > request.budgets.maxDurationMs) {
-				throw new CryptoHftDataError("budget_max_duration_exceeded");
-			}
 			const endpoint = new URL("/download", this.baseUrl);
 			endpoint.searchParams.set("file", path);
-			const response = await this.request(endpoint, {
-				headers: { Authorization: `Bearer ${tokenBody.jwt_token}` },
-			});
-			if (!response.ok) throw new CryptoHftDataError("object_download_failed");
-			const declaredBytes = Number(response.headers.get("content-length"));
-			if (
-				Number.isFinite(declaredBytes) &&
-				totalBytes + declaredBytes > request.budgets.maxBytes
+			let accepted:
+				| {
+						object: ProviderObjectEvidence;
+						parsedRows: CryptoHftDataOrderBookRow[];
+				  }
+				| undefined;
+			let observedChecksum: string | undefined;
+			for (
+				let attempt = 1;
+				attempt <= PROVIDER_OBJECT_MAX_ATTEMPTS;
+				attempt += 1
 			) {
-				throw new CryptoHftDataError("budget_max_bytes_exceeded");
+				if (this.nowMs() - started > request.budgets.maxDurationMs) {
+					throw new CryptoHftDataError("budget_max_duration_exceeded");
+				}
+				try {
+					let response: Response;
+					try {
+						response = await this.request(endpoint, {
+							headers: { Authorization: `Bearer ${tokenBody.jwt_token}` },
+						});
+					} catch (error) {
+						throw providerObjectFailure(
+							error,
+							"provider_object_request_failed",
+							path,
+							"request",
+						);
+					}
+					if (!response.ok) {
+						throw providerObjectFailure(
+							new CryptoHftDataError("object_download_failed"),
+							"object_download_failed",
+							path,
+							"request",
+						);
+					}
+					const declaredBytes = Number(response.headers.get("content-length"));
+					if (
+						Number.isFinite(declaredBytes) &&
+						totalBytes + declaredBytes > request.budgets.maxBytes
+					) {
+						throw new CryptoHftDataError("budget_max_bytes_exceeded");
+					}
+					let bytes: Uint8Array;
+					try {
+						bytes = await readBoundedObject(
+							response,
+							request.budgets.maxBytes - totalBytes,
+						);
+					} catch (error) {
+						throw providerObjectFailure(
+							error,
+							"provider_object_read_failed",
+							path,
+							"read",
+						);
+					}
+					totalBytes += bytes.byteLength;
+					if (totalBytes > request.budgets.maxBytes) {
+						throw new CryptoHftDataError("budget_max_bytes_exceeded");
+					}
+					const checksum = sha256Bytes(bytes);
+					if (observedChecksum && observedChecksum !== checksum) {
+						this.observe({
+							type: "provider_object_checksum_conflict",
+							object: {
+								identity: path,
+								checksums: [observedChecksum, checksum].sort(),
+								attempt_count: attempt,
+								quarantined: true,
+							},
+							affected_target_times_ms: request.requiredClockTargetsMs,
+						});
+						throw new CryptoHftDataError("provider_object_checksum_conflict", {
+							dataset_object_identity: path,
+							failure_phase: "checksum",
+							attempt_count: attempt,
+							quarantined: true,
+						});
+					}
+					observedChecksum = checksum;
+					let decoded: Record<string, unknown>[];
+					try {
+						decoded = await this.decode(bytes);
+					} catch (error) {
+						throw providerObjectFailure(
+							error,
+							"provider_object_decode_failed",
+							path,
+							"decode",
+						);
+					}
+					if (totalRows + decoded.length > request.budgets.maxRows) {
+						throw new CryptoHftDataError("budget_max_rows_exceeded");
+					}
+					const object = {
+						identity: path,
+						checksum,
+						bytes: bytes.byteLength,
+						rows: decoded.length,
+					};
+					const parsedRows: CryptoHftDataOrderBookRow[] = [];
+					try {
+						for (const decodedRow of decoded) {
+							const parsed = parsedDatasetRow(decodedRow, object);
+							validatedRow(request, parsed);
+							parsedRows.push(parsed);
+						}
+					} catch (error) {
+						throw providerObjectFailure(
+							error,
+							"provider_object_validation_failed",
+							path,
+							"validate",
+						);
+					}
+					accepted = { object, parsedRows };
+					break;
+				} catch (error) {
+					const failure =
+						error instanceof CryptoHftDataError
+							? error
+							: providerObjectFailure(
+									error,
+									"provider_object_request_failed",
+									path,
+									"request",
+								);
+					if (
+						!RETRYABLE_PROVIDER_OBJECT_FAILURES.has(failure.reason) ||
+						attempt === PROVIDER_OBJECT_MAX_ATTEMPTS
+					) {
+						throw attempt === PROVIDER_OBJECT_MAX_ATTEMPTS &&
+							RETRYABLE_PROVIDER_OBJECT_FAILURES.has(failure.reason)
+							? quarantinedProviderObjectFailure(
+									failure,
+									attempt,
+									observedChecksum,
+								)
+							: failure;
+					}
+				}
 			}
-			const bytes = await readBoundedObject(
-				response,
-				request.budgets.maxBytes - totalBytes,
-			);
-			totalBytes += bytes.byteLength;
-			if (totalBytes > request.budgets.maxBytes) {
-				throw new CryptoHftDataError("budget_max_bytes_exceeded");
+			if (!accepted) {
+				throw new CryptoHftDataError("provider_object_acquisition_incomplete");
 			}
-			const decoded = await this.decode(bytes);
-			totalRows += decoded.length;
-			if (totalRows > request.budgets.maxRows) {
-				throw new CryptoHftDataError("budget_max_rows_exceeded");
+			totalRows += accepted.object.rows;
+			objects.push(accepted.object);
+			for (const parsed of accepted.parsedRows) {
+				semanticHash.update(firstSemanticRow ? "" : ",");
+				semanticHash.update(canonicalSerialize(parsed));
+				firstSemanticRow = false;
 			}
-			const object = {
-				identity: path,
-				checksum: sha256Bytes(bytes),
-				bytes: bytes.byteLength,
-				rows: decoded.length,
-			};
-			objects.push(object);
-			for (const decodedRow of decoded) {
-				const parsed = parsedDatasetRow(decodedRow, object);
-				validatedRow(request, parsed);
-				rows.push(parsed);
+			if (reconstructor && this.policyNeutralTapeSink) {
+				await reconstructor.pushPolicyNeutralTape(
+					accepted.parsedRows,
+					this.policyNeutralTapeSink,
+					(written) => {
+						emittedTapeStateCount += written;
+						onTapeStatesWritten(written);
+					},
+				);
+			} else if (reconstructor) {
+				reconstructor.push(accepted.parsedRows);
+			} else {
+				rows.push(...accepted.parsedRows);
 			}
 		}
 		if (this.nowMs() - started > request.budgets.maxDurationMs) {
 			throw new CryptoHftDataError("budget_max_duration_exceeded");
 		}
+		semanticHash.update("]");
+		const reconstructedBooks = reconstructor?.finish();
+		let policyNeutralTape: PolicyNeutralCryptoHftBookState[] | undefined;
+		if (this.policyNeutralTapeSink && reconstructor) {
+			await reconstructor.finishPolicyNeutralTapeToSink(
+				this.policyNeutralTapeSink,
+				(written) => {
+					emittedTapeStateCount += written;
+					onTapeStatesWritten(written);
+				},
+			);
+		} else if (this.collectPolicyNeutralTape) {
+			policyNeutralTape = reconstructor?.finishPolicyNeutralTape();
+		}
+		if (this.policyNeutralTapeSink) {
+			await this.policyNeutralTapeSink.complete({
+				expectedObjectIdentities: paths,
+				observedObjects: objects,
+				stateCount: emittedTapeStateCount,
+			});
+		}
 		return {
 			objects,
 			rows,
-			vendorSemanticDigest: sha256Canonical(rows),
+			reconstructedBooks,
+			...(policyNeutralTape && !this.policyNeutralTapeSink
+				? { policyNeutralTape }
+				: {}),
+			vendorSemanticDigest: semanticHash.digest("hex"),
 		};
 	}
 
@@ -868,22 +1649,14 @@ export class CryptoHftDataAdapter {
 		dataset: ProviderDataset,
 		captureBundleId: string,
 	): Promise<NormalizedBackfill> {
-		const profile = this.profiles.find(
-			(candidate) =>
-				candidate.exchange === request.scope.exchange.trim().toLowerCase() &&
-				candidate.tradingPair === request.scope.tradingPair &&
-				candidate.sourceSymbol === request.scope.sourceSymbol &&
-				candidate.marketType === request.scope.marketType &&
-				candidate.providerExchangeId === capability.providerExchangeId,
-		);
-		if (!profile) {
-			throw new CryptoHftDataError("profile_semantics_unavailable");
-		}
-		const samples = reconstructCryptoHftDataOrderBooks(
-			request,
-			dataset.rows as CryptoHftDataOrderBookRow[],
-			profile,
-		);
+		const profile = this.profileFor(request, capability);
+		const samples = dataset.reconstructedBooks
+			? (dataset.reconstructedBooks as ReconstructedCryptoHftBook[])
+			: reconstructCryptoHftDataOrderBooks(
+					request,
+					dataset.rows as CryptoHftDataOrderBookRow[],
+					profile,
+				);
 		const context: MarketCaptureContext = {
 			source: EXTERNAL_BACKFILL_SOURCE,
 			deploymentId: "market-data-vendor-backfill",
@@ -919,22 +1692,42 @@ export class CryptoHftDataAdapter {
 				receivedTimeMs: sample.receivedTimeMs,
 				checksumAlgorithm: CHECKSUM_ALGORITHM,
 			};
-			const canonical = buildCanonicalOrderBookRows({
-				context,
-				rawCapture,
-				depthLimit: request.depth,
-				constructionMode: request.constructionMode,
-				snapshot: {
-					bids: sample.bids,
-					asks: sample.asks,
-					timestamp: sample.sourceTimeMs,
-					receivedTimestamp: sample.receivedTimeMs,
-					exchange: request.scope.exchange,
-					symbol: request.scope.tradingPair,
+			let canonical: ReturnType<typeof buildCanonicalOrderBookRows>;
+			try {
+				canonical = buildCanonicalOrderBookRows({
+					context,
+					rawCapture,
 					depthLimit: request.depth,
-					sequence: sample.sequence,
-				},
-			});
+					constructionMode: request.constructionMode,
+					snapshot: {
+						bids: sample.bids,
+						asks: sample.asks,
+						timestamp: sample.sourceTimeMs,
+						receivedTimestamp: sample.receivedTimeMs,
+						exchange: request.scope.exchange,
+						symbol: request.scope.tradingPair,
+						depthLimit: request.depth,
+						sequence: sample.sequence,
+					},
+				});
+			} catch (error) {
+				const diagnostics = {
+					target_time_ms: sample.targetTimeMs,
+					source_time_ms: sample.sourceTimeMs,
+					dataset_object_identity: sample.datasetObjectIdentity,
+					failure_phase: "normalize",
+				};
+				if (error instanceof OrderBookValidationError) {
+					throw new CryptoHftDataError("canonical_orderbook_invalid", {
+						...diagnostics,
+						validation_reason: error.reason,
+					});
+				}
+				throw new CryptoHftDataError(
+					"canonical_normalization_failed",
+					diagnostics,
+				);
+			}
 			return [...canonical.levels, canonical.summary];
 		}) as BackfillArchiveRow[];
 		return {

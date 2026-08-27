@@ -4,6 +4,7 @@ import {
 	type ArchiveSelectionWire,
 	archiveSelectionCodec,
 	type BackfillArchiveRow,
+	BackfillRequestValidationError,
 	decodeBackfillRunDocuments,
 	EXTERNAL_BACKFILL_SOURCE,
 	type FinalBackfillStatus,
@@ -15,17 +16,20 @@ import {
 	type ProviderObjectEvidence,
 	promotionReceiptCodec,
 } from "./contracts";
-import { providerAcquisitionRequest } from "./cryptohftdata";
+import {
+	CryptoHftDataError,
+	providerAcquisitionRequest,
+} from "./cryptohftdata";
 import { jcsCanonicalize } from "./identity";
 import {
 	CAPABILITY_POLICY,
 	EFFECTIVE_ACQUISITION_POLICY_PIN,
 	EFFECTIVE_ADAPTER_POLICY_PIN,
-	LEGACY_RESOURCE_POLICY,
 	RESOURCE_POLICY,
 } from "./manifests";
 import {
 	finalizePromotionReceipt,
+	promotionReceiptMatchesCurrentPolicies,
 	promotionReceiptToArchiveRow,
 } from "./promotion";
 import {
@@ -38,6 +42,7 @@ export type ProviderDataset<Row = unknown> = {
 	objects: ProviderObjectEvidence[];
 	vendorSemanticDigest: string;
 	rows: Row[];
+	reconstructedBooks?: unknown[];
 };
 
 export type NormalizedBackfill = {
@@ -249,6 +254,18 @@ function buildPromotionReceipt(
 	) {
 		throw new Error("decoded final-v1 request context is missing");
 	}
+	if (
+		request.productPins.capability_policy.policy_id !==
+			CAPABILITY_POLICY.policy_id ||
+		request.productPins.capability_policy.policy_sha256 !==
+			CAPABILITY_POLICY.policy_sha256 ||
+		request.productPins.resource_policy.policy_id !==
+			RESOURCE_POLICY.policy_id ||
+		request.productPins.resource_policy.policy_sha256 !==
+			RESOURCE_POLICY.policy_sha256
+	) {
+		throw new Error("promotion receipt requires the current policy tuple");
+	}
 	return finalizePromotionReceipt({
 		schema_id: PROMOTION_RECEIPT_SCHEMA_ID,
 		verified_at: new Date(verificationTimeMs).toISOString(),
@@ -318,6 +335,48 @@ function stableFailureReason(error: unknown, fallback: string): string {
 	return fallback;
 }
 
+function safeErrorClass(error: unknown): string {
+	if (error instanceof RangeError) return "RangeError";
+	if (error instanceof TypeError) return "TypeError";
+	if (error instanceof SyntaxError) return "SyntaxError";
+	return "Error";
+}
+
+function safeCryptoHftDiagnostics(
+	error: CryptoHftDataError,
+	failurePhase: string,
+): Record<string, string | number | boolean> {
+	const diagnostics = error.diagnostics;
+	if (
+		"dataset_object_identity" in diagnostics ||
+		"dataset_object_checksum" in diagnostics
+	) {
+		const safe: Record<string, string | number | boolean> = {};
+		for (const key of [
+			"dataset_object_identity",
+			"dataset_object_checksum",
+			"failure_phase",
+			"attempt_count",
+			"quarantined",
+		] as const) {
+			const value = diagnostics[key];
+			if (
+				typeof value === "string" ||
+				typeof value === "number" ||
+				typeof value === "boolean"
+			) {
+				safe[key] = value;
+			}
+		}
+		if (!("failure_phase" in safe)) safe.failure_phase = failurePhase;
+		return safe;
+	}
+	return {
+		...diagnostics,
+		failure_phase: diagnostics.failure_phase ?? failurePhase,
+	};
+}
+
 function assertArchivePreflight(
 	request: MarketDataVendorBackfillRequest,
 	resolution: ArchivePreflightResolution,
@@ -338,12 +397,16 @@ function assertArchivePreflight(
 		receiptById.set(receipt.receipt_id, receipt);
 	}
 	for (const bundle of selection.bundles) {
-		if (
-			bundle.capture_origin === "vendor_historical_backfill" &&
-			(!bundle.qualification ||
-				!receiptById.has(bundle.qualification.receipt_id))
-		) {
-			throw new Error("vendor selection lacks its validated stored receipt");
+		if (bundle.capture_origin === "vendor_historical_backfill") {
+			const receipt = bundle.qualification
+				? receiptById.get(bundle.qualification.receipt_id)
+				: undefined;
+			if (!receipt) {
+				throw new Error("vendor selection lacks its validated stored receipt");
+			}
+			if (!promotionReceiptMatchesCurrentPolicies(receipt)) {
+				throw new Error("vendor selection receipt is not current-qualified");
+			}
 		}
 	}
 	if (
@@ -387,19 +450,12 @@ function assertForwarderPreflight(
 function resourcePolicyScopeExceeded(
 	request: MarketDataVendorBackfillRequest,
 ): boolean {
-	const policy = [RESOURCE_POLICY, LEGACY_RESOURCE_POLICY].find(
-		(candidate) =>
-			request.productPins?.resource_policy.policy_id === candidate.policy_id &&
-			request.productPins.resource_policy.policy_sha256 ===
-				candidate.policy_sha256,
-	);
-	if (!policy) return true;
 	return (
-		request.depth > policy.request_bounds.max_depth ||
+		request.depth > RESOURCE_POLICY.request_bounds.max_depth ||
 		request.window.endTimeMs - request.window.startTimeMs >
-			policy.request_bounds.max_window_ms ||
+			RESOURCE_POLICY.request_bounds.max_window_ms ||
 		request.requiredClockTargetsMs.length >
-			policy.request_bounds.max_required_events
+			RESOURCE_POLICY.request_bounds.max_required_events
 	);
 }
 
@@ -423,8 +479,12 @@ export async function runMarketDataVendorBackfill(
 			request: documents.request,
 			requiredClock: documents.requiredClock,
 		});
-	} catch {
-		return outcome(undefined, "request_invalid", "request_invalid");
+	} catch (error) {
+		return outcome(undefined, "request_invalid", "request_invalid", {
+			...(error instanceof BackfillRequestValidationError
+				? { reasonSubcode: error.reasonSubcode }
+				: {}),
+		});
 	}
 
 	let initialResolution: ArchivePreflightResolution;
@@ -471,7 +531,7 @@ export async function runMarketDataVendorBackfill(
 				CAPABILITY_POLICY.policy_sha256)
 	) {
 		return outcome(request, "capability_unsupported", "scope_unsupported", {
-			reasonSubcode: "fill_gaps_requires_capability_policy_v2",
+			reasonSubcode: "fill_gaps_requires_capability_policy_v3",
 		});
 	}
 
@@ -520,6 +580,7 @@ export async function runMarketDataVendorBackfill(
 
 	let dataset: ProviderDataset;
 	let normalized: NormalizedBackfill;
+	let failurePhase = "acquire";
 	try {
 		const acquisitionRequest = providerAcquisitionRequest(request);
 		dataset = await dependencies.providers.acquire(
@@ -528,6 +589,7 @@ export async function runMarketDataVendorBackfill(
 			credential,
 		);
 		const bundleId = captureBundleId(request, capability, dataset);
+		failurePhase = "normalize";
 		normalized = await dependencies.providers.normalize(
 			acquisitionRequest,
 			capability,
@@ -545,6 +607,16 @@ export async function runMarketDataVendorBackfill(
 			reasonSubcode: reason.startsWith("budget_")
 				? "resource_limit_exceeded"
 				: reason,
+			...(error instanceof CryptoHftDataError
+				? {
+						diagnostics: safeCryptoHftDiagnostics(error, failurePhase),
+					}
+				: {
+						diagnostics: {
+							error_class: safeErrorClass(error),
+							failure_phase: failurePhase,
+						},
+					}),
 		});
 	}
 

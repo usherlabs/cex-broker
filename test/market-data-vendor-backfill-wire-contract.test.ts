@@ -4,33 +4,34 @@ import {
 	ARCHIVE_SELECTION_SCHEMA_ID,
 	archiveSelectionCodec,
 	BACKFILL_REQUEST_SCHEMA_ID,
-	BACKFILL_RESULT_SCHEMA_ID,
 	backfillRequestCodec,
-	backfillResultCodec,
 	createBackfillIdempotencyKey,
 	decodeBackfillRunDocuments,
 	finalizeArchiveSelection,
-	finalizeBackfillResult,
 	finalizeRequiredClock,
 	PROMOTION_RECEIPT_SCHEMA_ID,
 	promotionReceiptCodec,
 	REQUIRED_CLOCK_SCHEMA_ID,
 	requiredClockCodec,
 } from "../src/helpers/market-data-vendor-backfill/contracts";
-import conformanceFixturesJson from "../src/helpers/market-data-vendor-backfill/fixtures/conformance-v1.json" with {
-	type: "json",
-};
 import {
 	documentSha256,
 	jcsCanonicalize,
 	jcsSha256,
 } from "../src/helpers/market-data-vendor-backfill/identity";
 import {
+	BACKFILL_RESULT_SCHEMA_ID,
+	backfillResultCodec,
+	finalizeBackfillResult,
+} from "../src/helpers/market-data-vendor-backfill/legacy-contracts";
+import {
+	SCHEMA_ARTIFACTS,
+	SCHEMA_MANIFEST,
+} from "../src/helpers/market-data-vendor-backfill/legacy-manifests";
+import {
 	assertPolicyDocumentIdentity,
 	CAPABILITY_POLICY,
 	RESOURCE_POLICY,
-	SCHEMA_ARTIFACTS,
-	SCHEMA_MANIFEST,
 } from "../src/helpers/market-data-vendor-backfill/manifests";
 import { finalizePromotionReceipt } from "../src/helpers/market-data-vendor-backfill/promotion";
 
@@ -395,8 +396,7 @@ describe("final-v1 market-data vendor backfill wire contracts", () => {
 		);
 	});
 
-	test("publishes golden fixtures for every schema and identity family", () => {
-		expect(conformanceFixturesJson).toEqual(CONFORMANCE_FIXTURES);
+	test("builds current request, clock, selection, and receipt fixtures", () => {
 		requiredClockCodec.decode(CONFORMANCE_FIXTURES.documents.required_clock);
 		archiveSelectionCodec.decode(
 			CONFORMANCE_FIXTURES.documents.archive_selection,
@@ -405,7 +405,6 @@ describe("final-v1 market-data vendor backfill wire contracts", () => {
 		promotionReceiptCodec.decode(
 			CONFORMANCE_FIXTURES.documents.promotion_receipt,
 		);
-		backfillResultCodec.decode(CONFORMANCE_FIXTURES.documents.result);
 		expect(CONFORMANCE_FIXTURES.hashes.jcs_edge_vector_sha256).toBe(
 			jcsSha256(CONFORMANCE_FIXTURES.jcs_edge_vector),
 		);

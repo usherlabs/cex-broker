@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
+	CryptoHftDataError,
 	type CryptoHftDataOrderBookRow,
 	reconstructCryptoHftDataOrderBooks,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
@@ -209,6 +210,79 @@ describe("CryptoHFTData snapshot/update reconstruction", () => {
 		).toThrow("update_chain_gap");
 	});
 
+	test("reports safe sequence diagnostics for an OKX update-chain gap", () => {
+		let thrown: unknown;
+		try {
+			reconstructCryptoHftDataOrderBooks(
+				okxRequest(),
+				[
+					okxEvent({ side: "bid" }),
+					okxEvent({ side: "ask", price: "101" }),
+					okxEvent({
+						event_type: "update",
+						event_time: String(okxTarget),
+						received_time: String(BigInt(okxTarget + 1_000) * 1_000_000n),
+						final_update_id: "5",
+						last_update_id: "199",
+					}),
+				],
+				CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
+			);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(CryptoHftDataError);
+		expect((thrown as CryptoHftDataError).diagnostics).toMatchObject({
+			event_time_ms: okxTarget,
+			expected_previous_sequence: "200",
+			observed_previous_sequence: "199",
+			observed_final_sequence: "5",
+		});
+	});
+
+	test("re-anchors after an OKX gap when a complete snapshot precedes the next required clock", () => {
+		const gapTime = okxSnapshotTime + 10_000;
+		const recoveryTime = okxSnapshotTime + 20_000;
+		const reconstructed = reconstructCryptoHftDataOrderBooks(
+			okxRequest(),
+			[
+				okxEvent({ side: "bid" }),
+				okxEvent({ side: "ask", price: "101" }),
+				okxEvent({
+					event_type: "update",
+					event_time: String(gapTime),
+					received_time: String(BigInt(gapTime + 1_000) * 1_000_000n),
+					final_update_id: "201",
+					last_update_id: "199",
+				}),
+				okxEvent({
+					event_time: String(recoveryTime),
+					received_time: String(BigInt(recoveryTime + 1_000) * 1_000_000n),
+					final_update_id: "300",
+					last_update_id: "-1",
+					side: "bid",
+				}),
+				okxEvent({
+					event_time: String(recoveryTime),
+					received_time: String(BigInt(recoveryTime + 1_000) * 1_000_000n),
+					final_update_id: "300",
+					last_update_id: "-1",
+					side: "ask",
+					price: "101",
+				}),
+			],
+			CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
+		);
+
+		expect(reconstructed).toHaveLength(1);
+		expect(reconstructed[0]).toMatchObject({
+			targetTimeMs: okxTarget,
+			sourceTimeMs: recoveryTime,
+			sequence: "300",
+		});
+	});
+
 	test("rejects OKX rows when no snapshot anchors the earliest required clock", () => {
 		expect(() =>
 			reconstructCryptoHftDataOrderBooks(
@@ -299,5 +373,93 @@ describe("CryptoHFTData snapshot/update reconstruction", () => {
 		expect(() => reconstructCryptoHftDataOrderBooks(request, rows)).toThrow(
 			reason,
 		);
+	});
+
+	test("reports safe clock diagnostics for stale prior-as-of samples", () => {
+		let thrown: unknown;
+		try {
+			reconstructCryptoHftDataOrderBooks(
+				validBackfillRequest({
+					window: {
+						startTimeMs: target - 20_000,
+						endTimeMs: target + 1_000,
+					},
+					requiredClockTargetsMs: [target],
+					maxPriorAsOfLagMs: 5_000,
+				}),
+				[
+					event({ event_time: String(target - 10_000), side: "bid" }),
+					event({
+						event_time: String(target - 10_000),
+						side: "ask",
+						price: "101",
+					}),
+				],
+			);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(CryptoHftDataError);
+		expect((thrown as CryptoHftDataError).reason).toBe(
+			"required_clock_coverage_insufficient",
+		);
+		expect((thrown as CryptoHftDataError).diagnostics).toEqual({
+			target_time_ms: target,
+			source_time_ms: target - 10_000,
+			asof_lag_ms: 10_000,
+			max_prior_asof_lag_ms: 5_000,
+			missing_target_count: 1,
+			covered_target_count: 0,
+			first_missing_target_time_ms: target,
+			last_missing_target_time_ms: target,
+			max_observed_asof_lag_ms: 10_000,
+			missing_target_dates_utc: new Date(target).toISOString().slice(0, 10),
+			total_target_count: 1,
+			unanchored_target_count: 0,
+			future_state_target_count: 0,
+			covered_target_count_lag_1000_ms: 0,
+			covered_target_count_lag_2000_ms: 0,
+			covered_target_count_lag_5000_ms: 0,
+			covered_target_count_lag_10000_ms: 1,
+			covered_target_count_lag_30000_ms: 1,
+			covered_target_count_lag_60000_ms: 1,
+		});
+	});
+
+	test("scans the full clock before reporting insufficient coverage", () => {
+		const laterTarget = target + 20_000;
+		let thrown: unknown;
+		try {
+			reconstructCryptoHftDataOrderBooks(
+				validBackfillRequest({
+					window: {
+						startTimeMs: target - 20_000,
+						endTimeMs: laterTarget + 1_000,
+					},
+					requiredClockTargetsMs: [target, laterTarget],
+					maxPriorAsOfLagMs: 5_000,
+				}),
+				[
+					event({ event_time: String(target - 10_000), side: "bid" }),
+					event({
+						event_time: String(target - 10_000),
+						side: "ask",
+						price: "101",
+					}),
+				],
+			);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(CryptoHftDataError);
+		expect((thrown as CryptoHftDataError).diagnostics).toMatchObject({
+			missing_target_count: 2,
+			covered_target_count: 0,
+			first_missing_target_time_ms: target,
+			last_missing_target_time_ms: laterTarget,
+			max_observed_asof_lag_ms: 30_000,
+		});
 	});
 });

@@ -1,6 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -100,6 +106,15 @@ try {
 			"utf8",
 		),
 	);
+	if (
+		manifest.schema_id !==
+			"https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v3" ||
+		manifest.artifacts?.length !== 12
+	) {
+		throw new Error(
+			"tarball does not contain the closed manifest-v3 schema set",
+		);
+	}
 	const capabilityPolicy = JSON.parse(
 		readFileSync(
 			path.join(
@@ -118,6 +133,38 @@ try {
 			"utf8",
 		),
 	);
+	const sourceTapeCapability = JSON.parse(
+		readFileSync(
+			path.join(
+				extracted,
+				"dist/market-data-preparation/policies/source-tape-capability-v1.json",
+			),
+			"utf8",
+		),
+	);
+	const preparationRuntimePath = path.join(
+		extracted,
+		"dist/market-data-preparation.js",
+	);
+	const preparationDeclarationPath = path.join(
+		extracted,
+		"dist/market-data-preparation.d.ts",
+	);
+	const preparationLibrary = {
+		exported_subpath: "@usherlabs/cex-broker/market-data-preparation",
+		runtime_entry_sha256: sha256(readFileSync(preparationRuntimePath)),
+		declaration_sha256: sha256(readFileSync(preparationDeclarationPath)),
+		operations: [
+			{
+				symbol: "runMarketDataSourceTape",
+				operation_id: "market-data-source-tape/v1",
+			},
+			{
+				symbol: "runMarketDataRequiredClockQualification",
+				operation_id: "market-data-required-clock-qualification/v1",
+			},
+		],
+	};
 	const executablePins = [
 		{
 			product_id: "market-data-vendor-backfill",
@@ -126,7 +173,7 @@ try {
 		},
 		{
 			product_id: "cex-canonical-orderbook-export",
-			product_version: "cex-canonical-orderbook-export/v1",
+			product_version: "cex-canonical-orderbook-export/v2",
 			relative_path: "dist/commands/cex-canonical-orderbook-export.js",
 		},
 	].map((pin) => ({
@@ -135,6 +182,36 @@ try {
 			readFileSync(path.join(extracted, pin.relative_path)),
 		),
 	}));
+	const runtimeGitHeads = new Set();
+	for (const pin of executablePins) {
+		const attempt = path.join(temporaryRoot, `${pin.product_id}-identity`);
+		mkdirSync(attempt, { mode: 0o700 });
+		const requestPath = path.join(attempt, "request.json");
+		const resultPath = path.join(attempt, "result.json");
+		writeFileSync(requestPath, "{invalid-json\n", { mode: 0o600 });
+		execFileSync(
+			process.execPath,
+			[
+				path.join(extracted, pin.relative_path),
+				"run",
+				"--request",
+				requestPath,
+				"--result",
+				resultPath,
+			],
+			{ stdio: "pipe" },
+		);
+		const result = JSON.parse(readFileSync(resultPath, "utf8"));
+		runtimeGitHeads.add(result.producer?.package?.git_head);
+	}
+	if (
+		runtimeGitHeads.size !== 1 ||
+		![...runtimeGitHeads].every((value) => /^[0-9a-f]{40}$/.test(value)) ||
+		(registryComplete &&
+			![...runtimeGitHeads].includes(options.get("npm-git-head")))
+	) {
+		throw new Error("npm gitHead and runtime producer git heads disagree");
+	}
 	const evidence = {
 		schema_id: "cex-market-data-preparation-release-evidence/v1",
 		status: registryComplete
@@ -146,6 +223,7 @@ try {
 			candidate_tarball_sha256: tarballSha256,
 		},
 		executables: executablePins,
+		preparation_library: preparationLibrary,
 		schema_manifest: {
 			schema_id: manifest.schema_id,
 			manifest_sha256: manifest.manifest_sha256,
@@ -179,7 +257,7 @@ try {
 		const integrity = options.get("registry-integrity");
 		const npmGitHead = options.get("npm-git-head");
 		const productPin = {
-			schema_id: "cex-market-data-preparation-product-pin/v1",
+			schema_id: "cex-market-data-preparation-product-pin/v2",
 			package: {
 				name: "@usherlabs/cex-broker",
 				version: packageDocument.version,
@@ -202,10 +280,15 @@ try {
 				policy_id: capabilityPolicy.policy_id,
 				policy_sha256: capabilityPolicy.policy_sha256,
 			},
+			source_tape_capability: {
+				policy_id: sourceTapeCapability.policy_id,
+				policy_sha256: sourceTapeCapability.policy_sha256,
+			},
 			resource_policy: {
 				policy_id: resourcePolicy.policy_id,
 				policy_sha256: resourcePolicy.policy_sha256,
 			},
+			preparation_library: preparationLibrary,
 		};
 		writeFileSync(
 			path.resolve(options.get("pin-out")),

@@ -1,5 +1,5 @@
 import dts from "bun-plugin-dts";
-import { chmod } from "node:fs/promises";
+import { chmod, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { resolveBuildGitHead } from "./scripts/build-provenance";
 import { PREPARATION_CONFORMANCE_FIXTURES } from "./src/helpers/market-data-preparation/conformance-fixtures";
@@ -101,29 +101,12 @@ for (const command of preparationCommands) {
 	await chmod(`./dist/commands/${command}.js`, 0o755);
 }
 
-const backfillAssetRoot = "./src/helpers/market-data-vendor-backfill";
-const backfillAssetOutput = "./dist/market-data-vendor-backfill";
-const backfillAssets = [
-	["schemas/schema-manifest.json", "schema-manifest.json"],
-	["schemas/request.schema.json", "schemas/request.schema.json"],
-	["schemas/result.schema.json", "schemas/result.schema.json"],
-	["schemas/required-clock.schema.json", "schemas/required-clock.schema.json"],
-	["schemas/archive-selection.schema.json", "schemas/archive-selection.schema.json"],
-	["schemas/promotion-receipt.schema.json", "schemas/promotion-receipt.schema.json"],
-	["policies/capability-policy.json", "policies/capability-policy.json"],
-	["policies/capability-policy-v2.json", "policies/capability-policy-v2.json"],
-	["policies/resource-policy.json", "policies/resource-policy.json"],
-	["policies/resource-policy-v2.json", "policies/resource-policy-v2.json"],
-	["fixtures/conformance-v1.json", "fixtures/conformance-v1.json"],
-] as const;
-
-for (const [sourcePath, outputPath] of backfillAssets) {
-	const destination = `${backfillAssetOutput}/${outputPath}`;
-	await Bun.spawn({ cmd: ["mkdir", "-p", dirname(destination)] }).exited;
-	await Bun.write(destination, Bun.file(`${backfillAssetRoot}/${sourcePath}`));
-}
-
 const preparationAssetOutput = "./dist/market-data-preparation";
+await rm("./dist/market-data-vendor-backfill", {
+	recursive: true,
+	force: true,
+});
+await rm(preparationAssetOutput, { recursive: true, force: true });
 const preparationAssets = [
 	["./src/helpers/market-data-preparation/schema-manifest.json", "schema-manifest.json"],
 	["./src/helpers/market-data-vendor-backfill/schemas/request.schema.json", "schemas/backfill-request-v1.schema.json"],
@@ -132,12 +115,15 @@ const preparationAssets = [
 	["./src/helpers/market-data-vendor-backfill/schemas/archive-selection.schema.json", "schemas/archive-selection-v1.schema.json"],
 	["./src/helpers/market-data-vendor-backfill/schemas/promotion-receipt.schema.json", "schemas/promotion-receipt-v1.schema.json"],
 	["./src/helpers/market-data-preparation/schemas/canonical-orderbook-export-request.schema.json", "schemas/canonical-orderbook-export-request-v1.schema.json"],
-	["./src/helpers/market-data-preparation/schemas/canonical-orderbook-export-result.schema.json", "schemas/canonical-orderbook-export-result-v1.schema.json"],
-	["./src/helpers/market-data-preparation/schemas/preparation-product-pin.schema.json", "schemas/preparation-product-pin-v1.schema.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/capability-policy-v2.json", "policies/capability-policy.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/capability-policy.json", "policies/capability-policy-v1.json"],
+	["./src/helpers/market-data-preparation/schemas/canonical-orderbook-export-result.schema.json", "schemas/canonical-orderbook-export-result-v2.schema.json"],
+	["./src/helpers/market-data-preparation/schemas/preparation-product-pin.schema.json", "schemas/preparation-product-pin-v2.schema.json"],
+	["./src/helpers/market-data-preparation/schemas/order-book-levels-parquet-projection.schema.json", "schemas/order-book-levels-parquet-projection-v1.schema.json"],
+	["./src/helpers/market-data-preparation/schemas/order-book-depth-summary-parquet-projection.schema.json", "schemas/order-book-depth-summary-parquet-projection-v1.schema.json"],
+	["./src/helpers/market-data-preparation/schemas/source-forensics-ledger.schema.json", "schemas/source-forensics-ledger-v1.schema.json"],
+	["./src/helpers/market-data-preparation/schemas/source-qualification-record.schema.json", "schemas/source-qualification-record-v1.schema.json"],
+	["./src/helpers/market-data-vendor-backfill/policies/capability-policy-v3.json", "policies/capability-policy.json"],
+	["./src/helpers/market-data-preparation/policies/source-tape-capability-v1.json", "policies/source-tape-capability-v1.json"],
 	["./src/helpers/market-data-vendor-backfill/policies/resource-policy-v2.json", "policies/resource-policy.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/resource-policy.json", "policies/resource-policy-v1.json"],
 ] as const;
 for (const [sourcePath, outputPath] of preparationAssets) {
 	const destination = `${preparationAssetOutput}/${outputPath}`;
@@ -148,7 +134,7 @@ await Bun.spawn({
 	cmd: ["mkdir", "-p", `${preparationAssetOutput}/fixtures`],
 }).exited;
 await Bun.write(
-	`${preparationAssetOutput}/fixtures/conformance-v2.json`,
+	`${preparationAssetOutput}/fixtures/conformance-v3.json`,
 	`${JSON.stringify(PREPARATION_CONFORMANCE_FIXTURES, null, "\t")}\n`,
 );
 

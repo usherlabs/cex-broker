@@ -55,6 +55,9 @@ jobs:
           bun run check:server-lines
           bun run typecheck:sidecar
 
+      - name: Verify archive-forwarder image starts
+        run: ./scripts/archive-forwarder-image-smoke.sh
+
       - name: Resolve ClickHouse integration endpoint
         run: |
           for host in localhost clickhouse; do

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { zstdCompressSync } from "node:zlib";
 import { parquetWriteBuffer } from "hyparquet-writer";
+import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 import {
 	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
@@ -10,7 +11,9 @@ import {
 	cryptoHftDataCapabilityFor,
 	decodeCryptoHftParquetZstd,
 	enumerateCryptoHftDataObjects,
+	enumerateCryptoHftDataWindowObjects,
 	providerAcquisitionRequest,
+	SOURCE_TAPE_MAX_STATES_PER_YIELD,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
 import { validBackfillRequest } from "./market-data-vendor-backfill-contract.test";
 
@@ -260,6 +263,25 @@ describe("CryptoHFTData capability and acquisition", () => {
 		]);
 	});
 
+	test("enumerates a complete tape window independently of sparse fill-gaps targets", () => {
+		const start = Date.UTC(2026, 7, 18, 9);
+		const request = validBackfillRequest({
+			sourcePolicy: "fill_gaps",
+			window: { startTimeMs: start, endTimeMs: start + 4 * 3_600_000 },
+			requiredClockTargetsMs: [start + 3 * 3_600_000 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		expect(
+			enumerateCryptoHftDataObjects(request, "okx_spot", "ARB-USDT"),
+		).toHaveLength(1);
+		expect(
+			enumerateCryptoHftDataWindowObjects(request, "okx_spot", "ARB-USDT"),
+		).toHaveLength(4);
+	});
+
 	test("uses X-API-Key only for JWT issuance and bearer headers for downloads", async () => {
 		const request = validBackfillRequest({
 			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
@@ -310,6 +332,224 @@ describe("CryptoHFTData capability and acquisition", () => {
 		expect(seen.every(({ url }) => !url.includes("long-lived-secret"))).toBe(
 			true,
 		);
+	});
+
+	test("backpressures bounded OKX tape yields before reading the next provider object", async () => {
+		const firstHour = Date.UTC(2026, 7, 18, 9);
+		const request = validBackfillRequest({
+			providerPolicy: {
+				provider: "cryptohftdata",
+				allowedAdapterVersions: ["cryptohftdata-orderbook/v2"],
+			},
+			scope: {
+				exchange: "okx",
+				tradingPair: "ARB-USDT",
+				sourceSymbol: "ARB-USDT",
+				marketType: "spot",
+				feed: "ORDERBOOK",
+			},
+			window: { startTimeMs: firstHour, endTimeMs: firstHour + 2 * 3_600_000 },
+			requiredClockTargetsMs: [
+				firstHour + 30 * 60_000,
+				firstHour + 90 * 60_000,
+			],
+			maxPriorAsOfLagMs: 5_000,
+			depth: 100,
+			sourcePolicy: "fill_gaps",
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 2,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		let objectIndex = 0;
+		const tapeBatches: number[] = [];
+		let releaseFirstBatch = () => {};
+		const firstBatchAccepted = new Promise<void>((resolve) => {
+			releaseFirstBatch = resolve;
+		});
+		let firstBatchObserved = false;
+		let firstBatchAcknowledged = false;
+		let secondObjectReadBeforeAck = false;
+		const adapter = new CryptoHftDataAdapter({
+			profiles: provenProfiles,
+			policyNeutralTapeSink: {
+				async writeBatch(states) {
+					tapeBatches.push(states.length);
+					expect(states.length).toBeLessThanOrEqual(
+						SOURCE_TAPE_MAX_STATES_PER_YIELD,
+					);
+					if (!firstBatchObserved) {
+						firstBatchObserved = true;
+						await firstBatchAccepted;
+						firstBatchAcknowledged = true;
+					}
+				},
+				async complete() {},
+				async abort() {},
+			},
+			fetch: async (input) => {
+				if (String(input).endsWith("/jwt-token")) {
+					return Response.json({ jwt_token: "jwt" });
+				}
+				objectIndex += 1;
+				if (objectIndex === 2 && !firstBatchAcknowledged) {
+					secondObjectReadBeforeAck = true;
+				}
+				return new Response(new Uint8Array([objectIndex]));
+			},
+			decode: async () => {
+				const hour = firstHour + (objectIndex - 1) * 3_600_000;
+				const snapshotSequence = String(200 + objectIndex * 100);
+				const updateSequence = String(Number(snapshotSequence) + 1);
+				return [
+					...(["bid", "ask"] as const).map((side) => ({
+						received_time: String(BigInt(hour + 1_000) * 1_000_000n),
+						event_time: String(hour),
+						symbol: "ARB-USDT",
+						event_type: "snapshot",
+						first_update_id: null,
+						final_update_id: snapshotSequence,
+						prev_final_update_id: null,
+						last_update_id: "-1",
+						side,
+						price: side === "bid" ? "99" : "101",
+						quantity: "10",
+					})),
+					...(["bid", "ask"] as const).map((side) => ({
+						received_time: String(BigInt(hour + 30 * 60_000) * 1_000_000n),
+						event_time: String(hour + 30 * 60_000 - 1_000),
+						symbol: "ARB-USDT",
+						event_type: "update",
+						first_update_id: null,
+						final_update_id: updateSequence,
+						prev_final_update_id: null,
+						last_update_id: snapshotSequence,
+						side,
+						price: side === "bid" ? "99" : "101",
+						quantity: "11",
+					})),
+				];
+			},
+		});
+		const providerCapability = capability(request);
+		const acquisition = adapter.acquire(request, providerCapability, {
+			apiKey: "secret",
+		});
+		while (!firstBatchObserved) await Bun.sleep(1);
+		expect(objectIndex).toBe(1);
+		releaseFirstBatch();
+		const dataset = await acquisition;
+
+		expect(dataset.rows).toEqual([]);
+		expect(dataset.reconstructedBooks).toHaveLength(2);
+		expect(tapeBatches.reduce((sum, count) => sum + count, 0)).toBe(4);
+		expect(secondObjectReadBeforeAck).toBe(false);
+		const normalized = await adapter.normalize(
+			request,
+			providerCapability,
+			dataset,
+			"c".repeat(64),
+		);
+		expect(normalized.rows).toHaveLength(6);
+	});
+
+	test("yields after four reconstructed states before applying a fifth group", async () => {
+		const firstHour = Date.UTC(2026, 7, 18, 9);
+		const request = validBackfillRequest({
+			providerPolicy: {
+				provider: "cryptohftdata",
+				allowedAdapterVersions: ["cryptohftdata-orderbook/v2"],
+			},
+			scope: {
+				exchange: "okx",
+				tradingPair: "ARB-USDT",
+				sourceSymbol: "ARB-USDT",
+				marketType: "spot",
+				feed: "ORDERBOOK",
+			},
+			window: { startTimeMs: firstHour, endTimeMs: firstHour + 3_600_000 },
+			requiredClockTargetsMs: [firstHour + 30 * 60_000],
+			maxPriorAsOfLagMs: 5_000,
+			depth: 100,
+			sourcePolicy: "authoritative_window",
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		let releaseFirstBatch = () => {};
+		const firstBatchAccepted = new Promise<void>((resolve) => {
+			releaseFirstBatch = resolve;
+		});
+		let firstBatchObserved = false;
+		let laterGapObserved = false;
+		const adapter = new CryptoHftDataAdapter({
+			profiles: provenProfiles,
+			observer: {
+				observe(observation) {
+					if (observation.type === "sequence_discontinuity") {
+						laterGapObserved = true;
+					}
+				},
+			},
+			policyNeutralTapeSink: {
+				async writeBatch(states) {
+					expect(states.map(({ sequence }) => sequence)).toEqual([
+						"200",
+						"201",
+						"202",
+						"203",
+					]);
+					firstBatchObserved = true;
+					await firstBatchAccepted;
+				},
+				async complete() {},
+				async abort() {},
+			},
+			fetch: async (input) =>
+				String(input).endsWith("/jwt-token")
+					? Response.json({ jwt_token: "jwt" })
+					: new Response(new Uint8Array([1])),
+			decode: async () => {
+				const event = (
+					eventTimeMs: number,
+					sequence: string,
+					previous: string,
+					eventType: "snapshot" | "update",
+				) =>
+					(["bid", "ask"] as const).map((side) => ({
+						received_time: String(BigInt(eventTimeMs + 1) * 1_000_000n),
+						event_time: String(eventTimeMs),
+						symbol: "ARB-USDT",
+						event_type: eventType,
+						first_update_id: null,
+						final_update_id: sequence,
+						prev_final_update_id: null,
+						last_update_id: previous,
+						side,
+						price: side === "bid" ? "99" : "101",
+						quantity: sequence,
+					}));
+				return [
+					...event(firstHour, "200", "-1", "snapshot"),
+					...event(firstHour + 1_000, "201", "200", "update"),
+					...event(firstHour + 2_000, "202", "201", "update"),
+					...event(firstHour + 3_000, "203", "202", "update"),
+					...event(firstHour + 4_000, "205", "999", "update"),
+				];
+			},
+		});
+		const acquisition = adapter.acquire(request, capability(request), {
+			apiKey: "secret",
+		});
+		while (!firstBatchObserved) await Bun.sleep(1);
+		expect(laterGapObserved).toBe(false);
+		releaseFirstBatch();
+		await expect(acquisition).rejects.toMatchObject({
+			reason: "update_chain_gap",
+		});
 	});
 
 	test("fails before fetching when the enumerated object count exceeds budget", async () => {
@@ -405,6 +645,161 @@ describe("CryptoHFTData capability and acquisition", () => {
 		).rejects.toMatchObject<Partial<CryptoHftDataError>>({ reason });
 	});
 
+	test("attributes opaque provider object failures without reflecting error text", async () => {
+		const secret = "provider-response-secret";
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [JULY_2025 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		const adapter = new CryptoHftDataAdapter({
+			fetch: async (input) =>
+				String(input).endsWith("/jwt-token")
+					? Response.json({ jwt_token: "jwt" })
+					: new Response(new Uint8Array([1, 2, 3])),
+			decode: async () => {
+				throw new Error(`opaque decoder failure ${secret}`);
+			},
+		});
+
+		let caught: CryptoHftDataError | undefined;
+		try {
+			await adapter.acquire(request, capability(request), { apiKey: "secret" });
+		} catch (error) {
+			caught = error as CryptoHftDataError;
+		}
+		expect(caught).toMatchObject({
+			reason: "provider_object_decode_failed",
+			diagnostics: {
+				dataset_object_identity:
+					"binance_spot/2025-07-01/10/BTCUSDT_orderbook.parquet.zst",
+				failure_phase: "decode",
+			},
+		});
+		expect(JSON.stringify(caught)).not.toContain(secret);
+	});
+
+	test("retries only the failed provider object and admits its stable successful bytes", async () => {
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [JULY_2025 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		let downloads = 0;
+		const adapter = new CryptoHftDataAdapter({
+			fetch: async (input) => {
+				if (String(input).endsWith("/jwt-token")) {
+					return Response.json({ jwt_token: "jwt" });
+				}
+				downloads += 1;
+				if (downloads === 1) throw new Error("transient provider failure");
+				return new Response(new Uint8Array([1, 2, 3]));
+			},
+			decode: async () => [
+				{
+					received_time: "1751364600000000000",
+					event_time: "1751364600000",
+					symbol: "BTCUSDT",
+					event_type: "snapshot",
+					last_update_id: "1",
+					side: "bid",
+					price: "100",
+					quantity: "1",
+				},
+			],
+		});
+
+		const dataset = await adapter.acquire(request, capability(request), {
+			apiKey: "secret",
+		});
+
+		expect(downloads).toBe(2);
+		expect(dataset.objects).toHaveLength(1);
+		expect(dataset.rows).toHaveLength(1);
+	});
+
+	test("quarantines a stable corrupt provider object after three attempts", async () => {
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [JULY_2025 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		let downloads = 0;
+		const adapter = new CryptoHftDataAdapter({
+			fetch: async (input) => {
+				if (String(input).endsWith("/jwt-token")) {
+					return Response.json({ jwt_token: "jwt" });
+				}
+				downloads += 1;
+				return new Response(new Uint8Array([1, 2, 3]));
+			},
+			decode: async () => {
+				throw new Error("corrupt parquet");
+			},
+		});
+
+		await expect(
+			adapter.acquire(request, capability(request), { apiKey: "secret" }),
+		).rejects.toMatchObject<Partial<CryptoHftDataError>>({
+			reason: "provider_object_decode_failed",
+			diagnostics: {
+				attempt_count: 3,
+				quarantined: true,
+				dataset_object_checksum:
+					"039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+			},
+		});
+		expect(downloads).toBe(3);
+	});
+
+	test("quarantines a provider object whose bytes change between retries", async () => {
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [JULY_2025 + 30_000],
+			budgets: {
+				...validBackfillRequest().budgets,
+				maxFiles: 1,
+				maxBoundaryLookbackMs: 0,
+			},
+		});
+		let downloads = 0;
+		const adapter = new CryptoHftDataAdapter({
+			fetch: async (input) => {
+				if (String(input).endsWith("/jwt-token")) {
+					return Response.json({ jwt_token: "jwt" });
+				}
+				downloads += 1;
+				return new Response(new Uint8Array([downloads]));
+			},
+			decode: async () => {
+				throw new Error("corrupt parquet");
+			},
+		});
+
+		await expect(
+			adapter.acquire(request, capability(request), { apiKey: "secret" }),
+		).rejects.toMatchObject<Partial<CryptoHftDataError>>({
+			reason: "provider_object_checksum_conflict",
+			diagnostics: {
+				attempt_count: 2,
+				quarantined: true,
+			},
+		});
+		expect(downloads).toBe(2);
+	});
+
 	test("fails closed when the duration budget expires", async () => {
 		const request = validBackfillRequest({
 			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
@@ -453,7 +848,18 @@ describe("CryptoHFTData capability and acquisition", () => {
 				String(input).endsWith("/jwt-token")
 					? Response.json({ jwt_token: "jwt" })
 					: new Response(new Uint8Array([1, 2, 3])),
-			decode: async () => [],
+			decode: async () => [
+				{
+					received_time: "1751364600000000000",
+					event_time: "1751364600000",
+					symbol: "BTCUSDT",
+					event_type: "snapshot",
+					last_update_id: "1",
+					side: "bid",
+					price: "100",
+					quantity: "1",
+				},
+			],
 		});
 		const providerCapability = capability(request);
 		const first = await adapter.acquire(request, providerCapability, {
@@ -464,6 +870,7 @@ describe("CryptoHFTData capability and acquisition", () => {
 		});
 		expect(first.objects[0]?.checksum).toBe(second.objects[0]?.checksum);
 		expect(first.vendorSemanticDigest).toBe(second.vendorSemanticDigest);
+		expect(first.vendorSemanticDigest).toBe(sha256Canonical(first.rows));
 	});
 
 	test("normalizes reconstructed samples through shared canonical provenance without narrowing UInt64 sequences", async () => {
@@ -526,5 +933,103 @@ describe("CryptoHFTData capability and acquisition", () => {
 			});
 			expect(row.normalized_row_checksum).toMatch(/^[a-f0-9]{64}$/);
 		}
+	});
+
+	test("reports safe required-clock context for canonical normalization failures", async () => {
+		const target = JULY_2025 + 30_000;
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [target],
+			maxPriorAsOfLagMs: 60_000,
+		});
+		const object = {
+			identity: "binance_spot/2025-07-01/10/BTCUSDT_orderbook.parquet.zst",
+			checksum: "a".repeat(64),
+			bytes: 123,
+			rows: 2,
+		};
+
+		await expect(
+			new CryptoHftDataAdapter({ profiles: provenProfiles }).normalize(
+				request,
+				capability(request),
+				{
+					objects: [object],
+					vendorSemanticDigest: "b".repeat(64),
+					rows: [],
+					reconstructedBooks: [
+						{
+							targetTimeMs: target,
+							sourceTimeMs: target - 1_000,
+							receivedTimeMs: target,
+							sequence: "1",
+							bids: [
+								[100, 1],
+								[100, 2],
+							],
+							asks: [[101, 1]],
+							datasetObjectIdentity: object.identity,
+							datasetObjectChecksum: object.checksum,
+						},
+					],
+				},
+				"c".repeat(64),
+			),
+		).rejects.toMatchObject<Partial<CryptoHftDataError>>({
+			reason: "canonical_orderbook_invalid",
+			diagnostics: {
+				target_time_ms: target,
+				source_time_ms: target - 1_000,
+				validation_reason: "bid levels are not strictly descending",
+			},
+		});
+	});
+
+	test("attributes opaque canonical failures to the required-clock sample", async () => {
+		const target = JULY_2025 + 30_000;
+		const request = validBackfillRequest({
+			window: { startTimeMs: JULY_2025, endTimeMs: JULY_2025 + 60_000 },
+			requiredClockTargetsMs: [target],
+			maxPriorAsOfLagMs: 60_000,
+		});
+		const object = {
+			identity: "binance_spot/2025-07-01/10/BTCUSDT_orderbook.parquet.zst",
+			checksum: "a".repeat(64),
+			bytes: 123,
+			rows: 2,
+		};
+
+		await expect(
+			new CryptoHftDataAdapter({ profiles: provenProfiles }).normalize(
+				request,
+				capability(request),
+				{
+					objects: [object],
+					vendorSemanticDigest: "b".repeat(64),
+					rows: [],
+					reconstructedBooks: [
+						{
+							targetTimeMs: target,
+							sourceTimeMs: target - 1_000,
+							receivedTimeMs: target,
+							sequence: "1",
+							bids: null as unknown as number[][],
+							asks: [[101, 1]],
+							datasetObjectIdentity: object.identity,
+							datasetObjectChecksum: object.checksum,
+						},
+					],
+				},
+				"c".repeat(64),
+			),
+		).rejects.toMatchObject<Partial<CryptoHftDataError>>({
+			reason: "canonical_normalization_failed",
+			diagnostics: {
+				target_time_ms: target,
+				source_time_ms: target - 1_000,
+				dataset_object_identity: object.identity,
+				failure_phase: "normalize",
+			},
+		});
 	});
 });

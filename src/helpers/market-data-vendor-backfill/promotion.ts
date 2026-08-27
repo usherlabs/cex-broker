@@ -1,5 +1,9 @@
 import { sha256Canonical } from "../market-data-archive/capture-contract";
 import {
+	SOURCE_TAPE_CAPABILITY,
+	SOURCE_TAPE_CONSTRUCTION_MODE,
+} from "../source-tape";
+import {
 	type BackfillArchiveRow,
 	type PromotionReceipt,
 	type PromotionReceiptWire,
@@ -8,11 +12,54 @@ import {
 	promotionReceiptSchema,
 } from "./contracts";
 import { documentSha256, jcsCanonicalize } from "./identity";
+import {
+	CAPABILITY_POLICY,
+	EFFECTIVE_ACQUISITION_POLICY_PIN,
+	EFFECTIVE_ADAPTER_POLICY_PIN,
+	RESOURCE_POLICY,
+} from "./manifests";
 
 export type StablePromotionReceipt = Omit<
 	PromotionReceipt,
 	"receiptId" | "verificationTimeMs"
 >;
+
+function samePolicyPin(
+	left: { policy_id: string; policy_sha256: string },
+	right: { policy_id: string; policy_sha256: string },
+): boolean {
+	return (
+		left.policy_id === right.policy_id &&
+		left.policy_sha256 === right.policy_sha256
+	);
+}
+
+export function promotionReceiptMatchesCurrentPolicies(
+	receipt: PromotionReceiptWire,
+): boolean {
+	const expectedCapability =
+		receipt.construction_mode === SOURCE_TAPE_CONSTRUCTION_MODE
+			? SOURCE_TAPE_CAPABILITY
+			: CAPABILITY_POLICY;
+	return (
+		samePolicyPin(
+			receipt.effective_policies.capability_policy,
+			expectedCapability,
+		) &&
+		samePolicyPin(
+			receipt.effective_policies.resource_policy,
+			RESOURCE_POLICY,
+		) &&
+		samePolicyPin(
+			receipt.effective_policies.adapter_policy,
+			EFFECTIVE_ADAPTER_POLICY_PIN,
+		) &&
+		samePolicyPin(
+			receipt.effective_policies.acquisition_policy,
+			EFFECTIVE_ACQUISITION_POLICY_PIN,
+		)
+	);
+}
 
 export function promotionReceiptId(receipt: StablePromotionReceipt): string {
 	return sha256Canonical(receipt);

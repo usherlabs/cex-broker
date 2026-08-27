@@ -1,7 +1,7 @@
 {
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
-	"$id": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v1",
-	"title": "CEX canonical order-book exact-selection export result v1",
+	"$id": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v2",
+	"title": "CEX canonical order-book exact-selection export result v2",
 	"type": "object",
 	"additionalProperties": false,
 	"required": [
@@ -16,7 +16,7 @@
 	],
 	"properties": {
 		"schema_id": {
-			"const": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v1"
+			"const": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v2"
 		},
 		"result_sha256": { "$ref": "#/$defs/sha256" },
 		"job_id": { "$ref": "#/$defs/uuid" },
@@ -176,7 +176,7 @@
 			],
 			"properties": {
 				"product_id": { "const": "cex-canonical-orderbook-export" },
-				"product_version": { "const": "cex-canonical-orderbook-export/v1" },
+				"product_version": { "const": "cex-canonical-orderbook-export/v2" },
 				"package": {
 					"type": "object",
 					"additionalProperties": false,
@@ -215,7 +215,14 @@
 		"artifact": {
 			"type": "object",
 			"additionalProperties": false,
-			"required": ["file_name", "rows", "bytes", "sha256"],
+			"required": [
+				"file_name",
+				"rows",
+				"bytes",
+				"sha256",
+				"projection_schema_id",
+				"projection_schema_sha256"
+			],
 			"properties": {
 				"file_name": {
 					"type": "string",
@@ -231,7 +238,14 @@
 					"minimum": 8,
 					"maximum": 9007199254740991
 				},
-				"sha256": { "$ref": "#/$defs/sha256" }
+				"sha256": { "$ref": "#/$defs/sha256" },
+				"projection_schema_id": {
+					"enum": [
+						"https://schemas.usher.so/cex-order-book-levels-parquet-projection/v1",
+						"https://schemas.usher.so/cex-order-book-depth-summary-parquet-projection/v1"
+					]
+				},
+				"projection_schema_sha256": { "$ref": "#/$defs/sha256" }
 			}
 		}
 	}

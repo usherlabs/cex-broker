@@ -4,6 +4,12 @@ import type {
 	CanonicalOrderBookExportArtifact,
 	CanonicalOrderBookExportRequestWire,
 } from "../market-data-preparation/contracts";
+import {
+	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
+	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
+	ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID,
+	ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256,
+} from "../market-data-preparation/contracts";
 import { writeExclusiveDurableFile } from "../market-data-preparation/file-job";
 import {
 	type CompiledExactOrderBookExport,
@@ -11,6 +17,10 @@ import {
 	ExactOrderBookExportError,
 	type ExactOrderBookQueryValue,
 } from "./exact-selection";
+import {
+	assertDepthSummaryParquetProjection,
+	assertLevelsParquetProjection,
+} from "./parquet-projection";
 
 export type ExactOrderBookExportFormat = "JSONEachRow" | "Parquet";
 
@@ -131,27 +141,21 @@ function unsignedCount(value: unknown, reason: string): number {
 	return count;
 }
 
-function assertParquet(bytes: Uint8Array, reason: string): void {
-	const decoder = new TextDecoder();
-	if (
-		bytes.length < 8 ||
-		decoder.decode(bytes.subarray(0, 4)) !== "PAR1" ||
-		decoder.decode(bytes.subarray(-4)) !== "PAR1"
-	) {
-		throw new ExactOrderBookExportError(reason);
-	}
-}
-
 function artifact(
 	fileName: string,
 	rows: number,
 	bytes: Uint8Array,
+	projection: {
+		projection_schema_id: CanonicalOrderBookExportArtifact["projection_schema_id"];
+		projection_schema_sha256: string;
+	},
 ): CanonicalOrderBookExportArtifact {
 	return {
 		file_name: fileName,
 		rows,
 		bytes: bytes.byteLength,
 		sha256: createHash("sha256").update(bytes).digest("hex"),
+		...projection,
 	};
 }
 
@@ -255,8 +259,8 @@ export async function exportExactCanonicalOrderBook(input: {
 		if (error instanceof ExactOrderBookExportError) throw error;
 		throw new ExactOrderBookExportError("archive_query_failed");
 	}
-	assertParquet(levelsBytes, "levels_parquet_invalid");
-	assertParquet(summaryBytes, "summary_parquet_invalid");
+	assertLevelsParquetProjection(levelsBytes);
+	assertDepthSummaryParquetProjection(summaryBytes);
 
 	const levelsFileName = "order_book_levels.parquet";
 	const summaryFileName = "order_book_depth_summary.parquet";
@@ -274,7 +278,16 @@ export async function exportExactCanonicalOrderBook(input: {
 		promotionReceiptIds,
 		levelsPath,
 		summaryPath,
-		levels: artifact(levelsFileName, levelRows, levelsBytes),
-		summary: artifact(summaryFileName, summaryRows, summaryBytes),
+		levels: artifact(levelsFileName, levelRows, levelsBytes, {
+			projection_schema_id: ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID,
+			projection_schema_sha256:
+				ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256,
+		}),
+		summary: artifact(summaryFileName, summaryRows, summaryBytes, {
+			projection_schema_id:
+				ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
+			projection_schema_sha256:
+				ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
+		}),
 	};
 }

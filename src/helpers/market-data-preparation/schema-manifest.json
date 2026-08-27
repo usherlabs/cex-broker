@@ -1,5 +1,5 @@
 {
-	"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v2",
+	"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v3",
 	"artifacts": [
 		{
 			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-request/v1",
@@ -24,23 +24,43 @@
 		{
 			"schema_id": "https://schemas.usher.so/market-data-vendor-backfill-promotion-receipt/v1",
 			"path": "schemas/promotion-receipt-v1.schema.json",
-			"schema_sha256": "00c42aba3e4a26d4692ef5554273ed762c21fce8c07624bc970ff0b28884b099"
+			"schema_sha256": "95629b9d6d8544f84d42caac4e40c7995f4933836fbb974cb186d11293739438"
 		},
 		{
 			"schema_id": "https://schemas.usher.so/cex-canonical-orderbook-export-request/v1",
 			"path": "schemas/canonical-orderbook-export-request-v1.schema.json",
-			"schema_sha256": "50a698628b00204c927e28d8c7048345330fb17ab61f86addd3a04114debc0f3"
+			"schema_sha256": "f82096cd3e0fb8d513ad5a9dbdb817d1c6e3e56dbbde745d4d8ff3be7c1528eb"
 		},
 		{
-			"schema_id": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v1",
-			"path": "schemas/canonical-orderbook-export-result-v1.schema.json",
-			"schema_sha256": "77da86c140474294bfc351be6a3a69c57fff95032e9bafa9aaa09d398315cd3c"
+			"schema_id": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v2",
+			"path": "schemas/canonical-orderbook-export-result-v2.schema.json",
+			"schema_sha256": "315dc2c6e00d5504c1152ddf00b1e8eabd18008293eb6aca3e696adc8b0e11d6"
 		},
 		{
-			"schema_id": "cex-market-data-preparation-product-pin/v1",
-			"path": "schemas/preparation-product-pin-v1.schema.json",
-			"schema_sha256": "7e50cf70aaa87fc608647dfc71e61f18c3da05f27f1f6ceba4c58bc960ff88ff"
+			"schema_id": "cex-market-data-preparation-product-pin/v2",
+			"path": "schemas/preparation-product-pin-v2.schema.json",
+			"schema_sha256": "03bb7b0ffc5293a6a2dbceb871ff75fc83e54a979cd22bc2c99e7751b761c833"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/cex-order-book-levels-parquet-projection/v1",
+			"path": "schemas/order-book-levels-parquet-projection-v1.schema.json",
+			"schema_sha256": "dbf98aabe22f715388d7fa8d791935a3131fe8d372cfe7041296fd3ace501ffc"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/cex-order-book-depth-summary-parquet-projection/v1",
+			"path": "schemas/order-book-depth-summary-parquet-projection-v1.schema.json",
+			"schema_sha256": "7fca0794401e0a8de767c4f70bd3b258e20eee94565060c0749ebcb75588e9d1"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-source-forensics-ledger/v1",
+			"path": "schemas/source-forensics-ledger-v1.schema.json",
+			"schema_sha256": "a0fbe689cb309acaadf8ae432890fc572b4db37763e8cdcf00c06e7307d08e97"
+		},
+		{
+			"schema_id": "https://schemas.usher.so/market-data-source-qualification-record/v1",
+			"path": "schemas/source-qualification-record-v1.schema.json",
+			"schema_sha256": "2a9fa7c0b005bcfa79bc03714e0b7dc145cde7ebf071b8ed4ce48bb2ad53abd5"
 		}
 	],
-	"manifest_sha256": "0e226165c78c6217a765c09be15b6305a574e69b6e05e8607f399b468ba04d5b"
+	"manifest_sha256": "00fda4a5f67dff1e142af7cf7e37f641a3a960acd6e995530aaf99f8b2f5c7bb"
 }

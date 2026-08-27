@@ -4,7 +4,7 @@ import Ajv2020, {
 } from "ajv/dist/2020.js";
 import type {
 	ArchiveSelectionWire,
-	BackfillJobResultWire,
+	BackfillOutcomeWire,
 	FixedUtcTimestamp,
 	LowercaseUuid,
 	Sha256Hex,
@@ -22,6 +22,7 @@ import {
 	CAPABILITY_POLICY,
 	RESOURCE_POLICY,
 } from "../market-data-vendor-backfill/manifests";
+import { promotionReceiptMatchesCurrentPolicies } from "../market-data-vendor-backfill/promotion";
 import archiveSelectionSchema from "../market-data-vendor-backfill/schemas/archive-selection.schema.json" with {
 	type: "json",
 };
@@ -34,6 +35,7 @@ import requestSchema from "../market-data-vendor-backfill/schemas/request.schema
 import requiredClockSchema from "../market-data-vendor-backfill/schemas/required-clock.schema.json" with {
 	type: "json",
 };
+import { SOURCE_TAPE_CAPABILITY } from "../source-tape";
 import backfillResultV2Schema from "./schemas/backfill-result-v2.schema.json" with {
 	type: "json",
 };
@@ -43,7 +45,19 @@ import exportRequestSchema from "./schemas/canonical-orderbook-export-request.sc
 import exportResultSchema from "./schemas/canonical-orderbook-export-result.schema.json" with {
 	type: "json",
 };
+import depthSummaryProjectionSchema from "./schemas/order-book-depth-summary-parquet-projection.schema.json" with {
+	type: "json",
+};
+import levelsProjectionSchema from "./schemas/order-book-levels-parquet-projection.schema.json" with {
+	type: "json",
+};
 import productPinSchema from "./schemas/preparation-product-pin.schema.json" with {
+	type: "json",
+};
+import sourceForensicsLedgerSchema from "./schemas/source-forensics-ledger.schema.json" with {
+	type: "json",
+};
+import sourceQualificationRecordSchema from "./schemas/source-qualification-record.schema.json" with {
 	type: "json",
 };
 
@@ -53,8 +67,16 @@ export const CANONICAL_ORDERBOOK_EXPORT_REQUEST_SCHEMA_ID =
 export const CANONICAL_ORDERBOOK_EXPORT_RESULT_SCHEMA_ID =
 	exportResultSchema.$id;
 export const PREPARATION_PRODUCT_PIN_SCHEMA_ID = productPinSchema.$id;
-export const PREPARATION_SCHEMA_MANIFEST_V2_ID =
-	"https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v2" as const;
+export const ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID =
+	levelsProjectionSchema.$id;
+export const ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID =
+	depthSummaryProjectionSchema.$id;
+export const SOURCE_FORENSICS_LEDGER_SCHEMA_ID =
+	sourceForensicsLedgerSchema.$id;
+export const SOURCE_QUALIFICATION_RECORD_SCHEMA_ID =
+	sourceQualificationRecordSchema.$id;
+export const PREPARATION_SCHEMA_MANIFEST_V3_ID =
+	"https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v3" as const;
 
 export type PreparationTarget = { environment: string; cluster: string };
 
@@ -62,7 +84,7 @@ export type PreparationProducerIdentity = {
 	product_id: "market-data-vendor-backfill" | "cex-canonical-orderbook-export";
 	product_version:
 		| "market-data-vendor-backfill/v1"
-		| "cex-canonical-orderbook-export/v1";
+		| "cex-canonical-orderbook-export/v2";
 	package: {
 		name: "@usherlabs/cex-broker";
 		version: string;
@@ -86,7 +108,7 @@ export type BackfillJobResultV2Wire = {
 	resource_policy: { policy_id: string; policy_sha256: Sha256Hex };
 	started_at: FixedUtcTimestamp;
 	completed_at: FixedUtcTimestamp;
-	outcome: BackfillJobResultWire["outcome"];
+	outcome: BackfillOutcomeWire;
 };
 
 export type CanonicalOrderBookExportRequestWire = {
@@ -95,7 +117,10 @@ export type CanonicalOrderBookExportRequestWire = {
 	target: PreparationTarget;
 	selection: ArchiveSelectionWire;
 	depth: number;
-	construction_mode: "sampled_top_n_snapshot" | "exact_l2_reconstruction";
+	construction_mode:
+		| "sampled_top_n_snapshot"
+		| "exact_l2_reconstruction"
+		| "policy_neutral_top_n_state_change_tape/v1";
 	canonical_schema_version: string;
 	checksum_algorithm: "sha256-canonical-json-v1";
 };
@@ -119,6 +144,10 @@ export type CanonicalOrderBookExportArtifact = {
 	rows: number;
 	bytes: number;
 	sha256: Sha256Hex;
+	projection_schema_id:
+		| typeof ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID
+		| typeof ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID;
+	projection_schema_sha256: Sha256Hex;
 };
 
 export type CanonicalOrderBookExportResultWire = {
@@ -128,7 +157,7 @@ export type CanonicalOrderBookExportResultWire = {
 	request_file_sha256: Sha256Hex | null;
 	producer: PreparationProducerIdentity & {
 		product_id: "cex-canonical-orderbook-export";
-		product_version: "cex-canonical-orderbook-export/v1";
+		product_version: "cex-canonical-orderbook-export/v2";
 	};
 	started_at: FixedUtcTimestamp;
 	completed_at: FixedUtcTimestamp;
@@ -167,13 +196,32 @@ export type PreparationProductPinWire = {
 		executable_sha256: Sha256Hex;
 	}>;
 	schema_manifest: {
-		schema_id: typeof PREPARATION_SCHEMA_MANIFEST_V2_ID;
+		schema_id: typeof PREPARATION_SCHEMA_MANIFEST_V3_ID;
 		manifest_sha256: Sha256Hex;
 		relative_path: "dist/market-data-preparation/schema-manifest.json";
 	};
 	schema_pins: Array<{ schema_id: string; schema_sha256: Sha256Hex }>;
 	capability_policy: { policy_id: string; policy_sha256: Sha256Hex };
+	source_tape_capability: {
+		policy_id: string;
+		policy_sha256: Sha256Hex;
+	};
 	resource_policy: { policy_id: string; policy_sha256: Sha256Hex };
+	preparation_library: {
+		exported_subpath: "@usherlabs/cex-broker/market-data-preparation";
+		runtime_entry_sha256: Sha256Hex;
+		declaration_sha256: Sha256Hex;
+		operations: [
+			{
+				symbol: "runMarketDataSourceTape";
+				operation_id: "market-data-source-tape/v1";
+			},
+			{
+				symbol: "runMarketDataRequiredClockQualification";
+				operation_id: "market-data-required-clock-qualification/v1";
+			},
+		];
+	};
 };
 
 type Codec<T> = {
@@ -253,11 +301,45 @@ export const backfillResultV2Codec = codec<BackfillJobResultV2Wire>(
 	(result) => {
 		assertDocumentSha256(result, "result_sha256");
 		assertResultTiming(result);
+		if (
+			result.capability_policy.policy_id !== CAPABILITY_POLICY.policy_id ||
+			result.capability_policy.policy_sha256 !==
+				CAPABILITY_POLICY.policy_sha256 ||
+			result.resource_policy.policy_id !== RESOURCE_POLICY.policy_id ||
+			result.resource_policy.policy_sha256 !== RESOURCE_POLICY.policy_sha256
+		) {
+			throw new Error("backfill result requires the current policy tuple");
+		}
+		if (
+			result.schema_manifest_sha256 !==
+			PREPARATION_SCHEMA_MANIFEST_V3.manifest_sha256
+		) {
+			throw new Error(
+				"backfill result schema manifest identity is not current",
+			);
+		}
 		if (result.outcome.selection) {
 			archiveSelectionCodec.decode(result.outcome.selection);
 		}
 		if (result.outcome.receipt) {
-			promotionReceiptCodec.decode(result.outcome.receipt);
+			const receipt = promotionReceiptCodec.decode(result.outcome.receipt);
+			if (!promotionReceiptMatchesCurrentPolicies(receipt)) {
+				throw new Error("backfill result receipt is not current-qualified");
+			}
+			if (
+				receipt.effective_policies.capability_policy.policy_id !==
+					result.capability_policy.policy_id ||
+				receipt.effective_policies.capability_policy.policy_sha256 !==
+					result.capability_policy.policy_sha256 ||
+				receipt.effective_policies.resource_policy.policy_id !==
+					result.resource_policy.policy_id ||
+				receipt.effective_policies.resource_policy.policy_sha256 !==
+					result.resource_policy.policy_sha256
+			) {
+				throw new Error(
+					"backfill result and receipt policy identities disagree",
+				);
+			}
 		}
 		if (
 			result.outcome.status === "promoted" &&
@@ -270,6 +352,41 @@ export const backfillResultV2Codec = codec<BackfillJobResultV2Wire>(
 			!result.outcome.selection
 		) {
 			throw new Error("already_covered outcome requires selection");
+		}
+		if (
+			(result.outcome.status === "already_covered" ||
+				result.outcome.status === "promoted") &&
+			result.outcome.selection?.bundles.some(
+				(bundle) => bundle.capture_origin === "vendor_historical_backfill",
+			) &&
+			!result.outcome.receipt
+		) {
+			throw new Error("successful vendor evidence requires a current receipt");
+		}
+		if (
+			(result.outcome.status === "already_covered" ||
+				result.outcome.status === "promoted") &&
+			result.outcome.selection &&
+			result.outcome.receipt
+		) {
+			const selectedVendorReceiptIds = new Set(
+				result.outcome.selection.bundles
+					.filter(
+						(bundle) => bundle.capture_origin === "vendor_historical_backfill",
+					)
+					.map((bundle) => bundle.qualification?.receipt_id),
+			);
+			if (
+				selectedVendorReceiptIds.size !== 1 ||
+				!selectedVendorReceiptIds.has(result.outcome.receipt.receipt_id) ||
+				result.outcome.selection.receipt_ids.length !== 1 ||
+				result.outcome.selection.receipt_ids[0] !==
+					result.outcome.receipt.receipt_id
+			) {
+				throw new Error(
+					"successful vendor selection and current receipt lineage disagree",
+				);
+			}
 		}
 	},
 );
@@ -294,6 +411,20 @@ export const canonicalOrderBookExportResultCodec =
 	codec<CanonicalOrderBookExportResultWire>(validateExportResult, (result) => {
 		assertDocumentSha256(result, "result_sha256");
 		assertResultTiming(result);
+		const artifacts = result.outcome.artifacts;
+		if (
+			artifacts &&
+			(artifacts.levels.projection_schema_id !==
+				ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID ||
+				artifacts.levels.projection_schema_sha256 !==
+					ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256 ||
+				artifacts.summary.projection_schema_id !==
+					ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID ||
+				artifacts.summary.projection_schema_sha256 !==
+					ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256)
+		) {
+			throw new Error("export artifact projection identity is inconsistent");
+		}
 	});
 
 export const preparationProductPinCodec = codec<PreparationProductPinWire>(
@@ -310,7 +441,7 @@ export const preparationProductPinCodec = codec<PreparationProductPinWire>(
 			[
 				"cex-canonical-orderbook-export",
 				{
-					productVersion: "cex-canonical-orderbook-export/v1",
+					productVersion: "cex-canonical-orderbook-export/v2",
 					relativePath: "dist/commands/cex-canonical-orderbook-export.js",
 				},
 			],
@@ -336,9 +467,9 @@ export const preparationProductPinCodec = codec<PreparationProductPinWire>(
 		}
 		if (
 			pin.schema_manifest.schema_id !==
-				PREPARATION_SCHEMA_MANIFEST_V2.schema_id ||
+				PREPARATION_SCHEMA_MANIFEST_V3.schema_id ||
 			pin.schema_manifest.manifest_sha256 !==
-				PREPARATION_SCHEMA_MANIFEST_V2.manifest_sha256
+				PREPARATION_SCHEMA_MANIFEST_V3.manifest_sha256
 		) {
 			throw new Error(
 				"product pin schema manifest identity does not match the preparation manifest",
@@ -358,10 +489,32 @@ export const preparationProductPinCodec = codec<PreparationProductPinWire>(
 		if (
 			pin.capability_policy.policy_id !== CAPABILITY_POLICY.policy_id ||
 			pin.capability_policy.policy_sha256 !== CAPABILITY_POLICY.policy_sha256 ||
+			pin.source_tape_capability.policy_id !==
+				SOURCE_TAPE_CAPABILITY.policy_id ||
+			pin.source_tape_capability.policy_sha256 !==
+				SOURCE_TAPE_CAPABILITY.policy_sha256 ||
 			pin.resource_policy.policy_id !== RESOURCE_POLICY.policy_id ||
 			pin.resource_policy.policy_sha256 !== RESOURCE_POLICY.policy_sha256
 		) {
 			throw new Error("product pin policy identities are inconsistent");
+		}
+		const expectedOperations = [
+			{
+				symbol: "runMarketDataSourceTape",
+				operation_id: "market-data-source-tape/v1",
+			},
+			{
+				symbol: "runMarketDataRequiredClockQualification",
+				operation_id: "market-data-required-clock-qualification/v1",
+			},
+		];
+		if (
+			pin.preparation_library.exported_subpath !==
+				"@usherlabs/cex-broker/market-data-preparation" ||
+			JSON.stringify(pin.preparation_library.operations) !==
+				JSON.stringify(expectedOperations)
+		) {
+			throw new Error("product pin preparation-library ABI is inconsistent");
 		}
 	},
 );
@@ -395,10 +548,26 @@ const preparationSchemaArtifacts = [
 		exportRequestSchema,
 	],
 	[
-		"schemas/canonical-orderbook-export-result-v1.schema.json",
+		"schemas/canonical-orderbook-export-result-v2.schema.json",
 		exportResultSchema,
 	],
-	["schemas/preparation-product-pin-v1.schema.json", productPinSchema],
+	["schemas/preparation-product-pin-v2.schema.json", productPinSchema],
+	[
+		"schemas/order-book-levels-parquet-projection-v1.schema.json",
+		levelsProjectionSchema,
+	],
+	[
+		"schemas/order-book-depth-summary-parquet-projection-v1.schema.json",
+		depthSummaryProjectionSchema,
+	],
+	[
+		"schemas/source-forensics-ledger-v1.schema.json",
+		sourceForensicsLedgerSchema,
+	],
+	[
+		"schemas/source-qualification-record-v1.schema.json",
+		sourceQualificationRecordSchema,
+	],
 ] as const;
 
 export const PREPARATION_SCHEMA_ARTIFACTS = Object.freeze(
@@ -413,7 +582,7 @@ export const PREPARATION_SCHEMA_ARTIFACTS = Object.freeze(
 );
 
 const preparationSchemaManifestContent = {
-	schema_id: PREPARATION_SCHEMA_MANIFEST_V2_ID,
+	schema_id: PREPARATION_SCHEMA_MANIFEST_V3_ID,
 	artifacts: PREPARATION_SCHEMA_ARTIFACTS.map(
 		({ schema_id, path, schema_sha256 }) => ({
 			schema_id,
@@ -423,7 +592,19 @@ const preparationSchemaManifestContent = {
 	),
 };
 
-export const PREPARATION_SCHEMA_MANIFEST_V2 = Object.freeze({
+export const PREPARATION_SCHEMA_MANIFEST_V3 = Object.freeze({
 	...preparationSchemaManifestContent,
 	manifest_sha256: jcsSha256(preparationSchemaManifestContent),
 });
+
+export const ORDER_BOOK_LEVELS_PARQUET_PROJECTION = Object.freeze(
+	levelsProjectionSchema,
+);
+export const ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION = Object.freeze(
+	depthSummaryProjectionSchema,
+);
+export const ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256 = jcsSha256(
+	levelsProjectionSchema,
+);
+export const ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256 =
+	jcsSha256(depthSummaryProjectionSchema);

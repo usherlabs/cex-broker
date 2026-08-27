@@ -6,7 +6,7 @@ import {
 	type BackfillJobResultV2Wire,
 	backfillResultV2Codec,
 	finalizeBackfillResultV2,
-	PREPARATION_SCHEMA_MANIFEST_V2,
+	PREPARATION_SCHEMA_MANIFEST_V3,
 	type PreparationProducerIdentity,
 } from "../helpers/market-data-preparation/contracts";
 import {
@@ -29,6 +29,7 @@ import {
 	QualifiedOrderBookArchiveReader,
 } from "../helpers/market-data-vendor-backfill/archive-reader";
 import {
+	BackfillRequestValidationError,
 	decodeBackfillRunDocuments,
 	requiredClockCodec,
 } from "../helpers/market-data-vendor-backfill/contracts";
@@ -256,7 +257,7 @@ async function writeOutcome(input: {
 		schema_id: BACKFILL_RESULT_V2_SCHEMA_ID,
 		job_id: input.jobId,
 		request_file_sha256: input.requestFileSha256,
-		schema_manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V2.manifest_sha256,
+		schema_manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V3.manifest_sha256,
 		producer: input.producer,
 		capability_policy: {
 			policy_id: CAPABILITY_POLICY.policy_id,
@@ -380,10 +381,14 @@ export async function runMarketDataVendorBackfillFileJob(
 			request: requestDocument,
 			requiredClock,
 		});
-	} catch {
+	} catch (error) {
 		return writeOutcome({
 			...commonWrite,
-			outcome: requestInvalidOutcome(),
+			outcome: requestInvalidOutcome(
+				error instanceof BackfillRequestValidationError
+					? error.reasonSubcode
+					: undefined,
+			),
 			requestFileSha256,
 			completedAt: new Date(nowMs()).toISOString(),
 		});

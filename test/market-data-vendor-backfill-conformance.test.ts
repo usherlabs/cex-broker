@@ -55,15 +55,30 @@ describe("market-data vendor backfill provider conformance harness", () => {
 		});
 		expect(request.budgets).toMatchObject({
 			maxFiles: RESOURCE_POLICY.limits.max_files,
-			maxBoundaryLookbackMs:
-				CAPABILITY_POLICY.acquisition_policy.initialization_lookback_ms,
+			maxBoundaryLookbackMs: 7 * 24 * 60 * 60 * 1_000,
+		});
+		expect(CAPABILITY_POLICY).toMatchObject({
+			policy_id: "market-data-vendor-backfill-capabilities/v3",
+			acquisition_policy: {
+				policy_id: "cryptohftdata-hourly-acquisition/v2",
+				initialization_lookback_ms: 7 * 24 * 60 * 60 * 1_000,
+			},
 		});
 		expect(request.budgets.maxBoundaryLookbackMs).toBeLessThanOrEqual(
 			RESOURCE_POLICY.limits.max_boundary_lookback_ms,
 		);
-		expect(
-			enumerateCryptoHftDataObjects(request, "okx_spot", "ARB-USDT"),
-		).toEqual(["okx_spot/2026-08-18/09/ARB-USDT_orderbook.parquet.zst"]);
+		const objects = enumerateCryptoHftDataObjects(
+			request,
+			"okx_spot",
+			"ARB-USDT",
+		);
+		expect(objects).toHaveLength(169);
+		expect(objects[0]).toBe(
+			"okx_spot/2026-08-11/09/ARB-USDT_orderbook.parquet.zst",
+		);
+		expect(objects.at(-1)).toBe(
+			"okx_spot/2026-08-18/09/ARB-USDT_orderbook.parquet.zst",
+		);
 	});
 
 	test("builds the independently pinned ARB-USDC conformance request", () => {
@@ -81,9 +96,15 @@ describe("market-data vendor backfill provider conformance harness", () => {
 			tradingPair: "ARB-USDC",
 			sourceSymbol: "ARB-USDC",
 		});
-		expect(
-			enumerateCryptoHftDataObjects(request, "okx_spot", "ARB-USDC"),
-		).toEqual(["okx_spot/2026-08-18/09/ARB-USDC_orderbook.parquet.zst"]);
+		const objects = enumerateCryptoHftDataObjects(
+			request,
+			"okx_spot",
+			"ARB-USDC",
+		);
+		expect(objects).toHaveLength(169);
+		expect(objects.at(-1)).toBe(
+			"okx_spot/2026-08-18/09/ARB-USDC_orderbook.parquet.zst",
+		);
 	});
 
 	test("projects only identities, counts, and hashes—not decoded rows or secrets", () => {
