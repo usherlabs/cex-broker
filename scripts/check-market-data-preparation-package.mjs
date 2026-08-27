@@ -10,6 +10,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
+import { createServer } from "node:http";
 import { builtinModules } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -26,9 +27,20 @@ const temporaryRoot = mkdtempSync(
 const builtins = new Set(
 	builtinModules.flatMap((specifier) => [specifier, `node:${specifier}`]),
 );
+let dependencyBoundaryServer;
 
 function sha256(bytes) {
 	return createHash("sha256").update(bytes).digest("hex");
+}
+
+function bareRuntimeImports(source) {
+	return [
+		...source.matchAll(
+			/(?:\bfrom\s+|\bimport\s*(?:\(\s*)?)["']([^./][^"']*)["']/g,
+		),
+	]
+		.map((match) => match[1])
+		.filter((specifier) => !builtins.has(specifier));
 }
 
 function runNode(executable, args) {
@@ -101,11 +113,7 @@ try {
 		if (!source.startsWith("#!/usr/bin/env node\n")) {
 			throw new Error(`${name} has no Node shebang`);
 		}
-		const bareImports = [
-			...source.matchAll(/(?:from\s+|import\s*\()["']([^./][^"']*)["']/g),
-		]
-			.map((match) => match[1])
-			.filter((specifier) => !builtins.has(specifier));
+		const bareImports = bareRuntimeImports(source);
 		if (bareImports.length > 0) {
 			throw new Error(
 				`${name} retains runtime package imports: ${bareImports.join(", ")}`,
@@ -173,6 +181,8 @@ try {
 		pathToFileURL(preparationRuntimePath).href
 	);
 	if (
+		typeof preparationLibrary.createMarketDataSourceTapeDependencies !==
+			"function" ||
 		typeof preparationLibrary.runMarketDataSourceTape !== "function" ||
 		typeof preparationLibrary.runMarketDataRequiredClockQualification !==
 			"function" ||
@@ -182,7 +192,18 @@ try {
 			"market-data-required-clock-qualification/v1" ||
 		!existsSync(preparationDeclarationPath)
 	) {
-		throw new Error("preparation-library two-operation ABI is incomplete");
+		throw new Error(
+			"preparation-library dependency factory or two-operation ABI is incomplete",
+		);
+	}
+	const preparationRuntimeSource = readFileSync(preparationRuntimePath, "utf8");
+	const preparationRuntimeBareImports = bareRuntimeImports(
+		preparationRuntimeSource,
+	);
+	if (preparationRuntimeBareImports.length > 0) {
+		throw new Error(
+			`preparation runtime retains package imports: ${preparationRuntimeBareImports.join(", ")}`,
+		);
 	}
 	const operationFixtures = JSON.parse(
 		readFileSync(
@@ -206,6 +227,88 @@ try {
 	);
 	mkdirSync(requiredClockRoot, { mode: 0o700 });
 	mkdirSync(sourceTapeRoot, { mode: 0o700 });
+	let dependencyBoundaryRequestCount = 0;
+	dependencyBoundaryServer = createServer((request, response) => {
+		dependencyBoundaryRequestCount += 1;
+		const endpoint = new URL(request.url ?? "/", "http://127.0.0.1");
+		if (endpoint.pathname === "/health/market-data-vendor-backfill") {
+			response.setHeader("content-type", "application/json");
+			response.end(
+				JSON.stringify({
+					ok: true,
+					forwarder_identity: {
+						environment: request.headers["x-archive-environment"],
+						cluster: request.headers["x-archive-cluster"],
+					},
+					authorization: {
+						authorization_id: request.headers["x-archive-authorization-id"],
+						scope: "production",
+						environment: request.headers["x-archive-environment"],
+						cluster: request.headers["x-archive-cluster"],
+						expires_at: "2026-08-27T23:59:59.000Z",
+						credential_validated: true,
+					},
+				}),
+			);
+			return;
+		}
+		if (endpoint.pathname === "/archive-forwarder") {
+			let bytes = "";
+			request.setEncoding("utf8");
+			request.on("data", (chunk) => {
+				bytes += chunk;
+			});
+			request.on("end", () => {
+				const batch = JSON.parse(bytes);
+				response.setHeader("content-type", "application/json");
+				response.end(
+					JSON.stringify({ ok: true, inserted: batch.rows?.length ?? 0 }),
+				);
+			});
+			return;
+		}
+		if (endpoint.pathname === "/clickhouse") {
+			response.setHeader("content-type", "application/json");
+			response.end(`${JSON.stringify({ dependency_boundary: "ok" })}\n`);
+			return;
+		}
+		response.statusCode = 404;
+		response.end();
+	});
+	await new Promise((resolve, reject) => {
+		dependencyBoundaryServer.once("error", reject);
+		dependencyBoundaryServer.listen(0, "127.0.0.1", resolve);
+	});
+	const dependencyBoundaryAddress = dependencyBoundaryServer.address();
+	if (
+		!dependencyBoundaryAddress ||
+		typeof dependencyBoundaryAddress === "string"
+	) {
+		throw new Error("dependency-boundary fixture address is unavailable");
+	}
+	const dependencyBoundaryUrl = `http://127.0.0.1:${dependencyBoundaryAddress.port}`;
+	const sourceTapeDependencies =
+		preparationLibrary.createMarketDataSourceTapeDependencies({
+			attemptRoot: sourceTapeRoot,
+			archiveForwarder: {
+				url: `${dependencyBoundaryUrl}/archive-forwarder`,
+				authToken: "inert-forwarder-token",
+			},
+			clickHouse: {
+				url: `${dependencyBoundaryUrl}/clickhouse`,
+				username: "inert-user",
+				password: "inert-password",
+			},
+		});
+	if (
+		typeof sourceTapeDependencies.forwarder?.preflight !== "function" ||
+		typeof sourceTapeDependencies.forwarder?.submit !== "function" ||
+		typeof sourceTapeDependencies.archive_query?.query !== "function" ||
+		typeof sourceTapeDependencies.archive?.resolveSelection !== "function" ||
+		typeof sourceTapeDependencies.exporter?.export !== "function"
+	) {
+		throw new Error("source-tape dependency factory result is incomplete");
+	}
 	const requiredClockCall =
 		await preparationLibrary.runMarketDataRequiredClockQualification({
 			invocation: operationFixtures.required_clock_qualification,
@@ -218,28 +321,7 @@ try {
 		attempt_root: sourceTapeRoot,
 		created_at: "2026-08-26T15:00:00.000Z",
 		credential: { api_key: "" },
-		dependencies: {
-			forwarder: {
-				async submit(batch) {
-					return { ok: true, inserted: batch.rows.length };
-				},
-			},
-			archive_query: {
-				async query() {
-					return [];
-				},
-			},
-			archive: {
-				async resolveSelection() {
-					throw new Error("unexpected archive selection");
-				},
-			},
-			exporter: {
-				async export() {
-					throw new Error("unexpected export");
-				},
-			},
-		},
+		dependencies: sourceTapeDependencies,
 	});
 	if (
 		requiredClockCall.qualification?.outcome?.reason !==
@@ -264,7 +346,47 @@ try {
 			"clean extracted preparation-library operations did not commit terminal evidence",
 		);
 	}
+	if (dependencyBoundaryRequestCount !== 0) {
+		throw new Error(
+			"missing source-tape credential performed dependency-boundary I/O",
+		);
+	}
+	const boundaryPreflight = await sourceTapeDependencies.forwarder.preflight({
+		authorizationId: operationFixtures.source_tape.production_authorization_id,
+		target: operationFixtures.source_tape.target,
+	});
+	const boundarySubmission = await sourceTapeDependencies.forwarder.submit({
+		captureBundleId: "dependency-boundary-fixture",
+		batchIndex: 0,
+		batchCount: 1,
+		rows: [{ table: "dependency_boundary", row: { fixture: true } }],
+	});
+	const boundaryQuery = await sourceTapeDependencies.archive_query.query(
+		"SELECT 'ok' AS dependency_boundary",
+	);
+	let invalidExporterRejected = false;
+	try {
+		await sourceTapeDependencies.exporter.export({});
+	} catch (error) {
+		invalidExporterRejected =
+			error instanceof Error &&
+			error.message === "source_tape_export_result_invalid";
+	}
+	if (
+		boundaryPreflight.authorization.authorizationId !==
+			operationFixtures.source_tape.production_authorization_id ||
+		boundaryPreflight.authorization.scope !== "production" ||
+		boundarySubmission.inserted !== 1 ||
+		boundaryQuery[0]?.dependency_boundary !== "ok" ||
+		!invalidExporterRejected ||
+		dependencyBoundaryRequestCount !== 3
+	) {
+		throw new Error("source-tape dependency boundary fixture failed");
+	}
 	const declaration = readFileSync(preparationDeclarationPath, "utf8");
+	if (!declaration.includes("createMarketDataSourceTapeDependencies")) {
+		throw new Error("preparation declaration omits dependency factory");
+	}
 	const operationDeclarations = [
 		"dist/helpers/market-data-preparation/source-tape-operation.d.ts",
 		"dist/helpers/market-data-preparation/required-clock-qualification.d.ts",
@@ -430,5 +552,8 @@ try {
 		}),
 	);
 } finally {
+	if (dependencyBoundaryServer) {
+		await new Promise((resolve) => dependencyBoundaryServer.close(resolve));
+	}
 	rmSync(temporaryRoot, { recursive: true, force: true });
 }

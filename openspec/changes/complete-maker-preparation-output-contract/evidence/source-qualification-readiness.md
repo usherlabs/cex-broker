@@ -1,4 +1,4 @@
-# Source Qualification Readiness — 2026-08-26
+# Source Qualification Readiness — 2026-08-27
 
 > **Historical checkpoint:** The verified repository command outcomes in this
 > document remain evidence for commit
@@ -9,15 +9,27 @@
 > freeze release identity until the reopened role-neutral boundary and
 > pre-freeze conformance tasks are complete.
 
+> **Superseding package-boundary status, 2026-08-27:** Maker's clean candidate
+> conformance identified a real bare-`zod` dependency in the broad public vendor
+> runtime. CEX repaired the supported preparation boundary by exporting the
+> self-contained `createMarketDataSourceTapeDependencies` factory. The unpacked
+> package now imports and constructs the real CEX dependencies, invokes both
+> operations, commits missing-credential terminal evidence before network I/O,
+> and positively exercises the composed forwarder, query client, and exact
+> exporter with an inert local fixture. Deterministic CEX gates are green; Maker
+> must repeat task 8.1 against this repaired candidate before any successor
+> version is reserved.
+
 ## Current gate
 
-The reopened CEX-owned deterministic implementation and disposable sandbox
-tasks in sections 9 and 10 are complete in the current uncommitted working
-tree. The package now exposes the two role-neutral operations, validates clock
-membership and record causality contextually, yields reconstructed source-tape
-states before provider-object accumulation, verifies actual archive semantics,
-and commits pair-local terminal evidence. This is not yet a frozen release
-commit: Maker's clean-extraction orchestration proof, version reservation,
+The reopened CEX-owned deterministic implementation, disposable sandbox tasks,
+and self-contained preparation dependency boundary in sections 9 and 10 are
+complete in the current uncommitted working tree. The package now exposes the
+two role-neutral operations and one support factory, validates clock membership
+and record causality contextually, yields reconstructed source-tape states
+before provider-object accumulation, verifies actual archive semantics, and
+commits pair-local terminal evidence. This is not yet a frozen release commit:
+Maker's repeated clean-extraction orchestration proof, version reservation,
 live qualification, release, registry audit, and Maker consumer proof remain
 pending. No successful live source qualification, production promotion,
 publication, or Maker acceptance is claimed here.
@@ -97,9 +109,10 @@ not a production-environment claim and is not weakened.
 
 ## Gates that remain
 
-- Have Maker prove deterministic import and invocation of the product-pinned
-  source-tape library and its ownership of cross-stage/cross-pair orchestration
-  without live credentials.
+- Have Maker repeat deterministic import and invocation against the repaired
+  product-pinned source-tape library by using the CEX dependency factory, and
+  prove its ownership of cross-stage/cross-pair orchestration without live
+  credentials.
 - Query npm and reserve an unused successor version.
 - Commit all implementation and generated identities, merge PR #155, and
   freeze the exact clean merge commit before identity-bound evidence.
@@ -127,20 +140,22 @@ licensed conformance probe correctly fails closed unless explicitly enabled.
 
 ## Deterministic verification
 
-- repository suite: 982 tests, 0 failures, 3,045 expectations across 103 files
+- repository suite: 984 tests, 0 failures, 3,050 expectations across 103 files
   using `bun test --max-concurrency 1 test`;
-- focused role-neutral operation, forensics, reconstruction, archive, and
-  package-contract suite: 69 tests, 0 failures, 189 expectations;
+- focused preparation/contract/source-tape package suites: 29 tests, 0
+  failures, 154 expectations; the repository suite also covers the broader
+  role-neutral forensics, reconstruction, and archive cases;
 - TypeScript: passed;
 - build and Node package import/construction: passed;
 - changed-file Biome and `git diff --check`: passed;
 - strict OpenSpec validation: passed;
 - package extraction audit: passed for local candidate `0.2.50` with exactly
   two preparation bins, twelve schemas, the role-neutral capability, exact
-  two-operation runtime/declaration ABI, cross-language fixture verification,
-  and credential-free terminal invocation of both operations from the unpacked
-  tarball. The current diagnostic tarball SHA-256 is
-  `5b8fef3ca0329843f756c89e15137ec441d941dd5110d6187224455563c4fda9`;
+  two-operation runtime/declaration ABI plus the CEX dependency factory,
+  cross-language fixture verification, credential-free terminal invocation of
+  both operations before network I/O, and a positive local dependency-boundary
+  fixture. The current diagnostic tarball SHA-256 is
+  `30396e8204b2271444634432ba2e1ec90c9731102f8de87c294a0e8587c1bc43`;
 - pinned disposable ClickHouse bootstrap, archive schema/identity,
   authorization preflight, and cleanup: passed.
 

@@ -64,6 +64,7 @@ export type MarketDataQualificationSandboxRuntime = {
 	outputDirectory: string;
 	queryClient: ReturnType<typeof createClickHouseArchiveQueryClient>;
 	forwarder: {
+		preflight: ReturnType<typeof createArchiveForwarderClient>["preflight"];
 		submit(batch: ForwarderBatch): Promise<{ ok: boolean; inserted: number }>;
 	};
 	archive: {
@@ -235,7 +236,10 @@ export async function createMarketDataQualificationSandboxRuntime(input: {
 			},
 			outputDirectory,
 			queryClient,
-			forwarder: { submit: (batch) => forwarderClient.submit(batch) },
+			forwarder: {
+				preflight: (request) => forwarderClient.preflight(request),
+				submit: (batch) => forwarderClient.submit(batch),
+			},
 			archive: {
 				async resolveSelection(request) {
 					return (await reader.resolveSelection(request)).selection;

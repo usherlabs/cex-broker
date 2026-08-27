@@ -3,7 +3,8 @@
 ### Requirement: The published subpath exposes the complete final-v1 library boundary
 The dedicated `@usherlabs/cex-broker/market-data-preparation` package subpath SHALL
 export the current request/result codecs, schema and policy manifests,
-RFC 8785 identity helpers, domain runner, dependency factory,
+RFC 8785 identity helpers, domain runner, CEX-owned dependency factory
+`createMarketDataSourceTapeDependencies`,
 qualification-observer interfaces, and exactly two closed preparation
 operations: exported function `runMarketDataSourceTape` with operation identity
 `market-data-source-tape/v1`, and exported function
@@ -23,6 +24,11 @@ identities.
 - **WHEN** Maker audits and extracts the pinned registry package
 - **THEN** it MUST obtain all current preparation artifacts, both executable entrypoints, and both role-neutral package-library operations without starting the gRPC server
 - **AND** package smoke tests MUST reproduce the library and capability pins and reject server-side imports, missing assets, external runtime dependencies, informal invocation/result documents, or live legacy policy dispatch
+
+#### Scenario: Maker constructs live source-tape dependencies
+- **WHEN** Maker supplies only a confined attempt root plus environment-scoped archive-forwarder and ClickHouse endpoints and credentials to the extracted dependency factory
+- **THEN** the CEX package MUST compose the forwarder client, qualified ClickHouse query and selection reader, and exact packaged exporter without requiring Maker to assemble those stage semantics
+- **AND** construction MUST perform no network access, credentials and endpoints MUST remain outside normalized invocation identity, and an invocation with a missing provider credential MUST still commit `source_tape_credentials_missing`
 
 ### Requirement: Market-data vendor backfill is a bounded archive tool
 The service architecture SHALL document `market-data-vendor-backfill` and
