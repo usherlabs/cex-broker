@@ -1,4 +1,5 @@
 import { sha256Canonical } from "../../src/helpers/market-data-archive/capture-contract";
+import { EXTERNAL_BACKFILL_DEPLOYMENT_ID } from "../../src/helpers/market-data-vendor-backfill/contracts";
 import { promotionReceiptFromArchiveRow } from "../../src/helpers/market-data-vendor-backfill/promotion";
 import { qualificationEventFromArchiveRow } from "../../src/helpers/market-data-vendor-backfill/qualification";
 import { archiveSelectionFromArchiveRow } from "../../src/helpers/market-data-vendor-backfill/selection";
@@ -20,7 +21,10 @@ const CANDIDATE_TABLES: ReadonlySet<string> = new Set([
 	"market_data.cex_order_book_levels",
 	"market_data.cex_order_book_depth_summary",
 ]);
-const EXTERNAL_BACKFILL_DEPLOYMENT = "market-data-vendor-backfill";
+const CANDIDATE_CONSTRUCTION_MODES: ReadonlySet<string> = new Set([
+	"sampled_top_n_snapshot",
+	"policy_neutral_top_n_state_change_tape/v1",
+]);
 const UINT64_MAX = 18_446_744_073_709_551_615n;
 const ENVELOPE_FIELDS = new Set(["source", "deployment_id", "batch_id", "rows"]);
 const COMMON_CANDIDATE_FIELDS = [
@@ -275,7 +279,7 @@ function validCommonCandidate(
 		sha256(row.raw_checksum) &&
 		row.provenance_complete === 1 &&
 		sha256(row.snapshot_id) &&
-		row.construction_mode === "sampled_top_n_snapshot" &&
+		CANDIDATE_CONSTRUCTION_MODES.has(String(row.construction_mode)) &&
 		row.gap_policy === "record_gap" &&
 		safeUnsigned(row.depth_limit) &&
 		Number(row.depth_limit) > 0 &&
@@ -362,7 +366,7 @@ export function validateExternalBackfillBatch(
 	const envelope = value as Partial<ArchiveBatchRequest>;
 	if (
 		envelope.source !== EXTERNAL_BACKFILL_SOURCE ||
-		envelope.deployment_id !== EXTERNAL_BACKFILL_DEPLOYMENT ||
+		envelope.deployment_id !== EXTERNAL_BACKFILL_DEPLOYMENT_ID ||
 		!sha256(envelope.batch_id) ||
 		!exactFields(value as Record<string, unknown>, ENVELOPE_FIELDS) ||
 		!Array.isArray(envelope.rows)

@@ -1,11 +1,12 @@
 import type { ArchiveQueryClient } from "./market-data-vendor-backfill/archive-reader";
 import { buildForwarderBatches } from "./market-data-vendor-backfill/batching";
-import type {
-	ArchiveSelectionWire,
-	ForwarderBatch,
-	MarketDataVendorBackfillRequest,
-	PromotionReceiptWire,
-	ProviderObjectEvidence,
+import {
+	type ArchiveSelectionWire,
+	EXTERNAL_BACKFILL_DEPLOYMENT_ID,
+	type ForwarderBatch,
+	type MarketDataVendorBackfillRequest,
+	type PromotionReceiptWire,
+	type ProviderObjectEvidence,
 } from "./market-data-vendor-backfill/contracts";
 import type { CandidateVerification } from "./market-data-vendor-backfill/core";
 import { jcsSha256 } from "./market-data-vendor-backfill/identity";
@@ -309,7 +310,7 @@ async function submitSingleRow(
 ): Promise<void> {
 	const batches = buildForwarderBatches({
 		captureBundleId,
-		deploymentId: "cex-okx-source-tape",
+		deploymentId: EXTERNAL_BACKFILL_DEPLOYMENT_ID,
 		rows: [row],
 	});
 	if (batches.length !== 1) {

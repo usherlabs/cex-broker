@@ -479,6 +479,8 @@ export const BACKFILL_REQUEST_SCHEMA_VERSION =
 export const BACKFILL_PROMOTION_SCHEMA_VERSION =
 	"market-data-vendor-backfill-promotion-receipt/v1" as const;
 export const EXTERNAL_BACKFILL_SOURCE = "external_backfill" as const;
+export const EXTERNAL_BACKFILL_DEPLOYMENT_ID =
+	"market-data-vendor-backfill" as const;
 export const HISTORICAL_VENDOR_SOURCE_MODE =
 	"vendor_historical_backfill_v1" as const;
 export const VENDOR_DATASET_RAW_CAPTURE_SCOPE =

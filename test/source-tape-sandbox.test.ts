@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildCryptoHftDataConformanceDocuments } from "../scripts/market-data-vendor-backfill-conformance";
+import { validateExternalBackfillBatch } from "../services/archive-forwarder/market-data-backfill-contract";
 import {
 	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
 	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
@@ -48,6 +49,7 @@ describe("source-tape disposable sandbox archive path", () => {
 			window: request.window,
 			forwarder: {
 				async submit(batch) {
+					expect(validateExternalBackfillBatch(batch)).toEqual({ ok: true });
 					forwardedRows.push(...batch.rows);
 					return { ok: true, inserted: batch.rows.length };
 				},
@@ -157,6 +159,7 @@ describe("source-tape disposable sandbox archive path", () => {
 			verifiedAt: "2026-08-26T12:00:00.000Z",
 			forwarder: {
 				async submit(batch) {
+					expect(validateExternalBackfillBatch(batch)).toEqual({ ok: true });
 					for (const entry of batch.rows) {
 						if (entry.table.endsWith("capture_promotions")) {
 							receiptId = String(entry.row.receipt_id);

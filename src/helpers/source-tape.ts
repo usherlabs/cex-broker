@@ -18,10 +18,11 @@ import {
 	BACKFILL_MAX_BATCH_ROWS,
 	buildForwarderBatches,
 } from "./market-data-vendor-backfill/batching";
-import type {
-	BackfillArchiveRow,
-	ForwarderBatch,
-	ProviderObjectEvidence,
+import {
+	type BackfillArchiveRow,
+	EXTERNAL_BACKFILL_DEPLOYMENT_ID,
+	type ForwarderBatch,
+	type ProviderObjectEvidence,
 } from "./market-data-vendor-backfill/contracts";
 import {
 	type PolicyNeutralCryptoHftBookState,
@@ -339,7 +340,7 @@ export function createSourceTapeArchiveSink(input: {
 			}
 			const batches = buildForwarderBatches({
 				captureBundleId: input.captureBundleId,
-				deploymentId: "cex-okx-source-tape",
+				deploymentId: EXTERNAL_BACKFILL_DEPLOYMENT_ID,
 				rows,
 				maxRows: SOURCE_TAPE_MAX_BATCH_ROWS,
 				maxBytes: SOURCE_TAPE_MAX_BATCH_BYTES,
@@ -478,7 +479,7 @@ export function normalizeSourceTapeStates(input: {
 		const canonical = buildCanonicalOrderBookRows({
 			context: {
 				source: "external_backfill",
-				deploymentId: "cex-okx-source-tape",
+				deploymentId: EXTERNAL_BACKFILL_DEPLOYMENT_ID,
 				captureBundleId: input.capture_bundle_id,
 				exchange: "okx",
 				symbol: input.trading_pair,

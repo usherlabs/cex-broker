@@ -513,6 +513,12 @@ function failureReason(
 			: error instanceof Error
 				? error.message
 				: "";
+	if (
+		reason.includes("archive_forwarder") ||
+		reason.includes("source_tape_forwarder")
+	) {
+		return "source_tape_archive_failed";
+	}
 	if (reason.includes("selection")) return "source_tape_selection_failed";
 	if (reason.includes("export")) return "source_tape_export_failed";
 	if (reason.includes("promotion")) return "source_tape_promotion_failed";

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { validateExternalBackfillBatch } from "../services/archive-forwarder/market-data-backfill-contract";
 import { compileExactOrderBookExport } from "../src/helpers/canonical-orderbook-export/exact-selection";
 import {
 	CANONICAL_ORDERBOOK_EXPORT_REQUEST_SCHEMA_ID,
@@ -139,6 +140,7 @@ describe("role-neutral policy-neutral source tape", () => {
 			window: request.window,
 			forwarder: {
 				async submit(batch) {
+					expect(validateExternalBackfillBatch(batch)).toEqual({ ok: true });
 					inFlight += 1;
 					maximumInFlight = Math.max(maximumInFlight, inFlight);
 					batches.push(batch);

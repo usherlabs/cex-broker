@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildCryptoHftDataConformanceDocuments } from "../scripts/market-data-vendor-backfill-conformance";
+import { validateExternalBackfillBatch } from "../services/archive-forwarder/market-data-backfill-contract";
 import {
 	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
 	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
@@ -382,6 +383,80 @@ describe("market-data preparation library operations", () => {
 		}
 	});
 
+	test("classifies a normal archive-forwarder rejection as a durable archive failure", async () => {
+		const root = await mkdtemp(path.join(os.tmpdir(), "cex-tape-operation-"));
+		try {
+			const invocation = sourceTapeInvocation();
+			const result = await runMarketDataSourceTape({
+				invocation,
+				attempt_root: root,
+				created_at: "2026-08-26T15:00:00.000Z",
+				credential: { api_key: "provider-secret" },
+				dependencies: {
+					...unusedTapeDependencies,
+					forwarder: {
+						async preflight(input) {
+							return {
+								forwarderIdentity: input.target,
+								authorization: {
+									authorizationId: input.authorizationId,
+									scope: "production" as const,
+									environment: input.target.environment,
+									cluster: input.target.cluster,
+									expiresAt: "2026-08-26T16:00:00.000Z",
+									credentialValidated: true as const,
+								},
+							};
+						},
+						async submit() {
+							return { ok: false, inserted: 0 };
+						},
+					},
+					adapter_factory(_observer, sink) {
+						return {
+							capabilityFor(request) {
+								return {
+									provider: "cryptohftdata",
+									adapterVersion: SOURCE_TAPE_CAPABILITY.adapter_version,
+									providerExchangeId: "okx_spot",
+									resolvedSymbol: request.scope.tradingPair,
+								};
+							},
+							async acquire(request) {
+								const identity = enumerateCryptoHftDataWindowObjects(
+									request,
+									"okx_spot",
+									request.scope.tradingPair,
+								)[0] as string;
+								await sink.writeBatch([
+									{
+										tapeState: "initialization",
+										targetTimeMs: request.window.startTimeMs - 1,
+										sourceTimeMs: request.window.startTimeMs - 1,
+										receivedTimeMs: request.window.startTimeMs - 1,
+										sequence: "1",
+										bids: [[1, 2]],
+										asks: [[2, 3]],
+										datasetObjectIdentity: identity,
+										datasetObjectChecksum: "a".repeat(64),
+									},
+								]);
+								throw new Error("unreachable_after_rejected_forwarder");
+							},
+						};
+					},
+				},
+			});
+			expect(result.qualification.outcome).toMatchObject({
+				status: "failure",
+				reason: "source_tape_archive_failed",
+				exporter_result: null,
+			});
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
 	test("rejects required-clock and Maker-role fields on the source-tape invocation", async () => {
 		const root = await mkdtemp(path.join(os.tmpdir(), "cex-tape-operation-"));
 		try {
@@ -443,6 +518,9 @@ describe("market-data preparation library operations", () => {
 							};
 						},
 						async submit(batch) {
+							expect(validateExternalBackfillBatch(batch)).toEqual({
+								ok: true,
+							});
 							forwardedRows.push(...batch.rows);
 							for (const entry of batch.rows) {
 								if (entry.table.endsWith("capture_promotions")) {
