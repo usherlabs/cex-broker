@@ -3,7 +3,7 @@ import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	CLICKHOUSE_LOCAL_ARTIFACTS,
+	CLICKHOUSE_LOCAL_ARTIFACT,
 	CLICKHOUSE_LOCAL_VERSION,
 	resolveClickHouseLocalBinary,
 	verifyClickHouseLocalBinary,
@@ -35,25 +35,14 @@ async function fakeBinary(version: string): Promise<string> {
 }
 
 describe("ClickHouse Local pinned binary", () => {
-	test("commits exact official amd64 and arm64 artifacts", () => {
+	test("commits the exact official artifact", () => {
 		expect(CLICKHOUSE_LOCAL_VERSION).toBe("25.8.24.21");
-		expect(CLICKHOUSE_LOCAL_ARTIFACTS).toEqual({
-			"linux-amd64": {
-				url: "https://packages.clickhouse.com/tgz/lts/clickhouse-common-static-25.8.24.21-amd64.tgz",
-				sha512:
-					"a687eff77c58afbe56b7112d9130ee429d0a39a308c2494ff99ef9f8dd4e573b601f6f96be4a32cffb745b6ff9262c653e575b3ca8df5bde12a6238efbe538bd",
-				extractedBinary:
-					"clickhouse-common-static-25.8.24.21/usr/bin/clickhouse",
-				cacheKey: "clickhouse-local-25.8.24.21-linux-amd64-a687eff77c58afbe",
-			},
-			"linux-arm64": {
-				url: "https://packages.clickhouse.com/tgz/lts/clickhouse-common-static-25.8.24.21-arm64.tgz",
-				sha512:
-					"34e5c4198ae8b7a598f218db51ebc7a9b1649b405fef8d77456f91da5c0c498ee1f99341f64e88a3d0b5ddd370e2fcedf60a0487a9339d378bd7e958d6c6b079",
-				extractedBinary:
-					"clickhouse-common-static-25.8.24.21/usr/bin/clickhouse",
-				cacheKey: "clickhouse-local-25.8.24.21-linux-arm64-34e5c4198ae8b7a5",
-			},
+		expect(CLICKHOUSE_LOCAL_ARTIFACT).toEqual({
+			url: "https://packages.clickhouse.com/tgz/lts/clickhouse-common-static-25.8.24.21-amd64.tgz",
+			sha512:
+				"a687eff77c58afbe56b7112d9130ee429d0a39a308c2494ff99ef9f8dd4e573b601f6f96be4a32cffb745b6ff9262c653e575b3ca8df5bde12a6238efbe538bd",
+			extractedBinary: "clickhouse-common-static-25.8.24.21/usr/bin/clickhouse",
+			cacheKey: "clickhouse-local-25.8.24.21-a687eff77c58afbe",
 		});
 	});
 
