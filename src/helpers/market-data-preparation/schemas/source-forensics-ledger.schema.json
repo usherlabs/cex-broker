@@ -7,15 +7,15 @@
 	"required": [
 		"schema_id",
 		"ledger_sha256",
+		"operation_kind",
+		"normalized_invocation_sha256",
 		"request_id",
-		"idempotency_key",
 		"scope",
-		"required_clock",
+		"window",
 		"effective_policies",
 		"provider_object_inventory",
 		"provider_objects",
 		"records",
-		"target_dispositions",
 		"summary",
 		"limits",
 		"complete",
@@ -26,10 +26,15 @@
 			"const": "https://schemas.usher.so/market-data-source-forensics-ledger/v1"
 		},
 		"ledger_sha256": { "$ref": "#/$defs/sha256" },
+		"operation_kind": {
+			"enum": ["required_clock_qualification", "source_tape"]
+		},
+		"normalized_invocation_sha256": { "$ref": "#/$defs/sha256" },
 		"request_id": { "$ref": "#/$defs/uuid" },
-		"idempotency_key": { "$ref": "#/$defs/sha256" },
 		"scope": { "$ref": "#/$defs/scope" },
+		"window": { "$ref": "#/$defs/interval" },
 		"required_clock": { "$ref": "#/$defs/clock" },
+		"source_tape": { "$ref": "#/$defs/sourceTape" },
 		"effective_policies": { "$ref": "#/$defs/policies" },
 		"provider_object_inventory": { "$ref": "#/$defs/inventory" },
 		"provider_objects": {
@@ -46,7 +51,7 @@
 			"maxItems": 100000,
 			"items": { "$ref": "#/$defs/disposition" }
 		},
-		"summary": { "$ref": "#/$defs/summary" },
+		"summary": { "type": "object" },
 		"limits": {
 			"type": "object",
 			"additionalProperties": false,
@@ -64,6 +69,48 @@
 			]
 		}
 	},
+	"oneOf": [
+		{
+			"properties": {
+				"operation_kind": { "const": "required_clock_qualification" },
+				"summary": { "$ref": "#/$defs/clockSummary" },
+				"required_clock": { "$ref": "#/$defs/clock" },
+				"target_dispositions": {
+					"type": "array",
+					"maxItems": 100000,
+					"items": { "$ref": "#/$defs/disposition" }
+				},
+				"source_tape": {}
+			},
+			"required": ["required_clock", "target_dispositions"],
+			"not": {
+				"properties": { "source_tape": {} },
+				"required": ["source_tape"]
+			}
+		},
+		{
+			"properties": {
+				"operation_kind": { "const": "source_tape" },
+				"summary": { "$ref": "#/$defs/recordSummary" },
+				"source_tape": { "$ref": "#/$defs/sourceTape" },
+				"required_clock": {},
+				"target_dispositions": {}
+			},
+			"required": ["source_tape"],
+			"not": {
+				"anyOf": [
+					{
+						"properties": { "required_clock": {} },
+						"required": ["required_clock"]
+					},
+					{
+						"properties": { "target_dispositions": {} },
+						"required": ["target_dispositions"]
+					}
+				]
+			}
+		}
+	],
 	"$defs": {
 		"sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
 		"uuid": {
@@ -90,10 +137,17 @@
 					"type": "string",
 					"pattern": "^[A-Z0-9]+-[A-Z0-9]+$"
 				},
-				"market_type": {
-					"enum": ["spot", "linear_perpetual", "inverse_perpetual"]
-				},
+				"market_type": { "enum": ["spot", "swap", "future"] },
 				"feed": { "const": "ORDERBOOK" }
+			}
+		},
+		"interval": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["start_time_ms", "end_time_ms_exclusive"],
+			"properties": {
+				"start_time_ms": { "$ref": "#/$defs/uint" },
+				"end_time_ms_exclusive": { "$ref": "#/$defs/uint" }
 			}
 		},
 		"clock": {
@@ -104,6 +158,16 @@
 				"clock_id": { "$ref": "#/$defs/uuid" },
 				"clock_sha256": { "$ref": "#/$defs/sha256" },
 				"event_count": { "$ref": "#/$defs/uint" }
+			}
+		},
+		"sourceTape": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["product_id", "product_version", "state_count"],
+			"properties": {
+				"product_id": { "const": "market-data-source-tape" },
+				"product_version": { "const": "market-data-source-tape/v1" },
+				"state_count": { "$ref": "#/$defs/uint" }
 			}
 		},
 		"policies": {
@@ -125,7 +189,13 @@
 		"inventory": {
 			"type": "object",
 			"additionalProperties": false,
-			"required": ["expected_identities", "observed_identities", "complete"],
+			"required": [
+				"expected_identities",
+				"observed_identities",
+				"expected_selected_intervals",
+				"observed_selected_intervals",
+				"complete"
+			],
 			"properties": {
 				"expected_identities": {
 					"type": "array",
@@ -138,6 +208,18 @@
 					"maxItems": 10000,
 					"uniqueItems": true,
 					"items": { "type": "string", "minLength": 1, "maxLength": 1024 }
+				},
+				"expected_selected_intervals": {
+					"type": "array",
+					"maxItems": 10000,
+					"uniqueItems": true,
+					"items": { "$ref": "#/$defs/interval" }
+				},
+				"observed_selected_intervals": {
+					"type": "array",
+					"maxItems": 10000,
+					"uniqueItems": true,
+					"items": { "$ref": "#/$defs/interval" }
 				},
 				"complete": { "type": "boolean" }
 			}
@@ -331,7 +413,25 @@
 				}
 			}
 		},
-		"summary": {
+		"recordSummary": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"retained_record_count",
+				"total_record_count",
+				"omitted_record_count",
+				"affected_target_count",
+				"unresolved_record_count"
+			],
+			"properties": {
+				"retained_record_count": { "$ref": "#/$defs/uint" },
+				"total_record_count": { "$ref": "#/$defs/uint" },
+				"omitted_record_count": { "$ref": "#/$defs/uint" },
+				"affected_target_count": { "$ref": "#/$defs/uint" },
+				"unresolved_record_count": { "$ref": "#/$defs/uint" }
+			}
+		},
+		"clockSummary": {
 			"type": "object",
 			"additionalProperties": false,
 			"required": [

@@ -579,18 +579,23 @@ export const backfillRequestSchema = z
 
 type ProvisionalBackfillDomainRequest = z.infer<typeof backfillRequestSchema>;
 
-export type MarketDataVendorBackfillRequest =
-	ProvisionalBackfillDomainRequest & {
-		attemptId?: string;
-		target?: { environment: string; cluster: string };
-		coveragePolicy?: CoveragePolicyWire;
-		requiredClock?: RequiredClockWire;
-		initialSelection?: ArchiveSelectionWire;
-		expectedCanonicalSchema?: BackfillRequestWire["expected_canonical_schema"];
-		productPins?: BackfillRequestWire["product_pins"];
-		productionAuthorizationId?: string;
-		wire?: BackfillRequestWire;
-	};
+export type MarketDataVendorBackfillRequest = Omit<
+	ProvisionalBackfillDomainRequest,
+	"constructionMode"
+> & {
+	constructionMode:
+		| ProvisionalBackfillDomainRequest["constructionMode"]
+		| "policy_neutral_top_n_state_change_tape/v1";
+	attemptId?: string;
+	target?: { environment: string; cluster: string };
+	coveragePolicy?: CoveragePolicyWire;
+	requiredClock?: RequiredClockWire;
+	initialSelection?: ArchiveSelectionWire;
+	expectedCanonicalSchema?: BackfillRequestWire["expected_canonical_schema"];
+	productPins?: BackfillRequestWire["product_pins"];
+	productionAuthorizationId?: string;
+	wire?: BackfillRequestWire;
+};
 
 export function decodeBackfillRunDocuments(input: {
 	request: unknown;

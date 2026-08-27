@@ -122,7 +122,7 @@ const preparationAssets = [
 	["./src/helpers/market-data-preparation/schemas/source-forensics-ledger.schema.json", "schemas/source-forensics-ledger-v1.schema.json"],
 	["./src/helpers/market-data-preparation/schemas/source-qualification-record.schema.json", "schemas/source-qualification-record-v1.schema.json"],
 	["./src/helpers/market-data-vendor-backfill/policies/capability-policy-v3.json", "policies/capability-policy.json"],
-	["./src/helpers/market-data-preparation/policies/candidate-c-input-tape-capability-v1.json", "policies/candidate-c-input-tape-capability-v1.json"],
+	["./src/helpers/market-data-preparation/policies/source-tape-capability-v1.json", "policies/source-tape-capability-v1.json"],
 	["./src/helpers/market-data-vendor-backfill/policies/resource-policy-v2.json", "policies/resource-policy.json"],
 ] as const;
 for (const [sourcePath, outputPath] of preparationAssets) {

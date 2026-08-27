@@ -1,8 +1,4 @@
 import {
-	CANDIDATE_C_INPUT_TAPE_CAPABILITY,
-	CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE,
-} from "../candidate-c-input-tape";
-import {
 	type CanonicalOrderBookExportQuerySegment,
 	type CanonicalOrderBookExportRequestWire,
 	canonicalOrderBookExportRequestCodec,
@@ -23,6 +19,10 @@ import {
 	EFFECTIVE_ADAPTER_POLICY_PIN,
 	RESOURCE_POLICY,
 } from "../market-data-vendor-backfill/manifests";
+import {
+	SOURCE_TAPE_CAPABILITY,
+	SOURCE_TAPE_CONSTRUCTION_MODE,
+} from "../source-tape";
 
 export type ExactOrderBookQueryValue = string | number | readonly string[];
 
@@ -349,8 +349,8 @@ export function compileExactOrderBookExport(
 		segments,
 	);
 	const currentCapability =
-		request.construction_mode === CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE
-			? CANDIDATE_C_INPUT_TAPE_CAPABILITY
+		request.construction_mode === SOURCE_TAPE_CONSTRUCTION_MODE
+			? SOURCE_TAPE_CAPABILITY
 			: CAPABILITY_POLICY;
 	parameters.current_capability_policy_id = currentCapability.policy_id;
 	parameters.current_capability_policy_sha256 = currentCapability.policy_sha256;

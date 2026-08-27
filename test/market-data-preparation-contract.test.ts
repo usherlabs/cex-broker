@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { CANDIDATE_C_INPUT_TAPE_CAPABILITY } from "../src/helpers/candidate-c-input-tape";
 import { PREPARATION_CONFORMANCE_FIXTURES } from "../src/helpers/market-data-preparation/conformance-fixtures";
 import {
 	BACKFILL_RESULT_V2_SCHEMA_ID,
@@ -26,6 +25,7 @@ import staticPreparationManifest from "../src/helpers/market-data-preparation/sc
 };
 import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
 import { documentSha256 } from "../src/helpers/market-data-vendor-backfill/identity";
+import { SOURCE_TAPE_CAPABILITY } from "../src/helpers/source-tape";
 
 const producer = {
 	product_id: "market-data-vendor-backfill",
@@ -97,14 +97,27 @@ describe("market-data preparation contracts", () => {
 		);
 	});
 
-	test("pins the qualification-only Candidate C input-tape capability", () => {
+	test("pins the role-neutral source-tape capability and two-operation library ABI", () => {
 		expect(
 			PREPARATION_CONFORMANCE_FIXTURES.documents.preparation_product_pin
-				.candidate_c_input_tape_capability,
+				.source_tape_capability,
 		).toEqual({
-			policy_id: CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_id,
-			policy_sha256: CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_sha256,
+			policy_id: SOURCE_TAPE_CAPABILITY.policy_id,
+			policy_sha256: SOURCE_TAPE_CAPABILITY.policy_sha256,
 		});
+		expect(
+			PREPARATION_CONFORMANCE_FIXTURES.documents.preparation_product_pin
+				.preparation_library.operations,
+		).toEqual([
+			{
+				symbol: "runMarketDataSourceTape",
+				operation_id: "market-data-source-tape/v1",
+			},
+			{
+				symbol: "runMarketDataRequiredClockQualification",
+				operation_id: "market-data-required-clock-qualification/v1",
+			},
+		]);
 		expect(PREPARATION_SCHEMA_ARTIFACTS).toHaveLength(12);
 	});
 

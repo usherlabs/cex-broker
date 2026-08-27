@@ -11,8 +11,9 @@
 		"schema_manifest",
 		"schema_pins",
 		"capability_policy",
-		"candidate_c_input_tape_capability",
-		"resource_policy"
+		"source_tape_capability",
+		"resource_policy",
+		"preparation_library"
 	],
 	"properties": {
 		"schema_id": { "const": "cex-market-data-preparation-product-pin/v2" },
@@ -106,8 +107,55 @@
 			}
 		},
 		"capability_policy": { "$ref": "#/$defs/policyPin" },
-		"candidate_c_input_tape_capability": { "$ref": "#/$defs/policyPin" },
-		"resource_policy": { "$ref": "#/$defs/policyPin" }
+		"source_tape_capability": { "$ref": "#/$defs/policyPin" },
+		"resource_policy": { "$ref": "#/$defs/policyPin" },
+		"preparation_library": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"exported_subpath",
+				"runtime_entry_sha256",
+				"declaration_sha256",
+				"operations"
+			],
+			"properties": {
+				"exported_subpath": {
+					"const": "@usherlabs/cex-broker/market-data-preparation"
+				},
+				"runtime_entry_sha256": { "$ref": "#/$defs/sha256" },
+				"declaration_sha256": { "$ref": "#/$defs/sha256" },
+				"operations": {
+					"type": "array",
+					"prefixItems": [
+						{
+							"type": "object",
+							"additionalProperties": false,
+							"required": ["symbol", "operation_id"],
+							"properties": {
+								"symbol": { "const": "runMarketDataSourceTape" },
+								"operation_id": { "const": "market-data-source-tape/v1" }
+							}
+						},
+						{
+							"type": "object",
+							"additionalProperties": false,
+							"required": ["symbol", "operation_id"],
+							"properties": {
+								"symbol": {
+									"const": "runMarketDataRequiredClockQualification"
+								},
+								"operation_id": {
+									"const": "market-data-required-clock-qualification/v1"
+								}
+							}
+						}
+					],
+					"items": false,
+					"minItems": 2,
+					"maxItems": 2
+				}
+			}
+		}
 	},
 	"$defs": {
 		"sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

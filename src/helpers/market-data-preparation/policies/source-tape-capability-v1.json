@@ -1,5 +1,5 @@
 {
-	"policy_id": "candidate-c-okx-input-tape-capability/v1",
+	"policy_id": "market-data-source-tape-capability/v1",
 	"provider": "cryptohftdata",
 	"adapter_version": "cryptohftdata-orderbook/v2",
 	"acquisition_policy_id": "cryptohftdata-hourly-acquisition/v2",
@@ -31,5 +31,5 @@
 		"https://schemas.usher.so/cex-order-book-levels-parquet-projection/v1",
 		"https://schemas.usher.so/cex-order-book-depth-summary-parquet-projection/v1"
 	],
-	"policy_sha256": "9b177eb006c852e8e1e571055ef9c67b36a35278c3b5e0eac903fd0069df8b15"
+	"policy_sha256": "203300cc7060f018de073fa96eee7ba8210bbd5a768063166c1a7c2b2adcbe05"
 }

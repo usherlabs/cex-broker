@@ -68,18 +68,21 @@ def verify(assets: Path, fixture_path: Path) -> dict[str, Any]:
     export_request = documents["canonical_orderbook_export_request"]
     export_result = documents["canonical_orderbook_export_result"]
     product_pin = documents["preparation_product_pin"]
+    library_operations = documents["library_operations"]
 
     backfill_hash = assert_self_hash(backfill, "result_sha256")
     export_hash = assert_self_hash(export_result, "result_sha256")
     selection_hash = assert_self_hash(export_request["selection"], "selection_sha256")
     receipt_hash = assert_self_hash(backfill["outcome"]["receipt"], "receipt_id")
     product_pin_hash = sha256(product_pin)
+    library_operations_hash = sha256(library_operations)
     if identities != {
         "manifest_sha256": identities["manifest_sha256"],
         "backfill_result_sha256": backfill_hash,
         "selection_sha256": selection_hash,
         "export_result_sha256": export_hash,
         "product_pin_sha256": product_pin_hash,
+        "library_operations_sha256": library_operations_hash,
     }:
         raise ValueError("fixture identity summary does not reproduce in Python")
 
@@ -115,6 +118,15 @@ def verify(assets: Path, fixture_path: Path) -> dict[str, Any]:
             raise ValueError(f"product pin {name} policy identity disagrees")
         policy_hashes[name] = policy_hash
 
+    source_tape_policy = load(assets / "policies" / "source-tape-capability-v1.json")
+    source_tape_policy_hash = assert_self_hash(source_tape_policy, "policy_sha256")
+    if product_pin["source_tape_capability"] != {
+        "policy_id": source_tape_policy["policy_id"],
+        "policy_sha256": source_tape_policy_hash,
+    }:
+        raise ValueError("product pin source-tape policy identity disagrees")
+    policy_hashes["source_tape"] = source_tape_policy_hash
+
     descriptors = export_result["outcome"]["artifacts"]
     pins_by_id = {pin["schema_id"]: pin["schema_sha256"] for pin in schema_pins}
     for descriptor in descriptors.values():
@@ -135,6 +147,7 @@ def verify(assets: Path, fixture_path: Path) -> dict[str, Any]:
         "receipt_id": receipt_hash,
         "export_result_sha256": export_hash,
         "product_pin_sha256": product_pin_hash,
+        "library_operations_sha256": library_operations_hash,
         "schema_count": len(schema_pins),
         "policy_sha256": policy_hashes,
         "projection_descriptor_count": len(descriptors),
