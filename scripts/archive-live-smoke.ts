@@ -292,8 +292,9 @@ async function runSmoke(): Promise<void> {
 
 try {
 	await withDeadline(runSmoke(), "archive live smoke", OVERALL_TIMEOUT_MS);
+	process.exit(0);
 } catch (error) {
 	const message = error instanceof Error ? error.message : String(error);
 	console.error(message);
-	process.exitCode = 1;
+	process.exit(1);
 }

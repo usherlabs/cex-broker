@@ -34,11 +34,11 @@ export function classifyMarketSource(
 		return "not_market";
 	}
 	if (
+		expected === undefined ||
 		typeof envelope.source !== "string" ||
 		!BROKER_MARKET_SOURCES.has(envelope.source) ||
-		(expected !== undefined &&
-			(envelope.source !== expected.source ||
-				envelope.deployment_id !== expected.deploymentId))
+		envelope.source !== expected.source ||
+		envelope.deployment_id !== expected.deploymentId
 	) {
 		return "invalid_market_source";
 	}

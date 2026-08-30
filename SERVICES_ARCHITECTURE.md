@@ -19,17 +19,7 @@ external archive producers ── HTTP ─► archive-forwarder ── native HT
 
 The full broker is the only repository service that owns CEX connections and CEX credential resolution. Within one broker runtime it also owns canonical public-feed workers: compatible collector and third-party `ORDERBOOK`, `TICKER`, `TRADES`, and `OHLCV` subscriptions are independent logical gRPC clients of one physical CCXT watcher and one archive-decision path. Archival therefore still needs an active subscriber, but duplicate prevention does not depend on a singleton collector. The market-data collector is the operator utility that keeps the configured logical subscriptions alive when no third-party client can provide continuous coverage.
 
-The archive-forwarder centralizes trusted ClickHouse writes behind HTTP. It is not a universal ClickHouse proxy: viewers, replay materializers, validators, and externally owned metrics consumers may read ClickHouse directly.
-
-The market-data preparation package contains a bounded worker library and two
-CEX-owned standalone Node file jobs, not daemons or broker RPCs. An authorized
-caller invokes backfill for one closed scope/window and invokes canonical export
-for one complete archive selection. Backfill may read qualified and candidate
-ClickHouse views, fetch an explicitly enabled historical-vendor profile, and
-submit deterministic candidate and promotion batches to the archive-forwarder.
-Export has read-only ClickHouse access and writes only its caller-owned Parquet
-and result files. Neither starts the broker, owns a live CEX subscription, adds
-domain logic to `src/server.ts`, or writes ClickHouse directly.
+The archive-forwarder centralizes trusted ClickHouse writes behind HTTP. It is not a universal ClickHouse proxy: viewers, validators, and externally owned metrics consumers may read ClickHouse directly. Market writes are bound to one configured broker source and deployment identity. CEX publishes no historical acquisition, preparation, promotion, or canonical-Parquet product.
 
 ## Repository-owned services
 

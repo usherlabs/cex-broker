@@ -167,6 +167,12 @@ function validateCommon(
 	for (const field of CAPTURE_STRING_FIELDS) {
 		if (!isNonEmptyString(row[field])) return `${field} must be non-empty`;
 	}
+	if (row.checksum_algorithm !== "sha256-canonical-json-v1") {
+		return "checksum_algorithm must be sha256-canonical-json-v1";
+	}
+	if (!/^[a-f0-9]{64}$/.test(String(row.raw_checksum))) {
+		return "raw_checksum must be a sha256 hex digest";
+	}
 	for (const field of SNAPSHOT_STRING_FIELDS) {
 		if (!isNonEmptyString(row[field])) return `${field} must be non-empty`;
 	}
@@ -315,6 +321,21 @@ function validateSummary(
 	}
 	const bestBid = decimalNumber(row.best_bid);
 	const bestAsk = decimalNumber(row.best_ask);
+	if (
+		decimalNumber(row.observed_farthest_bid) > bestBid ||
+		decimalNumber(row.retained_farthest_bid) > bestBid ||
+		decimalNumber(row.retained_farthest_bid) <
+			decimalNumber(row.observed_farthest_bid) ||
+		decimalNumber(row.observed_farthest_ask) < bestAsk ||
+		decimalNumber(row.retained_farthest_ask) < bestAsk ||
+		decimalNumber(row.retained_farthest_ask) >
+			decimalNumber(row.observed_farthest_ask)
+	) {
+		return {
+			ok: false,
+			error: "observed and retained farthest prices are inconsistent",
+		};
+	}
 	if (bestBid >= bestAsk) {
 		return { ok: false, error: "summary book must not be crossed or locked" };
 	}
@@ -373,6 +394,12 @@ function validateSummary(
 	for (const field of ["bid_status_by_band", "ask_status_by_band"] as const) {
 		if (!(row[field] as unknown[]).every((status) => BAND_STATUSES.has(String(status)))) {
 			return { ok: false, error: `${field} contains an invalid status` };
+		}
+	}
+	for (const field of ["bid_depth_by_band", "ask_depth_by_band"] as const) {
+		const depths = (row[field] as unknown[]).map(decimalNumber);
+		if (depths.some((depth, index) => index > 0 && depth < depths[index - 1]!)) {
+			return { ok: false, error: `${field} must be monotonic` };
 		}
 	}
 	for (let index = 0; index < bands.length; index += 1) {
