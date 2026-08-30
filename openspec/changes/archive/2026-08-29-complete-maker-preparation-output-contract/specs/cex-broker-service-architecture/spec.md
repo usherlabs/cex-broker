@@ -4,21 +4,18 @@
 The dedicated package subpath SHALL export the current request/result codecs,
 schema and policy manifests, RFC 8785 identity helpers, domain runner,
 dependency factory, qualification-observer interfaces, contextual required-clock
-qualification, and the closed `market-data-source-tape/v1` policy-neutral
-source-tape preparation API. Its implementation
+qualification, and policy-neutral source-tape preparation. Its implementation
 and generated declarations MUST NOT import broker/server or Maker modules. Current
 schemas, policies, fixtures, declarations, both standalone preparation
 executables, the two Parquet projection schemas, and the forensic-ledger and
 qualification-record schemas MUST be present in the published npm tarball.
 Previous policy versions MUST NOT remain executable dispatch choices in that
-boundary. Product pin v2 MUST bind the source-tape exported subpath, runtime and
-declaration hashes, and role-neutral source-tape capability policy separately
-from its exactly two executable identities.
+boundary.
 
 #### Scenario: Maker verifies the package boundary
 - **WHEN** Maker audits and extracts the pinned registry package
 - **THEN** it MUST obtain all current preparation artifacts, both executable entrypoints, and the role-neutral source-tape package-library operation without starting the gRPC server
-- **AND** package smoke tests MUST reproduce the library and capability pins and reject server-side imports, missing assets, external runtime dependencies, informal invocation/result documents, or live legacy policy dispatch
+- **AND** package smoke tests MUST reject server-side imports, missing assets, external runtime dependencies, or live legacy policy dispatch
 
 ### Requirement: Market-data vendor backfill is a bounded archive tool
 The service architecture SHALL document `market-data-vendor-backfill` and
@@ -31,9 +28,7 @@ runner SHALL be exported through the server-independent package-library
 boundary, not a third executable or a Maker-policy request mode. A Maker-owned
 shim MAY invoke that package operation in a local process or sidecar, but CEX
 MUST continue to own provider, reconstruction, qualification, and forwarder
-submission behavior. The library invocation MUST be pair/window-scoped and
-required-clock-independent, and its operation-specific qualification-record-v1
-branch MUST be the pair-local terminal commit marker.
+submission behavior.
 
 The backfill file job MUST have provider-read, qualified-archive-read, and
 archive-forwarder-write access but no direct ClickHouse write authority. The

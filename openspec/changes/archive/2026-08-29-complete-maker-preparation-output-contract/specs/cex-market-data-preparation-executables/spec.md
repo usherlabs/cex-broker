@@ -38,22 +38,14 @@ always-on broker process.
 
 The same npm package SHALL expose the role-neutral source-tape preparation
 operation through its server-independent library subpath. That operation is not
-a third bin. Its exported `market-data-source-tape/v1` API and generated
-declaration MUST accept the closed CEX-owned pair/window invocation, commit the
-operation-specific qualification-record-v1 branch as its terminal pair result,
-and return that record plus any referenced exporter-result-v2 evidence without
-importing Maker code, accepting a required clock, or interpreting Maker clock
-roles.
+a third bin and MUST return existing CEX qualification-record and
+exporter-result evidence without importing Maker code or interpreting Maker
+clock roles.
 
 #### Scenario: Extracted product is invoked
 - **WHEN** either command is launched by its exact relative path from an extracted package
 - **THEN** it MUST execute using only packaged runtime assets and explicitly allowed environment inputs without importing or starting the gRPC server
 - **AND** the existing `cex-broker` bin MUST remain backward compatible
-
-#### Scenario: Maker imports the source-tape operation
-- **WHEN** Maker imports the product-pinned library subpath from a clean package extraction
-- **THEN** the runtime entry and declaration hashes MUST match the product pin and the closed invocation validator MUST reject required-clock, Candidate-role, DEX, scheduler, mapping, and blocked-outcome fields
-- **AND** every attempt after a safe attempt directory exists MUST return the same qualification-record evidence that was atomically committed there
 
 ### Requirement: File jobs fail closed at the caller-owned attempt boundary
 Request, required-clock, result, and exporter artifacts SHALL remain beneath one
@@ -144,13 +136,8 @@ After publication, CEX SHALL record a closed
 `cex-market-data-preparation-product-pin/v2` document containing the exact npm
 tarball URL, SRI, SHA-256, package version, `package.npm_git_head`, both
 executable relative paths, product versions and SHA-256 values, preparation
-schema manifest v3 identity, exactly twelve current schema identities, the
-capability-v3/resource-v2 policy identities, the role-neutral source-tape
-capability policy identity, and exactly one source-tape library-operation
-identity. That library identity MUST bind product ID/version
-`market-data-source-tape/v1`, exported subpath, runtime entry SHA-256, and
-generated declaration SHA-256 without counting as a third executable. The
-twelve schema entries MUST be
+schema manifest v3 identity, exactly twelve current schema identities, and the
+capability-v3/resource-v2 policy identities. The twelve schema entries MUST be
 backfill request v1, backfill result v2, required clock v1, archive selection
 v1, promotion receipt v1, export request v1, export result v2, product pin v2,
 levels-Parquet projection v1, depth-summary-Parquet projection v1,
@@ -166,7 +153,7 @@ versions SHALL remain `market-data-vendor-backfill/v1` and
 #### Scenario: Release evidence is handed to Maker
 - **WHEN** the registry tarball has been published and independently re-audited
 - **THEN** every identity in the product pin MUST be derived from that registry artifact
-- **AND** both extracted bins and the source-tape library operation MUST have passed standalone/import, hash, closed-input, and secret-reflection gates
+- **AND** both extracted bins MUST have passed standalone and secret-reflection gates
 
 #### Scenario: A local candidate is presented as release evidence
 - **WHEN** an artifact has only a source commit, local tarball, prospective version, image tag, or locally computed executable digest
@@ -175,8 +162,8 @@ versions SHALL remain `market-data-vendor-backfill/v1` and
 
 #### Scenario: A successor is extracted cleanly
 - **WHEN** the published successor is unpacked into an empty directory
-- **THEN** every pinned schema, policy, manifest, executable, source-tape library entry, fixture, declaration, and runtime dependency MUST be present and hash-valid
-- **AND** both executables and the source-tape library import MUST run under Node 22 or newer without external repository state
+- **THEN** every pinned schema, policy, manifest, executable, fixture, declaration, and runtime dependency MUST be present and hash-valid
+- **AND** both executables MUST run under Node 22 or newer without external repository state
 
 ### Requirement: Identity-bound evidence uses the exact published commit
 CEX SHALL query npm and reserve an unused successor version before live

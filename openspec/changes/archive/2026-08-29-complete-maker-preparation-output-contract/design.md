@@ -229,12 +229,9 @@ creates schema manifest v3 and
 exactly twelve current schema entries: the six unchanged request/result/clock/
 selection/receipt/export-request schemas, exporter result v2, product pin v2,
 two projection schemas, forensic ledger v1, and qualification record v1. The
-pin also binds capability v3, resource v2, the role-neutral source-tape
-capability policy, both executable hashes, and one versioned source-tape
-library-operation identity containing its exported subpath, runtime entry hash,
-and declaration hash. The library identity is not a third executable identity.
-Counts and exact hashes are generated from canonical artifacts rather than
-copied into source prose.
+pin also binds capability v3, resource v2, and both executable hashes. Counts
+and exact hashes are generated from canonical artifacts rather than copied into
+source prose.
 
 Registry metadata `gitHead`, product pin `package.npm_git_head`, and runtime
 result `producer.package.git_head` are intentionally distinct context-specific
@@ -367,34 +364,9 @@ artifact hashes. Those identity changes regenerate policy and product-pin
 hashes before the release commit is frozen.
 
 The operation is exported from the server-independent package-library subpath.
-Its closed `market-data-source-tape/v1` invocation binds the operation version,
-caller-owned attempt directory, pair and canonical scope, half-open window,
-depth 100, resource, adapter, acquisition, and role-neutral source-tape
-capability pins, exact sandbox target, and request authorization ID. Credentials
-and endpoints remain injected dependencies and are never canonicalized into the
-invocation. The normalized invocation hash is bound by the ledger and
-qualification record. This API accepts no required clock, Candidate role,
-Maker policy input, DEX input, or derivation descriptor.
-
-The unpublished forensic-ledger v1 and qualification-record v1 schemas become
-closed operation unions. `required_clock_qualification` retains the exact
-required-clock and target-disposition contract. `source_tape` instead binds the
-normalized source-tape invocation and window-wide inventory/evidence, carries
-no required clock or target dispositions, and makes
-`source_partition_complete` inapplicable. Both branches may report
-`source_event_enumeration_eligible`; only the tape branch may report
-`source_tape_eligible`. This avoids inventing an internal clock merely to
-authorize source enumeration and removes the circular dependency on a Maker
-bootstrap or admitted clock.
-
-For the source-tape operation, qualification-record v1 is the sole pair-attempt
-commit marker. Its terminal union binds success or closed failure, a stable
-reason, sanitized retained partial-evidence descriptors, and, on success, the
-exporter-result-v2 descriptor. The record is committed only after its referenced
-ledger and any exporter result are durable. It is returned with the referenced
-exporter evidence; no thrown exception after a safe attempt directory exists
-may be the only outcome. This is not a third standalone executable and does not
-add a thirteenth package schema.
+It returns existing CEX qualification-record and exporter-result documents; a
+Maker-owned shim composes their hashes with Maker inputs. It is not a third
+standalone executable and does not add a thirteenth package schema.
 
 Alternative considered: derive a policy clock from sparse required-clock
 snapshots. Rejected because omitted change timestamps are unrecoverable and
@@ -425,10 +397,7 @@ a precondition failure because no safe result location exists. After a valid
 attempt directory is established, thrown or invalid pair outcomes are converted
 to a closed stable failure result; absence of a success document is never the
 only failure signal. A failed attempt commits no successful Parquet descriptor
-or success manifest for that pair. The source-tape operation uses its
-operation-specific qualification-record-v1 branch as this terminal commit
-marker; ordinary preparation file jobs retain their existing result commit
-markers.
+or success manifest for that pair.
 
 The CEX library and file jobs do not run ARB-USDC and ARB-USDT as one thesis
 transaction. Pair-prefixed file names remain required so independent attempts
@@ -518,9 +487,7 @@ qualification.
    external unit command.
 7. Correct the pre-freeze streaming, required-clock membership/causality,
    pair-local durability, input-binding, and tape/archive semantic verification
-   defects. Export the closed, clock-independent role-neutral source-tape
-   package-library operation; extend ledger/qualification-record v1 with its
-   operation branch; pin its capability and runtime/declaration identities; and
+   defects. Export the role-neutral source-tape package-library operation and
    remove Candidate, Maker-descriptor, capacity, and pair-aggregation semantics
    from CEX.
 8. Have Maker prove deterministic invocation of the package-library operation

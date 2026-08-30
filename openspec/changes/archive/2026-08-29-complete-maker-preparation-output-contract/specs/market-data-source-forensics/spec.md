@@ -23,38 +23,22 @@ summary diagnostics, selection, promotion, or export output.
 - **AND** qualification MUST inject the observer through the CEX library boundary
 
 ### Requirement: The ledger is published, content-addressed, bounded, and secret-free
-Each full-window pair qualification or source-tape attempt SHALL write one
+Each full-window pair qualification SHALL write one
 `https://schemas.usher.so/market-data-source-forensics-ledger/v1` ledger and one
 `https://schemas.usher.so/market-data-source-qualification-record/v1` record.
 Both schemas MUST be published npm package assets bound by schema manifest v3
-and product pin v2. Before publication, these v1 schemas SHALL form a closed
-`operation_kind` union of `required_clock_qualification` and `source_tape`; no
-third schema or informal durable result is permitted. Both branches SHALL bind
-their normalized invocation identity, canonical scope and half-open window,
-current applicable capability/resource/adapter/acquisition pins, a positive
-expected/observed provider-object and selected-interval inventory,
-provider-object evidence, ordered failure records, summary counts, limits, and
-completeness verdict.
-
-The `required_clock_qualification` branch MUST additionally bind the exact
-required-clock identity and ordered `target_dispositions`.
+and product pin v2. The ledger digest SHALL bind request and idempotency
+identities, canonical scope, required-clock identity, current
+capability/resource/adapter/acquisition pins, a positive expected/observed
+provider-object inventory, provider-object evidence, ordered failure records,
+ordered `target_dispositions`, summary counts, limits, and completeness verdict.
 `target_dispositions` MUST remain separate from failure `records`, contain
 exactly one entry for each original required-clock target when
 `disposition_complete = true`, and partition those targets into
 `fresh_within_bound`, `valid_inactive_market_state`, or `disqualifying`. The
-`source_tape` branch MUST instead bind the closed
-`market-data-source-tape/v1` invocation identity and MUST contain neither a
-required clock nor target dispositions. It MUST derive window-wide enumeration
-eligibility from its own source reconstruction and positive inventory rather
-than from a prior clock-bound ledger.
-
-The qualification record MUST bind the operation kind, normalized invocation
-SHA-256, ledger schema identity, safe relative path, SHA-256, byte count,
-retained and total record counts, omitted record count, applicable disposition
-counts, and completeness verdict. For `source_tape`, it MUST also be the
-pair-attempt terminal commit marker and use a closed success/failure outcome
-that binds a stable reason, sanitized partial-evidence descriptors, and an
-exporter-result-v2 descriptor only on success.
+qualification record MUST bind the ledger schema identity, safe relative path,
+SHA-256, byte count, retained and total record counts, omitted record count,
+disposition counts, `disposition_complete`, and completeness verdict.
 
 Each disposition SHALL bind original target ID/time and sorted retained
 `record_sha256` references. `fresh_within_bound` MUST bind source time and age
@@ -64,11 +48,10 @@ evidence; `disqualifying` MAY omit source time and age but MUST reference at
 least one retained typed failure record. Contradictory overlapping evidence is
 always disqualifying and MUST NOT be silently resolved by precedence.
 
-The ledger limit SHALL be 100,000 retained failure records and 67,108,864 bytes
-for the entire canonical UTF-8 JSON document. The clock branch SHALL allow
-exactly the required-clock `event_count` disposition slots up to 100,000;
-omitted dispositions MUST set `disposition_complete = false`. The tape branch
-has no disposition slots. Neither branch may contain credentials, bearer
+The ledger limit SHALL be 100,000 retained failure records, exactly the
+required-clock `event_count` disposition slots up to 100,000, and 67,108,864
+bytes for the entire canonical UTF-8 JSON document. Omitted dispositions MUST
+set `disposition_complete = false`. It MUST contain no credentials, bearer
 material, provider rows, response bodies, ClickHouse secrets,
 archive-forwarder secrets, or reflected error text.
 
@@ -83,14 +66,9 @@ archive-forwarder secrets, or reflected error text.
 - **AND** the corresponding incomplete qualification MUST NOT qualify, promote, or support a release claim
 
 #### Scenario: Every required target is reconciled
-- **WHEN** a `required_clock_qualification` ledger finishes with `disposition_complete = true`
+- **WHEN** a ledger finishes with `disposition_complete = true`
 - **THEN** its ordered dispositions MUST contain every required-clock target exactly once and no unknown target
 - **AND** total, fresh, inactive, disqualifying, and omitted counts MUST reconcile with the required clock and qualification descriptor
-
-#### Scenario: A source-tape attempt records window evidence
-- **WHEN** a `source_tape` ledger and qualification record are decoded
-- **THEN** they MUST bind the normalized source-tape invocation, pair, window, policies, and complete expected/observed inventory without a required clock or target dispositions
-- **AND** the qualification record MUST fail closed if clock-only fields or an informal external success manifest are supplied
 
 ### Requirement: Every causal source failure has a typed record
 The ledger SHALL use the closed record kinds `sequence_discontinuity`,
@@ -176,19 +154,10 @@ omit, reorder, or alter a policy-neutral source event. A zero-affected
 unresolved sequence gap therefore MAY leave submitted-clock qualification
 intact but MUST block source-event enumeration. Positively classified
 `valid_inactive_market_state` remains enumeration-eligible.
-For `required_clock_qualification` it is a window-wide fact independent of
-whether a particular submitted target was affected. For `source_tape` it SHALL
-be derived directly from that operation's complete-window reconstruction and
-inventory without requiring any required clock.
 
 These are source facts, not Maker decisions. CEX MUST NOT emit
 `derivation_eligible`, Candidate-role, admitted-clock, policy-invocation, or
 `reference_depth_stale` verdicts.
-The qualification record's closed operation union SHALL expose `qualified` and
-`source_partition_complete` only for `required_clock_qualification`, expose
-`source_tape_eligible` only for `source_tape`, and expose
-`source_event_enumeration_eligible` for either operation. An inapplicable
-predicate MUST be absent rather than encoded as a misleading false verdict.
 
 #### Scenario: One pair remains incomplete
 - **WHEN** a pair has at least one disqualifying required target or an incomplete ledger
@@ -231,18 +200,6 @@ time/sequence used for freshness. It MUST scan the complete provider window
 independently of any submitted required-clock targets and MUST NOT filter
 changes using Maker policy.
 
-The exported operation SHALL use the versioned identity
-`market-data-source-tape/v1` and a closed runtime-validated input whose
-normalized canonical form binds the caller-owned attempt directory, pair and
-canonical scope, half-open window, depth 100, resource, adapter, acquisition,
-and role-neutral source-tape capability pins, exact
-`sandbox/cex-archive-local` target, and request authorization ID. Its canonical
-SHA-256 MUST be bound by the ledger and qualification record. Credentials and
-network endpoints MUST remain injected dependencies excluded from the
-canonical input. The operation MUST accept no required clock, Candidate role,
-Maker policy/configuration, DEX input, invocation mapping, blocked outcome, or
-derivation descriptor.
-
 The tape SHALL use the pinned policy-neutral qualification capability and
 construction-mode identity; it MUST NOT label these rows
 `sampled_top_n_snapshot`. It SHALL enter Parquet through the normal
@@ -252,8 +209,7 @@ replay-qualified-view, and exporter-v2 machinery in the disposable
 claim normal selection, receipt, promotion, or exporter identities. The
 existing levels and depth-summary Parquet projection schemas MAY be reused
 because the tape emits canonical full book states with the same physical
-columns. The operation-specific qualification-record and exporter-result
-documents SHALL bind
+columns. Existing qualification-record and exporter-result documents SHALL bind
 the construction identity, canonical schema, capability, adapter and
 acquisition policies, complete expected/observed object inventory, sandbox
 selection/receipt/export identities, artifact hashes, exact state count, and
@@ -275,14 +231,6 @@ pinned schema, construction-mode, capability, policy, archive, selection,
 export, and artifact identities. It MUST NOT require or interpret a Maker
 bootstrap/admitted clock or Maker derivation descriptor.
 
-Qualification-record v1 SHALL be the sole durable pair-attempt commit marker
-for this library operation. A successful record MUST reference the validated
-exporter-result-v2 document and its artifacts. A failed record MUST bind a
-stable closed reason and every retained sanitized partial-evidence descriptor,
-and MUST contain no successful exporter or Parquet descriptor. The operation's
-returned value MUST reproduce the committed qualification record and referenced
-evidence rather than relying on a thrown exception or an unversioned manifest.
-
 #### Scenario: A clock-bound export contains only sampled states
 - **WHEN** an ordinary clock-bound backfill exports only states selected at its required targets
 - **THEN** that export MUST be ineligible as a source-complete tape
@@ -300,13 +248,8 @@ evidence rather than relying on a thrown exception or an unversioned manifest.
 
 #### Scenario: Tape production fails after a valid attempt directory exists
 - **WHEN** provider acquisition, reconstruction, forwarder admission, promotion, selection, or export throws or returns an invalid outcome for one pair
-- **THEN** that pair MUST commit the `source_tape` qualification-record-v1 failure branch naming the stable reason and retained partial-evidence hashes
+- **THEN** that pair MUST commit a durable closed failure result naming the stable reason and retained partial-evidence hashes
 - **AND** it MUST commit no tape Parquet or success manifest, while pair-prefixed paths prevent collision with independent attempts
-
-#### Scenario: Tape production succeeds
-- **WHEN** source enumeration, reconstruction, archive verification, promotion, exact selection, and exporter v2 all pass for one pair
-- **THEN** the `source_tape` qualification-record-v1 success branch MUST reference the exact exporter result and bind the source-tape invocation, ledger, inventory, selection, receipt, and artifact identities
-- **AND** Maker MUST be able to validate the pair-local commit without a CEX repository checkout or a Maker clock descriptor
 
 ### Requirement: Maker derivation and capacity semantics remain outside CEX
 CEX SHALL treat Maker derivation and capacity semantics as external caller
