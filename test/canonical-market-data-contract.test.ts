@@ -497,8 +497,10 @@ describe("canonical order-book normalization", () => {
 			observedAskCount: book.asks.length,
 			observedFarthestBid: book.bids.at(-1)?.[0] ?? Number.NaN,
 			observedFarthestAsk: book.asks.at(-1)?.[0] ?? Number.NaN,
-			bidExhausted: false,
-			askExhausted: false,
+			exhaustionEvidence: {
+				bid: { exhausted: false, validated: true, source: "fixture" },
+				ask: { exhausted: false, validated: true, source: "fixture" },
+			},
 			measurementBandsBps: bands,
 		};
 	}

@@ -32,8 +32,8 @@ export {
 	canonicalSerialize,
 	createRawCapture,
 	GAP_POLICIES,
-	projectRawCapturePayload,
 	MARKET_CAPTURE_SCHEMA_VERSION,
+	projectRawCapturePayload,
 	RAW_CAPTURE_SCOPES,
 	SOURCE_MODES,
 	sha256Canonical,
@@ -75,8 +75,8 @@ export {
 } from "./rows";
 export {
 	canonicalDecimal38,
-	ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELDS,
 	ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELD_NAMES,
+	ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELDS,
 	projectOrderBookSummaryV2SupportedView,
 } from "./summary-v2-conformance";
 export type {

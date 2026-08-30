@@ -107,6 +107,13 @@ const server = Bun.serve({
 		if (request.method === "POST" && pathname === "/archive") {
 			return handleArchiveRequest(request, {
 				authToken: config.authToken,
+				marketIdentity:
+					config.marketSource && config.marketDeploymentId
+						? {
+								source: config.marketSource,
+								deploymentId: config.marketDeploymentId,
+							}
+						: undefined,
 				inserter,
 				spool,
 				streamHealthStore,

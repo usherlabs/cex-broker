@@ -3,6 +3,7 @@ import { isSupportedTable, MALFORMED_TABLE_LABEL } from "./types";
 import { insertArchiveRows, type RowInserter } from "./insert";
 import type { ArchiveForwarderTelemetry } from "./telemetry";
 import { validateRetainedOrderBookRow } from "./order-book-row-contract";
+import { validateOrderBookRawRow } from "./order-book-raw-contract";
 
 export type ParsedArchiveBatch =
 	| {
@@ -50,11 +51,18 @@ function isValidArchiveRow(
 		return false;
 	}
 	if (envelopeSource !== undefined && envelopeDeploymentId !== undefined) {
-		return validateRetainedOrderBookRow(
-			row,
-			envelopeSource,
-			envelopeDeploymentId,
-		).ok;
+		return (
+			validateRetainedOrderBookRow(
+				row,
+				envelopeSource,
+				envelopeDeploymentId,
+			).ok &&
+			validateOrderBookRawRow(
+				row,
+				envelopeSource,
+				envelopeDeploymentId,
+			).ok
+		);
 	}
 	return true;
 }

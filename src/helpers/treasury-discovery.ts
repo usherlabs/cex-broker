@@ -93,9 +93,13 @@ export async function fetchCurrencyMetadata(
 		discoveryBroker.has?.fetchCurrencies !== false
 	) {
 		const currencies = await discoveryBroker.fetchCurrencies();
-		return currencies[normalizedAsset] as Record<string, unknown> | undefined;
+		// SAFETY: CCXT currency records are JSON-like objects at this adapter boundary.
+		return currencies[normalizedAsset] as unknown as
+			| Record<string, unknown>
+			| undefined;
 	}
-	return discoveryBroker.currencies?.[normalizedAsset] as
+	// SAFETY: CCXT's cached currency record has the same JSON-like runtime shape.
+	return discoveryBroker.currencies?.[normalizedAsset] as unknown as
 		| Record<string, unknown>
 		| undefined;
 }

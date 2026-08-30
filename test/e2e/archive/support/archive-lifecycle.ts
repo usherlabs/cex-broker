@@ -333,11 +333,11 @@ class CollectorObserver {
 		barrier: LifecycleBarrier<void>;
 	}> = [];
 
-	public recordCounter = (
+	public recordCounter = async (
 		name: string,
 		value: number,
 		labels: Record<string, unknown>,
-	): void => {
+	): Promise<void> => {
 		if (name !== "cex_market_data_collector_frames_received_total") return;
 		const feed = labels.feed as PublicFeed;
 		const count = (this.counts.get(feed) ?? 0) + value;
@@ -943,7 +943,6 @@ export async function startProductionBrokerCollectorTopology(options: {
 		source: "broker_read",
 		deploymentId: options.deploymentId,
 		forwarderUrl: options.forwarderUrl,
-		forwarderToken: options.forwarderToken,
 		deadLetterPath: options.lossJournalPath,
 		batchSize: 1_000,
 		flushIntervalMs: 60_000,
@@ -1710,6 +1709,7 @@ export async function runOrderBookConflictRegression(): Promise<{
 				receivedTimestamp: 1_700_000_000_125,
 				exchange: "binance",
 				symbol: "BTC/USDT",
+				depthLimit: 2,
 				sequence: 42,
 			};
 			const raw = createRawCapture(context, {
@@ -1723,6 +1723,20 @@ export async function runOrderBookConflictRegression(): Promise<{
 				snapshot,
 				rawCapture: raw,
 				depthLimit: 2,
+				archiveMetadata: {
+					captureProfileId: "e2e:orderbook",
+					effectiveCadenceMs: 1_000,
+					requestedUpstreamDepth: 2,
+					observedBidCount: 2,
+					observedAskCount: 2,
+					observedFarthestBid: 99,
+					observedFarthestAsk: 102,
+					exhaustionEvidence: {
+						bid: { exhausted: false, validated: true, source: "e2e" },
+						ask: { exhausted: false, validated: true, source: "e2e" },
+					},
+					measurementBandsBps: [10, 25, 50, 100],
+				},
 			});
 			return {
 				level: rows.levels[0] as {

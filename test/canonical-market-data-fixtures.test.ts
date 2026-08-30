@@ -142,8 +142,10 @@ describe("canonical market-data golden fixture v1", () => {
 				observedAskCount: snapshot.asks.length,
 				observedFarthestBid: snapshot.bids.at(-1)?.[0] ?? Number.NaN,
 				observedFarthestAsk: snapshot.asks.at(-1)?.[0] ?? Number.NaN,
-				bidExhausted: false,
-				askExhausted: false,
+				exhaustionEvidence: {
+					bid: { exhausted: false, validated: true, source: "fixture" },
+					ask: { exhausted: false, validated: true, source: "fixture" },
+				},
 				measurementBandsBps: [10, 25, 50, 100],
 			},
 		});

@@ -16,7 +16,10 @@ export type MarketSourceClassification =
  * roles. Strategy and stream-health envelopes retain their independent source
  * contracts and are deliberately ignored here.
  */
-export function classifyMarketSource(value: unknown): MarketSourceClassification {
+export function classifyMarketSource(
+	value: unknown,
+	expected?: { source: "broker_read" | "broker_write"; deploymentId: string },
+): MarketSourceClassification {
 	if (!value || typeof value !== "object" || Array.isArray(value)) {
 		return "not_market";
 	}
@@ -32,7 +35,10 @@ export function classifyMarketSource(value: unknown): MarketSourceClassification
 	}
 	if (
 		typeof envelope.source !== "string" ||
-		!BROKER_MARKET_SOURCES.has(envelope.source)
+		!BROKER_MARKET_SOURCES.has(envelope.source) ||
+		(expected !== undefined &&
+			(envelope.source !== expected.source ||
+				envelope.deployment_id !== expected.deploymentId))
 	) {
 		return "invalid_market_source";
 	}

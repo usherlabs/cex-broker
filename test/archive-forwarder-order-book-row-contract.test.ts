@@ -5,6 +5,7 @@ import {
 	validateRetainedOrderBookRow,
 } from "../services/archive-forwarder/order-book-row-contract";
 import { parseArchiveBatchRequest } from "../services/archive-forwarder/router";
+import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 
 const deploymentId = "deploy-live-a";
 const source = "broker_read";
@@ -12,7 +13,7 @@ const source = "broker_read";
 function levelRow(
 	overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
-	return {
+	const row = {
 		source,
 		deployment_id: deploymentId,
 		capture_bundle_id: "bundle-a",
@@ -45,15 +46,16 @@ function levelRow(
 		notional: "200.000000000000000000",
 		mid_price: "100.500000000000000000",
 		spread_from_mid_bps: 49.75124378109453,
-		normalized_row_checksum: "level-checksum-a",
+		normalized_row_checksum: "",
 		...overrides,
 	};
+	return { ...row, normalized_row_checksum: sha256Canonical(row) };
 }
 
 function summaryRow(
 	overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
-	return {
+	const row = {
 		source,
 		deployment_id: deploymentId,
 		capture_bundle_id: "bundle-a",
@@ -115,11 +117,12 @@ function summaryRow(
 		],
 		bid_depth_by_band: ["0", "0", "2", "4"],
 		ask_depth_by_band: ["0", "0", "3", "6"],
-		bid_status_by_band: ["exact", "exact", "exact", "censored"],
-		ask_status_by_band: ["exact", "exact", "exact", "censored"],
-		normalized_row_checksum: "summary-checksum-a",
+		bid_status_by_band: ["exact", "exact", "exact", "exact"],
+		ask_status_by_band: ["exact", "exact", "exact", "exact"],
+		normalized_row_checksum: "",
 		...overrides,
 	};
+	return { ...row, normalized_row_checksum: sha256Canonical(row) };
 }
 
 function validation(table: string, row: Record<string, unknown>) {
@@ -205,11 +208,11 @@ describe("retained live order-book row contract", () => {
 			rows: [
 				{
 					table: "market_data.cex_order_book_depth_summary",
-					row: summaryRow({ normalized_row_checksum: "checksum-a" }),
+					row: summaryRow({ bid_depth_by_band: ["0", "0", "2", "4"] }),
 				},
 				{
 					table: "market_data.cex_order_book_depth_summary",
-					row: summaryRow({ normalized_row_checksum: "checksum-b" }),
+					row: summaryRow({ bid_depth_by_band: ["0", "0", "2", "5"] }),
 				},
 			],
 		});

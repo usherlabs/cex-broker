@@ -25,8 +25,6 @@ export const SOURCE_MODES = [
 	"external_ccxt_fallback_v1",
 	"external_hummingbot_fallback_v1",
 	"legacy_migration_v1",
-	"historical_vendor_orderbook_v1",
-	"vendor_historical_backfill_v1",
 ] as const;
 export const CONSTRUCTION_MODES = [
 	"sampled_top_n_snapshot",
@@ -41,7 +39,6 @@ export const RAW_CAPTURE_SCOPES = [
 	"ccxt_normalized_object",
 	"broker_visible_payload",
 	"exchange_wire_frame",
-	"vendor_normalized_dataset_file",
 ] as const;
 
 export type CaptureFeed = (typeof CAPTURE_FEEDS)[number];

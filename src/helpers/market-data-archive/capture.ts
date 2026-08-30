@@ -181,8 +181,8 @@ export function archiveOrderbookInBackground(
 				observed_farthest_ask: canonicalDecimal(
 					archiveMetadata.observedFarthestAsk,
 				),
-				bid_exhausted: archiveMetadata.bidExhausted,
-				ask_exhausted: archiveMetadata.askExhausted,
+				bid_exhausted: archiveMetadata.exhaustionEvidence.bid.exhausted,
+				ask_exhausted: archiveMetadata.exhaustionEvidence.ask.exhausted,
 				retained_bid_count: canonical.levels.filter(
 					({ row }) => row.side === "bid",
 				).length,
@@ -420,6 +420,11 @@ export function archiveCexStreamEventInBackground(
 	otelMetrics: OtelMetrics | undefined,
 	input: CexStreamArchiveInput,
 ): void {
+	if (input.streamType === "ORDERBOOK") {
+		throw new Error(
+			"Generic ORDERBOOK archive events are unsupported; use archiveOrderbookInBackground",
+		);
+	}
 	archiveMarketRowsInBackground(
 		archiver,
 		otelMetrics,

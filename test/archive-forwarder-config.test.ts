@@ -28,6 +28,19 @@ describe("archive forwarder spool configuration", () => {
 			"productionAuthorization",
 		);
 	});
+
+	test("binds market admission to one deployment-owned broker identity", () => {
+		process.env.ARCHIVE_FORWARDER_MARKET_SOURCE = "broker_read";
+		process.env.ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID = "market-reader-eu-1";
+		expect(loadForwarderConfig()).toMatchObject({
+			marketSource: "broker_read",
+			marketDeploymentId: "market-reader-eu-1",
+		});
+		delete process.env.ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID;
+		expect(() => loadForwarderConfig()).toThrow("configured together");
+		process.env.ARCHIVE_FORWARDER_MARKET_SOURCE = "external_backfill";
+		expect(() => loadForwarderConfig()).toThrow("broker_read or broker_write");
+	});
 });
 
 describe("archive forwarder ClickHouse configuration", () => {

@@ -30,11 +30,11 @@ class FirstFrameObserver {
 	private readonly seen = new Set<PublicFeed>();
 	private readonly waiters = new Map<PublicFeed, () => void>();
 
-	public recordCounter = (
+	public recordCounter = async (
 		name: string,
 		_value: number,
 		labels: Record<string, unknown>,
-	): void => {
+	): Promise<void> => {
 		if (name !== "cex_market_data_collector_frames_received_total") return;
 		const feed = labels.feed as PublicFeed;
 		this.seen.add(feed);

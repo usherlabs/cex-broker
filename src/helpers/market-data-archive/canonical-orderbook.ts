@@ -157,6 +157,20 @@ function validateMetadata(
 			"observed_farthest_ask does not match the complete observation",
 		);
 	}
+	for (const [side, evidence] of [
+		["bid", metadata.exhaustionEvidence.bid],
+		["ask", metadata.exhaustionEvidence.ask],
+	] as const) {
+		if (
+			evidence.validated !== true ||
+			typeof evidence.exhausted !== "boolean" ||
+			!evidence.source.trim()
+		) {
+			throw new OrderBookValidationError(
+				`${side} exhaustion evidence must be validated and source-bound`,
+			);
+		}
+	}
 	try {
 		return normalizeOrderbookMeasurementBandsBps(metadata.measurementBandsBps);
 	} catch (error) {
@@ -331,13 +345,13 @@ export function buildCanonicalOrderBookRows(input: {
 		levels: observedBids,
 		boundaries: bidBoundaries,
 		side: "bid",
-		exhausted: input.archiveMetadata.bidExhausted,
+		exhausted: input.archiveMetadata.exhaustionEvidence.bid.exhausted,
 	});
 	const askEvidence = sideBandEvidence({
 		levels: observedAsks,
 		boundaries: askBoundaries,
 		side: "ask",
-		exhausted: input.archiveMetadata.askExhausted,
+		exhausted: input.archiveMetadata.exhaustionEvidence.ask.exhausted,
 	});
 	const summaryRow = checksumRow({
 		...common,
@@ -351,8 +365,12 @@ export function buildCanonicalOrderBookRows(input: {
 		observed_farthest_ask: input.archiveMetadata.observedFarthestAsk,
 		retained_farthest_bid: retainedFarthestBid.price,
 		retained_farthest_ask: retainedFarthestAsk.price,
-		bid_exhausted: input.archiveMetadata.bidExhausted ? 1 : 0,
-		ask_exhausted: input.archiveMetadata.askExhausted ? 1 : 0,
+		bid_exhausted: input.archiveMetadata.exhaustionEvidence.bid.exhausted
+			? 1
+			: 0,
+		ask_exhausted: input.archiveMetadata.exhaustionEvidence.ask.exhausted
+			? 1
+			: 0,
 		best_bid: bestBid.price,
 		best_ask: bestAsk.price,
 		best_bid_amount: bestBid.amount,

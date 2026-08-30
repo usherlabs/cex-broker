@@ -6,6 +6,7 @@ import {
 	type ArchiveMetricsRecorder,
 	createArchiveForwarderTelemetry,
 } from "../services/archive-forwarder/telemetry";
+import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 
 type CounterRecord = {
 	name: string;
@@ -319,15 +320,28 @@ describe("archive forwarder telemetry", () => {
 			mid_price: 100.5,
 			spread_from_mid_bps: 49.75124378109453,
 		};
+		const firstContent = { ...common, normalized_row_checksum: "" };
+		const secondContent = {
+			...common,
+			amount: 2,
+			notional: 200,
+			normalized_row_checksum: "",
+		};
 		const response = await handleArchiveRequest(
 			archiveRequest([
 				{
 					table: "market_data.cex_order_book_levels",
-					row: { ...common, normalized_row_checksum: "a" },
+					row: {
+						...firstContent,
+						normalized_row_checksum: sha256Canonical(firstContent),
+					},
 				},
 				{
 					table: "market_data.cex_order_book_levels",
-					row: { ...common, normalized_row_checksum: "b" },
+					row: {
+						...secondContent,
+						normalized_row_checksum: sha256Canonical(secondContent),
+					},
 				},
 			]),
 			{ inserter: async () => {}, telemetry },

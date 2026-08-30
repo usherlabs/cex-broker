@@ -98,6 +98,38 @@ describe("strategy durable HTTP admission", () => {
 		}
 	});
 
+	test("rejects a relabeled historical worker against the configured market identity", async () => {
+		let insertCalled = false;
+		const response = await handleArchiveRequest(
+			post({
+				source: "broker_read",
+				deployment_id: "historical-worker",
+				rows: [
+					{
+						table: "market_data.cex_trades",
+						row: {
+							source: "broker_read",
+							deployment_id: "historical-worker",
+							trade_id: "trade-a",
+						},
+					},
+				],
+			}),
+			{
+				marketIdentity: {
+					source: "broker_read",
+					deploymentId: "market-reader-eu-1",
+				},
+				inserter: async () => {
+					insertCalled = true;
+				},
+				telemetry: new ArchiveForwarderTelemetry(noopRecorder),
+			},
+		);
+		expect(response.status).toBe(400);
+		expect(insertCalled).toBe(false);
+	});
+
 	test("rejects a broker envelope when a market row source is caller-overridden", async () => {
 		let insertCalled = false;
 		const response = await handleArchiveRequest(

@@ -11,6 +11,7 @@ export type OrderBookAcquisitionProfile = {
 	coalescingSupported: boolean;
 	bidExhaustionEvidence: boolean;
 	askExhaustionEvidence: boolean;
+	exhaustionEvidenceValidated: true;
 };
 
 export type OrderBookAcquisitionProfileInput = {
@@ -32,6 +33,7 @@ export function resolveConservativeOrderBookAcquisitionProfile(
 			coalescingSupported: false,
 			bidExhaustionEvidence: false,
 			askExhaustionEvidence: false,
+			exhaustionEvidenceValidated: true,
 		};
 	}
 	return {
@@ -41,6 +43,7 @@ export function resolveConservativeOrderBookAcquisitionProfile(
 		coalescingSupported: false,
 		bidExhaustionEvidence: false,
 		askExhaustionEvidence: false,
+		exhaustionEvidenceValidated: true,
 	};
 }
 
@@ -62,6 +65,7 @@ export function resolveOrderBookAcquisitionProfile(
 			coalescingSupported: true,
 			bidExhaustionEvidence: false,
 			askExhaustionEvidence: false,
+			exhaustionEvidenceValidated: true,
 		};
 	}
 

@@ -14,6 +14,7 @@ import {
 	isSupportedTable,
 	SUPPORTED_TABLES,
 } from "../services/archive-forwarder/types";
+import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 
 describe("archive forwarder batch parsing", () => {
 	test("parseArchiveBatchRequest accepts broker_write payloads", () => {
@@ -125,17 +126,30 @@ describe("archive forwarder batch parsing", () => {
 			mid_price: "100.500000000000000000",
 			spread_from_mid_bps: 49.75,
 		};
+		const firstContent = { ...common, normalized_row_checksum: "" };
+		const secondContent = {
+			...common,
+			amount: "3.000000000000000000",
+			notional: "300.000000000000000000",
+			normalized_row_checksum: "",
+		};
 		const parsed = parseArchiveBatchRequest({
 			source: "broker_read",
 			deployment_id: "deploy-a",
 			rows: [
 				{
 					table: "market_data.cex_order_book_levels",
-					row: { ...common, normalized_row_checksum: "a" },
+					row: {
+						...firstContent,
+						normalized_row_checksum: sha256Canonical(firstContent),
+					},
 				},
 				{
 					table: "market_data.cex_order_book_levels",
-					row: { ...common, normalized_row_checksum: "b" },
+					row: {
+						...secondContent,
+						normalized_row_checksum: sha256Canonical(secondContent),
+					},
 				},
 			],
 		});

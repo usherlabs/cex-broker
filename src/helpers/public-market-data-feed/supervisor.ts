@@ -387,16 +387,25 @@ class PublicFeedWorker {
 							this.options.profile?.id ??
 							`${this.options.exchangeName}:conservative:default`,
 						effectiveCadenceMs: getOrderbookIntervalMs(),
-						requestedUpstreamDepth:
-							this.options.profile?.upstreamLimit ?? null,
+						requestedUpstreamDepth: this.options.profile?.upstreamLimit ?? null,
 						observedBidCount,
 						observedAskCount,
 						observedFarthestBid: snapshot.bids.at(-1)?.[0] ?? Number.NaN,
 						observedFarthestAsk: snapshot.asks.at(-1)?.[0] ?? Number.NaN,
-						bidExhausted:
-							this.options.profile?.bidExhaustionEvidence ?? false,
-						askExhausted:
-							this.options.profile?.askExhaustionEvidence ?? false,
+						exhaustionEvidence: {
+							bid: {
+								exhausted: this.options.profile?.bidExhaustionEvidence ?? false,
+								validated:
+									this.options.profile?.exhaustionEvidenceValidated ?? true,
+								source: this.options.profile?.id ?? "broker:conservative",
+							},
+							ask: {
+								exhausted: this.options.profile?.askExhaustionEvidence ?? false,
+								validated:
+									this.options.profile?.exhaustionEvidenceValidated ?? true,
+								source: this.options.profile?.id ?? "broker:conservative",
+							},
+						},
 						measurementBandsBps: getOrderbookMeasurementBandsBps(),
 					},
 				},

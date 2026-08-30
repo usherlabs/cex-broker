@@ -88,6 +88,11 @@ export type RawCapture = {
 	checksumAlgorithm: string;
 };
 
+export type OrderbookExhaustionEvidence = {
+	bid: { exhausted: boolean; validated: true; source: string };
+	ask: { exhausted: boolean; validated: true; source: string };
+};
+
 /** Closed provenance supplied by the physical ORDERBOOK acquisition. */
 export type OrderbookArchiveMetadata = {
 	captureProfileId: string;
@@ -97,8 +102,7 @@ export type OrderbookArchiveMetadata = {
 	observedAskCount: number;
 	observedFarthestBid: number;
 	observedFarthestAsk: number;
-	bidExhausted: boolean;
-	askExhausted: boolean;
+	exhaustionEvidence: OrderbookExhaustionEvidence;
 	measurementBandsBps: readonly number[];
 };
 

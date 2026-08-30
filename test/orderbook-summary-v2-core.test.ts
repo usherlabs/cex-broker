@@ -70,14 +70,19 @@ function metadata(
 		observedAskCount: snapshot.asks.length,
 		observedFarthestBid: snapshot.bids.at(-1)?.[0] ?? Number.NaN,
 		observedFarthestAsk: snapshot.asks.at(-1)?.[0] ?? Number.NaN,
-		bidExhausted: false,
-		askExhausted: false,
+		exhaustionEvidence: {
+			bid: { exhausted: false, validated: true, source: "fixture" },
+			ask: { exhausted: false, validated: true, source: "fixture" },
+		},
 		measurementBandsBps: [100, 10, 25, 10],
 		...overrides,
 	};
 }
 
-function build(snapshot = book(), overrides: Partial<OrderbookArchiveMetadata> = {}) {
+function build(
+	snapshot = book(),
+	overrides: Partial<OrderbookArchiveMetadata> = {},
+) {
 	const raw = createRawCapture(context, {
 		payload: snapshot,
 		eventTimeMs: snapshot.timestamp,
@@ -109,8 +114,8 @@ function rawMetadata(
 		observed_ask_count: archiveMetadata.observedAskCount,
 		observed_farthest_bid: String(snapshot.bids.at(-1)?.[0]),
 		observed_farthest_ask: String(snapshot.asks.at(-1)?.[0]),
-		bid_exhausted: archiveMetadata.bidExhausted,
-		ask_exhausted: archiveMetadata.askExhausted,
+		bid_exhausted: archiveMetadata.exhaustionEvidence.bid.exhausted,
+		ask_exhausted: archiveMetadata.exhaustionEvidence.ask.exhausted,
 		retained_bid_count: 2,
 		retained_ask_count: 2,
 		measurement_bands_bps: [10, 25, 100],
@@ -176,8 +181,10 @@ describe("ORDERBOOK summary v2 core", () => {
 			"censored",
 		]);
 		const exhausted = build(snapshot, {
-			bidExhausted: true,
-			askExhausted: true,
+			exhaustionEvidence: {
+				bid: { exhausted: true, validated: true, source: "fixture" },
+				ask: { exhausted: true, validated: true, source: "fixture" },
+			},
 		}).rows.summary.row;
 		expect(exhausted.bid_status_by_band).toEqual(["exact", "exact", "exact"]);
 		expect(exhausted.ask_status_by_band).toEqual(["exact", "exact", "exact"]);
@@ -266,8 +273,7 @@ describe("ORDERBOOK metadata-only raw capture", () => {
 
 describe("ORDERBOOK archive configuration", () => {
 	const originalDepth = process.env.CEX_BROKER_ORDERBOOK_ARCHIVE_DEPTH_LIMIT;
-	const originalBands =
-		process.env.CEX_BROKER_ORDERBOOK_MEASUREMENT_BANDS_BPS;
+	const originalBands = process.env.CEX_BROKER_ORDERBOOK_MEASUREMENT_BANDS_BPS;
 
 	afterEach(() => {
 		if (originalDepth === undefined) {
@@ -293,11 +299,13 @@ describe("ORDERBOOK archive configuration", () => {
 		expect(getOrderbookMeasurementBandsBps()).toEqual([10, 25, 100]);
 	});
 
-	test.each(["0", "501", "1.5", "bad"])(
-		"rejects invalid depth %s instead of clamping or defaulting",
-		(value) => {
-			process.env.CEX_BROKER_ORDERBOOK_ARCHIVE_DEPTH_LIMIT = value;
-			expect(() => getOrderbookArchiveDepthLimit()).toThrow("1 and 500");
-		},
-	);
+	test.each([
+		"0",
+		"501",
+		"1.5",
+		"bad",
+	])("rejects invalid depth %s instead of clamping or defaulting", (value) => {
+		process.env.CEX_BROKER_ORDERBOOK_ARCHIVE_DEPTH_LIMIT = value;
+		expect(() => getOrderbookArchiveDepthLimit()).toThrow("1 and 500");
+	});
 });

@@ -1,3 +1,4 @@
+import { sha256Canonical } from "../../src/helpers/market-data-archive/capture-contract";
 import type { ArchiveBatchRequest } from "./types";
 
 const LEVEL_TABLE = "market_data.cex_order_book_levels";
@@ -126,6 +127,14 @@ function isUInt64(value: unknown): boolean {
 	return BigInt(value) <= 18_446_744_073_709_551_615n;
 }
 
+function decimalNumber(value: unknown): number {
+	return typeof value === "number" ? value : Number(value);
+}
+
+function approximatelyEqual(left: number, right: number): boolean {
+	return Math.abs(left - right) <= Math.max(1e-12, Math.abs(right) * 1e-12);
+}
+
 function isDecimal(value: unknown, allowZero = false): boolean {
 	if (typeof value === "number") {
 		return Number.isFinite(value) && (allowZero ? value >= 0 : value > 0);
@@ -161,8 +170,11 @@ function validateCommon(
 	for (const field of SNAPSHOT_STRING_FIELDS) {
 		if (!isNonEmptyString(row[field])) return `${field} must be non-empty`;
 	}
-	if (!isNonEmptyString(row.normalized_row_checksum)) {
-		return "normalized_row_checksum must be non-empty";
+	if (
+		!isNonEmptyString(row.normalized_row_checksum) ||
+		!/^[a-f0-9]{64}$/.test(row.normalized_row_checksum)
+	) {
+		return "normalized_row_checksum must be a sha256 hex digest";
 	}
 	if (!BROKER_SOURCES.has(String(row.source)) || row.source !== envelopeSource) {
 		return "source must match the broker archive envelope";
@@ -226,6 +238,9 @@ function validateLevel(
 	}
 	if (!isFiniteNumber(row.spread_from_mid_bps)) {
 		return { ok: false, error: "spread_from_mid_bps must be non-negative" };
+	}
+	if (row.normalized_row_checksum !== sha256Canonical(row)) {
+		return { ok: false, error: "normalized_row_checksum does not match canonical row content" };
 	}
 	return { ok: true };
 }
@@ -298,8 +313,26 @@ function validateSummary(
 			return { ok: false, error: `${field} must be a positive decimal` };
 		}
 	}
-	if (Number(row.best_bid) >= Number(row.best_ask)) {
+	const bestBid = decimalNumber(row.best_bid);
+	const bestAsk = decimalNumber(row.best_ask);
+	if (bestBid >= bestAsk) {
 		return { ok: false, error: "summary book must not be crossed or locked" };
+	}
+	const midpoint = (bestBid + bestAsk) / 2;
+	const spread = bestAsk - bestBid;
+	const spreadBps = (spread / midpoint) * 10_000;
+	if (
+		!approximatelyEqual(decimalNumber(row.mid_price), midpoint) ||
+		!approximatelyEqual(decimalNumber(row.spread), spread) ||
+		!approximatelyEqual(Number(row.spread_bps), spreadBps)
+	) {
+		return { ok: false, error: "summary top-of-book derivation is inconsistent" };
+	}
+	if (
+		Number(row.staleness_ms) !==
+		Number(row.received_time_ms) - Number(row.source_time_ms)
+	) {
+		return { ok: false, error: "staleness_ms is inconsistent" };
 	}
 	if (!isFiniteNumber(row.spread_bps) || !isUInt64(row.staleness_ms)) {
 		return { ok: false, error: "spread_bps and staleness_ms have invalid types" };
@@ -341,6 +374,42 @@ function validateSummary(
 		if (!(row[field] as unknown[]).every((status) => BAND_STATUSES.has(String(status)))) {
 			return { ok: false, error: `${field} contains an invalid status` };
 		}
+	}
+	for (let index = 0; index < bands.length; index += 1) {
+		const band = Number(bands[index]);
+		const expectedBidBoundary = midpoint * (1 - band / 10_000);
+		const expectedAskBoundary = midpoint * (1 + band / 10_000);
+		if (
+			!approximatelyEqual(
+				decimalNumber((row.bid_boundary_price_by_band as unknown[])[index]),
+				expectedBidBoundary,
+			) ||
+			!approximatelyEqual(
+				decimalNumber((row.ask_boundary_price_by_band as unknown[])[index]),
+				expectedAskBoundary,
+			)
+		) {
+			return { ok: false, error: "summary boundaries are not midpoint-relative" };
+		}
+		const expectedBidStatus =
+			row.bid_exhausted === 1 ||
+			decimalNumber(row.observed_farthest_bid) <= expectedBidBoundary
+				? "exact"
+				: "censored";
+		const expectedAskStatus =
+			row.ask_exhausted === 1 ||
+			decimalNumber(row.observed_farthest_ask) >= expectedAskBoundary
+				? "exact"
+				: "censored";
+		if (
+			(row.bid_status_by_band as unknown[])[index] !== expectedBidStatus ||
+			(row.ask_status_by_band as unknown[])[index] !== expectedAskStatus
+		) {
+			return { ok: false, error: "summary exact/censored status is inconsistent" };
+		}
+	}
+	if (row.normalized_row_checksum !== sha256Canonical(row)) {
+		return { ok: false, error: "normalized_row_checksum does not match canonical row content" };
 	}
 	return { ok: true };
 }

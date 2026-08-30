@@ -5,6 +5,7 @@ import { buildCanonicalOrderBookRows } from "../src/helpers/market-data-archive/
 import {
 	canonicalSerialize,
 	createRawCapture,
+	sha256Canonical,
 } from "../src/helpers/market-data-archive/capture-contract";
 import {
 	ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELDS,
@@ -104,8 +105,10 @@ function metadataFor(
 		observedAskCount: snapshot.asks.length,
 		observedFarthestBid: snapshot.bids.at(-1)?.[0] ?? Number.NaN,
 		observedFarthestAsk: snapshot.asks.at(-1)?.[0] ?? Number.NaN,
-		bidExhausted: false,
-		askExhausted: false,
+		exhaustionEvidence: {
+			bid: { exhausted: false, validated: true, source: "fixture" },
+			ask: { exhausted: false, validated: true, source: "fixture" },
+		},
 		measurementBandsBps: definition.measurementBandsBps,
 		...definition.metadata,
 	};
@@ -168,7 +171,12 @@ const acceptedDefinitions: AcceptedDefinition[] = [
 		id: "explicitly-exhausted",
 		category: "explicitly-exhausted",
 		snapshot: { bids: [[100, 1]], asks: [[100.2, 5]], sequence: 9003 },
-		metadata: { bidExhausted: true, askExhausted: true },
+		metadata: {
+			exhaustionEvidence: {
+				bid: { exhausted: true, validated: true, source: "fixture" },
+				ask: { exhausted: true, validated: true, source: "fixture" },
+			},
+		},
 		archiveDepthLimit: 1,
 		measurementBandsBps: [10, 25, 100],
 	},
@@ -185,7 +193,12 @@ const acceptedDefinitions: AcceptedDefinition[] = [
 			asks: [[100.2, 9]],
 			sequence: 9004,
 		},
-		metadata: { bidExhausted: false, askExhausted: true },
+		metadata: {
+			exhaustionEvidence: {
+				bid: { exhausted: false, validated: true, source: "fixture" },
+				ask: { exhausted: true, validated: true, source: "fixture" },
+			},
+		},
 		archiveDepthLimit: 2,
 		measurementBandsBps: [10, 50, 150],
 	},
@@ -335,11 +348,15 @@ const duplicateCase = {
 		supported_view_rows: 1,
 	},
 };
-const conflictRow = {
+const conflictContent = {
 	...duplicateBase.expected_writer.row,
 	best_bid_amount:
 		Number(duplicateBase.expected_writer.row.best_bid_amount) + 0.25,
-	normalized_row_checksum: "f".repeat(64),
+	normalized_row_checksum: "",
+};
+const conflictRow = {
+	...conflictContent,
+	normalized_row_checksum: sha256Canonical(conflictContent),
 };
 const conflictingCase = {
 	id: "conflicting-same-key-retry",

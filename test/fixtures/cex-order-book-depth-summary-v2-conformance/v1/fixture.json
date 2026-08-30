@@ -347,8 +347,18 @@
           "observedAskCount": 1,
           "observedFarthestBid": 98.5,
           "observedFarthestAsk": 100.2,
-          "bidExhausted": false,
-          "askExhausted": true,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": true,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             50,
@@ -593,8 +603,18 @@
           "observedAskCount": 1,
           "observedFarthestBid": 100,
           "observedFarthestAsk": 100.2,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25,
@@ -863,8 +883,18 @@
           "observedAskCount": 4,
           "observedFarthestBid": 99,
           "observedFarthestAsk": 101.2,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25,
@@ -1109,8 +1139,18 @@
           "observedAskCount": 1,
           "observedFarthestBid": 100,
           "observedFarthestAsk": 100.2,
-          "bidExhausted": true,
-          "askExhausted": true,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": true,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": true,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25,
@@ -1379,8 +1419,18 @@
           "observedAskCount": 4,
           "observedFarthestBid": 99,
           "observedFarthestAsk": 101.2,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             100,
             10,
@@ -1651,8 +1701,18 @@
           "observedAskCount": 4,
           "observedFarthestBid": 99,
           "observedFarthestAsk": 101.2,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25,
@@ -2224,7 +2284,7 @@
               "exact",
               "exact"
             ],
-            "normalized_row_checksum": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            "normalized_row_checksum": "18b3df644892e9c07f61fcce2fa1c7ffa7323c05501a138591afb30af030507b"
           }
         }
       ],
@@ -2310,8 +2370,18 @@
           "observedAskCount": 4,
           "observedFarthestBid": 99,
           "observedFarthestAsk": 101.2,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25
@@ -2394,8 +2464,18 @@
           "observedAskCount": 4,
           "observedFarthestBid": 100,
           "observedFarthestAsk": 101.2,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25
@@ -2486,8 +2566,18 @@
           "observedAskCount": 4,
           "observedFarthestBid": 99,
           "observedFarthestAsk": 101.2,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25
@@ -2561,8 +2651,18 @@
           "observedAskCount": 4,
           "observedFarthestBid": null,
           "observedFarthestAsk": 101.2,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25
@@ -2636,8 +2736,18 @@
           "observedAskCount": 0,
           "observedFarthestBid": 99,
           "observedFarthestAsk": null,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25
@@ -2694,8 +2804,18 @@
           "observedAskCount": 0,
           "observedFarthestBid": null,
           "observedFarthestAsk": null,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25
@@ -2786,8 +2906,18 @@
           "observedAskCount": 4,
           "observedFarthestBid": 99,
           "observedFarthestAsk": 101.2,
-          "bidExhausted": false,
-          "askExhausted": false,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
           "measurementBandsBps": [
             10,
             25

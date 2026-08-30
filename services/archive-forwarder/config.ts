@@ -10,6 +10,8 @@ export type ClickHouseConfig = {
 export type ForwarderConfig = {
 	port: number;
 	authToken?: string;
+	marketSource?: "broker_read" | "broker_write";
+	marketDeploymentId?: string;
 	spoolPath: string;
 	clickhouse: ClickHouseConfig;
 };
@@ -24,9 +26,28 @@ function parsePort(value: string | undefined, fallback: number): number {
 
 export function loadForwarderConfig(): ForwarderConfig {
 	const authToken = process.env.ARCHIVE_FORWARDER_TOKEN?.trim();
+	const marketSource = process.env.ARCHIVE_FORWARDER_MARKET_SOURCE?.trim();
+	const marketDeploymentId =
+		process.env.ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID?.trim();
+	if (
+		marketSource !== undefined &&
+		marketSource !== "broker_read" &&
+		marketSource !== "broker_write"
+	) {
+		throw new Error(
+			"ARCHIVE_FORWARDER_MARKET_SOURCE must be broker_read or broker_write",
+		);
+	}
+	if ((marketSource === undefined) !== (marketDeploymentId === undefined)) {
+		throw new Error(
+			"ARCHIVE_FORWARDER_MARKET_SOURCE and ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID must be configured together",
+		);
+	}
 	return {
 		port: parsePort(process.env.ARCHIVE_FORWARDER_PORT, 8090),
 		authToken: authToken || undefined,
+		marketSource,
+		marketDeploymentId,
 		spoolPath:
 			process.env.ARCHIVE_FORWARDER_SPOOL_PATH?.trim() ||
 			DEFAULT_STRATEGY_SPOOL_PATH,

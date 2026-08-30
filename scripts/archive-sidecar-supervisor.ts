@@ -60,7 +60,12 @@ async function writeState(
 async function readLoopbackHealth(
 	manifest: SidecarManifest,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-	const url = new URL(manifest.forwarderHealthUrl);
+	let url: URL;
+	try {
+		url = new URL(manifest.forwarderHealthUrl);
+	} catch {
+		throw new Error("Forwarder health URL is invalid");
+	}
 	if (
 		url.protocol !== "http:" ||
 		url.hostname !== "127.0.0.1" ||
@@ -161,7 +166,12 @@ async function main(): Promise<void> {
 	const manifest = await loadManifest(manifestArgument(process.argv.slice(2)));
 	const secret = process.env.ARCHIVE_SIDECAR_INTERNAL_SECRET;
 	if (!secret) throw new Error("Supervisor internal test secret is absent");
-	const url = new URL(manifest.forwarderUrl);
+	let url: URL;
+	try {
+		url = new URL(manifest.forwarderUrl);
+	} catch {
+		throw new Error("Forwarder URL is invalid");
+	}
 	const forwarderLogFd = openSync(manifest.logPath, "a", 0o600);
 	const forwarder = spawn(
 		process.execPath,
@@ -173,6 +183,8 @@ async function main(): Promise<void> {
 				...process.env,
 				ARCHIVE_FORWARDER_PORT: url.port,
 				ARCHIVE_FORWARDER_TOKEN: secret,
+				ARCHIVE_FORWARDER_MARKET_SOURCE: "broker_read",
+				ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID: manifest.deploymentId,
 				ARCHIVE_FORWARDER_SPOOL_PATH: manifest.spoolPath,
 				CLICKHOUSE_URL: manifest.clickhouseUrl,
 				CLICKHOUSE_USER: "default",
@@ -205,9 +217,14 @@ async function main(): Promise<void> {
 				resolveExit();
 			});
 		});
-		const previous = await readFile(manifest.statePath, "utf8")
-			.then((value) => JSON.parse(value) as SidecarState)
-			.catch(() => ({ ready: false }));
+		let previous: SidecarState = { ready: false };
+		try {
+			previous = JSON.parse(
+				await readFile(manifest.statePath, "utf8"),
+			) as SidecarState;
+		} catch {
+			// A missing or malformed state file cannot prevent bounded cleanup.
+		}
 		await writeState(manifest, { ...previous, ready: false, stopped: true });
 	};
 	process.once("SIGTERM", () => void shutdown());

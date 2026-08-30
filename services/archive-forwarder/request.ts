@@ -27,6 +27,10 @@ import { classifyMarketSource } from "./market-source-contract";
 
 export type ArchiveRequestDependencies = {
 	authToken?: string;
+	marketIdentity?: {
+		source: "broker_read" | "broker_write";
+		deploymentId: string;
+	};
 	inserter: RowInserter;
 	spool?: Pick<StrategyArchiveSpool, "admit">;
 	streamHealthStore?: StreamHealthReplayStore;
@@ -65,7 +69,10 @@ export async function handleArchiveRequest(
 		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
 	}
 
-	if (classifyMarketSource(body) === "invalid_market_source") {
+	if (
+		classifyMarketSource(body, dependencies.marketIdentity) ===
+		"invalid_market_source"
+	) {
 		return Response.json(
 			{ error: "Market archive source must be broker_read or broker_write" },
 			{ status: 400 },
