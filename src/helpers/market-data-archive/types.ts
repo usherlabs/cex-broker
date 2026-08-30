@@ -1,11 +1,11 @@
 import type {
-	BrokerArchiveRow,
+	BrokerArchiveRow as BrokerArchiveRowType,
 	BrokerArchiveSource,
 } from "../broker-execution-archive/types";
 import type { BrokerMarketType } from "../market-type";
 import type { NormalizedOrderBookSnapshot } from "../order-book";
 
-export type MarketArchiveSource = BrokerArchiveSource | "external_backfill";
+export type MarketArchiveSource = BrokerArchiveSource;
 
 export type MarketArchiveTable =
 	| "market_data.orderbook_snapshots"
@@ -59,15 +59,11 @@ export type CaptureSourceMode =
 	| "broker_bootstrap_fetch_v1"
 	| "external_ccxt_fallback_v1"
 	| "external_hummingbot_fallback_v1"
-	| "legacy_migration_v1"
-	| "historical_vendor_orderbook_v1"
-	| "vendor_historical_backfill_v1";
-export type CaptureOrigin = "production_capture" | "vendor_historical_backfill";
+	| "legacy_migration_v1";
 export type RawCaptureScope =
 	| "ccxt_normalized_object"
 	| "broker_visible_payload"
-	| "exchange_wire_frame"
-	| "vendor_normalized_dataset_file";
+	| "exchange_wire_frame";
 
 export type MarketCaptureContext = Omit<MarketArchiveContext, "source"> & {
 	source: MarketArchiveSource;
@@ -143,4 +139,4 @@ export function isMarketArchiveTable(
 	return MARKET_ARCHIVE_TABLES.has(table);
 }
 
-export type { BrokerArchiveRow };
+export type BrokerArchiveRow = BrokerArchiveRowType;

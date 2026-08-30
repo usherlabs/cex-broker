@@ -1,31 +1,17 @@
 import dts from "bun-plugin-dts";
-import { chmod } from "node:fs/promises";
-import { dirname } from "node:path";
 import { resolveBuildGitHead } from "./scripts/build-provenance";
-import { PREPARATION_CONFORMANCE_FIXTURES } from "./src/helpers/market-data-preparation/conformance-fixtures";
 
-const packageDocument = (await Bun.file("./package.json").json()) as {
-	version?: unknown;
-};
-if (
-	typeof packageDocument.version !== "string" ||
-	!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(
-		packageDocument.version,
-	)
-) {
-	throw new Error("package.json has no pin-eligible version");
-}
-const gitHead = resolveBuildGitHead({
+// Resolve the release commit even though the final broker-only package no longer
+// builds preparation executables. This keeps Docker/npm provenance fail-closed.
+resolveBuildGitHead({
 	environmentGitHead: process.env.CEX_BROKER_BUILD_GIT_HEAD,
 	resolveRepositoryGitHead: () => {
-		const gitHeadProcess = Bun.spawnSync({
+		const process = Bun.spawnSync({
 			cmd: ["git", "rev-parse", "HEAD"],
 			stdout: "pipe",
 			stderr: "pipe",
 		});
-		return gitHeadProcess.exitCode === 0
-			? gitHeadProcess.stdout.toString()
-			: "";
+		return process.exitCode === 0 ? process.stdout.toString() : "";
 	},
 });
 
@@ -56,112 +42,12 @@ await Bun.build({
 		"@protobufjs/inquire",
 	],
 	sourcemap: "external",
-	plugins: [
-		// dts()
-	],
 });
 
-await Bun.build({
-	entrypoints: ["./src/market-data-vendor-backfill.ts"],
-	outdir: "./dist",
-	target: "node",
-	external: ["zod"],
-	sourcemap: "external",
-});
-
-await Bun.build({
-	entrypoints: ["./src/market-data-preparation.ts"],
-	outdir: "./dist",
-	target: "node",
-	sourcemap: "external",
-});
-
-const preparationCommands = [
-	"market-data-vendor-backfill",
-	"cex-canonical-orderbook-export",
-] as const;
-const commandBuild = await Bun.build({
-	entrypoints: preparationCommands.map((name) => `./src/commands/${name}.ts`),
-	outdir: "./dist/commands",
-	target: "node",
-	format: "esm",
-	banner: "#!/usr/bin/env node",
-	define: {
-		__CEX_BROKER_PACKAGE_VERSION__: JSON.stringify(packageDocument.version),
-		__CEX_BROKER_GIT_HEAD__: JSON.stringify(gitHead),
-	},
-	sourcemap: "external",
-});
-if (!commandBuild.success) {
-	throw new Error(
-		`preparation command build failed: ${commandBuild.logs.join("; ")}`,
-	);
-}
-for (const command of preparationCommands) {
-	await chmod(`./dist/commands/${command}.js`, 0o755);
-}
-
-const backfillAssetRoot = "./src/helpers/market-data-vendor-backfill";
-const backfillAssetOutput = "./dist/market-data-vendor-backfill";
-const backfillAssets = [
-	["schemas/schema-manifest.json", "schema-manifest.json"],
-	["schemas/request.schema.json", "schemas/request.schema.json"],
-	["schemas/result.schema.json", "schemas/result.schema.json"],
-	["schemas/required-clock.schema.json", "schemas/required-clock.schema.json"],
-	["schemas/archive-selection.schema.json", "schemas/archive-selection.schema.json"],
-	["schemas/promotion-receipt.schema.json", "schemas/promotion-receipt.schema.json"],
-	["policies/capability-policy-v3.json", "policies/capability-policy.json"],
-	["policies/capability-policy.json", "policies/capability-policy-v1.json"],
-	["policies/capability-policy-v2.json", "policies/capability-policy-v2.json"],
-	["policies/capability-policy-v3.json", "policies/capability-policy-v3.json"],
-	["policies/resource-policy.json", "policies/resource-policy.json"],
-	["policies/resource-policy-v2.json", "policies/resource-policy-v2.json"],
-	["fixtures/conformance-v1.json", "fixtures/conformance-v1.json"],
-] as const;
-
-for (const [sourcePath, outputPath] of backfillAssets) {
-	const destination = `${backfillAssetOutput}/${outputPath}`;
-	await Bun.spawn({ cmd: ["mkdir", "-p", dirname(destination)] }).exited;
-	await Bun.write(destination, Bun.file(`${backfillAssetRoot}/${sourcePath}`));
-}
-
-const preparationAssetOutput = "./dist/market-data-preparation";
-const preparationAssets = [
-	["./src/helpers/market-data-preparation/schema-manifest.json", "schema-manifest.json"],
-	["./src/helpers/market-data-vendor-backfill/schemas/request.schema.json", "schemas/backfill-request-v1.schema.json"],
-	["./src/helpers/market-data-preparation/schemas/backfill-result-v2.schema.json", "schemas/backfill-result-v2.schema.json"],
-	["./src/helpers/market-data-vendor-backfill/schemas/required-clock.schema.json", "schemas/required-clock-v1.schema.json"],
-	["./src/helpers/market-data-vendor-backfill/schemas/archive-selection.schema.json", "schemas/archive-selection-v1.schema.json"],
-	["./src/helpers/market-data-vendor-backfill/schemas/promotion-receipt.schema.json", "schemas/promotion-receipt-v1.schema.json"],
-	["./src/helpers/market-data-preparation/schemas/canonical-orderbook-export-request.schema.json", "schemas/canonical-orderbook-export-request-v1.schema.json"],
-	["./src/helpers/market-data-preparation/schemas/canonical-orderbook-export-result.schema.json", "schemas/canonical-orderbook-export-result-v1.schema.json"],
-	["./src/helpers/market-data-preparation/schemas/preparation-product-pin.schema.json", "schemas/preparation-product-pin-v1.schema.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/capability-policy-v3.json", "policies/capability-policy.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/capability-policy.json", "policies/capability-policy-v1.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/capability-policy-v2.json", "policies/capability-policy-v2.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/resource-policy-v2.json", "policies/resource-policy.json"],
-	["./src/helpers/market-data-vendor-backfill/policies/resource-policy.json", "policies/resource-policy-v1.json"],
-] as const;
-for (const [sourcePath, outputPath] of preparationAssets) {
-	const destination = `${preparationAssetOutput}/${outputPath}`;
-	await Bun.spawn({ cmd: ["mkdir", "-p", dirname(destination)] }).exited;
-	await Bun.write(destination, Bun.file(sourcePath));
-}
-await Bun.spawn({
-	cmd: ["mkdir", "-p", `${preparationAssetOutput}/fixtures`],
-}).exited;
-await Bun.write(
-	`${preparationAssetOutput}/fixtures/conformance-v2.json`,
-	`${JSON.stringify(PREPARATION_CONFORMANCE_FIXTURES, null, "\t")}\n`,
-);
-
-// Copy descriptor alongside dist output for runtime import
 await Bun.spawn({ cmd: ["mkdir", "-p", "./dist/proto"] }).exited;
 await Bun.write(
 	"./dist/proto/node.descriptor.ts",
 	await Bun.file("./src/proto/node.descriptor.ts").text(),
 );
-
-// Generates `dist/index.d.ts` and `dist/other/foo.d.ts`
 
 console.log("Build complete.");

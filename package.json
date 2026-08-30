@@ -17,23 +17,7 @@
 		".": {
 			"import": "./dist/index.js",
 			"types": "./dist/index.d.ts"
-		},
-		"./market-data-vendor-backfill": {
-			"import": "./dist/market-data-vendor-backfill.js",
-			"types": "./dist/market-data-vendor-backfill.d.ts"
-		},
-		"./market-data-vendor-backfill/schema-manifest.json": "./dist/market-data-vendor-backfill/schema-manifest.json",
-		"./market-data-vendor-backfill/schemas/*": "./dist/market-data-vendor-backfill/schemas/*",
-		"./market-data-vendor-backfill/policies/*": "./dist/market-data-vendor-backfill/policies/*",
-		"./market-data-vendor-backfill/fixtures/*": "./dist/market-data-vendor-backfill/fixtures/*",
-		"./market-data-preparation": {
-			"import": "./dist/market-data-preparation.js",
-			"types": "./dist/market-data-preparation.d.ts"
-		},
-		"./market-data-preparation/schema-manifest.json": "./dist/market-data-preparation/schema-manifest.json",
-		"./market-data-preparation/schemas/*": "./dist/market-data-preparation/schemas/*",
-		"./market-data-preparation/policies/*": "./dist/market-data-preparation/policies/*",
-		"./market-data-preparation/fixtures/*": "./dist/market-data-preparation/fixtures/*"
+		}
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.16",
@@ -43,16 +27,13 @@
 		"bun-types": "latest",
 		"cpx": "^1.5.0",
 		"dotenv": "^17.2.0",
-		"husky": "^9.1.7",
-		"hyparquet-writer": "0.16.6"
+		"husky": "^9.1.7"
 	},
 	"files": [
 		"dist"
 	],
 	"bin": {
-		"cex-broker": "dist/commands/cli.js",
-		"market-data-vendor-backfill": "dist/commands/market-data-vendor-backfill.js",
-		"cex-canonical-orderbook-export": "dist/commands/cex-canonical-orderbook-export.js"
+		"cex-broker": "dist/commands/cli.js"
 	},
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
@@ -82,10 +63,6 @@
 		"archive:proof-a": "bun run scripts/archive-orderbook-coalescing-evidence.ts",
 		"archive:loss:replay": "bun run scripts/archive-loss-replay.ts",
 		"test:smoke:archive": "bun run scripts/archive-live-smoke.ts",
-		"test:conformance:market-data-vendor-backfill": "bun run scripts/market-data-vendor-backfill-conformance.ts",
-		"test:smoke:market-data-vendor-backfill": "bun run scripts/market-data-vendor-backfill-local-smoke.ts",
-		"test:package:market-data-preparation": "node scripts/check-market-data-preparation-package.mjs",
-		"release:evidence:market-data-preparation": "node scripts/generate-market-data-preparation-release-evidence.mjs",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint",
 		"lint:fix": "bunx biome lint --write",
@@ -115,11 +92,7 @@
 		"@opentelemetry/sdk-metrics": "^2.5.1",
 		"@usherlabs/ccxt": "^0.0.14",
 		"@usherlabs/verity-client": "^0.1.1",
-		"ajv": "8.17.1",
-		"canonicalize": "4.0.0",
 		"commander": "^14.0.0",
-		"fzstd": "0.1.1",
-		"hyparquet": "1.28.2",
 		"joi": "^17.13.3",
 		"loglayer": "^9.1.0",
 		"protobufjs": "^7.4.0",

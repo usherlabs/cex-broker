@@ -10,10 +10,7 @@ export const MARKET_CAPTURE_SCHEMA_VERSION = "1.0.0" as const;
 export const CHECKSUM_ALGORITHM = "sha256-canonical-json-v1" as const;
 
 export const ARCHIVE_SOURCES = ["broker_read", "broker_write"] as const;
-export const MARKET_ARCHIVE_SOURCES = [
-	...ARCHIVE_SOURCES,
-	"external_backfill",
-] as const;
+export const MARKET_ARCHIVE_SOURCES = ARCHIVE_SOURCES;
 export const CAPTURE_FEEDS = [
 	"ORDERBOOK",
 	"TICKER",
