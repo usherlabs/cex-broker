@@ -355,8 +355,8 @@ describe("real four-feed archive lifecycle", () => {
 	test("broker_read canonical-only writer verifies provenance, checksums, and views", async () => {
 		const result = await runArchiveLifecycle();
 		expect(result.collectorModule).toBe("services/ohlcv-collector/collector.ts");
-		expect(result.feedsObserved).toEqual(PUBLIC_FEEDS);
-		expect(result.feedLinks.map(({ feed }) => feed)).toEqual(PUBLIC_FEEDS);
+		expect(result.feedsObserved).toEqual([...PUBLIC_FEEDS]);
+		expect(result.feedLinks.map(({ feed }) => feed)).toEqual([...PUBLIC_FEEDS]);
 		expect(result.unexpectedDestinations).toEqual([]);
 		expect(result.checksumsVerified).toBe(true);
 		expect(result.conflictViewsEmpty).toBe(true);
@@ -481,8 +481,8 @@ describe("ORDERBOOK conservative versus coalesced verification gate", () => {
 describe("archive failure isolation and accounting", () => {
 	test("a blocked sink does not block later collector frames or close streams", async () => {
 		const result = await runBlockedSinkLifecycle();
-		expect(result.laterFramesObservedBeforeRelease).toEqual(PUBLIC_FEEDS);
-		expect(result.streamsActiveBeforeAbort).toEqual(PUBLIC_FEEDS);
+		expect(result.laterFramesObservedBeforeRelease).toEqual([...PUBLIC_FEEDS]);
+		expect(result.streamsActiveBeforeAbort).toEqual([...PUBLIC_FEEDS]);
 	});
 
 	test("a recoverable forwarder failure retries and stores every emitted row", async () => {
@@ -521,7 +521,7 @@ describe("archive failure isolation and accounting", () => {
 		});
 		try {
 			const oldest = {
-				table: "market_data.cex_trades",
+				table: "market_data.cex_trades" as const,
 				row: { source: "broker_write", deployment_id: "archive-e2e-shed", trade_id: "oldest" },
 			};
 			archiver.enqueue(oldest);
