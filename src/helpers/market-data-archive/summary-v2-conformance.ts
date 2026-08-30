@@ -52,16 +52,8 @@ export const ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELDS = [
 	["ask_boundary_price_by_band", "Array(Decimal(38,18))", false],
 	["bid_depth_by_band", "Array(Decimal(38,18))", false],
 	["ask_depth_by_band", "Array(Decimal(38,18))", false],
-	[
-		"bid_status_by_band",
-		"Array(Enum8('exact'=1,'censored'=2))",
-		false,
-	],
-	[
-		"ask_status_by_band",
-		"Array(Enum8('exact'=1,'censored'=2))",
-		false,
-	],
+	["bid_status_by_band", "Array(Enum8('exact'=1,'censored'=2))", false],
+	["ask_status_by_band", "Array(Enum8('exact'=1,'censored'=2))", false],
 	["normalized_row_checksum", "String", false],
 ] as const;
 
@@ -105,7 +97,8 @@ export function canonicalDecimal38(value: number | string): string {
 	if (integer.length + 18 > 38) {
 		throw new Error(`Decimal(38,18) value exceeds precision 38: ${rendered}`);
 	}
-	const normalizedSign = /^0+$/.test(integer) && /^0*$/.test(fraction) ? "" : sign;
+	const normalizedSign =
+		/^0+$/.test(integer) && /^0*$/.test(fraction) ? "" : sign;
 	return `${normalizedSign}${integer}.${fraction.padEnd(18, "0")}`;
 }
 

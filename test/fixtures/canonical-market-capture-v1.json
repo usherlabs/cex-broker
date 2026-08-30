@@ -59,6 +59,6 @@
 		"eventTimeMs": 1700000000400,
 		"receivedTimeMs": 1700000000410,
 		"depthLimit": 2,
-		"expected": { "raw_capture_id": "e423d4c8e6de3a468d5a5ab3799b07c3445cbaed8be3d0287cc0b2754f6bb7bc", "raw_checksum": "c85fed94343df96134a0e380ab4ba75ae121bbbb414e85e9df748be1340eb842", "snapshot_id": "e3e33c00fde1f3d27bc19bcbf21a09377408fdbdb26755ae2f9164ae90d41730", "level_normalized_row_checksum": "67d06b8cdd5e1d66fa2d1cab679060af4c9ca8df8deb8f652f3b2d077cfebce6", "summary_normalized_row_checksum": "8d2d30f59e855a05b155cf02793cb27cd28108cfd1edb9d9ae9bfb2eb1b23bad" }
+		"expected": { "raw_capture_id": "e423d4c8e6de3a468d5a5ab3799b07c3445cbaed8be3d0287cc0b2754f6bb7bc", "raw_checksum": "c85fed94343df96134a0e380ab4ba75ae121bbbb414e85e9df748be1340eb842", "snapshot_id": "e3e33c00fde1f3d27bc19bcbf21a09377408fdbdb26755ae2f9164ae90d41730", "level_normalized_row_checksum": "67d06b8cdd5e1d66fa2d1cab679060af4c9ca8df8deb8f652f3b2d077cfebce6", "summary_schema_version": "2.0.0" }
 	}
 }

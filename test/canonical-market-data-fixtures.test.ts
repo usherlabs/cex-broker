@@ -153,7 +153,9 @@ describe("canonical market-data golden fixture v1", () => {
 		expect(rows.levels[0]?.row.normalized_row_checksum).toBe(
 			capture.expected.level_normalized_row_checksum,
 		);
-		expect(rows.summary.row.schema_version).toBe("2.0.0");
+		expect(rows.summary.row.schema_version).toBe(
+			capture.expected.summary_schema_version,
+		);
 		expect(String(rows.summary.row.normalized_row_checksum)).toHaveLength(64);
 	});
 });
