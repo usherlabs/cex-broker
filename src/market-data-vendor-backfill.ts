@@ -1,12 +1,3 @@
-export { PREPARATION_CONFORMANCE_FIXTURES } from "./helpers/market-data-preparation/conformance-fixtures";
-export type { BackfillJobResultV2Wire } from "./helpers/market-data-preparation/contracts";
-export {
-	BACKFILL_RESULT_V2_SCHEMA_ID,
-	backfillResultV2Codec,
-	finalizeBackfillResultV2,
-	PREPARATION_SCHEMA_MANIFEST_V3,
-} from "./helpers/market-data-preparation/contracts";
-export * from "./helpers/market-data-source-forensics";
 export type {
 	ArchiveQueryClient,
 	ArchiveQueryValue,
@@ -21,9 +12,11 @@ export {
 	BACKFILL_MAX_BATCH_ROWS,
 	buildForwarderBatches,
 } from "./helpers/market-data-vendor-backfill/batching";
+export { CONFORMANCE_FIXTURES } from "./helpers/market-data-vendor-backfill/conformance-fixtures";
 export type {
 	ArchiveSelectionWire,
 	BackfillArchiveRow,
+	BackfillJobResultWire,
 	BackfillRequestWire,
 	CanonicalScopeWire,
 	CoveragePolicyWire,
@@ -42,11 +35,14 @@ export {
 	ARCHIVE_SELECTION_SCHEMA_ID,
 	archiveSelectionCodec,
 	BACKFILL_REQUEST_SCHEMA_ID,
+	BACKFILL_RESULT_SCHEMA_ID,
 	backfillRequestCodec,
+	backfillResultCodec,
 	createBackfillIdempotencyKey,
 	decodeBackfillRunDocuments,
 	FINAL_BACKFILL_STATUSES,
 	finalizeArchiveSelection,
+	finalizeBackfillResult,
 	finalizeRequiredClock,
 	PROMOTION_RECEIPT_SCHEMA_ID,
 	promotionIdentitySha256,
@@ -115,8 +111,12 @@ export {
 	CAPABILITY_POLICY_ID,
 	EFFECTIVE_ACQUISITION_POLICY_PIN,
 	EFFECTIVE_ADAPTER_POLICY_PIN,
+	LEGACY_RESOURCE_POLICY,
+	LEGACY_RESOURCE_POLICY_ID,
 	RESOURCE_POLICY,
 	RESOURCE_POLICY_ID,
+	SCHEMA_ARTIFACTS,
+	SCHEMA_MANIFEST,
 } from "./helpers/market-data-vendor-backfill/manifests";
 export type {
 	ArchiveBundleEvidence,

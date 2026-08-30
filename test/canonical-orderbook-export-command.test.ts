@@ -2,20 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {
-	createCanonicalOrderBookExportClientFromEnv,
-	runCanonicalOrderBookExportFileJob,
-} from "../src/commands/cex-canonical-orderbook-export";
+import { runCanonicalOrderBookExportFileJob } from "../src/commands/cex-canonical-orderbook-export";
 import type { ExactOrderBookExportQueryClient } from "../src/helpers/canonical-orderbook-export/exporter";
 import {
 	CANONICAL_ORDERBOOK_EXPORT_REQUEST_SCHEMA_ID,
 	canonicalOrderBookExportResultCodec,
 } from "../src/helpers/market-data-preparation/contracts";
 import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
-import {
-	LEVELS_PARQUET_FIXTURE,
-	SUMMARY_PARQUET_FIXTURE,
-} from "./fixtures/canonical-orderbook-parquet";
 
 const RELEASE = { packageVersion: "0.2.47", gitHead: "a".repeat(40) };
 const REQUEST = {
@@ -43,13 +36,10 @@ async function attempt(request: string | object = REQUEST) {
 }
 
 function successfulClient(): ExactOrderBookExportQueryClient {
+	const parquet = new TextEncoder().encode("PAR1payloadPAR1");
 	return {
 		async execute(sql, _parameters, format) {
-			if (format === "Parquet") {
-				return sql.includes("cex_order_book_levels_replay_qualified")
-					? LEVELS_PARQUET_FIXTURE
-					: SUMMARY_PARQUET_FIXTURE;
-			}
+			if (format === "Parquet") return parquet;
 			if (sql.includes("cex_archive_cluster_identity")) {
 				return new TextEncoder().encode(
 					'{"environment":"production","cluster":"cex-archive-primary"}\n',
@@ -74,33 +64,6 @@ function successfulClient(): ExactOrderBookExportQueryClient {
 }
 
 describe("cex-canonical-orderbook-export command", () => {
-	test("constructs a read-only client without provider or forwarder authority", () => {
-		const accessed = new Set<string>();
-		const environment = new Proxy(
-			{
-				CLICKHOUSE_URL: "http://clickhouse.test",
-				CLICKHOUSE_USER: "archive-reader",
-				CLICKHOUSE_PASSWORD: "archive-password",
-				CRYPTOHFTDATA_API_KEY: "must-not-read",
-				CEX_BROKER_ARCHIVE_FORWARDER_URL: "must-not-read",
-				CEX_BROKER_ARCHIVE_FORWARDER_TOKEN: "must-not-read",
-			},
-			{
-				get(target, property, receiver) {
-					if (typeof property === "string") accessed.add(property);
-					return Reflect.get(target, property, receiver);
-				},
-			},
-		);
-
-		expect(
-			createCanonicalOrderBookExportClientFromEnv(environment),
-		).toBeTruthy();
-		expect(accessed).toEqual(
-			new Set(["CLICKHOUSE_URL", "CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD"]),
-		);
-	});
-
 	test("writes artifacts first and commits a closed successful result last", async () => {
 		const paths = await attempt();
 		try {
@@ -174,40 +137,6 @@ describe("cex-canonical-orderbook-export command", () => {
 				reason_subcode: "selected_checksum_conflict",
 				artifacts: null,
 			});
-		} finally {
-			await rm(paths.root, { recursive: true, force: true });
-		}
-	});
-
-	test("rejects a physical Parquet projection mismatch before artifact commit", async () => {
-		const paths = await attempt();
-		const base = successfulClient();
-		try {
-			const result = await runCanonicalOrderBookExportFileJob({
-				...paths,
-				release: RELEASE,
-				client: {
-					async execute(sql, parameters, format) {
-						if (
-							format === "Parquet" &&
-							sql.includes("cex_order_book_levels_replay_qualified")
-						) {
-							return SUMMARY_PARQUET_FIXTURE;
-						}
-						return base.execute(sql, parameters, format);
-					},
-				},
-				nowMs: () => Date.parse("2026-08-20T12:00:03.000Z"),
-				randomUuid: () => "018f0f4d-7b32-7a30-8f4d-1d2a6e40f122",
-			});
-			expect(result.outcome).toMatchObject({
-				status: "archive_data_invalid",
-				reason_subcode: "parquet_projection_schema_mismatch",
-				artifacts: null,
-			});
-			await expect(
-				readFile(path.join(paths.root, "order_book_levels.parquet")),
-			).rejects.toThrow();
 		} finally {
 			await rm(paths.root, { recursive: true, force: true });
 		}

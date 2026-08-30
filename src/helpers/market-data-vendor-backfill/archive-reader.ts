@@ -12,10 +12,7 @@ import type {
 	QualifiedCoverage,
 } from "./core";
 import { jcsCanonicalize } from "./identity";
-import {
-	promotionReceiptFromArchiveRow,
-	promotionReceiptMatchesCurrentPolicies,
-} from "./promotion";
+import { promotionReceiptFromArchiveRow } from "./promotion";
 import {
 	type ArchiveBundleEvidence,
 	resolveArchiveSelection,
@@ -250,24 +247,11 @@ export class QualifiedOrderBookArchiveReader {
 				storedSelection: selections[0],
 			});
 			const receipts = await this.readReceipts(selection.receipt_ids);
-			const currentReceiptIds = new Set(
-				receipts
-					.filter(promotionReceiptMatchesCurrentPolicies)
-					.map((receipt) => receipt.receipt_id),
-			);
-			const storedSelectionIsCurrent = selection.bundles.every(
-				(bundle) =>
-					bundle.capture_origin === "production_capture" ||
-					(bundle.qualification !== null &&
-						currentReceiptIds.has(bundle.qualification.receipt_id)),
-			);
-			if (storedSelectionIsCurrent) {
-				return {
-					selection,
-					receipts: receipts.filter(promotionReceiptMatchesCurrentPolicies),
-					readerIdentity,
-				};
-			}
+			return {
+				selection,
+				receipts,
+				readerIdentity,
+			};
 		}
 
 		const parameters = {
@@ -310,11 +294,8 @@ export class QualifiedOrderBookArchiveReader {
 			.map((row) => String(row.receipt_id ?? ""))
 			.filter(Boolean);
 		const receipts = await this.readReceipts(receiptIds);
-		const currentReceipts = receipts.filter(
-			promotionReceiptMatchesCurrentPolicies,
-		);
 		const receiptIdsSet = new Set(
-			currentReceipts.map((receipt) => receipt.receipt_id),
+			receipts.map((receipt) => receipt.receipt_id),
 		);
 		const grouped = new Map<string, ArchiveBundleEvidence>();
 		for (const row of summaries) {
@@ -384,7 +365,7 @@ export class QualifiedOrderBookArchiveReader {
 		});
 		return {
 			selection,
-			receipts: currentReceipts,
+			receipts,
 			readerIdentity,
 			verificationBaseline: {
 				prefixDigest: timelineDigest(prefix),

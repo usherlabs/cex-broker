@@ -1,5 +1,4 @@
 import { CONFORMANCE_FIXTURES as V1_CONFORMANCE_FIXTURES } from "../market-data-vendor-backfill/conformance-fixtures";
-import { jcsSha256 } from "../market-data-vendor-backfill/identity";
 import {
 	CAPABILITY_POLICY,
 	RESOURCE_POLICY,
@@ -11,13 +10,9 @@ import {
 	canonicalOrderBookExportRequestCodec,
 	finalizeBackfillResultV2,
 	finalizeCanonicalOrderBookExportResult,
-	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
-	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
-	ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID,
-	ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256,
 	PREPARATION_PRODUCT_PIN_SCHEMA_ID,
 	PREPARATION_SCHEMA_ARTIFACTS,
-	PREPARATION_SCHEMA_MANIFEST_V3,
+	PREPARATION_SCHEMA_MANIFEST_V2,
 	preparationProductPinCodec,
 } from "./contracts";
 
@@ -26,7 +21,7 @@ const backfillProducer = {
 	product_version: "market-data-vendor-backfill/v1" as const,
 	package: {
 		name: "@usherlabs/cex-broker" as const,
-		version: "0.2.50",
+		version: "0.2.47",
 		git_head: "a".repeat(40),
 	},
 	executable_sha256: "b".repeat(64),
@@ -36,7 +31,7 @@ const backfillProducer = {
 const exportProducer = {
 	...backfillProducer,
 	product_id: "cex-canonical-orderbook-export" as const,
-	product_version: "cex-canonical-orderbook-export/v2" as const,
+	product_version: "cex-canonical-orderbook-export/v1" as const,
 	executable_sha256: "c".repeat(64),
 };
 
@@ -78,61 +73,42 @@ const canonicalOrderBookExportResult = finalizeCanonicalOrderBookExportResult({
 				rows: 40,
 				bytes: 4_096,
 				sha256: "f".repeat(64),
-				projection_schema_id: ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID,
-				projection_schema_sha256:
-					ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256,
 			},
 			summary: {
 				file_name: "order_book_depth_summary.parquet",
 				rows: 1,
 				bytes: 2_048,
 				sha256: "1".repeat(64),
-				projection_schema_id:
-					ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
-				projection_schema_sha256:
-					ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
 			},
 		},
 		diagnostics: {},
 	},
 });
 
+const legacyResult = V1_CONFORMANCE_FIXTURES.documents.result;
 const backfillResult = finalizeBackfillResultV2({
 	schema_id: BACKFILL_RESULT_V2_SCHEMA_ID,
-	job_id: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f120",
-	request_file_sha256: "7".repeat(64),
-	schema_manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V3.manifest_sha256,
+	job_id: legacyResult.job_id,
+	request_file_sha256: legacyResult.request_file_sha256,
+	schema_manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V2.manifest_sha256,
 	producer: backfillProducer,
-	capability_policy: {
-		policy_id: CAPABILITY_POLICY.policy_id,
-		policy_sha256: CAPABILITY_POLICY.policy_sha256,
-	},
+	capability_policy: legacyResult.capability_policy,
 	resource_policy: {
 		policy_id: RESOURCE_POLICY.policy_id,
 		policy_sha256: RESOURCE_POLICY.policy_sha256,
 	},
-	started_at: "2026-08-20T12:00:01.000Z",
-	completed_at: "2026-08-20T12:00:03.000Z",
-	outcome: {
-		status: "already_covered",
-		reason_code: "qualified_coverage_complete",
-		reason_subcode: null,
-		request_id: V1_CONFORMANCE_FIXTURES.documents.request.request_id,
-		idempotency_key: V1_CONFORMANCE_FIXTURES.documents.request.idempotency_key,
-		target: V1_CONFORMANCE_FIXTURES.documents.request.target,
-		selection: V1_CONFORMANCE_FIXTURES.documents.archive_selection,
-		receipt: V1_CONFORMANCE_FIXTURES.documents.promotion_receipt,
-		diagnostics: {},
-	},
+	started_at: legacyResult.started_at,
+	completed_at: legacyResult.completed_at,
+	outcome: legacyResult.outcome,
 });
 
 const productPin = preparationProductPinCodec.decode({
 	schema_id: PREPARATION_PRODUCT_PIN_SCHEMA_ID,
 	package: {
 		name: "@usherlabs/cex-broker",
-		version: "0.2.50",
+		version: "0.2.47",
 		registry_tarball_url:
-			"https://registry.npmjs.org/@usherlabs/cex-broker/-/cex-broker-0.2.50.tgz",
+			"https://registry.npmjs.org/@usherlabs/cex-broker/-/cex-broker-0.2.47.tgz",
 		integrity: "sha512-YQ==",
 		tarball_sha256: "2".repeat(64),
 		npm_git_head: "a".repeat(40),
@@ -146,14 +122,14 @@ const productPin = preparationProductPinCodec.decode({
 		},
 		{
 			product_id: "cex-canonical-orderbook-export",
-			product_version: "cex-canonical-orderbook-export/v2",
+			product_version: "cex-canonical-orderbook-export/v1",
 			relative_path: "dist/commands/cex-canonical-orderbook-export.js",
 			executable_sha256: exportProducer.executable_sha256,
 		},
 	],
 	schema_manifest: {
-		schema_id: PREPARATION_SCHEMA_MANIFEST_V3.schema_id,
-		manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V3.manifest_sha256,
+		schema_id: PREPARATION_SCHEMA_MANIFEST_V2.schema_id,
+		manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V2.manifest_sha256,
 		relative_path: "dist/market-data-preparation/schema-manifest.json",
 	},
 	schema_pins: PREPARATION_SCHEMA_ARTIFACTS.map(
@@ -170,7 +146,8 @@ const productPin = preparationProductPinCodec.decode({
 });
 
 export const PREPARATION_CONFORMANCE_FIXTURES = Object.freeze({
-	fixture_id: "cex-market-data-preparation-conformance/v3",
+	fixture_id: "cex-market-data-preparation-conformance/v2",
+	legacy_fixture_id: V1_CONFORMANCE_FIXTURES.fixture_id,
 	documents: Object.freeze({
 		backfill_result: backfillResult,
 		canonical_orderbook_export_request: canonicalOrderBookExportRequest,
@@ -178,11 +155,10 @@ export const PREPARATION_CONFORMANCE_FIXTURES = Object.freeze({
 		preparation_product_pin: productPin,
 	}),
 	identities: Object.freeze({
-		manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V3.manifest_sha256,
+		manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V2.manifest_sha256,
 		backfill_result_sha256: backfillResult.result_sha256,
 		selection_sha256:
 			canonicalOrderBookExportRequest.selection.selection_sha256,
 		export_result_sha256: canonicalOrderBookExportResult.result_sha256,
-		product_pin_sha256: jcsSha256(productPin),
 	}),
 });

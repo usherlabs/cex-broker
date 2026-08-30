@@ -2,10 +2,6 @@ import {
 	type CanonicalOrderBookExportQuerySegment,
 	type CanonicalOrderBookExportRequestWire,
 	canonicalOrderBookExportRequestCodec,
-	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION,
-	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
-	ORDER_BOOK_LEVELS_PARQUET_PROJECTION,
-	ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256,
 } from "../market-data-preparation/contracts";
 import {
 	type ArchiveSelectionWire,
@@ -13,12 +9,6 @@ import {
 	type Sha256Hex,
 } from "../market-data-vendor-backfill/contracts";
 import { jcsSha256 } from "../market-data-vendor-backfill/identity";
-import {
-	CAPABILITY_POLICY,
-	EFFECTIVE_ACQUISITION_POLICY_PIN,
-	EFFECTIVE_ADAPTER_POLICY_PIN,
-	RESOURCE_POLICY,
-} from "../market-data-vendor-backfill/manifests";
 
 export type ExactOrderBookQueryValue = string | number | readonly string[];
 
@@ -258,24 +248,7 @@ function queryIdentity(
 		source_policy: request.selection.source_policy,
 		precedence: request.selection.precedence,
 		segments,
-		projection_schemas: {
-			levels: {
-				schema_id: ORDER_BOOK_LEVELS_PARQUET_PROJECTION.$id,
-				schema_sha256: ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256,
-			},
-			summary: {
-				schema_id: ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION.$id,
-				schema_sha256:
-					ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
-			},
-		},
 	});
-}
-
-function projectionSql(projection: {
-	columns: Array<{ name: string }>;
-}): string {
-	return projection.columns.map(({ name }) => `\`${name}\``).join(", ");
 }
 
 function buildPredicate(
@@ -344,23 +317,12 @@ export function compileExactOrderBookExport(
 		request,
 		segments,
 	);
-	parameters.current_capability_policy_id = CAPABILITY_POLICY.policy_id;
-	parameters.current_capability_policy_sha256 = CAPABILITY_POLICY.policy_sha256;
-	parameters.current_resource_policy_id = RESOURCE_POLICY.policy_id;
-	parameters.current_resource_policy_sha256 = RESOURCE_POLICY.policy_sha256;
-	parameters.current_adapter_policy_id = EFFECTIVE_ADAPTER_POLICY_PIN.policy_id;
-	parameters.current_adapter_policy_sha256 =
-		EFFECTIVE_ADAPTER_POLICY_PIN.policy_sha256;
-	parameters.current_acquisition_policy_id =
-		EFFECTIVE_ACQUISITION_POLICY_PIN.policy_id;
-	parameters.current_acquisition_policy_sha256 =
-		EFFECTIVE_ACQUISITION_POLICY_PIN.policy_sha256;
 	const physicalPredicateSql = predicateSql;
-	const levelsSql = `SELECT ${projectionSql(ORDER_BOOK_LEVELS_PARQUET_PROJECTION)}
+	const levelsSql = `SELECT *
 	FROM market_data.cex_order_book_levels_replay_qualified
 	WHERE ${predicateSql}
 	ORDER BY source_time_ms, snapshot_id, side, level_index`;
-	const summarySql = `SELECT ${projectionSql(ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION)}
+	const summarySql = `SELECT *
 	FROM market_data.cex_order_book_depth_summary_replay_qualified
 	WHERE ${predicateSql}
 	ORDER BY source_time_ms, snapshot_id`;
@@ -417,14 +379,6 @@ export function compileExactOrderBookExport(
 	AND promotion.status = 'passing'
 	AND promotion.seam_verified = 1
 	AND promotion.coverage_verified = 1
-	AND promotion.capability_policy_id = {current_capability_policy_id:String}
-	AND promotion.capability_policy_sha256 = {current_capability_policy_sha256:String}
-	AND promotion.resource_policy_id = {current_resource_policy_id:String}
-	AND promotion.resource_policy_sha256 = {current_resource_policy_sha256:String}
-	AND promotion.adapter_policy_id = {current_adapter_policy_id:String}
-	AND promotion.adapter_policy_sha256 = {current_adapter_policy_sha256:String}
-	AND promotion.acquisition_policy_id = {current_acquisition_policy_id:String}
-	AND promotion.acquisition_policy_sha256 = {current_acquisition_policy_sha256:String}
 	ORDER BY promotion.receipt_id`;
 	return {
 		request,

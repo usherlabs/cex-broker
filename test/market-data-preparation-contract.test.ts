@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { PREPARATION_CONFORMANCE_FIXTURES } from "../src/helpers/market-data-preparation/conformance-fixtures";
 import {
 	BACKFILL_RESULT_V2_SCHEMA_ID,
@@ -9,22 +11,20 @@ import {
 	canonicalOrderBookExportResultCodec,
 	finalizeBackfillResultV2,
 	finalizeCanonicalOrderBookExportResult,
-	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
-	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
-	ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID,
-	ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256,
 	PREPARATION_PRODUCT_PIN_SCHEMA_ID,
 	PREPARATION_SCHEMA_ARTIFACTS,
-	PREPARATION_SCHEMA_MANIFEST_V3,
+	PREPARATION_SCHEMA_MANIFEST_V2,
 	preparationProductPinCodec,
-	SOURCE_FORENSICS_LEDGER_SCHEMA_ID,
-	SOURCE_QUALIFICATION_RECORD_SCHEMA_ID,
 } from "../src/helpers/market-data-preparation/contracts";
 import staticPreparationManifest from "../src/helpers/market-data-preparation/schema-manifest.json" with {
 	type: "json",
 };
 import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
 import { documentSha256 } from "../src/helpers/market-data-vendor-backfill/identity";
+import {
+	SCHEMA_ARTIFACTS,
+	SCHEMA_MANIFEST,
+} from "../src/helpers/market-data-vendor-backfill/manifests";
 
 const producer = {
 	product_id: "market-data-vendor-backfill",
@@ -39,19 +39,52 @@ const producer = {
 };
 
 describe("market-data preparation contracts", () => {
-	test("publishes no current result-v1 or legacy-policy schema path", () => {
-		const serialized = JSON.stringify(PREPARATION_SCHEMA_MANIFEST_V3);
-		expect(serialized).not.toContain("backfill-result-v1");
-		expect(serialized).not.toContain("export-result-v1");
-		expect(serialized).not.toContain("product-pin-v1");
+	test("preserves the released v1 contract bytes and canonical identities", async () => {
+		expect(SCHEMA_MANIFEST.manifest_sha256).toBe(
+			"48e5e91d33caafd930b45552c799a9fb0c2ccd9a676106fbab2543f231dba1b7",
+		);
+		expect(
+			SCHEMA_ARTIFACTS.find(({ path }) => path === "schemas/result.schema.json")
+				?.schema_sha256,
+		).toBe("65b5b3cf3b876159e8bc5f28978f3fcf08e9e91653eade463a1136e7b71c41fa");
+		const rawPins = new Map([
+			[
+				"schemas/result.schema.json",
+				"16230047a5fce2dd88a6f9e9ac9c8ac82e3111fefac6ea7243e8e1c43f2676b1",
+			],
+			[
+				"schemas/schema-manifest.json",
+				"7ea3cca721e03df41d9c651cad69eebc3d83dd801bc214854c8c93edca2d41ae",
+			],
+			[
+				"fixtures/conformance-v1.json",
+				"54b08b52464e1be6fffa4ebb9edf50ddf65a07ee2ae43dd7ec05eb16fe27ea80",
+			],
+		]);
+		for (const [relativePath, expected] of rawPins) {
+			const bytes = await readFile(
+				new URL(
+					`../src/helpers/market-data-vendor-backfill/${relativePath}`,
+					import.meta.url,
+				),
+			);
+			expect(createHash("sha256").update(bytes).digest("hex")).toBe(expected);
+		}
 	});
 
 	test("finalizes a CEX-produced backfill result v2 without Fiet provenance", () => {
-		const current = PREPARATION_CONFORMANCE_FIXTURES.documents.backfill_result;
-		const { result_sha256: _resultSha256, ...content } = current;
+		const legacy = CONFORMANCE_FIXTURES.documents.result;
 		const result = finalizeBackfillResultV2({
-			...content,
+			schema_id: BACKFILL_RESULT_V2_SCHEMA_ID,
+			job_id: legacy.job_id,
+			request_file_sha256: legacy.request_file_sha256,
+			schema_manifest_sha256: PREPARATION_SCHEMA_MANIFEST_V2.manifest_sha256,
 			producer,
+			capability_policy: legacy.capability_policy,
+			resource_policy: legacy.resource_policy,
+			started_at: legacy.started_at,
+			completed_at: legacy.completed_at,
+			outcome: legacy.outcome,
 		});
 
 		expect(backfillResultV2Codec.decode(result)).toEqual(result);
@@ -62,20 +95,14 @@ describe("market-data preparation contracts", () => {
 		expect(serialized).not.toContain("package_sha256");
 	});
 
-	test("publishes manifest v3 with exactly twelve current schemas", () => {
-		expect(staticPreparationManifest).toEqual(PREPARATION_SCHEMA_MANIFEST_V3);
-		expect(PREPARATION_SCHEMA_MANIFEST_V3.schema_id).toBe(
-			"https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v3",
+	test("publishes a manifest v2 for every runtime and product-pin schema", () => {
+		expect(staticPreparationManifest).toEqual(PREPARATION_SCHEMA_MANIFEST_V2);
+		expect(PREPARATION_SCHEMA_MANIFEST_V2.schema_id).toBe(
+			"https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v2",
 		);
-		expect(PREPARATION_SCHEMA_MANIFEST_V3.manifest_sha256).toBe(
-			documentSha256(PREPARATION_SCHEMA_MANIFEST_V3, "manifest_sha256"),
+		expect(PREPARATION_SCHEMA_MANIFEST_V2.manifest_sha256).toBe(
+			documentSha256(PREPARATION_SCHEMA_MANIFEST_V2, "manifest_sha256"),
 		);
-		expect(PREPARATION_SCHEMA_ARTIFACTS).toHaveLength(12);
-		expect(
-			PREPARATION_SCHEMA_ARTIFACTS.filter(
-				({ schema }) => "parquet_metadata" in schema,
-			).map(({ schema }) => schema.parquet_metadata),
-		).toEqual([{ key_value_metadata: [] }, { key_value_metadata: [] }]);
 		expect(
 			new Set(PREPARATION_SCHEMA_ARTIFACTS.map(({ schema_id }) => schema_id)),
 		).toEqual(
@@ -88,10 +115,6 @@ describe("market-data preparation contracts", () => {
 				CANONICAL_ORDERBOOK_EXPORT_REQUEST_SCHEMA_ID,
 				CANONICAL_ORDERBOOK_EXPORT_RESULT_SCHEMA_ID,
 				PREPARATION_PRODUCT_PIN_SCHEMA_ID,
-				ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID,
-				ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
-				SOURCE_FORENSICS_LEDGER_SCHEMA_ID,
-				SOURCE_QUALIFICATION_RECORD_SCHEMA_ID,
 			]),
 		);
 	});
@@ -128,26 +151,6 @@ describe("market-data preparation contracts", () => {
 		);
 	});
 
-	test("rejects successful result-v2 evidence whose selected receipt lineage disagrees", () => {
-		const fixture = structuredClone(
-			PREPARATION_CONFORMANCE_FIXTURES.documents.backfill_result,
-		);
-		const selection = fixture.outcome.selection;
-		if (!selection) throw new Error("fixture selection missing");
-		const bundle = selection.bundles.find(
-			(candidate) => candidate.capture_origin === "vendor_historical_backfill",
-		);
-		if (!bundle?.qualification)
-			throw new Error("fixture receipt lineage missing");
-		bundle.qualification.receipt_id = "0".repeat(64);
-		selection.receipt_ids = ["0".repeat(64)];
-		selection.selection_sha256 = documentSha256(selection, "selection_sha256");
-		const { result_sha256: _resultSha256, ...content } = fixture;
-		expect(() => finalizeBackfillResultV2(content)).toThrow(
-			"successful vendor selection and current receipt lineage disagree",
-		);
-	});
-
 	test("validates exact export requests and finalized successful receipts", () => {
 		const selection = CONFORMANCE_FIXTURES.documents.archive_selection;
 		const request = canonicalOrderBookExportRequestCodec.decode({
@@ -163,7 +166,7 @@ describe("market-data preparation contracts", () => {
 		const exportProducer = {
 			...producer,
 			product_id: "cex-canonical-orderbook-export",
-			product_version: "cex-canonical-orderbook-export/v2",
+			product_version: "cex-canonical-orderbook-export/v1",
 		};
 		const result = finalizeCanonicalOrderBookExportResult({
 			schema_id: CANONICAL_ORDERBOOK_EXPORT_RESULT_SCHEMA_ID,
@@ -188,20 +191,12 @@ describe("market-data preparation contracts", () => {
 						rows: 40,
 						bytes: 4_096,
 						sha256: "e".repeat(64),
-						projection_schema_id:
-							ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_ID,
-						projection_schema_sha256:
-							ORDER_BOOK_LEVELS_PARQUET_PROJECTION_SCHEMA_SHA256,
 					},
 					summary: {
 						file_name: "order_book_depth_summary.parquet",
 						rows: 1,
 						bytes: 2_048,
 						sha256: "f".repeat(64),
-						projection_schema_id:
-							ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
-						projection_schema_sha256:
-							ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
 					},
 				},
 				diagnostics: {},

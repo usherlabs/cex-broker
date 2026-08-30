@@ -87,11 +87,7 @@ cex-canonical-orderbook-export run --request <path> --result <path>
 ```
 
 Both commands accept exactly those five arguments. Secrets and endpoints come
-only from the exact allowlist `CLICKHOUSE_URL`, `CLICKHOUSE_USER`,
-`CLICKHOUSE_PASSWORD`, `CEX_BROKER_ARCHIVE_FORWARDER_URL`,
-`CEX_BROKER_ARCHIVE_FORWARDER_TOKEN`, and `CRYPTOHFTDATA_API_KEY`. The exporter
-reads only the three `CLICKHOUSE_*` values; it receives neither provider-read
-nor archive-forwarder-write authority. Request and sidecar files are
+only from their closed environment allowlists. Request and sidecar files are
 bounded, regular, no-follow reads in one non-symlink attempt directory; the
 result is validated, file-synced, atomically renamed, and directory-synced.
 Malformed argv and unsafe result targets are unhandled nonzero failures, while
@@ -102,23 +98,18 @@ to ClickHouse.
 Backfill result v2 identifies the CEX product/version, package version and clean
 git head, actual Node runtime, and runtime SHA-256 of the extracted executable.
 It deliberately contains no Fiet commit, build timestamp, or self-referential
-package digest. The current package has one live capability-v3/resource-v2
-request path and emits result v2 only. Result-v1 codecs, previous policy assets,
-and legacy conformance behavior are not published as runtime fallbacks;
-historical evidence is audited against its immutable historical package.
+package digest. The unchanged v1 result/schema/fixture and public TypeScript
+names remain published for existing consumers.
 
 The canonical exporter accepts one complete archive-selection v1 document. It
 compiles each selected bundle interval into a non-broad half-open predicate,
 uses production archive rows before vendor rows for `fill_gaps`, and uses only
 qualified vendor rows for `authoritative_window`. Archive identity, checksum
 conflicts, current qualification, passing promotion receipt linkage, row
-counts, and Parquet schemas are checked under the same bound segments. Export
-result v2 uses product version `cex-canonical-orderbook-export/v2`. It validates
-ordered capture-core columns, physical/logical types, nullability, and the
-pinned levels/summary projection identities before writing either fixed
-basename. A successful result containing relative names, row counts, byte
-counts, artifact and projection SHA-256 values, exact query identity, and
-current promotion receipts is the commit marker.
+counts, and Parquet envelopes are checked under the same bound segments. The
+fixed Parquet basenames are written first; a successful result containing their
+relative names, row counts, byte counts, SHA-256 hashes, query identity, and
+promotion receipts is the commit marker.
 
 The CryptoHFTData registry is default-empty. Explicit profile injection is
 required; API-key possession never enables a venue or symbol. Adapter v2 adds
@@ -129,30 +120,15 @@ substitutes USDT for USDC. OKX snapshots use `final_update_id=seqId` and
 `last_update_id=-1`; updates use `final_update_id=seqId` and
 `last_update_id=prevSeqId`. Replay ignores an update-only prefix before the
 first complete snapshot but requires every applied update to link to the current
-sequence. An OKX discontinuity clears state and is retained as evidence while
-the same replay scans unanchored until a later complete snapshot. A snapshot
-before the next required target can re-anchor it; otherwise the full clock is
-scanned before `vendor_fetch_failed/update_chain_gap` is returned with bounded
-sequence and clock summaries. The pinned OKX profiles admit `fill_gaps`; MEXC, exact L2, unknown
+sequence. The pinned OKX profiles admit `fill_gaps`; MEXC, exact L2, unknown
 symbols, and ambiguous timestamp or sequence semantics are rejected before
 credential resolution.
 
-Preparation products accept only the exact capability-v3/resource-v2 tuple.
-Resource policy v2 has a 31-day bound and retains independent file, byte, row,
-24-hour acquisition-duration, depth, and 100,000-required-event ceilings.
-Historical vendor rows count as current coverage only after full reverification
-appends a receipt binding the current capability, resource, adapter, and
-acquisition pins; the prior receipt bytes remain immutable.
-
-Full-window CEX qualification may inject the library-only reconstruction
-observer. It adds no executable and no request field. The observer writes a
-content-addressed `market-data-source-forensics-ledger/v1` plus an atomic
-`market-data-source-qualification-record/v1`, capped at 100,000 records and
-67,108,864 canonical JSON bytes. Overflow completes an incomplete ledger and
-cannot interrupt or alter reconstruction. Ledgers contain typed gap, unanchored,
-stale, future-state, and checksum-conflict evidence and classifications, never
-licensed rows, response bodies, credentials, or a diagnostic replay acceptance
-path.
+Resource policy v1 remains byte-stable with its seven-day request bound.
+Preparation products pin resource policy v2, whose 31-day bound supports a
+calendar-month thesis window while retaining the independent file, byte, row,
+duration, depth, and required-event caps. A request is evaluated against the
+exact resource-policy identity it pins.
 
 Secrets are dependency inputs, never request fields. Provider API keys are used only to obtain a short-lived token; downloads use a bearer header. ClickHouse read credentials belong to the injected archive reader, and forwarder authentication uses an HTTP bearer header. None belongs in request/result JSON, receipt hashes, URLs, argv, logs, or retained error bodies. Deterministic `batch_id` values make bounded producer-owned retries safe; the worker does not use the live-strategy spool and never writes ClickHouse directly.
 

@@ -1,29 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 import { CONFORMANCE_FIXTURES } from "../src/helpers/market-data-vendor-backfill/conformance-fixtures";
-import {
-	decodeBackfillRunDocuments,
-	finalizeArchiveSelection,
-	type PromotionReceiptWire,
-} from "../src/helpers/market-data-vendor-backfill/contracts";
+import type { PromotionReceiptWire } from "../src/helpers/market-data-vendor-backfill/contracts";
 import type {
 	ArchivePreflightResolution,
 	BackfillDependencies,
 } from "../src/helpers/market-data-vendor-backfill/core";
 import { runMarketDataVendorBackfill } from "../src/helpers/market-data-vendor-backfill/core";
 import { CryptoHftDataError } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
-import {
-	LEGACY_CAPABILITY_POLICY,
-	LEGACY_RESOURCE_POLICY,
-} from "../src/helpers/market-data-vendor-backfill/legacy-manifests";
-import {
-	CAPABILITY_POLICY,
-	RESOURCE_POLICY,
-} from "../src/helpers/market-data-vendor-backfill/manifests";
-import {
-	finalizePromotionReceipt,
-	promotionReceiptFromArchiveRow,
-} from "../src/helpers/market-data-vendor-backfill/promotion";
+import { promotionReceiptFromArchiveRow } from "../src/helpers/market-data-vendor-backfill/promotion";
 import { qualificationEventFromArchiveRow } from "../src/helpers/market-data-vendor-backfill/qualification";
 import { resolveArchiveSelection } from "../src/helpers/market-data-vendor-backfill/selection";
 
@@ -231,73 +215,6 @@ describe("runMarketDataVendorBackfill final-v1 resilience", () => {
 		expect(deps.calls).toEqual(["preflight", "forwarder-preflight"]);
 	});
 
-	test("rejects already-covered vendor evidence whose receipt carries historical policies", async () => {
-		const deps = dependencies();
-		const request = structuredClone(documents.request);
-		request.product_pins = {
-			capability_policy: {
-				policy_id: CAPABILITY_POLICY.policy_id,
-				policy_sha256: CAPABILITY_POLICY.policy_sha256,
-			},
-			resource_policy: {
-				policy_id: RESOURCE_POLICY.policy_id,
-				policy_sha256: RESOURCE_POLICY.policy_sha256,
-			},
-		};
-		const {
-			receipt_id: _receiptId,
-			promotion_identity_sha256: _promotionIdentity,
-			...receiptContent
-		} = CONFORMANCE_FIXTURES.documents.promotion_receipt;
-		const historicalReceipt = finalizePromotionReceipt({
-			...receiptContent,
-			effective_policies: {
-				...receiptContent.effective_policies,
-				capability_policy: {
-					policy_id: LEGACY_CAPABILITY_POLICY.policy_id,
-					policy_sha256: LEGACY_CAPABILITY_POLICY.policy_sha256,
-				},
-				resource_policy: {
-					policy_id: LEGACY_RESOURCE_POLICY.policy_id,
-					policy_sha256: LEGACY_RESOURCE_POLICY.policy_sha256,
-				},
-			},
-		});
-		const { selection_sha256: _selectionSha256, ...selectionContent } =
-			CONFORMANCE_FIXTURES.documents.archive_selection;
-		const historicalSelection = finalizeArchiveSelection({
-			...selectionContent,
-			bundles: selectionContent.bundles.map((bundle) => ({
-				...bundle,
-				qualification: bundle.qualification
-					? {
-							...bundle.qualification,
-							receipt_id: historicalReceipt.receipt_id,
-							promotion_identity_sha256:
-								historicalReceipt.promotion_identity_sha256,
-						}
-					: undefined,
-			})),
-			receipt_ids: [historicalReceipt.receipt_id],
-		});
-		deps.archive.resolveSelection = async () => {
-			deps.calls.push("preflight");
-			return preflight({
-				selection: historicalSelection,
-				receipts: [historicalReceipt],
-			});
-		};
-
-		const result = await runMarketDataVendorBackfill(
-			{ request, requiredClock: documents.requiredClock },
-			deps,
-		);
-
-		expect(result.status).toBe("archive_preflight_failed");
-		expect(result.status).not.toBe("already_covered");
-		expect(deps.calls).toEqual(["preflight"]);
-	});
-
 	test("checks capability before credentials", async () => {
 		const deps = dependencies();
 		deps.providers.capabilityFor = () => {
@@ -334,79 +251,6 @@ describe("runMarketDataVendorBackfill final-v1 resilience", () => {
 			"selection",
 		]);
 		expect(JSON.stringify(result)).not.toContain("secret-value");
-	});
-
-	test("fully reverifies a historically receipted bundle and appends a current receipt", async () => {
-		const deps = dependencies();
-		const decoded = decodeBackfillRunDocuments(documents);
-		const captureBundleId = sha256Canonical({
-			request_business_identity: decoded.idempotencyKey,
-			provider: "cryptohftdata",
-			provider_exchange_id: "okx_spot",
-			resolved_symbol: "ARB-USDT",
-			adapter_version: "cryptohftdata-orderbook/v2",
-			objects: [
-				{
-					identity: "okx/2026/08/20/12/ARB-USDT.parquet.zst",
-					checksum: "a".repeat(64),
-					bytes: 100,
-					rows: 1,
-				},
-			],
-			canonical_schema_version: decoded.expectedProduct.canonicalSchemaVersion,
-			checksum_algorithm: decoded.expectedProduct.checksumAlgorithm,
-		});
-		const {
-			receipt_id: _receiptId,
-			promotion_identity_sha256: _promotionIdentity,
-			...receiptContent
-		} = CONFORMANCE_FIXTURES.documents.promotion_receipt;
-		const historicalReceipt = finalizePromotionReceipt({
-			...receiptContent,
-			capture_bundle_id: captureBundleId,
-			effective_policies: {
-				...receiptContent.effective_policies,
-				capability_policy: {
-					policy_id: LEGACY_CAPABILITY_POLICY.policy_id,
-					policy_sha256: LEGACY_CAPABILITY_POLICY.policy_sha256,
-				},
-				resource_policy: {
-					policy_id: LEGACY_RESOURCE_POLICY.policy_id,
-					policy_sha256: LEGACY_RESOURCE_POLICY.policy_sha256,
-				},
-			},
-		});
-		const frozenHistoricalBytes = JSON.stringify(historicalReceipt);
-		const resolveCurrentSelection = deps.archive.resolveSelection;
-		let resolutionCount = 0;
-		deps.archive.resolveSelection = async (request) => {
-			resolutionCount += 1;
-			if (resolutionCount === 1) {
-				deps.calls.push("preflight");
-				return preflight({ receipts: [historicalReceipt] });
-			}
-			return resolveCurrentSelection(request);
-		};
-
-		const result = await runMarketDataVendorBackfill(documents, deps);
-
-		expect(result.status).toBe("promoted");
-		expect(result.receipt).toMatchObject({
-			capture_bundle_id: captureBundleId,
-			effective_policies: {
-				capability_policy: {
-					policy_id: CAPABILITY_POLICY.policy_id,
-					policy_sha256: CAPABILITY_POLICY.policy_sha256,
-				},
-				resource_policy: {
-					policy_id: RESOURCE_POLICY.policy_id,
-					policy_sha256: RESOURCE_POLICY.policy_sha256,
-				},
-			},
-		});
-		expect(result.receipt?.receipt_id).not.toBe(historicalReceipt.receipt_id);
-		expect(JSON.stringify(historicalReceipt)).toBe(frozenHistoricalBytes);
-		expect(deps.calls).toContain("verify");
 	});
 
 	test("retries the same deterministic batch identity after an ambiguous failure", async () => {

@@ -184,7 +184,7 @@ export async function runCanonicalOrderBookExportFileJob(
 	const executableSha256 = await sha256RegularFile(executablePath);
 	const producer: CanonicalOrderBookExportResultWire["producer"] = {
 		product_id: "cex-canonical-orderbook-export",
-		product_version: "cex-canonical-orderbook-export/v2",
+		product_version: "cex-canonical-orderbook-export/v1",
 		package: {
 			name: "@usherlabs/cex-broker",
 			version: release.packageVersion,

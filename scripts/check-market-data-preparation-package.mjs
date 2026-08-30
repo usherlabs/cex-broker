@@ -14,7 +14,6 @@ import { builtinModules } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import canonicalize from "canonicalize";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const expectedPackageJson = JSON.parse(
@@ -38,13 +37,6 @@ function runNode(executable, args) {
 	});
 }
 
-function filesBelow(directory) {
-	return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-		const absolute = path.join(directory, entry.name);
-		return entry.isDirectory() ? filesBelow(absolute) : [absolute];
-	});
-}
-
 try {
 	const packOutput = execFileSync(
 		"npm",
@@ -62,20 +54,6 @@ try {
 		readFileSync(path.join(extracted, "package.json"), "utf8"),
 	);
 	if (
-		JSON.stringify(Object.keys(packageJson.bin).sort()) !==
-		JSON.stringify(
-			[
-				"cex-broker",
-				"market-data-vendor-backfill",
-				"cex-canonical-orderbook-export",
-			].sort(),
-		)
-	) {
-		throw new Error(
-			"package must retain exactly the broker and two preparation bins",
-		);
-	}
-	if (
 		packageJson.name !== expectedPackageJson.name ||
 		packageJson.version !== expectedPackageJson.version
 	) {
@@ -83,7 +61,6 @@ try {
 			`expected package ${expectedPackageJson.name}@${expectedPackageJson.version}, got ${packageJson.name}@${packageJson.version}`,
 		);
 	}
-	const preparationResults = new Map();
 	for (const [name, relativePath] of Object.entries({
 		"market-data-vendor-backfill":
 			"dist/commands/market-data-vendor-backfill.js",
@@ -137,21 +114,6 @@ try {
 		) {
 			throw new Error(`${name} extracted result identity is invalid`);
 		}
-		preparationResults.set(name, result);
-	}
-	if (
-		preparationResults.get("market-data-vendor-backfill")?.producer
-			?.product_version !== "market-data-vendor-backfill/v1" ||
-		preparationResults.get("cex-canonical-orderbook-export")?.producer
-			?.product_version !== "cex-canonical-orderbook-export/v2" ||
-		preparationResults.get("market-data-vendor-backfill")?.producer?.package
-			?.git_head !==
-			preparationResults.get("cex-canonical-orderbook-export")?.producer
-				?.package?.git_head
-	) {
-		throw new Error(
-			"preparation producer versions or baked git heads disagree",
-		);
 	}
 
 	if (
@@ -161,67 +123,23 @@ try {
 	) {
 		throw new Error("packed preparation product is not standalone/exported");
 	}
-	const manifest = JSON.parse(
-		readFileSync(
-			path.join(extracted, "dist/market-data-preparation/schema-manifest.json"),
-			"utf8",
-		),
-	);
-	if (
-		manifest.schema_id !==
-			"https://schemas.usher.so/market-data-vendor-backfill-schema-manifest/v3" ||
-		manifest.artifacts?.length !== 12
-	) {
-		throw new Error("package does not contain exactly twelve current schemas");
-	}
-	for (const artifact of manifest.artifacts) {
-		const bytes = readFileSync(
-			path.join(extracted, "dist/market-data-preparation", artifact.path),
-		);
-		const document = JSON.parse(bytes.toString("utf8"));
-		if (
-			document.$id !== artifact.schema_id ||
-			sha256(Buffer.from(canonicalize(document))) !== artifact.schema_sha256
-		) {
-			throw new Error(`schema identity mismatch: ${artifact.path}`);
-		}
-	}
-	if (
-		existsSync(path.join(extracted, "dist/market-data-vendor-backfill")) ||
-		Object.keys(packageJson.exports).some((name) =>
-			name.startsWith("./market-data-vendor-backfill/"),
-		)
-	) {
-		throw new Error("current package retains a legacy preparation asset path");
-	}
-	for (const file of filesBelow(
-		path.join(extracted, "dist/market-data-preparation"),
-	)) {
-		if (readFileSync(file).includes(Buffer.from("fiet_tee_commit"))) {
-			throw new Error(
-				`current preparation asset retains Fiet TEE provenance: ${file}`,
-			);
-		}
-	}
-	for (const relativePath of [
-		"dist/market-data-vendor-backfill.js",
-		"dist/market-data-preparation.js",
-		"dist/commands/market-data-vendor-backfill.js",
-		"dist/commands/cex-canonical-orderbook-export.js",
-	]) {
-		const source = readFileSync(path.join(extracted, relativePath), "utf8");
-		for (const forbidden of [
-			"fiet_tee_commit",
-			"market-data-vendor-backfill-result/v1",
-			"market-data-vendor-backfill-capabilities/v1",
-			"market-data-vendor-backfill-capabilities/v2",
-			"market-data-vendor-backfill-resources/v1",
-		]) {
-			if (source.includes(forbidden)) {
-				throw new Error(
-					`${relativePath} retains legacy runtime identity ${forbidden}`,
-				);
-			}
+	const frozenV1Pins = new Map([
+		[
+			"dist/market-data-vendor-backfill/schema-manifest.json",
+			"7ea3cca721e03df41d9c651cad69eebc3d83dd801bc214854c8c93edca2d41ae",
+		],
+		[
+			"dist/market-data-vendor-backfill/schemas/result.schema.json",
+			"16230047a5fce2dd88a6f9e9ac9c8ac82e3111fefac6ea7243e8e1c43f2676b1",
+		],
+		[
+			"dist/market-data-vendor-backfill/fixtures/conformance-v1.json",
+			"54b08b52464e1be6fffa4ebb9edf50ddf65a07ee2ae43dd7ec05eb16fe27ea80",
+		],
+	]);
+	for (const [relativePath, expected] of frozenV1Pins) {
+		if (sha256(readFileSync(path.join(extracted, relativePath))) !== expected) {
+			throw new Error(`v1 package asset drifted: ${relativePath}`);
 		}
 	}
 	const evidencePath = path.join(temporaryRoot, "candidate-evidence.json");
