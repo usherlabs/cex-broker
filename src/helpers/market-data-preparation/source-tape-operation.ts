@@ -37,7 +37,6 @@ import {
 	RESOURCE_POLICY,
 } from "../market-data-vendor-backfill/manifests";
 import {
-	assertSourceTapeSandboxAuthorization,
 	createSourceTapeArchiveSink,
 	SOURCE_TAPE_CAPABILITY,
 	SOURCE_TAPE_CONSTRUCTION_MODE,
@@ -105,20 +104,6 @@ export type SourceTapeAdapter = {
 
 export type MarketDataSourceTapeDependencies = {
 	forwarder: {
-		preflight(input: {
-			authorizationId: string;
-			target: { environment: string; cluster: string };
-		}): Promise<{
-			forwarderIdentity: { environment: string; cluster: string };
-			authorization: {
-				authorizationId: string;
-				scope: "production";
-				environment: string;
-				cluster: string;
-				expiresAt: string;
-				credentialValidated: true;
-			};
-		}>;
 		submit(batch: ForwarderBatch): Promise<{
 			ok: boolean;
 			inserted: number;
@@ -518,7 +503,6 @@ function failureReason(
 	if (reason.includes("promotion")) return "source_tape_promotion_failed";
 	if (phase === "credential") return "source_tape_credentials_missing";
 	if (phase === "capability") return "source_tape_capability_unsupported";
-	if (phase === "authorization") return "source_tape_archive_failed";
 	if (phase === "acquisition") {
 		return /sequence|snapshot|book|reconstruct|update/u.test(reason)
 			? "source_tape_reconstruction_failed"
@@ -640,16 +624,6 @@ export async function runMarketDataSourceTape(
 		) {
 			throw new Error("source_tape_capability_unsupported");
 		}
-		phase = "authorization";
-		const preflight = await input.dependencies.forwarder.preflight({
-			authorizationId: invocation.production_authorization_id,
-			target: invocation.target,
-		});
-		assertSourceTapeSandboxAuthorization({
-			requestAuthorizationId: invocation.production_authorization_id,
-			requestTarget: invocation.target,
-			preflight: preflight.authorization,
-		});
 		phase = "acquisition";
 		const acquired = await adapter.acquire(request, capability, {
 			apiKey: input.credential.api_key,

@@ -14,58 +14,6 @@ OpenSpec implementation. This is pre-freeze engineering evidence only.
 > may be reserved until the reopened role-neutral boundary and pre-freeze
 > conformance tasks are complete.
 
-## Self-contained dependency-boundary repair
-
-The superseding package-boundary run was completed on `2026-08-27` from clean
-base commit `5f9d7f14fcddf576dd808dae3097ade8981a1f4c` plus the current
-uncommitted OpenSpec implementation. Maker's prior clean-extraction attempt
-correctly exposed that importing the broad vendor runtime required an absent
-bare `zod` dependency. The supported preparation subpath now exports
-`createMarketDataSourceTapeDependencies`; Maker no longer needs to import that
-broad runtime or assemble the CEX forwarder, qualified ClickHouse
-query/selection reader, or exact exporter.
-
-The clean-extraction package audit now proves all of the following from the
-unpacked npm tarball with no `node_modules`, sibling checkout, or repository
-runtime import:
-
-- the factory, its declaration, and both unchanged operation symbols import;
-- factory construction with inert endpoint/credential configuration performs
-  no network access;
-- a missing provider credential commits pair-local
-  `source_tape_credentials_missing` before any dependency-boundary request;
-- an inert local package fixture positively exercises the composed forwarder
-  authorization preflight and submission, ClickHouse query client, and exact
-  packaged exporter process;
-- the preparation runtime has no non-Node bare runtime imports; and
-- exactly two preparation operations, two preparation executables, and twelve
-  schemas remain. The factory is a support symbol and changes none of those
-  identities.
-
-Verification results:
-
-- `bun test --max-concurrency 1 test`: 984 passed, 0 failed, 3,050
-  expectations across 103 files;
-- focused preparation/contract/source-tape package suites: 29 passed, 0
-  failed, 154 expectations;
-- TypeScript, product build, changed-file Biome, `git diff --check`, and strict
-  OpenSpec validation: passed;
-- `bun run test:package:market-data-preparation`: passed twice with stable
-  diagnostic tarball SHA-256
-  `30396e8204b2271444634432ba2e1ec90c9731102f8de87c294a0e8587c1bc43`;
-- built preparation runtime SHA-256:
-  `456a9a2b80e7b86018725f9074e9d586eac44eea61a0b77672db383833993cb5`;
-  and
-- built preparation declaration SHA-256:
-  `a478a84c63d7c2150c9fd7fe6da3638ac07653f9a3ced8e8de94febbad213605`.
-
-The package remains the diagnostic unpublished `0.2.50` candidate. The
-runtime/declaration changes regenerate candidate product-pin inputs but do not
-change the role-neutral capability policy, resource policy, operation IDs, or
-twelve schema identities. No successor version was reserved and no live
-credential, source qualification, merge freeze, tag, publication, registry
-audit, or Maker registry-consumer proof was performed.
-
 ## Role-neutral post-amendment verification
 
 The superseding deterministic run was completed on `2026-08-26` from base

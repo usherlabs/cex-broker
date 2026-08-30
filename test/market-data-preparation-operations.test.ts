@@ -25,7 +25,6 @@ import {
 import { SOURCE_TAPE_CAPABILITY } from "../src/helpers/source-tape";
 import {
 	CANONICAL_ORDERBOOK_EXPORT_RESULT_SCHEMA_ID,
-	createMarketDataSourceTapeDependencies,
 	finalizeCanonicalOrderBookExportResult,
 	MARKET_DATA_REQUIRED_CLOCK_QUALIFICATION_OPERATION_ID,
 	MARKET_DATA_SOURCE_TAPE_OPERATION_ID,
@@ -152,9 +151,6 @@ function sourceTapeInvocation() {
 
 const unusedTapeDependencies = {
 	forwarder: {
-		async preflight() {
-			throw new Error("unused");
-		},
 		async submit(batch: { rows: unknown[] }) {
 			return { ok: true, inserted: batch.rows.length };
 		},
@@ -177,75 +173,6 @@ const unusedTapeDependencies = {
 };
 
 describe("market-data preparation library operations", () => {
-	test("constructs packaged source-tape dependencies without network access before credential validation", async () => {
-		const root = await mkdtemp(
-			path.join(os.tmpdir(), "cex-tape-dependencies-"),
-		);
-		try {
-			const dependencies = createMarketDataSourceTapeDependencies({
-				attemptRoot: root,
-				archiveForwarder: {
-					url: "http://127.0.0.1:1/archive-forwarder",
-					authToken: "inert-forwarder-token",
-				},
-				clickHouse: {
-					url: "http://127.0.0.1:1",
-					username: "inert-user",
-					password: "inert-password",
-				},
-			});
-			const result = await runMarketDataSourceTape({
-				invocation: sourceTapeInvocation(),
-				attempt_root: root,
-				created_at: "2026-08-26T15:00:00.000Z",
-				credential: { api_key: "" },
-				dependencies,
-			});
-			expect(result.qualification.outcome).toMatchObject({
-				status: "failure",
-				reason: "source_tape_credentials_missing",
-			});
-			expect(
-				JSON.parse(
-					await readFile(
-						path.join(
-							root,
-							sourceTapeInvocation().artifacts.qualification_record_file_name,
-						),
-						"utf8",
-					),
-				),
-			).toEqual(result.qualification);
-		} finally {
-			await rm(root, { recursive: true, force: true });
-		}
-	});
-
-	test("keeps source-tape operational configuration closed while allowing optional archive credentials", async () => {
-		const root = await mkdtemp(
-			path.join(os.tmpdir(), "cex-tape-dependencies-"),
-		);
-		try {
-			expect(() =>
-				createMarketDataSourceTapeDependencies({
-					attemptRoot: root,
-					archiveForwarder: { url: "http://127.0.0.1:1/forwarder" },
-					clickHouse: { url: "http://127.0.0.1:1" },
-				}),
-			).not.toThrow();
-			expect(() =>
-				createMarketDataSourceTapeDependencies({
-					attemptRoot: root,
-					archiveForwarder: { url: "http://127.0.0.1:1/forwarder" },
-					clickHouse: { url: "http://127.0.0.1:1" },
-					makerPolicy: "forbidden",
-				} as never),
-			).toThrow("source_tape_dependency_configuration_invalid");
-		} finally {
-			await rm(root, { recursive: true, force: true });
-		}
-	});
-
 	test("qualifies an authoritative clock with a host-neutral invocation identity", async () => {
 		const first = await mkdtemp(path.join(os.tmpdir(), "cex-operation-a-"));
 		const second = await mkdtemp(path.join(os.tmpdir(), "cex-operation-b-"));
@@ -412,12 +339,6 @@ describe("market-data preparation library operations", () => {
 		}> = [];
 		try {
 			const invocation = sourceTapeInvocation();
-			let authorizationPreflight:
-				| {
-						authorizationId: string;
-						target: { environment: string; cluster: string };
-				  }
-				| undefined;
 			let receiptId = "";
 			let promotionIdentity = "";
 			let qualificationEventId = "";
@@ -428,20 +349,6 @@ describe("market-data preparation library operations", () => {
 				credential: { api_key: "provider-secret" },
 				dependencies: {
 					forwarder: {
-						async preflight(input) {
-							authorizationPreflight = input;
-							return {
-								forwarderIdentity: input.target,
-								authorization: {
-									authorizationId: input.authorizationId,
-									scope: "production" as const,
-									environment: input.target.environment,
-									cluster: input.target.cluster,
-									expiresAt: "2026-08-26T16:00:00.000Z",
-									credentialValidated: true as const,
-								},
-							};
-						},
 						async submit(batch) {
 							forwardedRows.push(...batch.rows);
 							for (const entry of batch.rows) {
@@ -666,10 +573,6 @@ describe("market-data preparation library operations", () => {
 						};
 					},
 				},
-			});
-			expect(authorizationPreflight).toEqual({
-				authorizationId: invocation.production_authorization_id,
-				target: invocation.target,
 			});
 			expect(result.qualification).toMatchObject({
 				initializer: { semantic_stream_position: 0 },

@@ -412,17 +412,6 @@ normalized invocation hash is bound by the ledger and qualification record.
 This API accepts no required clock, Candidate role, Maker policy input, DEX
 input, or derivation descriptor.
 
-The same subpath exports `createMarketDataSourceTapeDependencies`. It accepts
-only the confined attempt root and environment-scoped archive-forwarder and
-ClickHouse endpoint/credential configuration, then composes the CEX-owned
-forwarder client, qualified query/selection reader, and exact packaged exporter.
-Factory construction is lazy and performs no network access. The source-tape
-operation validates the provider credential before invoking the factory-created
-authorization preflight, and then validates the request's exact authorization
-ID and `sandbox/cex-archive-local` target before provider acquisition. The
-factory is a support symbol, not a third operation identity, executable, schema,
-or canonical invocation field.
-
 The unpublished forensic-ledger v1 and qualification-record v1 schemas become
 closed operation unions. `required_clock_qualification` retains the exact
 required-clock and target-disposition contract. `source_tape` instead binds the
