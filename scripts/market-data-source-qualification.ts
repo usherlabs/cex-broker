@@ -8,28 +8,21 @@ import {
 } from "../src/helpers/market-data-preparation/file-job";
 import {
 	BoundedSourceForensicsSink,
-	classifySourceForensicsRecordsDeduplicated,
 	commitSourceQualificationEvidence,
 	type ReconstructionObservationSink,
 	type SourceForensicsLedgerWire,
-	type SourceObjectInspection,
 	type SourceQualificationRecordWire,
-	sourceQualificationRecordCodec,
 } from "../src/helpers/market-data-source-forensics";
 import {
 	decodeBackfillRunDocuments,
 	type MarketDataVendorBackfillRequest,
 	type ProviderCapability,
-	type ProviderObjectEvidence,
 } from "../src/helpers/market-data-vendor-backfill/contracts";
 import {
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 	CryptoHftDataAdapter,
 	CryptoHftDataError,
-	enumerateCryptoHftDataObjects,
-	enumerateCryptoHftDataWindowObjects,
-	type PolicyNeutralTapeSink,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
 import {
 	CAPABILITY_POLICY,
@@ -51,7 +44,6 @@ type SourceQualificationAdapter = {
 
 export type SourceQualificationAdapterFactory = (
 	observer: ReconstructionObservationSink,
-	options?: { policyNeutralTapeSink?: PolicyNeutralTapeSink },
 ) => SourceQualificationAdapter;
 
 export type MarketDataSourceQualificationResult = {
@@ -59,11 +51,6 @@ export type MarketDataSourceQualificationResult = {
 	failureReason: string | null;
 	ledger: SourceForensicsLedgerWire;
 	qualification: SourceQualificationRecordWire;
-	candidateCInputTapeEligible: boolean;
-	sourceDatasetEvidence: {
-		objects: ProviderObjectEvidence[];
-		vendorSemanticDigest: string;
-	} | null;
 };
 
 export type MarketDataSourceQualificationInput = {
@@ -74,21 +61,13 @@ export type MarketDataSourceQualificationInput = {
 	ledgerFileName?: string;
 	qualificationFileName?: string;
 	adapterFactory?: SourceQualificationAdapterFactory;
-	inspectSourceObject?: (
-		identity: string,
-		attempt: number,
-	) => SourceObjectInspection | Promise<SourceObjectInspection>;
-	candidateCInputTapeSink?: PolicyNeutralTapeSink;
-	bootstrapQualification?: SourceQualificationRecordWire;
 };
 
 function defaultAdapterFactory(
 	observer: ReconstructionObservationSink,
-	options: { policyNeutralTapeSink?: PolicyNeutralTapeSink } = {},
 ): SourceQualificationAdapter {
 	return new CryptoHftDataAdapter({
 		observer,
-		policyNeutralTapeSink: options.policyNeutralTapeSink,
 		profiles: [
 			CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
 			CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
@@ -139,19 +118,6 @@ export async function runMarketDataSourceQualification(
 		throw new Error("source qualification requires wire documents");
 	}
 	const prefix = pairArtifactPrefix(wire.scope.trading_pair);
-	if (input.candidateCInputTapeSink) {
-		const bootstrap = input.bootstrapQualification
-			? sourceQualificationRecordCodec.decode(input.bootstrapQualification)
-			: undefined;
-		if (
-			!bootstrap?.qualified ||
-			!bootstrap.candidate_c_source_enumeration_eligible ||
-			bootstrap.scope.exchange !== wire.scope.exchange ||
-			bootstrap.scope.trading_pair !== wire.scope.trading_pair
-		) {
-			throw new Error("candidate_c_input_tape_bootstrap_gate_missing");
-		}
-	}
 	const sink = new BoundedSourceForensicsSink({
 		schema_id:
 			"https://schemas.usher.so/market-data-source-forensics-ledger/v1",
@@ -170,31 +136,13 @@ export async function runMarketDataSourceQualification(
 			acquisition_policy: EFFECTIVE_ACQUISITION_POLICY_PIN,
 		},
 		adapter_version: CAPABILITY_POLICY.adapter_policy.adapter_version,
-		required_clock_targets: request.requiredClock.targets.map((target) => ({
-			target_id: target.target_id,
-			target_time_ms: Date.parse(target.target_at),
-		})),
-		expected_provider_object_identities: input.candidateCInputTapeSink
-			? enumerateCryptoHftDataWindowObjects(
-					request,
-					"okx_spot",
-					wire.scope.trading_pair,
-				)
-			: enumerateCryptoHftDataObjects(
-					request,
-					"okx_spot",
-					wire.scope.trading_pair,
-				),
+		required_clock_target_times_ms: request.requiredClockTargetsMs,
 		redact_values: new Set([input.apiKey]),
 	});
-	const adapter = (input.adapterFactory ?? defaultAdapterFactory)(sink, {
-		policyNeutralTapeSink: input.candidateCInputTapeSink,
-	});
+	const adapter = (input.adapterFactory ?? defaultAdapterFactory)(sink);
 	const capability = adapter.capabilityFor(request);
 	let sourceAccepted = false;
 	let failureReason: string | null = null;
-	let sourceDatasetEvidence: MarketDataSourceQualificationResult["sourceDatasetEvidence"] =
-		null;
 	if (!capability) {
 		failureReason = "capability_unsupported";
 	} else if (
@@ -204,62 +152,13 @@ export async function runMarketDataSourceQualification(
 		failureReason = "adapter_policy_mismatch";
 	} else {
 		try {
-			const acquired = await adapter.acquire(request, capability, {
-				apiKey: input.apiKey,
-			});
-			if (
-				acquired &&
-				typeof acquired === "object" &&
-				Array.isArray((acquired as { objects?: unknown }).objects) &&
-				typeof (acquired as { vendorSemanticDigest?: unknown })
-					.vendorSemanticDigest === "string"
-			) {
-				const dataset = acquired as {
-					objects: ProviderObjectEvidence[];
-					vendorSemanticDigest: string;
-				};
-				if (
-					/^[a-f0-9]{64}$/u.test(dataset.vendorSemanticDigest) &&
-					dataset.objects.every(
-						(object) =>
-							object &&
-							typeof object.identity === "string" &&
-							/^[a-f0-9]{64}$/u.test(object.checksum) &&
-							Number.isSafeInteger(object.bytes) &&
-							Number.isSafeInteger(object.rows),
-					)
-				) {
-					sourceDatasetEvidence = {
-						objects: dataset.objects.map((object) => ({ ...object })),
-						vendorSemanticDigest: dataset.vendorSemanticDigest,
-					};
-				}
-			}
+			await adapter.acquire(request, capability, { apiKey: input.apiKey });
 			sourceAccepted = true;
 		} catch (error) {
 			failureReason =
 				error instanceof CryptoHftDataError
 					? error.reason
 					: "source_qualification_failed";
-		}
-	}
-	const classificationRequests = sink.pendingClassificationRequests();
-	if (classificationRequests.length > 0 && input.inspectSourceObject) {
-		try {
-			const classifications = await classifySourceForensicsRecordsDeduplicated({
-				requests: classificationRequests,
-				maxAttempts: 3,
-				inspect: input.inspectSourceObject,
-			});
-			for (const classification of classifications) {
-				sink.applyRecordClassification(classification);
-			}
-		} catch {
-			// Unavailable or invalid re-fetch evidence remains unresolved and
-			// therefore cannot support derivation or Candidate C enumeration.
-			if (failureReason === null) {
-				failureReason = "source_classification_failed";
-			}
 		}
 	}
 
@@ -273,17 +172,7 @@ export async function runMarketDataSourceQualification(
 		createdAt: input.createdAt,
 		sourceAccepted,
 	});
-	return {
-		sourceAccepted,
-		failureReason,
-		ledger,
-		qualification,
-		candidateCInputTapeEligible:
-			input.candidateCInputTapeSink !== undefined &&
-			qualification.qualified &&
-			qualification.candidate_c_source_enumeration_eligible,
-		sourceDatasetEvidence,
-	};
+	return { sourceAccepted, failureReason, ledger, qualification };
 }
 
 function parseCli(argv: readonly string[]): {

@@ -58,10 +58,8 @@ function smokeRuntime(input: {
 	let invocation = 0;
 	return {
 		clickhouse: {
-			image:
-				"clickhouse/clickhouse-server:24.8.14.39@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b",
-			imageId:
-				"sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b",
+			image: "clickhouse/clickhouse-server:24.8",
+			imageId: "sha256:clickhouse-image",
 			version: "24.8.14.39",
 		},
 		async run(documents, apiKey) {

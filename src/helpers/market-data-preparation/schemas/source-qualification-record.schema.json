@@ -11,10 +11,7 @@
 		"request_id",
 		"scope",
 		"ledger",
-		"source_reconstruction_accepted",
-		"qualified",
-		"derivation_eligible",
-		"candidate_c_source_enumeration_eligible"
+		"qualified"
 	],
 	"properties": {
 		"schema_id": {
@@ -35,12 +32,7 @@
 				"retained_record_count",
 				"total_record_count",
 				"omitted_record_count",
-				"complete",
-				"disposition_complete",
-				"fresh_target_count",
-				"inactive_target_count",
-				"disqualifying_target_count",
-				"omitted_target_disposition_count"
+				"complete"
 			],
 			"properties": {
 				"schema_id": {
@@ -55,18 +47,10 @@
 				"retained_record_count": { "$ref": "#/$defs/uint" },
 				"total_record_count": { "$ref": "#/$defs/uint" },
 				"omitted_record_count": { "$ref": "#/$defs/uint" },
-				"complete": { "type": "boolean" },
-				"disposition_complete": { "type": "boolean" },
-				"fresh_target_count": { "$ref": "#/$defs/uint" },
-				"inactive_target_count": { "$ref": "#/$defs/uint" },
-				"disqualifying_target_count": { "$ref": "#/$defs/uint" },
-				"omitted_target_disposition_count": { "$ref": "#/$defs/uint" }
+				"complete": { "type": "boolean" }
 			}
 		},
-		"source_reconstruction_accepted": { "type": "boolean" },
-		"qualified": { "type": "boolean" },
-		"derivation_eligible": { "type": "boolean" },
-		"candidate_c_source_enumeration_eligible": { "type": "boolean" }
+		"qualified": { "type": "boolean" }
 	},
 	"$defs": {
 		"sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

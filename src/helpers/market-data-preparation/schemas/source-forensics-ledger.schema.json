@@ -12,10 +12,8 @@
 		"scope",
 		"required_clock",
 		"effective_policies",
-		"provider_object_inventory",
 		"provider_objects",
 		"records",
-		"target_dispositions",
 		"summary",
 		"limits",
 		"complete",
@@ -31,7 +29,6 @@
 		"scope": { "$ref": "#/$defs/scope" },
 		"required_clock": { "$ref": "#/$defs/clock" },
 		"effective_policies": { "$ref": "#/$defs/policies" },
-		"provider_object_inventory": { "$ref": "#/$defs/inventory" },
 		"provider_objects": {
 			"type": "array",
 			"items": { "$ref": "#/$defs/object" }
@@ -40,11 +37,6 @@
 			"type": "array",
 			"maxItems": 100000,
 			"items": { "$ref": "#/$defs/record" }
-		},
-		"target_dispositions": {
-			"type": "array",
-			"maxItems": 100000,
-			"items": { "$ref": "#/$defs/disposition" }
 		},
 		"summary": { "$ref": "#/$defs/summary" },
 		"limits": {
@@ -120,26 +112,6 @@
 				"resource_policy": { "$ref": "#/$defs/pin" },
 				"adapter_policy": { "$ref": "#/$defs/pin" },
 				"acquisition_policy": { "$ref": "#/$defs/pin" }
-			}
-		},
-		"inventory": {
-			"type": "object",
-			"additionalProperties": false,
-			"required": ["expected_identities", "observed_identities", "complete"],
-			"properties": {
-				"expected_identities": {
-					"type": "array",
-					"maxItems": 10000,
-					"uniqueItems": true,
-					"items": { "type": "string", "minLength": 1, "maxLength": 1024 }
-				},
-				"observed_identities": {
-					"type": "array",
-					"maxItems": 10000,
-					"uniqueItems": true,
-					"items": { "type": "string", "minLength": 1, "maxLength": 1024 }
-				},
-				"complete": { "type": "boolean" }
 			}
 		},
 		"object": {
@@ -297,40 +269,6 @@
 				}
 			}
 		},
-		"disposition": {
-			"type": "object",
-			"additionalProperties": false,
-			"required": [
-				"target_id",
-				"target_time_ms",
-				"disposition",
-				"source_time_ms",
-				"asof_age_ms",
-				"record_sha256s"
-			],
-			"properties": {
-				"target_id": { "$ref": "#/$defs/uuid" },
-				"target_time_ms": { "$ref": "#/$defs/uint" },
-				"disposition": {
-					"enum": [
-						"fresh_within_bound",
-						"valid_inactive_market_state",
-						"disqualifying"
-					]
-				},
-				"source_time_ms": {
-					"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uint" }]
-				},
-				"asof_age_ms": {
-					"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/uint" }]
-				},
-				"record_sha256s": {
-					"type": "array",
-					"uniqueItems": true,
-					"items": { "$ref": "#/$defs/sha256" }
-				}
-			}
-		},
 		"summary": {
 			"type": "object",
 			"additionalProperties": false,
@@ -339,24 +277,14 @@
 				"total_record_count",
 				"omitted_record_count",
 				"affected_target_count",
-				"unresolved_record_count",
-				"disposition_complete",
-				"fresh_target_count",
-				"inactive_target_count",
-				"disqualifying_target_count",
-				"omitted_target_disposition_count"
+				"unresolved_record_count"
 			],
 			"properties": {
 				"retained_record_count": { "$ref": "#/$defs/uint" },
 				"total_record_count": { "$ref": "#/$defs/uint" },
 				"omitted_record_count": { "$ref": "#/$defs/uint" },
 				"affected_target_count": { "$ref": "#/$defs/uint" },
-				"unresolved_record_count": { "$ref": "#/$defs/uint" },
-				"disposition_complete": { "type": "boolean" },
-				"fresh_target_count": { "$ref": "#/$defs/uint" },
-				"inactive_target_count": { "$ref": "#/$defs/uint" },
-				"disqualifying_target_count": { "$ref": "#/$defs/uint" },
-				"omitted_target_disposition_count": { "$ref": "#/$defs/uint" }
+				"unresolved_record_count": { "$ref": "#/$defs/uint" }
 			}
 		}
 	}

@@ -68,11 +68,7 @@
 		"window": { "$ref": "#/$defs/interval" },
 		"depth": { "type": "integer", "minimum": 1, "maximum": 500 },
 		"construction_mode": {
-			"enum": [
-				"sampled_top_n_snapshot",
-				"exact_l2_reconstruction",
-				"policy_neutral_top_n_state_change_tape/v1"
-			]
+			"enum": ["sampled_top_n_snapshot", "exact_l2_reconstruction"]
 		},
 		"canonical_schema": {
 			"type": "object",

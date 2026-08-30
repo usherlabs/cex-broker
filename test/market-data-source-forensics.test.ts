@@ -6,10 +6,8 @@ import path from "node:path";
 import {
 	BoundedSourceForensicsSink,
 	classifyImplicatedSourceObjects,
-	classifySourceForensicsRecordsDeduplicated,
 	classifySourceObjectEvidence,
 	commitSourceQualificationEvidence,
-	evaluateSourceQualificationGates,
 	sourceForensicsLedgerCodec,
 	sourceQualificationRecordCodec,
 } from "../src/helpers/market-data-source-forensics";
@@ -18,7 +16,6 @@ import {
 	type CryptoHftDataOrderBookRow,
 	reconstructCryptoHftDataOrderBooks,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
-import { jcsCanonicalize } from "../src/helpers/market-data-vendor-backfill/identity";
 import {
 	CAPABILITY_POLICY,
 	EFFECTIVE_ACQUISITION_POLICY_PIN,
@@ -37,10 +34,6 @@ const object = {
 };
 
 function context(targetTimes = targets) {
-	const targetIds = targetTimes.map(
-		(_, index) =>
-			`018f0f4d-7b32-7a30-8f4d-${String(200 + index).padStart(12, "0")}`,
-	);
 	return {
 		schema_id:
 			"https://schemas.usher.so/market-data-source-forensics-ledger/v1" as const,
@@ -70,13 +63,7 @@ function context(targetTimes = targets) {
 			acquisition_policy: EFFECTIVE_ACQUISITION_POLICY_PIN,
 		},
 		adapter_version: "cryptohftdata-orderbook/v2",
-		required_clock_targets: targetTimes.map((target_time_ms, index) => ({
-			target_id: targetIds[
-				index
-			] as `${string}-${string}-${string}-${string}-${string}`,
-			target_time_ms,
-		})),
-		expected_provider_object_identities: [object.identity],
+		required_clock_target_times_ms: targetTimes,
 	};
 }
 
@@ -90,129 +77,6 @@ function anchor(sequence: string, eventTimeMs = start) {
 }
 
 describe("market-data source forensics", () => {
-	test("partitions every submitted target and keeps qualification gates distinct", () => {
-		const sink = new BoundedSourceForensicsSink(context());
-		sink.observe({ type: "provider_object_boundary", object });
-		sink.observe({
-			type: "required_clock_sample",
-			target_time_ms: targets[0] as number,
-			source_time_ms: (targets[0] as number) - 5_000,
-			lag_ms: 5_000,
-			status: "covered",
-			object,
-		});
-		sink.observe({
-			type: "required_clock_sample",
-			target_time_ms: targets[1] as number,
-			source_time_ms: start,
-			lag_ms: (targets[1] as number) - start,
-			status: "stale",
-			object,
-		});
-		sink.classifyRecord(
-			{
-				kind: "stale_target_interval",
-				target_time_ms: targets[1] as number,
-				object_identity: object.identity,
-			},
-			"valid_inactive_market_state",
-		);
-
-		const ledger = sink.finish();
-		expect(ledger.summary).toMatchObject({
-			disposition_complete: true,
-			fresh_target_count: 1,
-			inactive_target_count: 1,
-			disqualifying_target_count: 0,
-			omitted_target_disposition_count: 0,
-		});
-		expect(
-			ledger.target_dispositions.map(({ disposition }) => disposition),
-		).toEqual(["fresh_within_bound", "valid_inactive_market_state"]);
-		expect(evaluateSourceQualificationGates(ledger, true)).toEqual({
-			qualified: false,
-			derivation_eligible: true,
-			candidate_c_source_enumeration_eligible: true,
-		});
-	});
-
-	test("a zero-affected unresolved gap does not fail submitted-clock qualification but blocks Candidate C enumeration", () => {
-		const sink = new BoundedSourceForensicsSink(
-			context([targets[0] as number]),
-		);
-		sink.observe({ type: "provider_object_boundary", object });
-		sink.observe({
-			type: "sequence_discontinuity",
-			sequence: {
-				expected_previous: "200",
-				observed_previous: "199",
-				observed_final: "201",
-				event_time_ms: start + 1_000,
-			},
-			object,
-		});
-		sink.observe({ type: "reanchor", anchor: anchor("300", start + 2_000) });
-		sink.observe({
-			type: "required_clock_sample",
-			target_time_ms: targets[0] as number,
-			source_time_ms: (targets[0] as number) - 1_000,
-			lag_ms: 1_000,
-			status: "covered",
-			object,
-		});
-		expect(evaluateSourceQualificationGates(sink.finish(), true)).toEqual({
-			qualified: true,
-			derivation_eligible: true,
-			candidate_c_source_enumeration_eligible: false,
-		});
-	});
-
-	test("source reconstruction acceptance is required for strict qualification", () => {
-		const sink = new BoundedSourceForensicsSink(
-			context([targets[0] as number]),
-		);
-		sink.observe({ type: "provider_object_boundary", object });
-		sink.observe({
-			type: "required_clock_sample",
-			target_time_ms: targets[0] as number,
-			source_time_ms: targets[0] as number,
-			lag_ms: 0,
-			status: "covered",
-			object,
-		});
-		expect(
-			evaluateSourceQualificationGates(sink.finish(), false).qualified,
-		).toBe(false);
-	});
-
-	test("keeps the worst-case 100,000-target all-fresh ledger within the whole-document byte limit", () => {
-		const targetTimes = Array.from(
-			{ length: 100_000 },
-			(_, index) => start + index,
-		);
-		const sink = new BoundedSourceForensicsSink(context(targetTimes));
-		sink.observe({ type: "provider_object_boundary", object });
-		for (const targetTime of targetTimes) {
-			sink.observe({
-				type: "required_clock_sample",
-				target_time_ms: targetTime,
-				source_time_ms: targetTime,
-				lag_ms: 0,
-				status: "covered",
-				object,
-			});
-		}
-		const ledger = sink.finish();
-		expect(ledger.summary).toMatchObject({
-			disposition_complete: true,
-			fresh_target_count: 100_000,
-			omitted_target_disposition_count: 0,
-		});
-		expect(
-			new TextEncoder().encode(jcsCanonicalize(ledger)).byteLength,
-		).toBeLessThanOrEqual(67_108_864);
-	}, 120_000);
-
 	test("records a gap, affected interval, later anchor, and closed classification", () => {
 		const plantedSecret = "planted-ledger-secret";
 		const sink = new BoundedSourceForensicsSink({
@@ -248,12 +112,8 @@ describe("market-data source forensics", () => {
 			type: "reanchor",
 			anchor: anchor("300", start + 20_000),
 		});
-		sink.classifyRecord(
-			{
-				kind: "sequence_discontinuity",
-				target_time_ms: targets[0] as number,
-				object_identity: `${object.identity}/${plantedSecret}`,
-			},
+		sink.classifyObject(
+			`${object.identity}/${plantedSecret}`,
 			"object_boundary_order_defect",
 		);
 
@@ -499,40 +359,6 @@ describe("market-data source forensics", () => {
 		expect(calls).toHaveLength(9);
 	});
 
-	test("deduplicates bounded provider-object inspection across overlapping records", async () => {
-		const calls: string[] = [];
-		const results = await classifySourceForensicsRecordsDeduplicated({
-			requests: [
-				{
-					record_key: "record-1",
-					object_identities: ["hour-09", "hour-10", "hour-11"],
-				},
-				{
-					record_key: "record-2",
-					object_identities: ["hour-10", "hour-11", "hour-12"],
-				},
-			],
-			maxAttempts: 3,
-			inspect: async (identity) => {
-				calls.push(identity);
-				return {
-					checksum: "a".repeat(64),
-					schemaValid: true,
-					sequenceValid: true,
-					missingRows: false,
-					completeSnapshotDefect: false,
-					alternateOrderingClosesGap: false,
-					staleWithValidPriorState: true,
-				};
-			},
-		});
-		expect(calls).toHaveLength(12);
-		expect(results.map(({ classification }) => classification)).toEqual([
-			"valid_inactive_market_state",
-			"valid_inactive_market_state",
-		]);
-	});
-
 	test("stable re-fetch evidence distinguishes corruption, row loss, boundary order, and inactivity", async () => {
 		for (const [overrides, expected] of [
 			[{ schemaValid: false }, "stable_object_corruption"],
@@ -577,38 +403,6 @@ describe("market-data source forensics", () => {
 			kind: "provider_object_checksum_conflict",
 			classification: "mutable_provider_bytes",
 			target_interval: { target_count: 2 },
-		});
-	});
-
-	test("contradictory overlapping evidence is disqualifying without precedence", () => {
-		const sink = new BoundedSourceForensicsSink(
-			context([targets[0] as number]),
-		);
-		sink.observe({ type: "provider_object_boundary", object });
-		sink.observe({
-			type: "required_clock_sample",
-			target_time_ms: targets[0] as number,
-			source_time_ms: (targets[0] as number) - 1_000,
-			lag_ms: 1_000,
-			status: "covered",
-			object,
-		});
-		sink.observe({
-			type: "provider_object_checksum_conflict",
-			object: {
-				...object,
-				checksums: ["a".repeat(64), "d".repeat(64)],
-				attempt_count: 2,
-				quarantined: true,
-			},
-			affected_target_times_ms: [targets[0] as number],
-		});
-		const ledger = sink.finish();
-		expect(ledger.target_dispositions[0]?.disposition).toBe("disqualifying");
-		expect(evaluateSourceQualificationGates(ledger, true)).toMatchObject({
-			qualified: false,
-			derivation_eligible: false,
-			candidate_c_source_enumeration_eligible: false,
 		});
 	});
 

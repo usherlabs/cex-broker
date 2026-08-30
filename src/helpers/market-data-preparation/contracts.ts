@@ -2,7 +2,6 @@ import Ajv2020, {
 	type ErrorObject,
 	type ValidateFunction,
 } from "ajv/dist/2020.js";
-import { CANDIDATE_C_INPUT_TAPE_CAPABILITY } from "../candidate-c-input-tape";
 import type {
 	ArchiveSelectionWire,
 	BackfillOutcomeWire,
@@ -117,10 +116,7 @@ export type CanonicalOrderBookExportRequestWire = {
 	target: PreparationTarget;
 	selection: ArchiveSelectionWire;
 	depth: number;
-	construction_mode:
-		| "sampled_top_n_snapshot"
-		| "exact_l2_reconstruction"
-		| "policy_neutral_top_n_state_change_tape/v1";
+	construction_mode: "sampled_top_n_snapshot" | "exact_l2_reconstruction";
 	canonical_schema_version: string;
 	checksum_algorithm: "sha256-canonical-json-v1";
 };
@@ -202,10 +198,6 @@ export type PreparationProductPinWire = {
 	};
 	schema_pins: Array<{ schema_id: string; schema_sha256: Sha256Hex }>;
 	capability_policy: { policy_id: string; policy_sha256: Sha256Hex };
-	candidate_c_input_tape_capability: {
-		policy_id: string;
-		policy_sha256: Sha256Hex;
-	};
 	resource_policy: { policy_id: string; policy_sha256: Sha256Hex };
 };
 
@@ -474,10 +466,6 @@ export const preparationProductPinCodec = codec<PreparationProductPinWire>(
 		if (
 			pin.capability_policy.policy_id !== CAPABILITY_POLICY.policy_id ||
 			pin.capability_policy.policy_sha256 !== CAPABILITY_POLICY.policy_sha256 ||
-			pin.candidate_c_input_tape_capability.policy_id !==
-				CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_id ||
-			pin.candidate_c_input_tape_capability.policy_sha256 !==
-				CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_sha256 ||
 			pin.resource_policy.policy_id !== RESOURCE_POLICY.policy_id ||
 			pin.resource_policy.policy_sha256 !== RESOURCE_POLICY.policy_sha256
 		) {

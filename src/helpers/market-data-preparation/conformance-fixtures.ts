@@ -1,4 +1,3 @@
-import { CANDIDATE_C_INPUT_TAPE_CAPABILITY } from "../candidate-c-input-tape";
 import { CONFORMANCE_FIXTURES as V1_CONFORMANCE_FIXTURES } from "../market-data-vendor-backfill/conformance-fixtures";
 import { jcsSha256 } from "../market-data-vendor-backfill/identity";
 import {
@@ -163,10 +162,6 @@ const productPin = preparationProductPinCodec.decode({
 	capability_policy: {
 		policy_id: CAPABILITY_POLICY.policy_id,
 		policy_sha256: CAPABILITY_POLICY.policy_sha256,
-	},
-	candidate_c_input_tape_capability: {
-		policy_id: CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_id,
-		policy_sha256: CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_sha256,
 	},
 	resource_policy: {
 		policy_id: RESOURCE_POLICY.policy_id,
