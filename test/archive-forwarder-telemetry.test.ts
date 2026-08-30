@@ -73,6 +73,10 @@ function archiveRequest(rows: unknown[]): Request {
 
 describe("archive forwarder telemetry", () => {
 	const originalEnv = { ...process.env };
+const marketIdentity = {
+	source: "broker_write" as const,
+	deploymentId: "deploy-a",
+};
 
 	afterEach(() => {
 		process.env = { ...originalEnv };
@@ -89,7 +93,7 @@ describe("archive forwarder telemetry", () => {
 					row: { order_id: "order-1" },
 				},
 			]),
-			{ inserter: async () => {}, telemetry },
+			{ inserter: async () => {}, marketIdentity, telemetry },
 		);
 
 		expect(response.status).toBe(200);
@@ -116,6 +120,7 @@ describe("archive forwarder telemetry", () => {
 		const { telemetry, gauges } = createCapturingTelemetry();
 		const response = await handleArchiveRequest(archiveRequest([]), {
 			inserter: async () => {},
+			marketIdentity,
 			telemetry,
 		});
 
@@ -207,6 +212,7 @@ describe("archive forwarder telemetry", () => {
 				inserter: async () => {
 					insertCalled = true;
 				},
+				marketIdentity,
 				telemetry,
 			},
 		);
@@ -240,7 +246,7 @@ describe("archive forwarder telemetry", () => {
 					row: {},
 				})),
 			),
-			{ inserter: async () => {}, telemetry },
+			{ inserter: async () => {}, marketIdentity, telemetry },
 		);
 
 		expect(response.status).toBe(400);
@@ -268,6 +274,7 @@ describe("archive forwarder telemetry", () => {
 				inserter: async () => {
 					throw new Error("unknown table market_data.cex_trades");
 				},
+				marketIdentity,
 				telemetry,
 			},
 		);
@@ -344,7 +351,7 @@ describe("archive forwarder telemetry", () => {
 					},
 				},
 			]),
-			{ inserter: async () => {}, telemetry },
+			{ inserter: async () => {}, marketIdentity, telemetry },
 		);
 		expect(response.status).toBe(400);
 		expect(counters).toContainEqual({
@@ -376,6 +383,7 @@ describe("archive forwarder telemetry", () => {
 				inserter: async (table) => {
 					insertedTables.push(table);
 				},
+				marketIdentity,
 				telemetry: new ArchiveForwarderTelemetry(throwingRecorder),
 			},
 		);
@@ -393,6 +401,7 @@ describe("archive forwarder telemetry", () => {
 			]),
 			{
 				inserter: async () => {},
+				marketIdentity,
 				telemetry: createArchiveForwarderTelemetry(),
 			},
 		);

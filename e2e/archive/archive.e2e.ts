@@ -96,7 +96,17 @@ describe("ClickHouse Local archive E2E runtime", () => {
 				JSON.stringify([row.source, row.deployment_id]),
 			);
 			for (const rows of rowsByEnvelope.values()) {
-				const response = await fetch(endpoint.url, {
+				const envelopeEndpoint = table.table.startsWith("market_data.")
+					? await startArchiveForwarderEndpoint({
+							inserter: harness.inserter,
+							marketIdentity: {
+								source: rows[0]?.source as "broker_read" | "broker_write",
+								deploymentId: String(rows[0]?.deployment_id),
+							},
+						})
+					: endpoint;
+				if (envelopeEndpoint !== endpoint) endpoints.push(envelopeEndpoint);
+				const response = await fetch(envelopeEndpoint.url, {
 					method: "POST",
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
@@ -110,8 +120,8 @@ describe("ClickHouse Local archive E2E runtime", () => {
 					isRuntimeStrategy ? 202 : 200,
 				);
 				if (isRuntimeStrategy) {
-					await endpoint.waitForStrategyDrain();
-					expect(endpoint.strategySpoolStats()).toMatchObject({
+					await envelopeEndpoint.waitForStrategyDrain();
+					expect(envelopeEndpoint.strategySpoolStats()).toMatchObject({
 						queuedBatches: 0,
 						queuedWork: 0,
 					});
@@ -133,6 +143,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 		const harness = await initializedHarness();
 		const endpoint = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
+			marketIdentity: { source: "broker_write", deploymentId: "develop-deployment" },
 		});
 		endpoints.push(endpoint);
 		const response = await fetch(endpoint.url, {
@@ -194,11 +205,12 @@ describe("ClickHouse Local archive E2E runtime", () => {
 			expect(response.status).toBe(200);
 		}
 
+		const stored = await harness.query(
+			"SELECT deployment_id FROM broker_execution.order_events",
+		);
 		expect(
-			await harness.query(
-				`SELECT count() AS count FROM broker_execution.order_events WHERE deployment_id = '${deploymentId}'`,
-			),
-		).toEqual([{ count: 2 }]);
+			stored.filter((row) => row.deployment_id === deploymentId),
+		).toHaveLength(2);
 	});
 
 	test("maker_replay inserts synchronously and leaves the runtime spool unchanged", async () => {
@@ -215,6 +227,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 		const harness = await initializedHarness();
 		const endpoint = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
+			marketIdentity: { source: "broker_write", deploymentId: "develop-deployment" },
 		});
 		endpoints.push(endpoint);
 		const before = endpoint.strategySpoolStats();
@@ -275,6 +288,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 		const spoolPath = join(harness.rootDirectory, "strategy-restart.sqlite");
 		const first = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
+			marketIdentity: { source: "broker_write", deploymentId: "develop-deployment" },
 			spoolPath,
 		});
 		const firstTable = strategyTables[0];
@@ -297,6 +311,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 
 		const restarted = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
+			marketIdentity: { source: "broker_write", deploymentId: "develop-deployment" },
 			spoolPath,
 		});
 		endpoints.push(restarted);

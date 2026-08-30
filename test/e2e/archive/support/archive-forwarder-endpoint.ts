@@ -14,6 +14,10 @@ export async function startArchiveForwarderEndpoint(options: {
 	inserter: RowInserter;
 	authToken?: string;
 	spoolPath?: string;
+	marketIdentity?: {
+		source: "broker_read" | "broker_write";
+		deploymentId: string;
+	};
 }): Promise<ArchiveForwarderEndpoint> {
 	const ownsSpoolDirectory = !options.spoolPath;
 	const spoolDirectory = ownsSpoolDirectory
@@ -72,6 +76,7 @@ export async function startArchiveForwarderEndpoint(options: {
 				});
 				const response = await handleArchiveRequest(request, {
 					authToken: options.authToken,
+					marketIdentity: options.marketIdentity,
 					inserter: options.inserter,
 					spool,
 					telemetry,

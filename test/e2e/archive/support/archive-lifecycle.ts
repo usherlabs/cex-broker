@@ -504,6 +504,7 @@ async function createComposedContext(
 		endpoint = await startArchiveForwarderEndpoint({
 			inserter,
 			authToken: AUTH_TOKEN,
+			marketIdentity: { source: "broker_read", deploymentId: DEPLOYMENT_ID },
 		});
 		const deadLetterPath = `${harness.rootDirectory}/archive-loss.jsonl`;
 		environment.set({
@@ -1151,6 +1152,7 @@ export async function runProductionServerArchiveCapture(options: {
 		endpoint = await startArchiveForwarderEndpoint({
 			inserter: options.inserter,
 			authToken: AUTH_TOKEN,
+			marketIdentity: { source: "broker_read", deploymentId: options.deploymentId },
 			spoolPath: join(runDirectory, "strategy-spool.sqlite"),
 		});
 		environment.set({
@@ -1405,10 +1407,19 @@ async function verifyStoredChecksums(
 			}
 			if (table === "market_data.cex_stream_events") {
 				const payload = JSON.parse(String(row.payload_json));
-				if (sha256Canonical(payload) !== row.raw_checksum) {
+				if (
+					row.feed !== "ORDERBOOK" &&
+					sha256Canonical(payload) !== row.raw_checksum
+				) {
 					throw new Error(
 						`Stored raw checksum mismatch for ${String(row.feed)}`,
 					);
+				}
+				if (
+					row.feed === "ORDERBOOK" &&
+					row.payload_encoding !== "orderbook_metadata_only_v1"
+				) {
+					throw new Error("Stored ORDERBOOK raw payload is not metadata-only");
 				}
 			}
 		}
@@ -1424,7 +1435,6 @@ function unexpectedDestinations(endpoint: ArchiveForwarderEndpoint): string[] {
 		"market_data.cex_ohlcv",
 		"market_data.cex_order_book_levels",
 		"market_data.cex_order_book_depth_summary",
-		"market_data.orderbook_snapshots",
 		"market_data.candles",
 	]);
 	return [
@@ -1666,6 +1676,7 @@ export async function runOrderBookConflictRegression(): Promise<{
 		endpoint = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
 			authToken: AUTH_TOKEN,
+			marketIdentity: { source: "broker_read", deploymentId: DEPLOYMENT_ID },
 		});
 		const post = async (
 			rows: Array<{ table: string; row: Record<string, unknown> }>,
@@ -1794,11 +1805,25 @@ export async function runOrderBookConflictRegression(): Promise<{
 			const sameRequestBundle = `conflict-same-request-${index}`;
 			const sameRequestRows = buildRows(sameRequestBundle);
 			const sameRequest = table.pick(sameRequestRows);
+			const sameRequestConflictContent = {
+				...sameRequest.row,
+				best_bid_amount:
+					table.name === "market_data.cex_order_book_depth_summary"
+						? Number(sameRequest.row.best_bid_amount) + 0.25
+						: sameRequest.row.best_bid_amount,
+				amount:
+					table.name === "market_data.cex_order_book_levels"
+						? Number(sameRequest.row.amount) + 0.25
+						: sameRequest.row.amount,
+				normalized_row_checksum: "",
+			};
 			const sameRequestConflict = {
 				...sameRequest,
 				row: {
-					...sameRequest.row,
-					normalized_row_checksum: "f".repeat(64),
+					...sameRequestConflictContent,
+					normalized_row_checksum: sha256Canonical(
+						sameRequestConflictContent,
+					),
 				},
 			};
 			const unrelated =
@@ -1824,11 +1849,25 @@ export async function runOrderBookConflictRegression(): Promise<{
 
 			const crossBatchBundle = `conflict-cross-batch-${index}`;
 			const crossBatch = table.pick(buildRows(crossBatchBundle));
+			const crossBatchConflictContent = {
+				...crossBatch.row,
+				best_bid_amount:
+					table.name === "market_data.cex_order_book_depth_summary"
+						? Number(crossBatch.row.best_bid_amount) + 0.25
+						: crossBatch.row.best_bid_amount,
+				amount:
+					table.name === "market_data.cex_order_book_levels"
+						? Number(crossBatch.row.amount) + 0.25
+						: crossBatch.row.amount,
+				normalized_row_checksum: "",
+			};
 			const crossBatchConflict = {
 				...crossBatch,
 				row: {
-					...crossBatch.row,
-					normalized_row_checksum: "e".repeat(64),
+					...crossBatchConflictContent,
+					normalized_row_checksum: sha256Canonical(
+						crossBatchConflictContent,
+					),
 				},
 			};
 			if (

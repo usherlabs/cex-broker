@@ -169,6 +169,7 @@ describe("strategy durable HTTP admission", () => {
 				],
 			}),
 			{
+				marketIdentity: { source: "broker_read", deploymentId: "broker-a" },
 				inserter: async () => {
 					insertCalled = true;
 				},
