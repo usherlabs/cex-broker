@@ -66,43 +66,6 @@ twelve schema identities. No successor version was reserved and no live
 credential, source qualification, merge freeze, tag, publication, registry
 audit, or Maker registry-consumer proof was performed.
 
-## Maker clean-extraction acceptance
-
-On 2026-08-27, Maker repeated the pre-freeze consumer gate against clean
-committed CEX Broker head
-`06276a3e79a1b030539cd5e11a9c9531ae45f910`. A fresh build and two
-independent `npm pack --ignore-scripts` runs produced byte-identical local
-candidate archives with SHA-256
-`0df734d7015ca193c33d1ccadcc14c9f028aa4c4656284b8a0f7cfe3252f05e0`;
-the CEX clean-extraction package audit passed against the same bytes.
-
-Maker consumed only the extracted
-`@usherlabs/cex-broker/market-data-preparation` subpath and its exported
-`createMarketDataSourceTapeDependencies` factory. It invoked both role-neutral
-operations for ARB-USDC and ARB-USDT from relocated attempt roots under Node
-22.22.2, retained its own cross-stage and cross-pair state, and validated the
-closed terminal-result union. The live-composition probe used inert endpoints
-and no provider credential; it committed the CEX-owned missing-credential
-result without a network request. No sibling checkout, repository-only helper,
-Maker-owned provider reconstruction, or Maker-owned archive-write path was
-admitted.
-
-The Maker evidence binds the CEX preparation runtime SHA-256
-`456a9a2b80e7b86018725f9074e9d586eac44eea61a0b77672db383833993cb5`,
-declaration SHA-256
-`a478a84c63d7c2150c9fd7fe6da3638ac07653f9a3ced8e8de94febbad213605`,
-and conformance evidence self-hash
-`352d8332b90fa894742dfa7d8210dbedc56532c8d19e54aedbc3c781d339b4e4`.
-Its focused regression set passed 183 tests and its complete configured
-strategies suite passed 1,191 tests with one skip. CEX task 8.1 is therefore
-complete.
-
-The package remains the unpublished diagnostic version `0.2.50`, and Maker's
-local product pin remains a conformance-only preview with
-`publication_claim = false`. This record does not claim an unused successor,
-frozen release head, credentialed selected-window run, tag, publication, or
-registry adoption. Task 8.2 is the next gate.
-
 ## Role-neutral post-amendment verification
 
 The superseding deterministic run was completed on `2026-08-26` from base
