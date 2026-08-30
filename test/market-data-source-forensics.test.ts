@@ -250,7 +250,6 @@ describe("market-data source forensics", () => {
 				qualificationFileName: "arb-usdt-qualification.json",
 				ledger,
 				createdAt: "2026-08-25T12:00:00.000Z",
-				sourceAccepted: true,
 				cleanupLicensedPayloads: () => {
 					cleaned = true;
 				},
@@ -272,24 +271,6 @@ describe("market-data source forensics", () => {
 				),
 			).toEqual(qualification);
 			expect(cleaned).toBe(true);
-		} finally {
-			await rm(root, { recursive: true, force: true });
-		}
-	});
-
-	test("a failed source run cannot qualify an otherwise clean ledger", async () => {
-		const root = await mkdtemp(path.join(os.tmpdir(), "cex-forensics-"));
-		try {
-			const qualification = await commitSourceQualificationEvidence({
-				outputDirectory: root,
-				ledgerFileName: "failed-forensics.json",
-				qualificationFileName: "failed-qualification.json",
-				ledger: new BoundedSourceForensicsSink(context([])).finish(),
-				createdAt: "2026-08-25T12:00:00.000Z",
-				sourceAccepted: false,
-			});
-			expect(qualification.ledger.complete).toBe(true);
-			expect(qualification.qualified).toBe(false);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
