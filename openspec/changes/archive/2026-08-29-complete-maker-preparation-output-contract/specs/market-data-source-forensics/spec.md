@@ -51,13 +51,10 @@ than from a prior clock-bound ledger.
 The qualification record MUST bind the operation kind, normalized invocation
 SHA-256, ledger schema identity, safe relative path, SHA-256, byte count,
 retained and total record counts, omitted record count, applicable disposition
-counts, and completeness verdict. For both operations it MUST be the
-pair-attempt terminal commit marker and use an operation-applicable closed
-success/failure outcome that binds a stable reason and sanitized
-partial-evidence descriptors. Only a successful `source_tape` result may bind
-an exporter-result-v2 descriptor. A successful
-`required_clock_qualification` result MUST instead return its exact exhaustive
-dispositions and ledger reference without implying promotion or export.
+counts, and completeness verdict. For `source_tape`, it MUST also be the
+pair-attempt terminal commit marker and use a closed success/failure outcome
+that binds a stable reason, sanitized partial-evidence descriptors, and an
+exporter-result-v2 descriptor only on success.
 
 Each disposition SHALL bind original target ID/time and sorted retained
 `record_sha256` references. `fresh_within_bound` MUST bind source time and age
@@ -223,42 +220,6 @@ outside CEX qualification authority.
 - **THEN** CEX qualification behavior and identities MUST be identical
 - **AND** no role selector or Maker descriptor may alter the CEX outcome
 
-### Requirement: The package exposes exhaustive required-clock qualification
-CEX SHALL export function `runMarketDataRequiredClockQualification` from
-`@usherlabs/cex-broker/market-data-preparation` with operation identity
-`market-data-required-clock-qualification/v1`. Its closed runtime-validated
-invocation SHALL accept the existing exact current request document, the
-authoritative required-clock document, a logical pair-local attempt identity,
-safe relative ledger and qualification-record artifact names, and injected CEX
-dependencies. It MUST execute CEX-owned reconstruction, observation,
-record/target-scoped classification, and evidence commit; Maker MUST NOT be
-required to assemble internal helpers or repository-local scripts.
-
-The normalized invocation hash MUST bind the canonical request and clock bytes,
-operation identity, logical attempt identity, and safe relative artifact names.
-The absolute host attempt root, credentials, network endpoints, and injected
-dependency objects MUST remain operational inputs outside the canonical hash.
-The host root MUST nevertheless pass the same non-symlink confinement and
-no-follow boundary before an attempt is handled.
-
-After the attempt directory and minimum operation envelope needed to identify
-the operation, pair, and terminal artifact are safely established, every
-handled success or failure MUST atomically commit and return exactly one
-`required_clock_qualification` qualification record plus its referenced
-ledger. Unsafe directories and invocations too malformed to establish that
-minimum envelope remain precondition failures and MUST NOT leave stale success
-evidence.
-
-#### Scenario: Maker invokes required-clock qualification from a clean extraction
-- **WHEN** Maker calls the pinned function with a current request and authoritative required clock without a CEX checkout
-- **THEN** CEX MUST produce the exact three-way target partition and contextual record-causality validation through the same reconstruction path
-- **AND** the returned terminal record and ledger bytes MUST equal the durably committed artifacts
-
-#### Scenario: Host placement differs without changing evidence
-- **WHEN** byte-identical canonical inputs run beneath two different safe absolute attempt roots with identical injected dependency results
-- **THEN** their normalized invocation hashes and domain evidence MUST be identical
-- **AND** neither absolute root may appear in the canonical invocation or durable evidence
-
 ### Requirement: The package exposes a source-complete policy-neutral OKX tape operation
 CEX SHALL expose a server-independent package-library operation that produces a
 complete policy-neutral OKX top-100 state/freshness-change stream for one pair
@@ -270,18 +231,15 @@ time/sequence used for freshness. It MUST scan the complete provider window
 independently of any submitted required-clock targets and MUST NOT filter
 changes using Maker policy.
 
-The exported function `runMarketDataSourceTape` SHALL use the versioned
-operation identity `market-data-source-tape/v1` and a closed runtime-validated
-input whose normalized canonical form binds a logical pair-local attempt
-identity, safe relative artifact names, pair and canonical scope, half-open
-window, depth 100, resource, adapter, acquisition, and role-neutral source-tape
-capability pins, exact
+The exported operation SHALL use the versioned identity
+`market-data-source-tape/v1` and a closed runtime-validated input whose
+normalized canonical form binds the caller-owned attempt directory, pair and
+canonical scope, half-open window, depth 100, resource, adapter, acquisition,
+and role-neutral source-tape capability pins, exact
 `sandbox/cex-archive-local` target, and request authorization ID. Its canonical
 SHA-256 MUST be bound by the ledger and qualification record. Credentials and
-network endpoints, injected dependency objects, and the absolute host attempt
-root MUST remain operational inputs excluded from the canonical input. The
-host root MUST still pass non-symlink confinement and no-follow checks. The
-operation MUST accept no required clock, Candidate role,
+network endpoints MUST remain injected dependencies excluded from the
+canonical input. The operation MUST accept no required clock, Candidate role,
 Maker policy/configuration, DEX input, invocation mapping, blocked outcome, or
 derivation descriptor.
 
@@ -299,13 +257,8 @@ documents SHALL bind
 the construction identity, canonical schema, capability, adapter and
 acquisition policies, complete expected/observed object inventory, sandbox
 selection/receipt/export identities, artifact hashes, exact state count, and
-window. The qualification record SHALL additionally bind one initializer
-descriptor containing its canonical snapshot identity, source time, sequence,
-and semantic-stream position. The streaming semantic digest MUST domain-tag
-that descriptor as `initialization` and every subsequent state as `change`, so
-the consumer can locate the initializer independently of row order or whether
-its source time precedes the window. This adds no package schema: schema
-manifest v3 remains exactly twelve entries.
+window. This adds no package schema: schema manifest v3 remains exactly twelve
+entries.
 
 Tape acquisition SHALL yield at most four complete states from the
 reconstructor before downstream backpressure is observed, submit at most 1,000
@@ -345,8 +298,8 @@ evidence rather than relying on a thrown exception or an unversioned manifest.
 - **THEN** streaming expected-versus-observed semantic digests MUST bind every canonical state and boundary
 - **AND** seam and coverage verdicts MUST be calculated from actual tape rows and source inventory rather than counts, empty boundary digests, or asserted booleans
 
-#### Scenario: Tape production fails after a handled attempt is established
-- **WHEN** the safe attempt directory and minimum operation envelope are established and provider acquisition, reconstruction, forwarder admission, promotion, selection, or export throws or returns an invalid outcome for one pair
+#### Scenario: Tape production fails after a valid attempt directory exists
+- **WHEN** provider acquisition, reconstruction, forwarder admission, promotion, selection, or export throws or returns an invalid outcome for one pair
 - **THEN** that pair MUST commit the `source_tape` qualification-record-v1 failure branch naming the stable reason and retained partial-evidence hashes
 - **AND** it MUST commit no tape Parquet or success manifest, while pair-prefixed paths prevent collision with independent attempts
 

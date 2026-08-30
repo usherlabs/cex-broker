@@ -2,6 +2,7 @@ import Ajv2020, {
 	type ErrorObject,
 	type ValidateFunction,
 } from "ajv/dist/2020.js";
+import { CANDIDATE_C_INPUT_TAPE_CAPABILITY } from "../candidate-c-input-tape";
 import type {
 	ArchiveSelectionWire,
 	BackfillOutcomeWire,
@@ -35,7 +36,6 @@ import requestSchema from "../market-data-vendor-backfill/schemas/request.schema
 import requiredClockSchema from "../market-data-vendor-backfill/schemas/required-clock.schema.json" with {
 	type: "json",
 };
-import { SOURCE_TAPE_CAPABILITY } from "../source-tape";
 import backfillResultV2Schema from "./schemas/backfill-result-v2.schema.json" with {
 	type: "json",
 };
@@ -202,26 +202,11 @@ export type PreparationProductPinWire = {
 	};
 	schema_pins: Array<{ schema_id: string; schema_sha256: Sha256Hex }>;
 	capability_policy: { policy_id: string; policy_sha256: Sha256Hex };
-	source_tape_capability: {
+	candidate_c_input_tape_capability: {
 		policy_id: string;
 		policy_sha256: Sha256Hex;
 	};
 	resource_policy: { policy_id: string; policy_sha256: Sha256Hex };
-	preparation_library: {
-		exported_subpath: "@usherlabs/cex-broker/market-data-preparation";
-		runtime_entry_sha256: Sha256Hex;
-		declaration_sha256: Sha256Hex;
-		operations: [
-			{
-				symbol: "runMarketDataSourceTape";
-				operation_id: "market-data-source-tape/v1";
-			},
-			{
-				symbol: "runMarketDataRequiredClockQualification";
-				operation_id: "market-data-required-clock-qualification/v1";
-			},
-		];
-	};
 };
 
 type Codec<T> = {
@@ -489,32 +474,14 @@ export const preparationProductPinCodec = codec<PreparationProductPinWire>(
 		if (
 			pin.capability_policy.policy_id !== CAPABILITY_POLICY.policy_id ||
 			pin.capability_policy.policy_sha256 !== CAPABILITY_POLICY.policy_sha256 ||
-			pin.source_tape_capability.policy_id !==
-				SOURCE_TAPE_CAPABILITY.policy_id ||
-			pin.source_tape_capability.policy_sha256 !==
-				SOURCE_TAPE_CAPABILITY.policy_sha256 ||
+			pin.candidate_c_input_tape_capability.policy_id !==
+				CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_id ||
+			pin.candidate_c_input_tape_capability.policy_sha256 !==
+				CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_sha256 ||
 			pin.resource_policy.policy_id !== RESOURCE_POLICY.policy_id ||
 			pin.resource_policy.policy_sha256 !== RESOURCE_POLICY.policy_sha256
 		) {
 			throw new Error("product pin policy identities are inconsistent");
-		}
-		const expectedOperations = [
-			{
-				symbol: "runMarketDataSourceTape",
-				operation_id: "market-data-source-tape/v1",
-			},
-			{
-				symbol: "runMarketDataRequiredClockQualification",
-				operation_id: "market-data-required-clock-qualification/v1",
-			},
-		];
-		if (
-			pin.preparation_library.exported_subpath !==
-				"@usherlabs/cex-broker/market-data-preparation" ||
-			JSON.stringify(pin.preparation_library.operations) !==
-				JSON.stringify(expectedOperations)
-		) {
-			throw new Error("product pin preparation-library ABI is inconsistent");
 		}
 	},
 );

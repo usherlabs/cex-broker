@@ -7,6 +7,10 @@ import { readArchiveClusterIdentity } from "../services/archive-forwarder/health
 import { createClickHouseInserter } from "../services/archive-forwarder/insert";
 import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
 import {
+	assertCandidateCInputTapeSandboxAuthorization,
+	CANDIDATE_C_INPUT_TAPE_SANDBOX_TARGET,
+} from "../src/helpers/candidate-c-input-tape";
+import {
 	createClickHouseExactOrderBookExportClient,
 	exportExactCanonicalOrderBook,
 } from "../src/helpers/canonical-orderbook-export/exporter";
@@ -20,10 +24,6 @@ import type {
 } from "../src/helpers/market-data-vendor-backfill/contracts";
 import { createArchiveForwarderClient } from "../src/helpers/market-data-vendor-backfill/forwarder-client";
 import { jcsSha256 } from "../src/helpers/market-data-vendor-backfill/identity";
-import {
-	assertSourceTapeSandboxAuthorization,
-	SOURCE_TAPE_SANDBOX_TARGET,
-} from "../src/helpers/source-tape";
 import { startArchiveForwarderEndpoint } from "../test/e2e/archive/support/archive-forwarder-endpoint";
 import {
 	MARKET_DATA_QUALIFICATION_CLICKHOUSE_IMAGE,
@@ -96,8 +96,9 @@ export async function createMarketDataQualificationSandboxRuntime(input: {
 	target: { environment: string; cluster: string };
 }): Promise<MarketDataQualificationSandboxRuntime> {
 	if (
-		input.target.environment !== SOURCE_TAPE_SANDBOX_TARGET.environment ||
-		input.target.cluster !== SOURCE_TAPE_SANDBOX_TARGET.cluster
+		input.target.environment !==
+			CANDIDATE_C_INPUT_TAPE_SANDBOX_TARGET.environment ||
+		input.target.cluster !== CANDIDATE_C_INPUT_TAPE_SANDBOX_TARGET.cluster
 	) {
 		throw new Error("qualification_sandbox_target_mismatch");
 	}
@@ -105,7 +106,7 @@ export async function createMarketDataQualificationSandboxRuntime(input: {
 	const clickhousePassword = randomUUID();
 	const forwarderToken = randomUUID();
 	const outputDirectory = await mkdtemp(
-		join(tmpdir(), "cex-source-tape-sandbox-export-"),
+		join(tmpdir(), "cex-candidate-c-sandbox-export-"),
 	);
 	let containerStarted = false;
 	let client: ClickHouseClient | undefined;
@@ -210,7 +211,7 @@ export async function createMarketDataQualificationSandboxRuntime(input: {
 			authorizationId: input.authorizationId,
 			target: input.target,
 		});
-		assertSourceTapeSandboxAuthorization({
+		assertCandidateCInputTapeSandboxAuthorization({
 			requestAuthorizationId: input.authorizationId,
 			requestTarget: input.target,
 			preflight: preflight.authorization,

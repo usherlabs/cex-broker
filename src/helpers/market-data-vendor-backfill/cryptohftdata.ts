@@ -38,9 +38,9 @@ export const CRYPTOHFTDATA_API_URL = "https://api.cryptohftdata.com" as const;
 export const DIAGNOSTIC_LAG_THRESHOLDS_MS = [
 	1_000, 2_000, 5_000, 10_000, 30_000, 60_000,
 ] as const;
-export const SOURCE_TAPE_MAX_STATES_PER_YIELD = 4 as const;
-export const SOURCE_TAPE_MAX_BATCH_BYTES = 5_242_880 as const;
-export const SOURCE_TAPE_MAX_IN_FLIGHT = 1 as const;
+export const CANDIDATE_C_TAPE_MAX_STATES_PER_YIELD = 4 as const;
+export const CANDIDATE_C_TAPE_MAX_BATCH_BYTES = 5_242_880 as const;
+export const CANDIDATE_C_TAPE_MAX_IN_FLIGHT = 1 as const;
 export const BACKFILL_CLOCK_DIAGNOSTIC_KEYS = [
 	"target_time_ms",
 	"source_time_ms",
@@ -265,12 +265,12 @@ async function writePolicyNeutralTapeStates(
 	};
 	for (const state of states) {
 		const bytes = tapeStateBytes(state);
-		if (bytes > SOURCE_TAPE_MAX_BATCH_BYTES) {
-			throw new CryptoHftDataError("source_tape_state_too_large");
+		if (bytes > CANDIDATE_C_TAPE_MAX_BATCH_BYTES) {
+			throw new CryptoHftDataError("candidate_c_tape_state_too_large");
 		}
 		if (
-			batch.length >= SOURCE_TAPE_MAX_STATES_PER_YIELD ||
-			batchBytes + bytes > SOURCE_TAPE_MAX_BATCH_BYTES
+			batch.length >= CANDIDATE_C_TAPE_MAX_STATES_PER_YIELD ||
+			batchBytes + bytes > CANDIDATE_C_TAPE_MAX_BATCH_BYTES
 		) {
 			await flush();
 		}
@@ -591,34 +591,6 @@ class StreamingBookReconstructor {
 	}
 
 	push(inputRows: readonly CryptoHftDataOrderBookRow[]): void {
-		for (const group of this.inputGroups(inputRows)) {
-			if (!this.processGroup(group)) return;
-		}
-	}
-
-	async pushPolicyNeutralTape(
-		inputRows: readonly CryptoHftDataOrderBookRow[],
-		sink: PolicyNeutralTapeSink,
-		onStatesWritten: (count: number) => void,
-	): Promise<void> {
-		for (const group of this.inputGroups(inputRows)) {
-			if (!this.processGroup(group)) break;
-			if (this.policyNeutralTape.length >= SOURCE_TAPE_MAX_STATES_PER_YIELD) {
-				const states = this.drainPolicyNeutralTape();
-				const written = await writePolicyNeutralTapeStates(sink, states);
-				onStatesWritten(written);
-			}
-		}
-		const states = this.drainPolicyNeutralTape();
-		if (states.length > 0) {
-			const written = await writePolicyNeutralTapeStates(sink, states);
-			onStatesWritten(written);
-		}
-	}
-
-	private inputGroups(
-		inputRows: readonly CryptoHftDataOrderBookRow[],
-	): Array<ReturnType<typeof validatedRow>[]> {
 		const observedObjects = new Map<string, SourceObjectEvidence>();
 		for (const row of inputRows) {
 			const existing = observedObjects.get(row.dataset_object_identity);
@@ -669,45 +641,42 @@ class StreamingBookReconstructor {
 				current.push(row);
 			}
 		}
-		return groups;
-	}
-
-	private processGroup(group: ReturnType<typeof validatedRow>[]): boolean {
-		const first = group[0] as ReturnType<typeof validatedRow>;
-		this.sampleBefore(first.eventTimeMs);
-		if (
-			this.options.collectPolicyNeutralTape &&
-			first.eventTimeMs >= this.request.window.endTimeMs
-		) {
-			return false;
+		for (const group of groups) {
+			const first = group[0] as ReturnType<typeof validatedRow>;
+			this.sampleBefore(first.eventTimeMs);
+			if (
+				this.options.collectPolicyNeutralTape &&
+				first.eventTimeMs >= this.request.window.endTimeMs
+			) {
+				return;
+			}
+			if (
+				this.options.collectPolicyNeutralTape &&
+				!this.tapeInitializationEmitted &&
+				first.eventTimeMs >= this.request.window.startTimeMs &&
+				this.state
+			) {
+				this.capturePolicyNeutralState("initialization");
+			}
+			if (
+				this.targetIndex >= this.targets.length &&
+				!this.options.collectPolicyNeutralTape
+			) {
+				return;
+			}
+			if (first.event_type === "snapshot") this.applySnapshot(group);
+			else if (this.state) this.applyUpdate(group);
+			if (
+				this.options.collectPolicyNeutralTape &&
+				this.state &&
+				first.eventTimeMs >= this.request.window.startTimeMs &&
+				first.eventTimeMs < this.request.window.endTimeMs
+			) {
+				this.capturePolicyNeutralState(
+					this.tapeInitializationEmitted ? "change" : "initialization",
+				);
+			}
 		}
-		if (
-			this.options.collectPolicyNeutralTape &&
-			!this.tapeInitializationEmitted &&
-			first.eventTimeMs >= this.request.window.startTimeMs &&
-			this.state
-		) {
-			this.capturePolicyNeutralState("initialization");
-		}
-		if (
-			this.targetIndex >= this.targets.length &&
-			!this.options.collectPolicyNeutralTape
-		) {
-			return false;
-		}
-		if (first.event_type === "snapshot") this.applySnapshot(group);
-		else if (this.state) this.applyUpdate(group);
-		if (
-			this.options.collectPolicyNeutralTape &&
-			this.state &&
-			first.eventTimeMs >= this.request.window.startTimeMs &&
-			first.eventTimeMs < this.request.window.endTimeMs
-		) {
-			this.capturePolicyNeutralState(
-				this.tapeInitializationEmitted ? "change" : "initialization",
-			);
-		}
-		return true;
 	}
 
 	drainPolicyNeutralTape(): PolicyNeutralCryptoHftBookState[] {
@@ -790,18 +759,6 @@ class StreamingBookReconstructor {
 			throw new CryptoHftDataError("update_before_snapshot");
 		}
 		return this.policyNeutralTape;
-	}
-
-	async finishPolicyNeutralTapeToSink(
-		sink: PolicyNeutralTapeSink,
-		onStatesWritten: (count: number) => void,
-	): Promise<void> {
-		this.finishPolicyNeutralTape();
-		const states = this.drainPolicyNeutralTape();
-		if (states.length > 0) {
-			const written = await writePolicyNeutralTapeStates(sink, states);
-			onStatesWritten(written);
-		}
 	}
 
 	private missingClockDiagnostics(): Record<string, string | number | boolean> {
@@ -1113,7 +1070,7 @@ export function reconstructCryptoHftDataOrderBooks(
 }
 
 /**
- * Qualification-only full-window policy-neutral source projection.
+ * Qualification-only full-window projection for Candidate C materialization.
  * It uses the production OKX grouping, validation, sequence and mutation path,
  * but continues after the submitted clock is exhausted and emits no Maker
  * policy decisions.
@@ -1128,7 +1085,7 @@ export function reconstructCryptoHftDataPolicyNeutralTape(
 		profile.sequenceSemantics !== "okx_seq_id_prev_seq_id" ||
 		request.depth !== 100
 	) {
-		throw new CryptoHftDataError("source_tape_scope_unsupported");
+		throw new CryptoHftDataError("candidate_c_input_tape_scope_unsupported");
 	}
 	const reconstructor = new StreamingBookReconstructor(
 		request,
@@ -1367,7 +1324,7 @@ export class CryptoHftDataAdapter {
 				const reason =
 					error instanceof CryptoHftDataError
 						? error.reason
-						: "source_tape_acquisition_failed";
+						: "candidate_c_tape_acquisition_failed";
 				await this.policyNeutralTapeSink
 					.abort({ reason, retainedStateCount })
 					.catch(() => {});
@@ -1395,7 +1352,7 @@ export class CryptoHftDataAdapter {
 			(profile?.sequenceSemantics !== "okx_seq_id_prev_seq_id" ||
 				request.depth !== 100)
 		) {
-			throw new CryptoHftDataError("source_tape_scope_unsupported");
+			throw new CryptoHftDataError("candidate_c_input_tape_scope_unsupported");
 		}
 		const paths = this.policyNeutralTapeSink
 			? enumerateCryptoHftDataWindowObjects(
@@ -1593,19 +1550,15 @@ export class CryptoHftDataAdapter {
 				semanticHash.update(canonicalSerialize(parsed));
 				firstSemanticRow = false;
 			}
+			if (reconstructor) reconstructor.push(accepted.parsedRows);
+			else rows.push(...accepted.parsedRows);
 			if (reconstructor && this.policyNeutralTapeSink) {
-				await reconstructor.pushPolicyNeutralTape(
-					accepted.parsedRows,
+				const written = await writePolicyNeutralTapeStates(
 					this.policyNeutralTapeSink,
-					(written) => {
-						emittedTapeStateCount += written;
-						onTapeStatesWritten(written);
-					},
+					reconstructor.drainPolicyNeutralTape(),
 				);
-			} else if (reconstructor) {
-				reconstructor.push(accepted.parsedRows);
-			} else {
-				rows.push(...accepted.parsedRows);
+				emittedTapeStateCount += written;
+				onTapeStatesWritten(written);
 			}
 		}
 		if (this.nowMs() - started > request.budgets.maxDurationMs) {
@@ -1613,19 +1566,16 @@ export class CryptoHftDataAdapter {
 		}
 		semanticHash.update("]");
 		const reconstructedBooks = reconstructor?.finish();
-		let policyNeutralTape: PolicyNeutralCryptoHftBookState[] | undefined;
-		if (this.policyNeutralTapeSink && reconstructor) {
-			await reconstructor.finishPolicyNeutralTapeToSink(
-				this.policyNeutralTapeSink,
-				(written) => {
-					emittedTapeStateCount += written;
-					onTapeStatesWritten(written);
-				},
-			);
-		} else if (this.collectPolicyNeutralTape) {
-			policyNeutralTape = reconstructor?.finishPolicyNeutralTape();
-		}
+		const policyNeutralTape = this.collectPolicyNeutralTape
+			? reconstructor?.finishPolicyNeutralTape()
+			: undefined;
 		if (this.policyNeutralTapeSink) {
+			const written = await writePolicyNeutralTapeStates(
+				this.policyNeutralTapeSink,
+				reconstructor?.drainPolicyNeutralTape() ?? [],
+			);
+			emittedTapeStateCount += written;
+			onTapeStatesWritten(written);
 			await this.policyNeutralTapeSink.complete({
 				expectedObjectIdentities: paths,
 				observedObjects: objects,

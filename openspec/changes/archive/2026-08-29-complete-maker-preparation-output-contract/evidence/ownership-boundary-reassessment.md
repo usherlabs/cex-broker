@@ -14,13 +14,6 @@ The specification now reopens pre-freeze work for accepted conformance defects
 and corrects an ownership drift in repository-only qualification tooling.
 Version reservation MUST remain blocked until the reopened work is complete.
 
-> **Superseding status, 2026-08-26:** the CEX-owned reopened work in sections 9
-> and 10 is now complete and deterministically verified in the current
-> uncommitted working tree. Version reservation remains blocked by task 8.1
-> until Maker proves clean-extraction invocation and its ownership of the
-> cross-stage/cross-pair state machine; this document still records why the
-> ownership boundary changed.
-
 ## Preserved CEX Data-Plane Scope
 
 The following completed architecture remains CEX-owned and is not discarded:

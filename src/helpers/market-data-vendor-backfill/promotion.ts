@@ -1,8 +1,8 @@
-import { sha256Canonical } from "../market-data-archive/capture-contract";
 import {
-	SOURCE_TAPE_CAPABILITY,
-	SOURCE_TAPE_CONSTRUCTION_MODE,
-} from "../source-tape";
+	CANDIDATE_C_INPUT_TAPE_CAPABILITY,
+	CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE,
+} from "../candidate-c-input-tape";
+import { sha256Canonical } from "../market-data-archive/capture-contract";
 import {
 	type BackfillArchiveRow,
 	type PromotionReceipt,
@@ -38,8 +38,8 @@ export function promotionReceiptMatchesCurrentPolicies(
 	receipt: PromotionReceiptWire,
 ): boolean {
 	const expectedCapability =
-		receipt.construction_mode === SOURCE_TAPE_CONSTRUCTION_MODE
-			? SOURCE_TAPE_CAPABILITY
+		receipt.construction_mode === CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE
+			? CANDIDATE_C_INPUT_TAPE_CAPABILITY
 			: CAPABILITY_POLICY;
 	return (
 		samePolicyPin(

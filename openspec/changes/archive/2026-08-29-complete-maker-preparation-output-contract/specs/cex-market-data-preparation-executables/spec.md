@@ -36,29 +36,24 @@ empty directory without a sibling checkout, external `node_modules`, Python,
 DuckDB, Bun, `PATH` product discovery, the gRPC server, `ExecuteAction`, or an
 always-on broker process.
 
-The same npm package SHALL expose exactly two role-neutral preparation
-operations through `@usherlabs/cex-broker/market-data-preparation`. Exported
-function `runMarketDataSourceTape` SHALL implement operation identity
-`market-data-source-tape/v1`; exported function
-`runMarketDataRequiredClockQualification` SHALL implement operation identity
-`market-data-required-clock-qualification/v1`. Neither is a third bin. Their
-generated declarations and runtime validators MUST accept only their closed
-CEX-owned invocations, atomically commit the applicable
-qualification-record-v1 branch as the terminal pair result, and return that
-record plus all referenced ledger and applicable exporter-result-v2 evidence.
-The source-tape operation MUST reject a required clock; the qualification
-operation MUST require the existing pinned request and authoritative
-required-clock documents. Neither operation may interpret Maker clock roles.
+The same npm package SHALL expose the role-neutral source-tape preparation
+operation through its server-independent library subpath. That operation is not
+a third bin. Its exported `market-data-source-tape/v1` API and generated
+declaration MUST accept the closed CEX-owned pair/window invocation, commit the
+operation-specific qualification-record-v1 branch as its terminal pair result,
+and return that record plus any referenced exporter-result-v2 evidence without
+importing Maker code, accepting a required clock, or interpreting Maker clock
+roles.
 
 #### Scenario: Extracted product is invoked
 - **WHEN** either command is launched by its exact relative path from an extracted package
 - **THEN** it MUST execute using only packaged runtime assets and explicitly allowed environment inputs without importing or starting the gRPC server
 - **AND** the existing `cex-broker` bin MUST remain backward compatible
 
-#### Scenario: Maker imports the preparation operations
+#### Scenario: Maker imports the source-tape operation
 - **WHEN** Maker imports the product-pinned library subpath from a clean package extraction
-- **THEN** the runtime entry, declaration, exact exported symbols, and operation identities MUST match the product pin; source-tape MUST reject required-clock fields and both validators MUST reject Candidate-role, DEX, scheduler, mapping, and blocked-outcome fields
-- **AND** after the attempt directory and minimal operation envelope are safely established, every handled attempt MUST return the same qualification-record and referenced evidence that were durably committed there
+- **THEN** the runtime entry and declaration hashes MUST match the product pin and the closed invocation validator MUST reject required-clock, Candidate-role, DEX, scheduler, mapping, and blocked-outcome fields
+- **AND** every attempt after a safe attempt directory exists MUST return the same qualification-record evidence that was atomically committed there
 
 ### Requirement: File jobs fail closed at the caller-owned attempt boundary
 Request, required-clock, result, and exporter artifacts SHALL remain beneath one
@@ -151,14 +146,10 @@ tarball URL, SRI, SHA-256, package version, `package.npm_git_head`, both
 executable relative paths, product versions and SHA-256 values, preparation
 schema manifest v3 identity, exactly twelve current schema identities, the
 capability-v3/resource-v2 policy identities, the role-neutral source-tape
-capability policy identity, and exactly one preparation-library identity. That
-library identity MUST bind exported subpath
-`@usherlabs/cex-broker/market-data-preparation`, runtime entry SHA-256,
-generated declaration SHA-256, and exactly the two exported symbol/operation
-pairs `runMarketDataSourceTape`/`market-data-source-tape/v1` and
-`runMarketDataRequiredClockQualification`/
-`market-data-required-clock-qualification/v1`, without counting either as a
-third executable. The
+capability policy identity, and exactly one source-tape library-operation
+identity. That library identity MUST bind product ID/version
+`market-data-source-tape/v1`, exported subpath, runtime entry SHA-256, and
+generated declaration SHA-256 without counting as a third executable. The
 twelve schema entries MUST be
 backfill request v1, backfill result v2, required clock v1, archive selection
 v1, promotion receipt v1, export request v1, export result v2, product pin v2,
@@ -175,7 +166,7 @@ versions SHALL remain `market-data-vendor-backfill/v1` and
 #### Scenario: Release evidence is handed to Maker
 - **WHEN** the registry tarball has been published and independently re-audited
 - **THEN** every identity in the product pin MUST be derived from that registry artifact
-- **AND** both extracted bins and both preparation-library operations MUST have passed standalone/import, hash, closed-input, terminal-evidence, and secret-reflection gates
+- **AND** both extracted bins and the source-tape library operation MUST have passed standalone/import, hash, closed-input, and secret-reflection gates
 
 #### Scenario: A local candidate is presented as release evidence
 - **WHEN** an artifact has only a source commit, local tarball, prospective version, image tag, or locally computed executable digest
@@ -184,8 +175,8 @@ versions SHALL remain `market-data-vendor-backfill/v1` and
 
 #### Scenario: A successor is extracted cleanly
 - **WHEN** the published successor is unpacked into an empty directory
-- **THEN** every pinned schema, policy, manifest, executable, preparation-library entry, fixture, declaration, and runtime dependency MUST be present and hash-valid
-- **AND** both executables and both preparation-library operations MUST run under Node 22 or newer without external repository state
+- **THEN** every pinned schema, policy, manifest, executable, source-tape library entry, fixture, declaration, and runtime dependency MUST be present and hash-valid
+- **AND** both executables and the source-tape library import MUST run under Node 22 or newer without external repository state
 
 ### Requirement: Identity-bound evidence uses the exact published commit
 CEX SHALL query npm and reserve an unused successor version before live

@@ -11,22 +11,16 @@
 
 ## Current gate
 
-The reopened CEX-owned deterministic implementation and disposable sandbox
-tasks in sections 9 and 10 are complete in the current uncommitted working
-tree. The package now exposes the two role-neutral operations, validates clock
-membership and record causality contextually, yields reconstructed source-tape
-states before provider-object accumulation, verifies actual archive semantics,
-and commits pair-local terminal evidence. This is not yet a frozen release
-commit: Maker's clean-extraction orchestration proof, version reservation,
-live qualification, release, registry audit, and Maker consumer proof remain
-pending. No successful live source qualification, production promotion,
-publication, or Maker acceptance is claimed here.
+The CEX-owned deterministic implementation and disposable sandbox tooling are
+partially implemented but are not pre-freeze ready. The reopened role-neutral
+library, contextual evidence, bounded reconstruction, semantic archive, and
+pair-local terminal-result tasks remain pending, as do live qualification,
+release, registry audit, and Maker consumer proof. No successful live source
+qualification, production promotion, publication, or Maker acceptance is
+claimed here.
 
-The former 24-complete-UTC-day half-open window
-`[2026-07-26T00:00:00Z, 2026-08-19T00:00:00Z)` remains dated historical
-evidence only. Live acceptance requires Maker to select the largest recent
-common interval from 30 down to no fewer than 20 complete UTC days; it may use
-the former interval only if that process independently freezes it again.
+The fixed 24-complete-UTC-day half-open window remains
+`[2026-07-26T00:00:00Z, 2026-08-19T00:00:00Z)`.
 
 | Candidate A bootstrap pair | Targets | Clock ID | Required-clock SHA-256 |
 | --- | ---: | --- | --- |
@@ -36,8 +30,8 @@ the former interval only if that process independently freezes it again.
 Maker documentation classifies these as Candidate A bootstrap clocks rather
 than its final `nominal_policy_opportunity_clock`. That classification and any
 ordering between Maker clocks remain Maker-owned. The CEX source-tape operation
-does not accept these clocks; if Maker later submits either through
-`runMarketDataRequiredClockQualification`, CEX treats it role-neutrally.
+does not accept these clocks; if Maker later submits either through the generic
+required-clock interface, CEX treats it role-neutrally.
 
 ## Exact Maker inputs
 
@@ -73,18 +67,19 @@ Maker timeline as `reference_depth_stale`; it does not authorize a shifted
 window, stale CEX depth, or vendor escalation. Any disqualifying or
 contradictory evidence remains failed.
 
-## Current CEX deterministic checkpoint
+## Historical CEX tooling checkpoint
 
-The working tree now contains separate package and sandbox boundaries for:
+The repository now contains separate, repository-only boundaries for:
 
-1. bounded role-neutral source-forensics and qualification evidence;
+1. bounded Candidate A/C source-forensics and qualification evidence;
 2. full-window CryptoHFTData provider-object enumeration;
 3. a source-complete policy-neutral top-100 OKX state/freshness-change stream;
 4. bounded archive-forwarder submission with one in-flight batch;
 5. the normal sandbox-local promotion, current receipt, qualification,
    replay-qualified exact selection, and exporter-v2 path;
-6. pair-local terminal source-tape evidence with no CEX-owned two-pair
-   aggregate harness; and
+6. pair-prefixed paths plus a repository-only two-pair harness whose thrown
+   failure path was not durable and whose aggregate ownership is superseded by
+   Maker-owned orchestration; and
 7. release-freeze validation across package version, merge commit, tag, and
    registry `gitHead`.
 
@@ -97,6 +92,11 @@ not a production-environment claim and is not weakened.
 
 ## Gates that remain
 
+- Complete reopened OpenSpec sections 9 and 10, including the closed
+  `market-data-source-tape/v1` package API, operation-specific ledger/
+  qualification-record union, role-neutral capability/product pins, true
+  reconstructor yielding, semantic archive proof, and pair-local terminal
+  commits.
 - Have Maker prove deterministic import and invocation of the product-pinned
   source-tape library and its ownership of cross-stage/cross-pair orchestration
   without live credentials.
@@ -127,29 +127,18 @@ licensed conformance probe correctly fails closed unless explicitly enabled.
 
 ## Deterministic verification
 
-- repository suite: 982 tests, 0 failures, 3,045 expectations across 103 files
-  using `bun test --max-concurrency 1 test`;
-- focused role-neutral operation, forensics, reconstruction, archive, and
-  package-contract suite: 69 tests, 0 failures, 189 expectations;
+- repository suite: 979 tests, 0 failures, 3,045 expectations across 106 files;
 - TypeScript: passed;
 - build and Node package import/construction: passed;
 - changed-file Biome and `git diff --check`: passed;
 - strict OpenSpec validation: passed;
-- package extraction audit: passed for local candidate `0.2.50` with exactly
-  two preparation bins, twelve schemas, the role-neutral capability, exact
-  two-operation runtime/declaration ABI, cross-language fixture verification,
-  and credential-free terminal invocation of both operations from the unpacked
-  tarball. The current diagnostic tarball SHA-256 is
-  `5b8fef3ca0329843f756c89e15137ec441d941dd5110d6187224455563c4fda9`;
+- historical package extraction audit: passed for local candidate `0.2.50` with
+  two bins and twelve schemas, but it did not verify the final role-neutral
+  source-tape library entry, declaration, capability, or terminal-record union;
+  task 9.10 must rerun it. The diagnostic tarball SHA-256 was
+  `25390a8b5fe355bc4f53068d5e11828e57b87907a6d3d03efa994797a6b0de40`;
 - pinned disposable ClickHouse bootstrap, archive schema/identity,
   authorization preflight, and cleanup: passed.
-
-Repository-wide Biome still reports unrelated pre-existing unused-variable
-diagnostics in broker handler files outside this change. Every changed or new
-TypeScript/JSON file passes Biome. The licensed-provider smoke entry point was
-not enabled; a credential-free disposable ClickHouse/forwarder smoke instead
-verified the immutable image digest, reported server version, sandbox archive
-identity, authorization preflight, and cleanup.
 
 The package version and local tarball hash are diagnostic only. They are not a
 reserved successor version, registry product pin, or release evidence.

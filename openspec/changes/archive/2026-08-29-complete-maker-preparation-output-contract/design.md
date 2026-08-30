@@ -47,10 +47,9 @@ Maker before any successor version is reserved.
 - Produce a source-complete, policy-neutral OKX top-100 state-change tape so
   a caller can enumerate policy-relevant clocks without inferring changes from
   sparse required-clock samples.
-- Export the source-tape runner and exhaustive required-clock qualifier as two
-  CEX-owned operations from one package-library subpath that a Maker-owned
-  local shim or sidecar can invoke without checking out this repository or
-  importing broker/server code.
+- Export the source-tape runner as a CEX-owned package-library operation that a
+  Maker-owned local shim or sidecar can invoke without checking out this
+  repository or importing broker/server code.
 - Keep CEX qualification role-neutral: it proves an exact caller-supplied clock
   against authoritative source evidence but does not interpret why the caller
   constructed that clock.
@@ -173,9 +172,8 @@ stable subcodes plus bounded summary diagnostics. A CEX qualification run writes
 `market-data-source-qualification-record/v1`, which binds the ledger schema,
 relative path, SHA-256, bytes, record count, and completeness. Both schemas are
 published package assets and product-pin entries. The qualification harness
-uses the observer through exported function
-`runMarketDataRequiredClockQualification`; there is no third executable and no
-Maker request field. The qualification evidence manifest, not the normal Maker
+uses the observer as a library; there is no third executable and no Maker
+request field. The qualification evidence manifest, not the normal Maker
 request, owns the instance reference.
 
 This separation lets Maker continue consuming the established result shape
@@ -232,13 +230,9 @@ exactly twelve current schema entries: the six unchanged request/result/clock/
 selection/receipt/export-request schemas, exporter result v2, product pin v2,
 two projection schemas, forensic ledger v1, and qualification record v1. The
 pin also binds capability v3, resource v2, the role-neutral source-tape
-capability policy, both executable hashes, and one preparation-library identity
-containing its exported subpath, runtime entry hash, declaration hash, and an
-exact two-operation manifest. The manifest binds exported function
-`runMarketDataSourceTape` to `market-data-source-tape/v1` and exported function
-`runMarketDataRequiredClockQualification` to
-`market-data-required-clock-qualification/v1`. Neither operation is a third
-executable identity.
+capability policy, both executable hashes, and one versioned source-tape
+library-operation identity containing its exported subpath, runtime entry hash,
+and declaration hash. The library identity is not a third executable identity.
 Counts and exact hashes are generated from canonical artifacts rather than
 copied into source prose.
 
@@ -328,25 +322,6 @@ Maker decides whether a complete three-way source partition can be used to
 derive an admitted clock, expands target dispositions across policy
 invocations, and owns every `reference_depth_stale` outcome.
 
-Required-clock qualification is a closed package operation rather than a
-repository-local script contract. The existing
-`@usherlabs/cex-broker/market-data-preparation` subpath exports
-`runMarketDataRequiredClockQualification` with operation identity
-`market-data-required-clock-qualification/v1`. It accepts the exact current
-request and authoritative required-clock documents and returns the committed
-qualification record plus its exhaustive ledger; callers do not assemble the
-observer, adapter, classifier, or evidence writer themselves.
-
-The canonical invocation binds those documents, the operation identity, a
-logical pair-local attempt identity, and safe relative artifact names. The
-validated absolute attempt root, credentials, endpoints, and injected
-dependencies remain operational inputs outside the hash so relocating an
-otherwise identical attempt does not change evidence. Once the safe directory
-and minimum operation envelope can identify the operation, pair, and terminal
-artifact, every handled outcome commits exactly one terminal qualification
-record. Inputs too malformed to establish that envelope remain precondition
-failures and cannot leave stale success evidence.
-
 ### 12. CEX exposes a generic source-complete sandbox-qualified tape
 
 A clock-sampled backfill cannot enumerate policy opportunities that occur
@@ -382,14 +357,6 @@ then only changes whose source time is in `[start, end)`; it emits nothing at
 the exclusive end boundary. Any failure aborts finalization, removes or leaves
 uncommitted partial Parquet, and commits no success manifest.
 
-The internal `initialization`/`change` tag is not added to either physical
-Parquet schema. Instead, qualification-record v1 binds the initializer's
-canonical snapshot ID, source time, sequence, and semantic-stream position.
-The streaming semantic digest domain-tags that state as `initialization` and
-all later states as `change`. This makes the support state independently
-locatable in the exported rows without a thirteenth schema or reliance on it
-being the first row returned by a storage query.
-
 The physical levels and depth-summary Parquet projections remain those already
 in schema manifest v3, so the package remains at exactly twelve schemas. The
 tape does not reuse `sampled_top_n_snapshot` semantics. The qualification
@@ -399,18 +366,15 @@ adapter/acquisition versions, sandbox selection/receipt/export identities, and
 artifact hashes. Those identity changes regenerate policy and product-pin
 hashes before the release commit is frozen.
 
-Exported function `runMarketDataSourceTape` shares the server-independent
-package-library subpath and binds operation identity
-`market-data-source-tape/v1`. Its closed invocation canonically binds a logical
-pair-local attempt identity, safe relative artifact names, pair and canonical
-scope, half-open window, depth 100, resource, adapter, acquisition, and
-role-neutral source-tape capability pins, exact sandbox target, and request
-authorization ID. The absolute host attempt root, credentials, endpoints, and
-injected dependencies are never canonicalized into the invocation. The host
-root is still subject to the full confinement and no-follow boundary. The
-normalized invocation hash is bound by the ledger and qualification record.
-This API accepts no required clock, Candidate role, Maker policy input, DEX
-input, or derivation descriptor.
+The operation is exported from the server-independent package-library subpath.
+Its closed `market-data-source-tape/v1` invocation binds the operation version,
+caller-owned attempt directory, pair and canonical scope, half-open window,
+depth 100, resource, adapter, acquisition, and role-neutral source-tape
+capability pins, exact sandbox target, and request authorization ID. Credentials
+and endpoints remain injected dependencies and are never canonicalized into the
+invocation. The normalized invocation hash is bound by the ledger and
+qualification record. This API accepts no required clock, Candidate role,
+Maker policy input, DEX input, or derivation descriptor.
 
 The unpublished forensic-ledger v1 and qualification-record v1 schemas become
 closed operation unions. `required_clock_qualification` retains the exact
@@ -423,15 +387,14 @@ no required clock or target dispositions, and makes
 authorize source enumeration and removes the circular dependency on a Maker
 bootstrap or admitted clock.
 
-For both package operations, qualification-record v1 is the sole pair-attempt
-commit marker after the handled-attempt boundary. Each terminal branch binds
-success or closed failure, a stable reason, and sanitized retained
-partial-evidence descriptors. Only source-tape success binds an
-exporter-result-v2 descriptor. Each record is committed only after its
-referenced ledger and applicable exporter result are durable, and the operation
-returns those exact referenced bytes. No thrown exception after the safe
-directory and minimum envelope are established may be the only outcome. These
-operations are not standalone executables and add no thirteenth package schema.
+For the source-tape operation, qualification-record v1 is the sole pair-attempt
+commit marker. Its terminal union binds success or closed failure, a stable
+reason, sanitized retained partial-evidence descriptors, and, on success, the
+exporter-result-v2 descriptor. The record is committed only after its referenced
+ledger and any exporter result are durable. It is returned with the referenced
+exporter evidence; no thrown exception after a safe attempt directory exists
+may be the only outcome. This is not a third standalone executable and does not
+add a thirteenth package schema.
 
 Alternative considered: derive a policy clock from sparse required-clock
 snapshots. Rejected because omitted change timestamps are unrecoverable and
@@ -456,17 +419,16 @@ its own input schemas and exact request/clock/evidence identities.
 
 ### 14. CEX durability is pair-local; Maker owns the aggregate verdict
 
-Every CEX pair attempt whose safe directory and minimum operation envelope can
-identify the operation, pair, and terminal artifact commits exactly one durable
-success or failure result. Invalid output directories and invocations too
-malformed to establish that envelope remain precondition failures because no
-safe attributable result can be committed. After the handled-attempt boundary
-is established, thrown or invalid pair outcomes are converted to a closed
-stable failure result; absence of a success document is never the only failure
-signal. A failed attempt commits no successful Parquet descriptor or success
-manifest for that pair. Both package operations use their operation-specific
-qualification-record-v1 branches as terminal commit markers; ordinary
-preparation file jobs retain their existing result commit markers.
+Every CEX pair attempt with a valid caller-owned attempt directory commits
+exactly one durable success or failure result. Invalid output directories remain
+a precondition failure because no safe result location exists. After a valid
+attempt directory is established, thrown or invalid pair outcomes are converted
+to a closed stable failure result; absence of a success document is never the
+only failure signal. A failed attempt commits no successful Parquet descriptor
+or success manifest for that pair. The source-tape operation uses its
+operation-specific qualification-record-v1 branch as this terminal commit
+marker; ordinary preparation file jobs retain their existing result commit
+markers.
 
 The CEX library and file jobs do not run ARB-USDC and ARB-USDT as one thesis
 transaction. Pair-prefixed file names remain required so independent attempts
@@ -555,24 +517,21 @@ qualification.
    and secret-reflection checks and retain GREEN evidence for the reproduced
    external unit command.
 7. Correct the pre-freeze streaming, required-clock membership/causality,
-   pair-local durability, host-neutral input-binding, initializer identity, and
-   tape/archive semantic verification defects. Export the closed,
-   clock-independent role-neutral source-tape operation and exhaustive
-   required-clock qualification operation from one package subpath; extend
-   ledger/qualification-record v1 with their branches; pin the exact two-symbol
-   operation manifest plus capability/runtime/declaration identities; and remove
-   Candidate, Maker-descriptor, capacity, and pair-aggregation semantics from
-   CEX.
-8. Have Maker prove deterministic clean-extraction invocation of both package
-   operations and ownership of the cross-stage/pair state machine without using
-   live credentials.
+   pair-local durability, input-binding, and tape/archive semantic verification
+   defects. Export the closed, clock-independent role-neutral source-tape
+   package-library operation; extend ledger/qualification-record v1 with its
+   operation branch; pin its capability and runtime/declaration identities; and
+   remove Candidate, Maker-descriptor, capacity, and pair-aggregation semantics
+   from CEX.
+8. Have Maker prove deterministic invocation of the package-library operation
+   and ownership of the cross-stage/pair state machine without using live
+   credentials.
 9. Query npm for an unused successor, commit the version with all implementation
    and generated identities, merge PR #155, and freeze the exact clean merge
    commit.
-10. From a clean checkout, let Maker select one common interval of 20 to 30
-    complete UTC days, invoke pair-local CEX source-tape preparation, derive its
-    policy clocks, and submit each exact required clock through the published
-    qualifier for CEX disposition, promotion, selection, and export.
+10. From a clean checkout, let Maker invoke pair-local CEX source-tape
+    preparation, derive its policy clocks, and submit each exact required clock
+    for CEX disposition, promotion, selection, and export.
 11. Tag and publish that exact commit, independently download and audit the
    registry bytes, and derive the final product pin from the registry artifact.
 12. Have Maker adopt the registry product pin, repeat final consumer and

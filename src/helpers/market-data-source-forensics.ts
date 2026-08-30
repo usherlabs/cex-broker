@@ -19,10 +19,8 @@ import sourceQualificationRecordSchema from "./market-data-preparation/schemas/s
 import type {
 	CanonicalScopeWire,
 	LowercaseUuid,
-	RequiredClockWire,
 	Sha256Hex,
 } from "./market-data-vendor-backfill/contracts";
-import { requiredClockCodec } from "./market-data-vendor-backfill/contracts";
 import {
 	assertDocumentSha256,
 	documentSha256,
@@ -46,10 +44,6 @@ export const SOURCE_FORENSICS_CLASSIFICATIONS = [
 	"object_boundary_order_defect",
 	"valid_inactive_market_state",
 	"unresolved",
-] as const;
-export const SOURCE_FORENSICS_OPERATION_KINDS = [
-	"required_clock_qualification",
-	"source_tape",
 ] as const;
 
 export type SourceForensicsRecordKind =
@@ -116,27 +110,17 @@ export type SourceTargetDispositionWire = {
 	record_sha256s: Sha256Hex[];
 };
 
-export type SourceInventoryInterval = {
-	start_time_ms: number;
-	end_time_ms_exclusive: number;
-};
-
-type SourceForensicsSummary = {
-	retained_record_count: number;
-	total_record_count: number;
-	omitted_record_count: number;
-	affected_target_count: number;
-	unresolved_record_count: number;
-};
-
-type SourceForensicsLedgerBase = {
+export type SourceForensicsLedgerWire = {
 	schema_id: typeof SOURCE_FORENSICS_LEDGER_SCHEMA_ID;
 	ledger_sha256: Sha256Hex;
-	operation_kind: (typeof SOURCE_FORENSICS_OPERATION_KINDS)[number];
-	normalized_invocation_sha256: Sha256Hex;
 	request_id: LowercaseUuid;
+	idempotency_key: Sha256Hex;
 	scope: CanonicalScopeWire;
-	window: SourceInventoryInterval;
+	required_clock: {
+		clock_id: LowercaseUuid;
+		clock_sha256: Sha256Hex;
+		event_count: number;
+	};
 	effective_policies: {
 		capability_policy: PolicyPin;
 		resource_policy: PolicyPin;
@@ -146,13 +130,23 @@ type SourceForensicsLedgerBase = {
 	provider_object_inventory: {
 		expected_identities: string[];
 		observed_identities: string[];
-		expected_selected_intervals: SourceInventoryInterval[];
-		observed_selected_intervals: SourceInventoryInterval[];
 		complete: boolean;
 	};
 	provider_objects: SourceObjectEvidence[];
 	records: SourceForensicsRecordWire[];
-	summary: SourceForensicsSummary;
+	target_dispositions: SourceTargetDispositionWire[];
+	summary: {
+		retained_record_count: number;
+		total_record_count: number;
+		omitted_record_count: number;
+		affected_target_count: number;
+		unresolved_record_count: number;
+		disposition_complete: boolean;
+		fresh_target_count: number;
+		inactive_target_count: number;
+		disqualifying_target_count: number;
+		omitted_target_disposition_count: number;
+	};
 	limits: {
 		max_records: typeof SOURCE_FORENSICS_MAX_RECORDS;
 		max_canonical_json_bytes: typeof SOURCE_FORENSICS_MAX_CANONICAL_JSON_BYTES;
@@ -161,173 +155,32 @@ type SourceForensicsLedgerBase = {
 	incomplete_reason: "forensics_evidence_bound_exceeded" | null;
 };
 
-export type RequiredClockSourceForensicsLedgerWire =
-	SourceForensicsLedgerBase & {
-		operation_kind: "required_clock_qualification";
-		required_clock: {
-			clock_id: LowercaseUuid;
-			clock_sha256: Sha256Hex;
-			event_count: number;
-		};
-		target_dispositions: SourceTargetDispositionWire[];
-		summary: SourceForensicsSummary & {
-			disposition_complete: boolean;
-			fresh_target_count: number;
-			inactive_target_count: number;
-			disqualifying_target_count: number;
-			omitted_target_disposition_count: number;
-		};
-	};
-
-export type SourceTapeForensicsLedgerWire = SourceForensicsLedgerBase & {
-	operation_kind: "source_tape";
-	source_tape: {
-		product_id: "market-data-source-tape";
-		product_version: "market-data-source-tape/v1";
-		state_count: number;
-	};
-};
-
-export type SourceForensicsLedgerWire =
-	| RequiredClockSourceForensicsLedgerWire
-	| SourceTapeForensicsLedgerWire;
-
-type SourceQualificationLedgerDescriptor = {
-	schema_id: typeof SOURCE_FORENSICS_LEDGER_SCHEMA_ID;
-	file_name: string;
-	sha256: Sha256Hex;
-	bytes: number;
-	retained_record_count: number;
-	total_record_count: number;
-	omitted_record_count: number;
-	complete: boolean;
-};
-
-type SourceQualificationRecordBase = {
+export type SourceQualificationRecordWire = {
 	schema_id: typeof SOURCE_QUALIFICATION_RECORD_SCHEMA_ID;
 	record_sha256: Sha256Hex;
 	created_at: string;
-	operation_kind: (typeof SOURCE_FORENSICS_OPERATION_KINDS)[number];
-	normalized_invocation_sha256: Sha256Hex;
 	request_id: LowercaseUuid;
 	scope: CanonicalScopeWire;
-	ledger: SourceQualificationLedgerDescriptor;
-	source_reconstruction_accepted: boolean;
-	source_event_enumeration_eligible: boolean;
-};
-
-export type RequiredClockSourceQualificationRecordWire =
-	SourceQualificationRecordBase & {
-		operation_kind: "required_clock_qualification";
-		ledger: SourceQualificationLedgerDescriptor & {
-			disposition_complete: boolean;
-			fresh_target_count: number;
-			inactive_target_count: number;
-			disqualifying_target_count: number;
-			omitted_target_disposition_count: number;
-		};
-		qualified: boolean;
-		source_partition_complete: boolean;
-		outcome:
-			| {
-					status: "success";
-					reason: "required_clock_qualification_completed";
-					partial_evidence: SourceEvidenceDescriptor[];
-					exporter_result: null;
-			  }
-			| {
-					status: "failure";
-					reason: (typeof REQUIRED_CLOCK_QUALIFICATION_FAILURE_REASONS)[number];
-					partial_evidence: SourceEvidenceDescriptor[];
-					exporter_result: null;
-			  };
+	ledger: {
+		schema_id: typeof SOURCE_FORENSICS_LEDGER_SCHEMA_ID;
+		file_name: string;
+		sha256: Sha256Hex;
+		bytes: number;
+		retained_record_count: number;
+		total_record_count: number;
+		omitted_record_count: number;
+		complete: boolean;
+		disposition_complete: boolean;
+		fresh_target_count: number;
+		inactive_target_count: number;
+		disqualifying_target_count: number;
+		omitted_target_disposition_count: number;
 	};
-
-export const REQUIRED_CLOCK_QUALIFICATION_FAILURE_REASONS = [
-	"required_clock_input_invalid",
-	"required_clock_capability_unsupported",
-	"required_clock_credentials_missing",
-	"required_clock_acquisition_failed",
-	"required_clock_reconstruction_failed",
-	"required_clock_classification_failed",
-	"required_clock_evidence_incomplete",
-	"required_clock_internal_failure",
-] as const;
-
-export const SOURCE_TAPE_FAILURE_REASONS = [
-	"source_tape_input_invalid",
-	"source_tape_capability_unsupported",
-	"source_tape_credentials_missing",
-	"source_tape_acquisition_failed",
-	"source_tape_reconstruction_failed",
-	"source_tape_inventory_incomplete",
-	"source_tape_archive_failed",
-	"source_tape_promotion_failed",
-	"source_tape_selection_failed",
-	"source_tape_export_failed",
-	"source_tape_internal_failure",
-] as const;
-
-type SourceTapeQualificationSuccessOutcome = {
-	status: "success";
-	reason: "source_tape_prepared";
-	partial_evidence: SourceEvidenceDescriptor[];
-	exporter_result: SourceTapeExporterResultDescriptor;
+	source_reconstruction_accepted: boolean;
+	qualified: boolean;
+	derivation_eligible: boolean;
+	candidate_c_source_enumeration_eligible: boolean;
 };
-
-type SourceTapeQualificationFailureOutcome = {
-	status: "failure";
-	reason: (typeof SOURCE_TAPE_FAILURE_REASONS)[number];
-	partial_evidence: SourceEvidenceDescriptor[];
-	exporter_result: null;
-};
-
-export type SourceTapeQualificationRecordWire =
-	SourceQualificationRecordBase & {
-		operation_kind: "source_tape";
-		ledger: SourceQualificationLedgerDescriptor & { state_count: number };
-		source_tape_eligible: boolean;
-	} & (
-			| {
-					initializer: SourceTapeInitializerDescriptor;
-					outcome: SourceTapeQualificationSuccessOutcome;
-			  }
-			| {
-					initializer: SourceTapeInitializerDescriptor | null;
-					outcome: SourceTapeQualificationFailureOutcome;
-			  }
-		);
-
-export type SourceTapeInitializerDescriptor = {
-	canonical_snapshot_id: Sha256Hex;
-	source_time_ms: number;
-	sequence: string;
-	semantic_stream_position: 0;
-};
-
-export type SourceEvidenceDescriptor = {
-	kind:
-		| "ledger"
-		| "provider_inventory"
-		| "selection"
-		| "promotion_receipt"
-		| "export_result";
-	file_name: string;
-	sha256: Sha256Hex;
-	bytes: number;
-};
-
-export type SourceTapeExporterResultDescriptor = {
-	schema_id: "https://schemas.usher.so/cex-canonical-orderbook-export-result/v2";
-	file_name: string;
-	sha256: Sha256Hex;
-	bytes: number;
-	result_sha256: Sha256Hex;
-};
-
-export type SourceQualificationRecordWire =
-	| RequiredClockSourceQualificationRecordWire
-	| SourceTapeQualificationRecordWire;
 
 function describeAjvErrors(errors: ErrorObject[] | null | undefined): string {
 	return (errors ?? [])
@@ -357,78 +210,8 @@ function assertSecretFree(value: unknown): void {
 	}
 }
 
-function assertAuthoritativeRequiredClock(
-	ledger: RequiredClockSourceForensicsLedgerWire,
-	clockInput: RequiredClockWire,
-): void {
-	const clock = requiredClockCodec.decode(clockInput);
-	if (
-		ledger.required_clock.clock_id !== clock.clock_id ||
-		ledger.required_clock.clock_sha256 !== clock.clock_sha256 ||
-		ledger.required_clock.event_count !== clock.targets.length
-	) {
-		throw new Error(
-			"source-forensics ledger does not match the authoritative required clock",
-		);
-	}
-	if (
-		ledger.summary.disposition_complete &&
-		ledger.target_dispositions.length !== clock.targets.length
-	) {
-		throw new Error(
-			"source-forensics ledger omits an authoritative required clock target",
-		);
-	}
-	const recordBySha = new Map(
-		ledger.records.map((record) => [record.record_sha256, record]),
-	);
-	for (const [index, disposition] of ledger.target_dispositions.entries()) {
-		const target = clock.targets[index];
-		if (
-			!target ||
-			disposition.target_id !== target.target_id ||
-			disposition.target_time_ms !== Date.parse(target.target_at)
-		) {
-			throw new Error(
-				"source-forensics disposition differs from the authoritative required clock",
-			);
-		}
-		for (const recordSha256 of disposition.record_sha256s) {
-			const interval = recordBySha.get(recordSha256)?.target_interval;
-			if (
-				!interval ||
-				disposition.target_time_ms < interval.start_target_time_ms ||
-				disposition.target_time_ms >= interval.end_target_time_ms_exclusive
-			) {
-				throw new Error(
-					"source-forensics disposition record interval does not contain its authoritative target",
-				);
-			}
-		}
-	}
-	for (const record of ledger.records) {
-		const interval = record.target_interval;
-		if (!interval) continue;
-		const containedTargets = clock.targets.filter(({ target_at }) => {
-			const targetTimeMs = Date.parse(target_at);
-			return (
-				targetTimeMs >= interval.start_target_time_ms &&
-				targetTimeMs < interval.end_target_time_ms_exclusive
-			);
-		});
-		if (containedTargets.length !== interval.target_count) {
-			throw new Error(
-				"source-forensics record interval target count is inconsistent with the authoritative required clock",
-			);
-		}
-	}
-}
-
-const sourceForensicsLedgerCodecInternal = {
-	decode(
-		value: unknown,
-		context?: { requiredClock: RequiredClockWire },
-	): SourceForensicsLedgerWire {
+export const sourceForensicsLedgerCodec = {
+	decode(value: unknown): SourceForensicsLedgerWire {
 		if (!validateLedger(value)) {
 			throw new Error(
 				`source-forensics ledger validation failed: ${describeAjvErrors(validateLedger.errors)}`,
@@ -438,6 +221,19 @@ const sourceForensicsLedgerCodecInternal = {
 		assertDocumentSha256(ledger, "ledger_sha256");
 		for (const record of ledger.records) {
 			assertDocumentSha256(record, "record_sha256");
+		}
+		const orderedDispositions = [...ledger.target_dispositions].sort(
+			(left, right) =>
+				left.target_time_ms - right.target_time_ms ||
+				left.target_id.localeCompare(right.target_id),
+		);
+		if (
+			JSON.stringify(orderedDispositions) !==
+			JSON.stringify(ledger.target_dispositions)
+		) {
+			throw new Error(
+				"source-forensics target dispositions are not deterministic",
+			);
 		}
 		const ordered = [...ledger.records].sort((left, right) =>
 			jcsCanonicalize(left).localeCompare(jcsCanonicalize(right)),
@@ -451,105 +247,68 @@ const sourceForensicsLedgerCodecInternal = {
 				ledger.summary.retained_record_count +
 					ledger.summary.omitted_record_count ||
 			ledger.complete === (ledger.incomplete_reason !== null) ||
-			ledger.window.end_time_ms_exclusive <= ledger.window.start_time_ms
+			ledger.required_clock.event_count !==
+				ledger.target_dispositions.length +
+					ledger.summary.omitted_target_disposition_count ||
+			ledger.summary.fresh_target_count +
+				ledger.summary.inactive_target_count +
+				ledger.summary.disqualifying_target_count !==
+				ledger.target_dispositions.length ||
+			ledger.summary.disposition_complete !==
+				(ledger.summary.omitted_target_disposition_count === 0)
 		) {
 			throw new Error("source-forensics summary is inconsistent");
 		}
-		if (context && ledger.operation_kind === "required_clock_qualification") {
-			assertAuthoritativeRequiredClock(ledger, context.requiredClock);
-		}
-		if (ledger.operation_kind === "required_clock_qualification") {
-			const orderedDispositions = [...ledger.target_dispositions].sort(
-				(left, right) =>
-					left.target_time_ms - right.target_time_ms ||
-					left.target_id.localeCompare(right.target_id),
-			);
+		const recordBySha = new Map(
+			ledger.records.map((record) => [record.record_sha256, record]),
+		);
+		const targetIds = new Set<string>();
+		for (const disposition of ledger.target_dispositions) {
+			if (targetIds.has(disposition.target_id)) {
+				throw new Error("source-forensics target disposition is duplicated");
+			}
+			targetIds.add(disposition.target_id);
 			if (
-				JSON.stringify(orderedDispositions) !==
-				JSON.stringify(ledger.target_dispositions)
+				JSON.stringify([...disposition.record_sha256s].sort()) !==
+					JSON.stringify(disposition.record_sha256s) ||
+				disposition.record_sha256s.some((sha) => !recordBySha.has(sha))
 			) {
 				throw new Error(
-					"source-forensics target dispositions are not deterministic",
+					"source-forensics disposition record binding is invalid",
 				);
 			}
-			if (
-				ledger.required_clock.event_count !==
-					ledger.target_dispositions.length +
-						ledger.summary.omitted_target_disposition_count ||
-				ledger.summary.fresh_target_count +
-					ledger.summary.inactive_target_count +
-					ledger.summary.disqualifying_target_count !==
-					ledger.target_dispositions.length ||
-				ledger.summary.disposition_complete !==
-					(ledger.summary.omitted_target_disposition_count === 0)
-			) {
-				throw new Error("source-forensics disposition summary is inconsistent");
-			}
-			const recordBySha = new Map(
-				ledger.records.map((record) => [record.record_sha256, record]),
-			);
-			const targetIds = new Set<string>();
-			for (const disposition of ledger.target_dispositions) {
-				if (targetIds.has(disposition.target_id)) {
-					throw new Error("source-forensics target disposition is duplicated");
-				}
-				targetIds.add(disposition.target_id);
+			if (disposition.disposition === "fresh_within_bound") {
 				if (
-					JSON.stringify([...disposition.record_sha256s].sort()) !==
-						JSON.stringify(disposition.record_sha256s) ||
-					disposition.record_sha256s.some((sha) => !recordBySha.has(sha))
+					disposition.source_time_ms === null ||
+					disposition.asof_age_ms === null ||
+					disposition.asof_age_ms > 5_000 ||
+					disposition.source_time_ms + disposition.asof_age_ms !==
+						disposition.target_time_ms ||
+					disposition.record_sha256s.length !== 0
 				) {
-					throw new Error(
-						"source-forensics disposition record binding is invalid",
-					);
+					throw new Error("fresh source disposition is invalid");
 				}
-				const overlappingRecords = ledger.records.filter((record) => {
-					const interval = record.target_interval;
-					return (
-						interval !== null &&
-						disposition.target_time_ms >= interval.start_target_time_ms &&
-						disposition.target_time_ms < interval.end_target_time_ms_exclusive
-					);
-				});
-				if (disposition.disposition === "fresh_within_bound") {
-					if (
-						disposition.source_time_ms === null ||
-						disposition.asof_age_ms === null ||
-						disposition.asof_age_ms < 0 ||
-						disposition.asof_age_ms > 5_000 ||
-						disposition.source_time_ms + disposition.asof_age_ms !==
-							disposition.target_time_ms ||
-						disposition.record_sha256s.length !== 0 ||
-						overlappingRecords.length !== 0
-					) {
-						throw new Error("fresh source disposition is invalid");
-					}
-				} else if (disposition.disposition === "valid_inactive_market_state") {
-					const evidence = disposition.record_sha256s.map(
-						(sha) => recordBySha.get(sha) as SourceForensicsRecordWire,
-					);
-					if (
-						disposition.source_time_ms === null ||
-						disposition.asof_age_ms === null ||
-						disposition.asof_age_ms <= 5_000 ||
-						disposition.source_time_ms + disposition.asof_age_ms !==
-							disposition.target_time_ms ||
-						evidence.length === 0 ||
-						evidence.length !== overlappingRecords.length ||
-						!evidence.every(
-							(record) =>
-								record.kind === "stale_target_interval" &&
-								record.classification === "valid_inactive_market_state",
-						)
-					) {
-						throw new Error("inactive source disposition is invalid");
-					}
-				} else if (
-					disposition.record_sha256s.length === 0 ||
-					overlappingRecords.length === 0
+			} else if (disposition.disposition === "valid_inactive_market_state") {
+				const evidence = disposition.record_sha256s.map(
+					(sha) => recordBySha.get(sha) as SourceForensicsRecordWire,
+				);
+				if (
+					disposition.source_time_ms === null ||
+					disposition.asof_age_ms === null ||
+					disposition.asof_age_ms <= 5_000 ||
+					disposition.source_time_ms + disposition.asof_age_ms !==
+						disposition.target_time_ms ||
+					evidence.length === 0 ||
+					!evidence.every(
+						(record) =>
+							record.kind === "stale_target_interval" &&
+							record.classification === "valid_inactive_market_state",
+					)
 				) {
-					throw new Error("disqualifying source disposition lacks evidence");
+					throw new Error("inactive source disposition is invalid");
 				}
+			} else if (disposition.record_sha256s.length === 0) {
+				throw new Error("disqualifying source disposition lacks evidence");
 			}
 		}
 		const expectedInventory = [
@@ -558,52 +317,9 @@ const sourceForensicsLedgerCodecInternal = {
 		const observedInventory = [
 			...ledger.provider_object_inventory.observed_identities,
 		].sort();
-		const expectedIntervals = [
-			...ledger.provider_object_inventory.expected_selected_intervals,
-		].sort((left, right) =>
-			jcsCanonicalize(left).localeCompare(jcsCanonicalize(right)),
-		);
-		const observedIntervals = [
-			...ledger.provider_object_inventory.observed_selected_intervals,
-		].sort((left, right) =>
-			jcsCanonicalize(left).localeCompare(jcsCanonicalize(right)),
-		);
-		const providerObjects = [...ledger.provider_objects].sort((left, right) =>
-			left.identity.localeCompare(right.identity),
-		);
-		const providerObjectIdentities = providerObjects.map(
-			({ identity }) => identity,
-		);
-		const inventoryIsCanonical =
-			JSON.stringify(expectedInventory) ===
-				JSON.stringify(ledger.provider_object_inventory.expected_identities) &&
-			JSON.stringify(observedInventory) ===
-				JSON.stringify(ledger.provider_object_inventory.observed_identities) &&
-			JSON.stringify(expectedIntervals) ===
-				JSON.stringify(
-					ledger.provider_object_inventory.expected_selected_intervals,
-				) &&
-			JSON.stringify(observedIntervals) ===
-				JSON.stringify(
-					ledger.provider_object_inventory.observed_selected_intervals,
-				) &&
-			JSON.stringify(providerObjects) ===
-				JSON.stringify(ledger.provider_objects);
-		const inventoryIsPositivelyBound =
-			JSON.stringify(expectedInventory) === JSON.stringify(observedInventory) &&
-			JSON.stringify(expectedIntervals) === JSON.stringify(observedIntervals) &&
-			JSON.stringify(providerObjectIdentities) ===
-				JSON.stringify(observedInventory) &&
-			providerObjects.every(
-				(object) =>
-					object.checksums.length === 1 &&
-					!object.quarantined &&
-					JSON.stringify([...object.checksums].sort()) ===
-						JSON.stringify(object.checksums),
-			);
 		if (
-			!inventoryIsCanonical ||
-			ledger.provider_object_inventory.complete !== inventoryIsPositivelyBound
+			ledger.provider_object_inventory.complete !==
+			(JSON.stringify(expectedInventory) === JSON.stringify(observedInventory))
 		) {
 			throw new Error("source-forensics provider inventory is inconsistent");
 		}
@@ -620,21 +336,6 @@ const sourceForensicsLedgerCodecInternal = {
 	},
 };
 
-export const sourceForensicsLedgerCodec = {
-	decode(
-		value: unknown,
-		context?: { requiredClock: RequiredClockWire },
-	): SourceForensicsLedgerWire {
-		const ledger = sourceForensicsLedgerCodecInternal.decode(value, context);
-		if (ledger.operation_kind === "required_clock_qualification" && !context) {
-			throw new Error(
-				"source-forensics ledger validation requires the authoritative required clock",
-			);
-		}
-		return ledger;
-	},
-};
-
 export const sourceQualificationRecordCodec = {
 	decode(value: unknown): SourceQualificationRecordWire {
 		if (!validateQualification(value)) {
@@ -645,32 +346,15 @@ export const sourceQualificationRecordCodec = {
 		const record = value as SourceQualificationRecordWire;
 		assertDocumentSha256(record, "record_sha256");
 		assertSidecarBasename(record.ledger.file_name);
-		if (record.operation_kind === "required_clock_qualification") {
-			if (
-				(record.outcome.status === "success") !==
-					record.source_reconstruction_accepted ||
-				record.outcome.exporter_result !== null ||
-				(record.qualified &&
-					(!record.source_reconstruction_accepted ||
-						!record.ledger.complete ||
-						!record.ledger.disposition_complete ||
-						record.ledger.inactive_target_count !== 0 ||
-						record.ledger.disqualifying_target_count !== 0))
-			) {
-				throw new Error("required-clock terminal outcome is inconsistent");
-			}
-		} else if (
-			(record.outcome.status === "success") !== record.source_tape_eligible ||
-			(record.outcome.status === "success" &&
-				(!record.source_reconstruction_accepted ||
-					!record.source_event_enumeration_eligible ||
-					!record.ledger.complete ||
-					record.initializer === null)) ||
-			(record.outcome.status === "failure" &&
-				record.initializer !== null &&
-				record.initializer.semantic_stream_position !== 0)
+		if (
+			record.qualified &&
+			(!record.source_reconstruction_accepted ||
+				!record.ledger.complete ||
+				!record.ledger.disposition_complete ||
+				record.ledger.inactive_target_count !== 0 ||
+				record.ledger.disqualifying_target_count !== 0)
 		) {
-			throw new Error("source-tape terminal outcome is inconsistent");
+			throw new Error("incomplete ledger cannot qualify");
 		}
 		assertSecretFree(record);
 		return record;
@@ -687,9 +371,7 @@ function finalizeRecord(
 }
 
 export function finalizeSourceForensicsLedger(
-	content:
-		| Omit<RequiredClockSourceForensicsLedgerWire, "ledger_sha256">
-		| Omit<SourceTapeForensicsLedgerWire, "ledger_sha256">,
+	content: Omit<SourceForensicsLedgerWire, "ledger_sha256">,
 ): SourceForensicsLedgerWire {
 	return sourceForensicsLedgerCodec.decode({
 		...content,
@@ -698,9 +380,7 @@ export function finalizeSourceForensicsLedger(
 }
 
 export function finalizeSourceQualificationRecord(
-	content:
-		| Omit<RequiredClockSourceQualificationRecordWire, "record_sha256">
-		| Omit<SourceTapeQualificationRecordWire, "record_sha256">,
+	content: Omit<SourceQualificationRecordWire, "record_sha256">,
 ): SourceQualificationRecordWire {
 	return sourceQualificationRecordCodec.decode({
 		...content,
@@ -738,24 +418,23 @@ export interface ReconstructionObservationSink {
 export const NOOP_RECONSTRUCTION_OBSERVER: ReconstructionObservationSink =
 	Object.freeze({ observe() {} });
 
-type LedgerContext = {
-	schema_id: typeof SOURCE_FORENSICS_LEDGER_SCHEMA_ID;
-	operation_kind?: "required_clock_qualification" | "source_tape";
-	normalized_invocation_sha256?: Sha256Hex;
-	idempotency_key?: Sha256Hex;
-	request_id: LowercaseUuid;
-	scope: CanonicalScopeWire;
-	window?: SourceInventoryInterval;
-	required_clock?: RequiredClockSourceForensicsLedgerWire["required_clock"];
-	source_tape?: SourceTapeForensicsLedgerWire["source_tape"];
-	effective_policies: SourceForensicsLedgerBase["effective_policies"];
+type LedgerContext = Omit<
+	SourceForensicsLedgerWire,
+	| "ledger_sha256"
+	| "provider_objects"
+	| "records"
+	| "target_dispositions"
+	| "summary"
+	| "limits"
+	| "complete"
+	| "incomplete_reason"
+> & {
 	adapter_version: string;
-	required_clock_targets?: readonly {
+	required_clock_targets: readonly {
 		target_id: LowercaseUuid;
 		target_time_ms: number;
 	}[];
 	expected_provider_object_identities: readonly string[];
-	expected_selected_intervals?: readonly SourceInventoryInterval[];
 	redact_values?: ReadonlySet<string>;
 };
 
@@ -791,33 +470,6 @@ function mergeObjects(objects: SourceObjectEvidence[]): SourceObjectEvidence[] {
 	);
 }
 
-function providerObjectInterval(
-	identity: string,
-): SourceInventoryInterval | null {
-	const match = /\/(\d{4})-(\d{2})-(\d{2})\/(\d{2})\//u.exec(identity);
-	if (!match) return null;
-	const start = Date.UTC(
-		Number(match[1]),
-		Number(match[2]) - 1,
-		Number(match[3]),
-		Number(match[4]),
-	);
-	if (!Number.isSafeInteger(start)) return null;
-	return { start_time_ms: start, end_time_ms_exclusive: start + 3_600_000 };
-}
-
-function orderedIntervals(
-	intervals: readonly SourceInventoryInterval[],
-): SourceInventoryInterval[] {
-	return [...intervals]
-		.map((interval) => ({ ...interval }))
-		.sort(
-			(left, right) =>
-				left.start_time_ms - right.start_time_ms ||
-				left.end_time_ms_exclusive - right.end_time_ms_exclusive,
-		);
-}
-
 type PendingSourceForensicsRecord = Omit<
 	SourceForensicsRecordWire,
 	"record_sha256"
@@ -842,7 +494,6 @@ export class BoundedSourceForensicsSink
 	private lastOmittedRecord: PendingSourceForensicsRecord | null = null;
 	private totalRecordCount = 0;
 	private omittedRecordCount = 0;
-	private sourceTapeStateCount: number;
 
 	constructor(
 		private readonly context: LedgerContext,
@@ -850,20 +501,7 @@ export class BoundedSourceForensicsSink
 			maxRetainedRecords?: number;
 			maxCanonicalJsonBytes?: number;
 		} = {},
-	) {
-		this.sourceTapeStateCount = context.source_tape?.state_count ?? 0;
-	}
-
-	setSourceTapeStateCount(stateCount: number): void {
-		if (
-			this.context.operation_kind !== "source_tape" ||
-			!Number.isSafeInteger(stateCount) ||
-			stateCount < 0
-		) {
-			throw new Error("source-tape state count is invalid");
-		}
-		this.sourceTapeStateCount = stateCount;
-	}
+	) {}
 
 	observe(observation: ReconstructionObservation): void {
 		try {
@@ -988,7 +626,7 @@ export class BoundedSourceForensicsSink
 	private interval(
 		targetTimes: readonly number[],
 	): SourceTargetInterval | null {
-		const requiredTargetTimes = (this.context.required_clock_targets ?? []).map(
+		const requiredTargetTimes = this.context.required_clock_targets.map(
 			({ target_time_ms }) => target_time_ms,
 		);
 		const targets = [...new Set(targetTimes)]
@@ -1009,7 +647,7 @@ export class BoundedSourceForensicsSink
 	private markAffected(interval: SourceTargetInterval | null): void {
 		if (!interval) return;
 		for (const { target_time_ms: target } of this.context
-			.required_clock_targets ?? []) {
+			.required_clock_targets) {
 			if (
 				target >= interval.start_target_time_ms &&
 				target < interval.end_target_time_ms_exclusive
@@ -1189,63 +827,13 @@ export class BoundedSourceForensicsSink
 			),
 		].sort();
 		const observedIdentities = [...this.providerObjects.keys()].sort();
-		const expectedSelectedIntervals = orderedIntervals(
-			this.context.expected_selected_intervals ??
-				expectedIdentities.flatMap((identity) => {
-					const interval = providerObjectInterval(identity);
-					return interval ? [interval] : [];
-				}),
-		);
-		const observedSelectedIntervals = orderedIntervals(
-			observedIdentities.flatMap((identity) => {
-				const interval = providerObjectInterval(identity);
-				return interval ? [interval] : [];
-			}),
-		);
-		const inventoryCoordinatesComplete =
+		const inventoryComplete =
 			new Set(expectedIdentities).size === expectedIdentities.length &&
 			new Set(observedIdentities).size === observedIdentities.length &&
-			JSON.stringify(expectedIdentities) ===
-				JSON.stringify(observedIdentities) &&
-			JSON.stringify(expectedSelectedIntervals) ===
-				JSON.stringify(observedSelectedIntervals);
-		const inventoryComplete = (): boolean =>
-			inventoryCoordinatesComplete &&
-			JSON.stringify(
-				retainedProviderObjects.map(({ identity }) => identity),
-			) === JSON.stringify(observedIdentities) &&
-			retainedProviderObjects.every(
-				(object) => object.checksums.length === 1 && !object.quarantined,
-			);
-		const targetTimes = (this.context.required_clock_targets ?? []).map(
-			({ target_time_ms }) => target_time_ms,
-		);
-		const inferredWindow = {
-			start_time_ms:
-				Math.min(
-					...targetTimes,
-					...expectedSelectedIntervals.map(
-						({ start_time_ms }) => start_time_ms,
-					),
-				) || 0,
-			end_time_ms_exclusive:
-				Math.max(
-					...targetTimes.map((target) => target + 1),
-					...expectedSelectedIntervals.map(
-						({ end_time_ms_exclusive }) => end_time_ms_exclusive,
-					),
-				) || 1,
-		};
-		const operationKind =
-			this.context.operation_kind ?? "required_clock_qualification";
-		const normalizedInvocationSha256 =
-			this.context.normalized_invocation_sha256 ?? this.context.idempotency_key;
-		if (!normalizedInvocationSha256) {
-			throw new Error("source-forensics normalized invocation is missing");
-		}
+			JSON.stringify(expectedIdentities) === JSON.stringify(observedIdentities);
 
 		const targetDispositions = (): SourceTargetDispositionWire[] =>
-			(this.context.required_clock_targets ?? []).flatMap((target) => {
+			this.context.required_clock_targets.flatMap((target) => {
 				const observation = this.targetObservations.get(target.target_time_ms);
 				if (!observation) return [];
 				const relevantRecords = retained.filter((record) => {
@@ -1292,70 +880,29 @@ export class BoundedSourceForensicsSink
 		const build = (): SourceForensicsLedgerWire => {
 			const incomplete = omitted > 0;
 			const dispositions = targetDispositions();
-			const common = {
+			const omittedDispositions =
+				this.context.required_clock.event_count - dispositions.length;
+			const content = {
 				schema_id: SOURCE_FORENSICS_LEDGER_SCHEMA_ID,
-				operation_kind: operationKind,
-				normalized_invocation_sha256: normalizedInvocationSha256,
 				request_id: this.context.request_id,
+				idempotency_key: this.context.idempotency_key,
 				scope: this.context.scope,
-				window: this.context.window ?? inferredWindow,
+				required_clock: this.context.required_clock,
 				effective_policies: this.context.effective_policies,
 				provider_object_inventory: {
 					expected_identities: expectedIdentities,
 					observed_identities: observedIdentities,
-					expected_selected_intervals: expectedSelectedIntervals,
-					observed_selected_intervals: observedSelectedIntervals,
-					complete: inventoryComplete(),
+					complete: inventoryComplete,
 				},
 				provider_objects: retainedProviderObjects,
 				records: retained,
-				limits: {
-					max_records: 100_000 as const,
-					max_canonical_json_bytes: 67_108_864 as const,
-				},
-				complete: !incomplete,
-				incomplete_reason: incomplete
-					? ("forensics_evidence_bound_exceeded" as const)
-					: null,
-			};
-			const recordSummary = {
-				retained_record_count: retained.length,
-				total_record_count: total,
-				omitted_record_count: omitted,
-				affected_target_count: this.affectedTargets.size,
-				unresolved_record_count: unresolved,
-			};
-			if (operationKind === "source_tape") {
-				const content: Omit<SourceTapeForensicsLedgerWire, "ledger_sha256"> = {
-					...common,
-					operation_kind: "source_tape",
-					source_tape: {
-						product_id: "market-data-source-tape",
-						product_version: "market-data-source-tape/v1",
-						state_count: this.sourceTapeStateCount,
-					},
-					summary: recordSummary,
-				};
-				return {
-					...content,
-					ledger_sha256: documentSha256(content, "ledger_sha256"),
-				};
-			}
-			if (!this.context.required_clock) {
-				throw new Error("required-clock forensics context is incomplete");
-			}
-			const omittedDispositions =
-				this.context.required_clock.event_count - dispositions.length;
-			const content: Omit<
-				RequiredClockSourceForensicsLedgerWire,
-				"ledger_sha256"
-			> = {
-				...common,
-				operation_kind: "required_clock_qualification",
-				required_clock: this.context.required_clock,
 				target_dispositions: dispositions,
 				summary: {
-					...recordSummary,
+					retained_record_count: retained.length,
+					total_record_count: total,
+					omitted_record_count: omitted,
+					affected_target_count: this.affectedTargets.size,
+					unresolved_record_count: unresolved,
 					disposition_complete: omittedDispositions === 0,
 					fresh_target_count: dispositions.filter(
 						({ disposition }) => disposition === "fresh_within_bound",
@@ -1368,6 +915,14 @@ export class BoundedSourceForensicsSink
 					).length,
 					omitted_target_disposition_count: omittedDispositions,
 				},
+				limits: {
+					max_records: 100_000 as const,
+					max_canonical_json_bytes: 67_108_864 as const,
+				},
+				complete: !incomplete,
+				incomplete_reason: incomplete
+					? ("forensics_evidence_bound_exceeded" as const)
+					: null,
 			};
 			return {
 				...content,
@@ -1395,7 +950,7 @@ export class BoundedSourceForensicsSink
 			unresolved += 1;
 			ledger = build();
 		}
-		return sourceForensicsLedgerCodecInternal.decode(ledger);
+		return sourceForensicsLedgerCodec.decode(ledger);
 	}
 }
 
@@ -1615,39 +1170,13 @@ export async function classifySourceForensicsRecordsDeduplicated(input: {
 export function evaluateSourceQualificationGates(
 	ledgerInput: SourceForensicsLedgerWire,
 	sourceReconstructionAccepted: boolean,
-):
-	| {
-			operation_kind: "required_clock_qualification";
-			qualified: boolean;
-			source_partition_complete: boolean;
-			source_event_enumeration_eligible: boolean;
-	  }
-	| {
-			operation_kind: "source_tape";
-			source_event_enumeration_eligible: boolean;
-			source_tape_eligible: boolean;
-	  } {
-	const ledger = sourceForensicsLedgerCodecInternal.decode(ledgerInput);
-	const enumerationEvidenceAccepted = ledger.records.every(
-		(record) =>
-			record.kind === "stale_target_interval" &&
-			record.classification === "valid_inactive_market_state",
-	);
-	const sourceEventEnumerationEligible =
-		ledger.complete &&
-		ledger.provider_object_inventory.complete &&
-		enumerationEvidenceAccepted;
-	if (ledger.operation_kind === "source_tape") {
-		return {
-			operation_kind: "source_tape",
-			source_event_enumeration_eligible: sourceEventEnumerationEligible,
-			source_tape_eligible:
-				sourceReconstructionAccepted &&
-				sourceEventEnumerationEligible &&
-				ledger.source_tape.state_count > 0,
-		};
-	}
-	const sourcePartitionComplete =
+): {
+	qualified: boolean;
+	derivation_eligible: boolean;
+	candidate_c_source_enumeration_eligible: boolean;
+} {
+	const ledger = sourceForensicsLedgerCodec.decode(ledgerInput);
+	const derivationEligible =
 		ledger.complete &&
 		ledger.summary.disposition_complete &&
 		ledger.summary.disqualifying_target_count === 0 &&
@@ -1656,18 +1185,25 @@ export function evaluateSourceQualificationGates(
 				ledger.records.some(({ record_sha256 }) => record_sha256 === sha),
 			),
 		);
+	const qualified =
+		sourceReconstructionAccepted &&
+		ledger.complete &&
+		ledger.summary.disposition_complete &&
+		ledger.summary.fresh_target_count === ledger.required_clock.event_count &&
+		ledger.summary.inactive_target_count === 0 &&
+		ledger.summary.disqualifying_target_count === 0;
+	const enumerationEvidenceAccepted = ledger.records.every(
+		(record) =>
+			record.kind === "stale_target_interval" &&
+			record.classification === "valid_inactive_market_state",
+	);
 	return {
-		operation_kind: "required_clock_qualification",
-		qualified:
-			sourceReconstructionAccepted &&
-			ledger.complete &&
-			ledger.summary.disposition_complete &&
-			ledger.summary.fresh_target_count === ledger.required_clock.event_count &&
-			ledger.summary.inactive_target_count === 0 &&
-			ledger.summary.disqualifying_target_count === 0,
-		source_partition_complete: sourcePartitionComplete,
-		source_event_enumeration_eligible:
-			sourcePartitionComplete && sourceEventEnumerationEligible,
+		qualified,
+		derivation_eligible: derivationEligible,
+		candidate_c_source_enumeration_eligible:
+			derivationEligible &&
+			ledger.provider_object_inventory.complete &&
+			enumerationEvidenceAccepted,
 	};
 }
 
@@ -1678,26 +1214,11 @@ export async function commitSourceQualificationEvidence(input: {
 	ledger: SourceForensicsLedgerWire;
 	createdAt: string;
 	sourceAccepted: boolean;
-	requiredClock?: RequiredClockWire;
-	requiredClockFailureReason?: (typeof REQUIRED_CLOCK_QUALIFICATION_FAILURE_REASONS)[number];
-	sourceTapeInitializer?: SourceTapeInitializerDescriptor;
-	sourceTapeOutcome?: SourceTapeQualificationRecordWire["outcome"];
 	cleanupLicensedPayloads?: () => void | Promise<void>;
 }): Promise<SourceQualificationRecordWire> {
 	assertSidecarBasename(input.ledgerFileName);
 	assertSidecarBasename(input.qualificationFileName);
-	if (
-		input.ledger.operation_kind === "required_clock_qualification" &&
-		!input.requiredClock
-	) {
-		throw new Error(
-			"source qualification requires the authoritative required clock",
-		);
-	}
-	const ledger = sourceForensicsLedgerCodec.decode(
-		input.ledger,
-		input.requiredClock ? { requiredClock: input.requiredClock } : undefined,
-	);
+	const ledger = sourceForensicsLedgerCodec.decode(input.ledger);
 	const ledgerBytes = new TextEncoder().encode(jcsCanonicalize(ledger));
 	const ledgerPath = path.join(input.outputDirectory, input.ledgerFileName);
 	const qualificationPath = path.join(
@@ -1710,106 +1231,30 @@ export async function commitSourceQualificationEvidence(input: {
 			ledger,
 			input.sourceAccepted,
 		);
-		const ledgerDescriptor = {
-			schema_id: SOURCE_FORENSICS_LEDGER_SCHEMA_ID,
-			file_name: input.ledgerFileName,
-			sha256: createHash("sha256").update(ledgerBytes).digest("hex"),
-			bytes: ledgerBytes.byteLength,
-			retained_record_count: ledger.summary.retained_record_count,
-			total_record_count: ledger.summary.total_record_count,
-			omitted_record_count: ledger.summary.omitted_record_count,
-			complete: ledger.complete,
-		};
-		const ledgerEvidenceDescriptor: SourceEvidenceDescriptor = {
-			kind: "ledger",
-			file_name: input.ledgerFileName,
-			sha256: ledgerDescriptor.sha256 as Sha256Hex,
-			bytes: ledgerDescriptor.bytes,
-		};
-		const sourceTapeOutcome = input.sourceTapeOutcome
-			? {
-					...input.sourceTapeOutcome,
-					partial_evidence: [
-						ledgerEvidenceDescriptor,
-						...input.sourceTapeOutcome.partial_evidence.filter(
-							(descriptor) =>
-								descriptor.kind !== "ledger" &&
-								descriptor.file_name !== input.ledgerFileName,
-						),
-					],
-				}
-			: undefined;
-		const qualification =
-			ledger.operation_kind === "required_clock_qualification" &&
-			gates.operation_kind === "required_clock_qualification"
-				? finalizeSourceQualificationRecord({
-						schema_id: SOURCE_QUALIFICATION_RECORD_SCHEMA_ID,
-						created_at: input.createdAt,
-						operation_kind: "required_clock_qualification",
-						normalized_invocation_sha256: ledger.normalized_invocation_sha256,
-						request_id: ledger.request_id,
-						scope: ledger.scope,
-						ledger: {
-							...ledgerDescriptor,
-							disposition_complete: ledger.summary.disposition_complete,
-							fresh_target_count: ledger.summary.fresh_target_count,
-							inactive_target_count: ledger.summary.inactive_target_count,
-							disqualifying_target_count:
-								ledger.summary.disqualifying_target_count,
-							omitted_target_disposition_count:
-								ledger.summary.omitted_target_disposition_count,
-						},
-						source_reconstruction_accepted: input.sourceAccepted,
-						qualified: gates.qualified,
-						source_partition_complete: gates.source_partition_complete,
-						source_event_enumeration_eligible:
-							gates.source_event_enumeration_eligible,
-						outcome: input.sourceAccepted
-							? {
-									status: "success",
-									reason: "required_clock_qualification_completed",
-									partial_evidence: [ledgerEvidenceDescriptor],
-									exporter_result: null,
-								}
-							: {
-									status: "failure",
-									reason:
-										input.requiredClockFailureReason ??
-										"required_clock_reconstruction_failed",
-									partial_evidence: [ledgerEvidenceDescriptor],
-									exporter_result: null,
-								},
-					})
-				: ledger.operation_kind === "source_tape" &&
-						gates.operation_kind === "source_tape" &&
-						sourceTapeOutcome &&
-						(sourceTapeOutcome.status === "failure" ||
-							input.sourceTapeInitializer)
-					? finalizeSourceQualificationRecord({
-							schema_id: SOURCE_QUALIFICATION_RECORD_SCHEMA_ID,
-							created_at: input.createdAt,
-							operation_kind: "source_tape",
-							normalized_invocation_sha256: ledger.normalized_invocation_sha256,
-							request_id: ledger.request_id,
-							scope: ledger.scope,
-							ledger: {
-								...ledgerDescriptor,
-								state_count: ledger.source_tape.state_count,
-							},
-							initializer: input.sourceTapeInitializer ?? null,
-							source_reconstruction_accepted: input.sourceAccepted,
-							source_event_enumeration_eligible:
-								gates.source_event_enumeration_eligible,
-							source_tape_eligible:
-								gates.source_tape_eligible &&
-								sourceTapeOutcome.status === "success",
-							outcome: sourceTapeOutcome,
-						})
-					: (() => {
-							throw new Error(
-								"source qualification operation outcome is incomplete",
-							);
-						})();
+		const qualification = finalizeSourceQualificationRecord({
+			schema_id: SOURCE_QUALIFICATION_RECORD_SCHEMA_ID,
+			created_at: input.createdAt,
+			request_id: ledger.request_id,
+			scope: ledger.scope,
+			ledger: {
+				schema_id: SOURCE_FORENSICS_LEDGER_SCHEMA_ID,
+				file_name: input.ledgerFileName,
+				sha256: createHash("sha256").update(ledgerBytes).digest("hex"),
+				bytes: ledgerBytes.byteLength,
+				retained_record_count: ledger.summary.retained_record_count,
+				total_record_count: ledger.summary.total_record_count,
+				omitted_record_count: ledger.summary.omitted_record_count,
+				complete: ledger.complete,
+				disposition_complete: ledger.summary.disposition_complete,
+				fresh_target_count: ledger.summary.fresh_target_count,
+				inactive_target_count: ledger.summary.inactive_target_count,
+				disqualifying_target_count: ledger.summary.disqualifying_target_count,
+				omitted_target_disposition_count:
+					ledger.summary.omitted_target_disposition_count,
+			},
+			source_reconstruction_accepted: input.sourceAccepted,
+			...gates,
+		});
 		await atomicWriteJsonResult(qualificationPath, qualification, {
 			validate: (value) => sourceQualificationRecordCodec.decode(value),
 		});

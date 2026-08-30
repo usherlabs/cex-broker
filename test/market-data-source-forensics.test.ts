@@ -14,18 +14,11 @@ import {
 	sourceQualificationRecordCodec,
 } from "../src/helpers/market-data-source-forensics";
 import {
-	finalizeRequiredClock,
-	REQUIRED_CLOCK_SCHEMA_ID,
-} from "../src/helpers/market-data-vendor-backfill/contracts";
-import {
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
 	type CryptoHftDataOrderBookRow,
 	reconstructCryptoHftDataOrderBooks,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
-import {
-	documentSha256,
-	jcsCanonicalize,
-} from "../src/helpers/market-data-vendor-backfill/identity";
+import { jcsCanonicalize } from "../src/helpers/market-data-vendor-backfill/identity";
 import {
 	CAPABILITY_POLICY,
 	EFFECTIVE_ACQUISITION_POLICY_PIN,
@@ -87,26 +80,6 @@ function context(targetTimes = targets) {
 	};
 }
 
-function authoritativeClock(targetTimes = targets) {
-	return finalizeRequiredClock({
-		schema_id: REQUIRED_CLOCK_SCHEMA_ID,
-		clock_id: "018f0f4d-7b32-7a30-8f4d-1d2a6e40f102",
-		created_at: "2026-08-25T12:00:00.000Z",
-		targets: targetTimes.map((targetTime, index) => ({
-			target_id: `018f0f4d-7b32-7a30-8f4d-${String(200 + index).padStart(12, "0")}`,
-			target_at: new Date(targetTime).toISOString(),
-		})),
-	});
-}
-
-function rehashLedger<T extends { ledger_sha256: string }>(ledger: T): T {
-	const { ledger_sha256: _ledgerSha256, ...content } = ledger;
-	return {
-		...content,
-		ledger_sha256: documentSha256(content, "ledger_sha256"),
-	} as T;
-}
-
 function anchor(sequence: string, eventTimeMs = start) {
 	return {
 		event_time_ms: eventTimeMs,
@@ -117,210 +90,6 @@ function anchor(sequence: string, eventTimeMs = start) {
 }
 
 describe("market-data source forensics", () => {
-	test("rejects a disposition target that is absent from the authoritative required clock", () => {
-		const clock = authoritativeClock([targets[0] as number]);
-		const sink = new BoundedSourceForensicsSink({
-			...context([targets[0] as number]),
-			required_clock: {
-				clock_id: clock.clock_id,
-				clock_sha256: clock.clock_sha256,
-				event_count: clock.targets.length,
-			},
-		});
-		sink.observe({ type: "provider_object_boundary", object });
-		sink.observe({
-			type: "required_clock_sample",
-			target_time_ms: targets[0] as number,
-			source_time_ms: targets[0] as number,
-			lag_ms: 0,
-			status: "covered",
-			object,
-		});
-		const ledger = sink.finish();
-		const tampered = rehashLedger({
-			...ledger,
-			target_dispositions: ledger.target_dispositions.map((disposition) => ({
-				...disposition,
-				target_id: "018f0f4d-7b32-7a30-8f4d-999999999999",
-			})),
-		});
-		expect(() => sourceForensicsLedgerCodec.decode(ledger)).toThrow(
-			"authoritative required clock",
-		);
-
-		expect(() =>
-			sourceForensicsLedgerCodec.decode(tampered, {
-				requiredClock: clock,
-			}),
-		).toThrow("authoritative required clock");
-	});
-
-	test("rejects disposition evidence whose retained interval does not contain the target", () => {
-		const clock = authoritativeClock();
-		const sink = new BoundedSourceForensicsSink({
-			...context(),
-			required_clock: {
-				clock_id: clock.clock_id,
-				clock_sha256: clock.clock_sha256,
-				event_count: clock.targets.length,
-			},
-		});
-		sink.observe({ type: "provider_object_boundary", object });
-		sink.observe({
-			type: "required_clock_sample",
-			target_time_ms: targets[0] as number,
-			source_time_ms: null,
-			lag_ms: null,
-			status: "unanchored",
-			object,
-		});
-		sink.observe({
-			type: "required_clock_sample",
-			target_time_ms: targets[1] as number,
-			source_time_ms: targets[1] as number,
-			lag_ms: 0,
-			status: "covered",
-			object,
-		});
-		const ledger = sink.finish();
-		const originalRecord = ledger.records[0] as (typeof ledger.records)[number];
-		const { record_sha256: _recordSha256, ...recordContent } = originalRecord;
-		const alteredRecordContent = {
-			...recordContent,
-			target_interval: {
-				start_target_time_ms: targets[1] as number,
-				end_target_time_ms_exclusive: (targets[1] as number) + 1,
-				target_count: 1,
-			},
-		};
-		const alteredRecord = {
-			...alteredRecordContent,
-			record_sha256: documentSha256(alteredRecordContent, "record_sha256"),
-		};
-		const tampered = rehashLedger({
-			...ledger,
-			records: [alteredRecord],
-			target_dispositions: ledger.target_dispositions.map((disposition) =>
-				disposition.target_time_ms === targets[0]
-					? { ...disposition, record_sha256s: [alteredRecord.record_sha256] }
-					: disposition,
-			),
-		});
-
-		expect(() =>
-			sourceForensicsLedgerCodec.decode(tampered, {
-				requiredClock: clock,
-			}),
-		).toThrow("record interval");
-	});
-
-	test("rejects omitted, duplicated, changed, and misordered authoritative dispositions", () => {
-		const clock = authoritativeClock();
-		const sink = new BoundedSourceForensicsSink({
-			...context(),
-			required_clock: {
-				clock_id: clock.clock_id,
-				clock_sha256: clock.clock_sha256,
-				event_count: clock.targets.length,
-			},
-		});
-		sink.observe({ type: "provider_object_boundary", object });
-		for (const targetTime of targets) {
-			sink.observe({
-				type: "required_clock_sample",
-				target_time_ms: targetTime,
-				source_time_ms: targetTime,
-				lag_ms: 0,
-				status: "covered",
-				object,
-			});
-		}
-		const ledger = sink.finish();
-		const mutations = [
-			{
-				...ledger,
-				target_dispositions: ledger.target_dispositions.slice(0, 1),
-			},
-			{
-				...ledger,
-				target_dispositions: [
-					ledger.target_dispositions[0],
-					ledger.target_dispositions[0],
-				],
-			},
-			{
-				...ledger,
-				target_dispositions: ledger.target_dispositions.map((value, index) =>
-					index === 0
-						? { ...value, target_time_ms: value.target_time_ms + 1 }
-						: value,
-				),
-			},
-			{
-				...ledger,
-				target_dispositions: [...ledger.target_dispositions].reverse(),
-			},
-		];
-
-		for (const mutation of mutations) {
-			expect(() =>
-				sourceForensicsLedgerCodec.decode(rehashLedger(mutation), {
-					requiredClock: clock,
-				}),
-			).toThrow();
-		}
-	});
-
-	test("rejects non-canonical or checksum-unbound positive provider inventory", () => {
-		const clock = authoritativeClock();
-		const sink = new BoundedSourceForensicsSink({
-			...context(),
-			required_clock: {
-				clock_id: clock.clock_id,
-				clock_sha256: clock.clock_sha256,
-				event_count: clock.targets.length,
-			},
-		});
-		sink.observe({ type: "provider_object_boundary", object });
-		for (const targetTime of targets) {
-			sink.observe({
-				type: "required_clock_sample",
-				target_time_ms: targetTime,
-				source_time_ms: targetTime,
-				lag_ms: 0,
-				status: "covered",
-				object,
-			});
-		}
-		const ledger = sink.finish();
-		const missingObjectEvidence = rehashLedger({
-			...ledger,
-			provider_objects: [],
-		});
-		expect(() =>
-			sourceForensicsLedgerCodec.decode(missingObjectEvidence, {
-				requiredClock: clock,
-			}),
-		).toThrow("provider inventory");
-
-		const duplicateInterval =
-			ledger.provider_object_inventory.expected_selected_intervals[0];
-		const duplicateIntervals = rehashLedger({
-			...ledger,
-			provider_object_inventory: {
-				...ledger.provider_object_inventory,
-				expected_selected_intervals: [
-					...ledger.provider_object_inventory.expected_selected_intervals,
-					duplicateInterval,
-				],
-			},
-		});
-		expect(() =>
-			sourceForensicsLedgerCodec.decode(duplicateIntervals, {
-				requiredClock: clock,
-			}),
-		).toThrow();
-	});
 	test("partitions every submitted target and keeps qualification gates distinct", () => {
 		const sink = new BoundedSourceForensicsSink(context());
 		sink.observe({ type: "provider_object_boundary", object });
@@ -361,14 +130,13 @@ describe("market-data source forensics", () => {
 			ledger.target_dispositions.map(({ disposition }) => disposition),
 		).toEqual(["fresh_within_bound", "valid_inactive_market_state"]);
 		expect(evaluateSourceQualificationGates(ledger, true)).toEqual({
-			operation_kind: "required_clock_qualification",
 			qualified: false,
-			source_partition_complete: true,
-			source_event_enumeration_eligible: true,
+			derivation_eligible: true,
+			candidate_c_source_enumeration_eligible: true,
 		});
 	});
 
-	test("a zero-affected unresolved gap does not fail submitted-clock qualification but blocks source-event enumeration", () => {
+	test("a zero-affected unresolved gap does not fail submitted-clock qualification but blocks Candidate C enumeration", () => {
 		const sink = new BoundedSourceForensicsSink(
 			context([targets[0] as number]),
 		);
@@ -393,10 +161,9 @@ describe("market-data source forensics", () => {
 			object,
 		});
 		expect(evaluateSourceQualificationGates(sink.finish(), true)).toEqual({
-			operation_kind: "required_clock_qualification",
 			qualified: true,
-			source_partition_complete: true,
-			source_event_enumeration_eligible: false,
+			derivation_eligible: true,
+			candidate_c_source_enumeration_eligible: false,
 		});
 	});
 
@@ -448,14 +215,8 @@ describe("market-data source forensics", () => {
 
 	test("records a gap, affected interval, later anchor, and closed classification", () => {
 		const plantedSecret = "planted-ledger-secret";
-		const clock = authoritativeClock();
 		const sink = new BoundedSourceForensicsSink({
 			...context(),
-			required_clock: {
-				clock_id: clock.clock_id,
-				clock_sha256: clock.clock_sha256,
-				event_count: clock.targets.length,
-			},
 			redact_values: new Set([plantedSecret]),
 		});
 		sink.observe({
@@ -497,9 +258,7 @@ describe("market-data source forensics", () => {
 		);
 
 		const ledger = sink.finish();
-		expect(
-			sourceForensicsLedgerCodec.decode(ledger, { requiredClock: clock }),
-		).toEqual(ledger);
+		expect(sourceForensicsLedgerCodec.decode(ledger)).toEqual(ledger);
 		expect(JSON.stringify(ledger)).not.toContain(plantedSecret);
 		expect(ledger.summary.affected_target_count).toBe(1);
 		expect(ledger.records).toEqual(
@@ -624,25 +383,7 @@ describe("market-data source forensics", () => {
 		const root = await mkdtemp(path.join(os.tmpdir(), "cex-forensics-"));
 		let cleaned = false;
 		try {
-			const clock = authoritativeClock([targets[0] as number]);
-			const sink = new BoundedSourceForensicsSink({
-				...context([targets[0] as number]),
-				required_clock: {
-					clock_id: clock.clock_id,
-					clock_sha256: clock.clock_sha256,
-					event_count: 1,
-				},
-			});
-			sink.observe({ type: "provider_object_boundary", object });
-			sink.observe({
-				type: "required_clock_sample",
-				target_time_ms: targets[0] as number,
-				source_time_ms: targets[0] as number,
-				lag_ms: 0,
-				status: "covered",
-				object,
-			});
-			const ledger = sink.finish();
+			const ledger = new BoundedSourceForensicsSink(context([])).finish();
 			const qualification = await commitSourceQualificationEvidence({
 				outputDirectory: root,
 				ledgerFileName: "arb-usdt-forensics.json",
@@ -650,16 +391,8 @@ describe("market-data source forensics", () => {
 				ledger,
 				createdAt: "2026-08-25T12:00:00.000Z",
 				sourceAccepted: true,
-				requiredClock: clock,
 				cleanupLicensedPayloads: () => {
 					cleaned = true;
-				},
-			});
-			expect(qualification).toMatchObject({
-				outcome: {
-					status: "success",
-					reason: "required_clock_qualification_completed",
-					exporter_result: null,
 				},
 			});
 			const ledgerBytes = await readFile(
@@ -687,102 +420,16 @@ describe("market-data source forensics", () => {
 	test("a failed source run cannot qualify an otherwise clean ledger", async () => {
 		const root = await mkdtemp(path.join(os.tmpdir(), "cex-forensics-"));
 		try {
-			const clock = authoritativeClock([targets[0] as number]);
-			const sink = new BoundedSourceForensicsSink({
-				...context([targets[0] as number]),
-				required_clock: {
-					clock_id: clock.clock_id,
-					clock_sha256: clock.clock_sha256,
-					event_count: 1,
-				},
-			});
-			sink.observe({ type: "provider_object_boundary", object });
-			sink.observe({
-				type: "required_clock_sample",
-				target_time_ms: targets[0] as number,
-				source_time_ms: targets[0] as number,
-				lag_ms: 0,
-				status: "covered",
-				object,
-			});
 			const qualification = await commitSourceQualificationEvidence({
 				outputDirectory: root,
 				ledgerFileName: "failed-forensics.json",
 				qualificationFileName: "failed-qualification.json",
-				ledger: sink.finish(),
+				ledger: new BoundedSourceForensicsSink(context([])).finish(),
 				createdAt: "2026-08-25T12:00:00.000Z",
 				sourceAccepted: false,
-				requiredClock: clock,
 			});
 			expect(qualification.ledger.complete).toBe(true);
 			expect(qualification.qualified).toBe(false);
-			expect(qualification).toMatchObject({
-				outcome: {
-					status: "failure",
-					reason: "required_clock_reconstruction_failed",
-					exporter_result: null,
-				},
-			});
-		} finally {
-			await rm(root, { recursive: true, force: true });
-		}
-	});
-
-	test("source-tape terminal evidence binds a consumer-visible initializer", async () => {
-		const root = await mkdtemp(path.join(os.tmpdir(), "cex-forensics-"));
-		try {
-			const sink = new BoundedSourceForensicsSink({
-				...context([]),
-				operation_kind: "source_tape",
-				window: {
-					start_time_ms: Date.UTC(2026, 7, 18, 9),
-					end_time_ms_exclusive: Date.UTC(2026, 7, 18, 10),
-				},
-				source_tape: {
-					product_id: "market-data-source-tape",
-					product_version: "market-data-source-tape/v1",
-					state_count: 2,
-				},
-			});
-			sink.observe({ type: "provider_object_boundary", object });
-			sink.setSourceTapeStateCount(2);
-			const qualification = await commitSourceQualificationEvidence({
-				outputDirectory: root,
-				ledgerFileName: "source-tape-ledger.json",
-				qualificationFileName: "source-tape-qualification.json",
-				ledger: sink.finish(),
-				createdAt: "2026-08-25T12:00:00.000Z",
-				sourceAccepted: true,
-				sourceTapeInitializer: {
-					canonical_snapshot_id: "d".repeat(64),
-					source_time_ms: start,
-					sequence: "200",
-					semantic_stream_position: 0,
-				},
-				sourceTapeOutcome: {
-					status: "success",
-					reason: "source_tape_prepared",
-					partial_evidence: [],
-					exporter_result: {
-						schema_id:
-							"https://schemas.usher.so/cex-canonical-orderbook-export-result/v2",
-						file_name: "source-tape-export-result.json",
-						sha256: "e".repeat(64),
-						bytes: 1,
-						result_sha256: "f".repeat(64),
-					},
-				},
-			});
-			expect(qualification).toMatchObject({
-				operation_kind: "source_tape",
-				source_tape_eligible: true,
-				initializer: {
-					canonical_snapshot_id: "d".repeat(64),
-					source_time_ms: start,
-					sequence: "200",
-					semantic_stream_position: 0,
-				},
-			});
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
@@ -960,8 +607,8 @@ describe("market-data source forensics", () => {
 		expect(ledger.target_dispositions[0]?.disposition).toBe("disqualifying");
 		expect(evaluateSourceQualificationGates(ledger, true)).toMatchObject({
 			qualified: false,
-			source_partition_complete: false,
-			source_event_enumeration_eligible: false,
+			derivation_eligible: false,
+			candidate_c_source_enumeration_eligible: false,
 		});
 	});
 

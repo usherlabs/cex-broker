@@ -79,6 +79,7 @@
 		"archive:loss:replay": "bun run scripts/archive-loss-replay.ts",
 		"test:smoke:archive": "bun run scripts/archive-live-smoke.ts",
 		"test:conformance:market-data-vendor-backfill": "bun run scripts/market-data-vendor-backfill-conformance.ts",
+		"qualification:market-data-source": "bun run scripts/market-data-source-qualification.ts",
 		"test:smoke:market-data-vendor-backfill": "bun run scripts/market-data-vendor-backfill-local-smoke.ts",
 		"test:package:market-data-preparation": "node scripts/check-market-data-preparation-package.mjs",
 		"release:evidence:market-data-preparation": "node scripts/generate-market-data-preparation-release-evidence.mjs",

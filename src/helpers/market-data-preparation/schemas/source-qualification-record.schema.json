@@ -8,13 +8,13 @@
 		"schema_id",
 		"record_sha256",
 		"created_at",
-		"operation_kind",
-		"normalized_invocation_sha256",
 		"request_id",
 		"scope",
 		"ledger",
 		"source_reconstruction_accepted",
-		"source_event_enumeration_eligible"
+		"qualified",
+		"derivation_eligible",
+		"candidate_c_source_enumeration_eligible"
 	],
 	"properties": {
 		"schema_id": {
@@ -22,69 +22,52 @@
 		},
 		"record_sha256": { "$ref": "#/$defs/sha256" },
 		"created_at": { "$ref": "#/$defs/timestamp" },
-		"operation_kind": {
-			"enum": ["required_clock_qualification", "source_tape"]
-		},
-		"normalized_invocation_sha256": { "$ref": "#/$defs/sha256" },
 		"request_id": { "$ref": "#/$defs/uuid" },
 		"scope": { "$ref": "#/$defs/scope" },
-		"ledger": { "$ref": "#/$defs/ledger" },
-		"source_reconstruction_accepted": { "type": "boolean" },
-		"source_event_enumeration_eligible": { "type": "boolean" },
-		"qualified": { "type": "boolean" },
-		"source_partition_complete": { "type": "boolean" },
-		"source_tape_eligible": { "type": "boolean" },
-		"initializer": {
-			"oneOf": [{ "$ref": "#/$defs/initializer" }, { "type": "null" }]
-		},
-		"outcome": {}
-	},
-	"oneOf": [
-		{
+		"ledger": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"schema_id",
+				"file_name",
+				"sha256",
+				"bytes",
+				"retained_record_count",
+				"total_record_count",
+				"omitted_record_count",
+				"complete",
+				"disposition_complete",
+				"fresh_target_count",
+				"inactive_target_count",
+				"disqualifying_target_count",
+				"omitted_target_disposition_count"
+			],
 			"properties": {
-				"operation_kind": { "const": "required_clock_qualification" },
-				"ledger": { "$ref": "#/$defs/clockLedger" },
-				"qualified": { "type": "boolean" },
-				"source_partition_complete": { "type": "boolean" },
-				"source_tape_eligible": {},
-				"initializer": {},
-				"outcome": { "$ref": "#/$defs/clockOutcome" }
-			},
-			"required": ["qualified", "source_partition_complete", "outcome"],
-			"not": {
-				"anyOf": [
-					{
-						"properties": { "source_tape_eligible": {} },
-						"required": ["source_tape_eligible"]
-					},
-					{ "properties": { "initializer": {} }, "required": ["initializer"] }
-				]
-			}
-		},
-		{
-			"properties": {
-				"operation_kind": { "const": "source_tape" },
-				"ledger": { "$ref": "#/$defs/tapeLedger" },
-				"source_tape_eligible": { "type": "boolean" },
-				"initializer": {
-					"oneOf": [{ "$ref": "#/$defs/initializer" }, { "type": "null" }]
+				"schema_id": {
+					"const": "https://schemas.usher.so/market-data-source-forensics-ledger/v1"
 				},
-				"outcome": { "$ref": "#/$defs/tapeOutcome" },
-				"qualified": {},
-				"source_partition_complete": {}
-			},
-			"required": ["source_tape_eligible", "initializer", "outcome"],
-			"not": {
-				"anyOf": [
-					{ "properties": { "qualified": {} }, "required": ["qualified"] },
-					{
-						"properties": { "source_partition_complete": {} },
-						"required": ["source_partition_complete"]
-					}
-				]
+				"file_name": {
+					"type": "string",
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$"
+				},
+				"sha256": { "$ref": "#/$defs/sha256" },
+				"bytes": { "$ref": "#/$defs/uint" },
+				"retained_record_count": { "$ref": "#/$defs/uint" },
+				"total_record_count": { "$ref": "#/$defs/uint" },
+				"omitted_record_count": { "$ref": "#/$defs/uint" },
+				"complete": { "type": "boolean" },
+				"disposition_complete": { "type": "boolean" },
+				"fresh_target_count": { "$ref": "#/$defs/uint" },
+				"inactive_target_count": { "$ref": "#/$defs/uint" },
+				"disqualifying_target_count": { "$ref": "#/$defs/uint" },
+				"omitted_target_disposition_count": { "$ref": "#/$defs/uint" }
 			}
-		}
-	],
+		},
+		"source_reconstruction_accepted": { "type": "boolean" },
+		"qualified": { "type": "boolean" },
+		"derivation_eligible": { "type": "boolean" },
+		"candidate_c_source_enumeration_eligible": { "type": "boolean" }
+	},
 	"$defs": {
 		"sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
 		"uuid": {
@@ -106,289 +89,11 @@
 					"type": "string",
 					"pattern": "^[A-Z0-9]+-[A-Z0-9]+$"
 				},
-				"market_type": { "enum": ["spot", "swap", "future"] },
+				"market_type": {
+					"enum": ["spot", "linear_perpetual", "inverse_perpetual"]
+				},
 				"feed": { "const": "ORDERBOOK" }
 			}
-		},
-		"ledger": {
-			"type": "object",
-			"additionalProperties": false,
-			"required": [
-				"schema_id",
-				"file_name",
-				"sha256",
-				"bytes",
-				"retained_record_count",
-				"total_record_count",
-				"omitted_record_count",
-				"complete"
-			],
-			"properties": {
-				"schema_id": {
-					"const": "https://schemas.usher.so/market-data-source-forensics-ledger/v1"
-				},
-				"file_name": {
-					"type": "string",
-					"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$"
-				},
-				"sha256": { "$ref": "#/$defs/sha256" },
-				"bytes": { "$ref": "#/$defs/uint" },
-				"retained_record_count": { "$ref": "#/$defs/uint" },
-				"total_record_count": { "$ref": "#/$defs/uint" },
-				"omitted_record_count": { "$ref": "#/$defs/uint" },
-				"complete": { "type": "boolean" },
-				"disposition_complete": { "type": "boolean" },
-				"fresh_target_count": { "$ref": "#/$defs/uint" },
-				"inactive_target_count": { "$ref": "#/$defs/uint" },
-				"disqualifying_target_count": { "$ref": "#/$defs/uint" },
-				"omitted_target_disposition_count": { "$ref": "#/$defs/uint" },
-				"state_count": { "$ref": "#/$defs/uint" }
-			}
-		},
-		"clockLedger": {
-			"allOf": [
-				{ "$ref": "#/$defs/ledger" },
-				{
-					"type": "object",
-					"properties": {
-						"disposition_complete": {},
-						"fresh_target_count": {},
-						"inactive_target_count": {},
-						"disqualifying_target_count": {},
-						"omitted_target_disposition_count": {},
-						"state_count": {}
-					},
-					"required": [
-						"disposition_complete",
-						"fresh_target_count",
-						"inactive_target_count",
-						"disqualifying_target_count",
-						"omitted_target_disposition_count"
-					],
-					"not": {
-						"type": "object",
-						"properties": { "state_count": {} },
-						"required": ["state_count"]
-					}
-				}
-			]
-		},
-		"tapeLedger": {
-			"allOf": [
-				{ "$ref": "#/$defs/ledger" },
-				{
-					"type": "object",
-					"properties": {
-						"state_count": {},
-						"disposition_complete": {},
-						"fresh_target_count": {},
-						"inactive_target_count": {},
-						"disqualifying_target_count": {},
-						"omitted_target_disposition_count": {}
-					},
-					"required": ["state_count"],
-					"not": {
-						"type": "object",
-						"anyOf": [
-							{
-								"type": "object",
-								"properties": { "disposition_complete": {} },
-								"required": ["disposition_complete"]
-							},
-							{
-								"type": "object",
-								"properties": { "fresh_target_count": {} },
-								"required": ["fresh_target_count"]
-							},
-							{
-								"type": "object",
-								"properties": { "inactive_target_count": {} },
-								"required": ["inactive_target_count"]
-							},
-							{
-								"type": "object",
-								"properties": { "disqualifying_target_count": {} },
-								"required": ["disqualifying_target_count"]
-							},
-							{
-								"type": "object",
-								"properties": { "omitted_target_disposition_count": {} },
-								"required": ["omitted_target_disposition_count"]
-							}
-						]
-					}
-				}
-			]
-		},
-		"evidenceDescriptor": {
-			"type": "object",
-			"additionalProperties": false,
-			"required": ["kind", "file_name", "sha256", "bytes"],
-			"properties": {
-				"kind": {
-					"enum": [
-						"ledger",
-						"provider_inventory",
-						"selection",
-						"promotion_receipt",
-						"export_result"
-					]
-				},
-				"file_name": {
-					"type": "string",
-					"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$"
-				},
-				"sha256": { "$ref": "#/$defs/sha256" },
-				"bytes": { "$ref": "#/$defs/uint" }
-			}
-		},
-		"exportResultDescriptor": {
-			"type": "object",
-			"additionalProperties": false,
-			"required": [
-				"schema_id",
-				"file_name",
-				"sha256",
-				"bytes",
-				"result_sha256"
-			],
-			"properties": {
-				"schema_id": {
-					"const": "https://schemas.usher.so/cex-canonical-orderbook-export-result/v2"
-				},
-				"file_name": {
-					"type": "string",
-					"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$"
-				},
-				"sha256": { "$ref": "#/$defs/sha256" },
-				"bytes": { "$ref": "#/$defs/uint" },
-				"result_sha256": { "$ref": "#/$defs/sha256" }
-			}
-		},
-		"initializer": {
-			"type": "object",
-			"additionalProperties": false,
-			"required": [
-				"canonical_snapshot_id",
-				"source_time_ms",
-				"sequence",
-				"semantic_stream_position"
-			],
-			"properties": {
-				"canonical_snapshot_id": { "$ref": "#/$defs/sha256" },
-				"source_time_ms": { "$ref": "#/$defs/uint" },
-				"sequence": { "type": "string", "pattern": "^[0-9]+$" },
-				"semantic_stream_position": { "const": 0 }
-			}
-		},
-		"clockOutcome": {
-			"oneOf": [
-				{
-					"type": "object",
-					"additionalProperties": false,
-					"required": [
-						"status",
-						"reason",
-						"partial_evidence",
-						"exporter_result"
-					],
-					"properties": {
-						"status": { "const": "success" },
-						"reason": { "const": "required_clock_qualification_completed" },
-						"partial_evidence": {
-							"type": "array",
-							"items": { "$ref": "#/$defs/evidenceDescriptor" }
-						},
-						"exporter_result": { "type": "null" }
-					}
-				},
-				{
-					"type": "object",
-					"additionalProperties": false,
-					"required": [
-						"status",
-						"reason",
-						"partial_evidence",
-						"exporter_result"
-					],
-					"properties": {
-						"status": { "const": "failure" },
-						"reason": {
-							"enum": [
-								"required_clock_input_invalid",
-								"required_clock_capability_unsupported",
-								"required_clock_credentials_missing",
-								"required_clock_acquisition_failed",
-								"required_clock_reconstruction_failed",
-								"required_clock_classification_failed",
-								"required_clock_evidence_incomplete",
-								"required_clock_internal_failure"
-							]
-						},
-						"partial_evidence": {
-							"type": "array",
-							"items": { "$ref": "#/$defs/evidenceDescriptor" }
-						},
-						"exporter_result": { "type": "null" }
-					}
-				}
-			]
-		},
-		"tapeOutcome": {
-			"oneOf": [
-				{
-					"type": "object",
-					"additionalProperties": false,
-					"required": [
-						"status",
-						"reason",
-						"partial_evidence",
-						"exporter_result"
-					],
-					"properties": {
-						"status": { "const": "success" },
-						"reason": { "const": "source_tape_prepared" },
-						"partial_evidence": {
-							"type": "array",
-							"items": { "$ref": "#/$defs/evidenceDescriptor" }
-						},
-						"exporter_result": { "$ref": "#/$defs/exportResultDescriptor" }
-					}
-				},
-				{
-					"type": "object",
-					"additionalProperties": false,
-					"required": [
-						"status",
-						"reason",
-						"partial_evidence",
-						"exporter_result"
-					],
-					"properties": {
-						"status": { "const": "failure" },
-						"reason": {
-							"enum": [
-								"source_tape_input_invalid",
-								"source_tape_capability_unsupported",
-								"source_tape_credentials_missing",
-								"source_tape_acquisition_failed",
-								"source_tape_reconstruction_failed",
-								"source_tape_inventory_incomplete",
-								"source_tape_archive_failed",
-								"source_tape_promotion_failed",
-								"source_tape_selection_failed",
-								"source_tape_export_failed",
-								"source_tape_internal_failure"
-							]
-						},
-						"partial_evidence": {
-							"type": "array",
-							"items": { "$ref": "#/$defs/evidenceDescriptor" }
-						},
-						"exporter_result": { "type": "null" }
-					}
-				}
-			]
 		}
 	}
 }

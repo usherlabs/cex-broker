@@ -133,38 +133,6 @@ try {
 			"utf8",
 		),
 	);
-	const sourceTapeCapability = JSON.parse(
-		readFileSync(
-			path.join(
-				extracted,
-				"dist/market-data-preparation/policies/source-tape-capability-v1.json",
-			),
-			"utf8",
-		),
-	);
-	const preparationRuntimePath = path.join(
-		extracted,
-		"dist/market-data-preparation.js",
-	);
-	const preparationDeclarationPath = path.join(
-		extracted,
-		"dist/market-data-preparation.d.ts",
-	);
-	const preparationLibrary = {
-		exported_subpath: "@usherlabs/cex-broker/market-data-preparation",
-		runtime_entry_sha256: sha256(readFileSync(preparationRuntimePath)),
-		declaration_sha256: sha256(readFileSync(preparationDeclarationPath)),
-		operations: [
-			{
-				symbol: "runMarketDataSourceTape",
-				operation_id: "market-data-source-tape/v1",
-			},
-			{
-				symbol: "runMarketDataRequiredClockQualification",
-				operation_id: "market-data-required-clock-qualification/v1",
-			},
-		],
-	};
 	const executablePins = [
 		{
 			product_id: "market-data-vendor-backfill",
@@ -223,7 +191,6 @@ try {
 			candidate_tarball_sha256: tarballSha256,
 		},
 		executables: executablePins,
-		preparation_library: preparationLibrary,
 		schema_manifest: {
 			schema_id: manifest.schema_id,
 			manifest_sha256: manifest.manifest_sha256,
@@ -280,15 +247,10 @@ try {
 				policy_id: capabilityPolicy.policy_id,
 				policy_sha256: capabilityPolicy.policy_sha256,
 			},
-			source_tape_capability: {
-				policy_id: sourceTapeCapability.policy_id,
-				policy_sha256: sourceTapeCapability.policy_sha256,
-			},
 			resource_policy: {
 				policy_id: resourcePolicy.policy_id,
 				policy_sha256: resourcePolicy.policy_sha256,
 			},
-			preparation_library: preparationLibrary,
 		};
 		writeFileSync(
 			path.resolve(options.get("pin-out")),

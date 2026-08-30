@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { buildCryptoHftDataConformanceDocuments } from "../scripts/market-data-vendor-backfill-conformance";
+import { CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE } from "../src/helpers/candidate-c-input-tape";
+import {
+	promoteAndExportCandidateCInputTapeSandbox,
+	verifyCandidateCInputTapeArchive,
+} from "../src/helpers/candidate-c-input-tape-sandbox";
 import {
 	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_ID,
 	ORDER_BOOK_DEPTH_SUMMARY_PARQUET_PROJECTION_SCHEMA_SHA256,
@@ -10,17 +15,9 @@ import {
 	decodeBackfillRunDocuments,
 	finalizeArchiveSelection,
 } from "../src/helpers/market-data-vendor-backfill/contracts";
-import {
-	createSourceTapeArchiveSink,
-	SOURCE_TAPE_CONSTRUCTION_MODE,
-} from "../src/helpers/source-tape";
-import {
-	promoteAndExportSourceTapeSandbox,
-	verifySourceTapeArchive,
-} from "../src/helpers/source-tape-sandbox";
 
-describe("source-tape disposable sandbox archive path", () => {
-	test("verifies exact streamed semantics then uses normal receipt, qualification, selection, and exporter identities", async () => {
+describe("Candidate C disposable sandbox archive path", () => {
+	test("verifies candidate counts then uses normal receipt, qualification, selection, and exporter identities", async () => {
 		const base = decodeBackfillRunDocuments(
 			buildCryptoHftDataConformanceDocuments(
 				Date.UTC(2026, 7, 18, 9, 27, 15, 308),
@@ -30,55 +27,22 @@ describe("source-tape disposable sandbox archive path", () => {
 			...base,
 			depth: 100,
 			target: { environment: "sandbox", cluster: "cex-archive-local" },
-			constructionMode: SOURCE_TAPE_CONSTRUCTION_MODE,
+			constructionMode: CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE,
 		};
-		const forwardedRows: Array<{
-			table: string;
-			row: Record<string, unknown>;
-		}> = [];
-		const object = {
-			identity: "okx_spot/2026-08-18/09/ARB-USDT_orderbook.parquet.zst",
-			checksum: "c".repeat(64),
-			bytes: 1_000,
-			rows: 2,
+		const sinkResult = {
+			capture_bundle_id: "a".repeat(64),
+			state_count: 1,
+			level_row_count: 200,
+			summary_row_count: 1,
+			forwarder_batch_count: 2,
+			forwarder_batch_identity_sha256: "b".repeat(64),
+			provider_object_inventory_complete: true as const,
+			max_states_per_yield: 4 as const,
+			max_batch_rows: 1_000 as const,
+			max_batch_bytes: 5_242_880 as const,
+			max_in_flight_submissions: 1 as const,
 		};
-		const sink = createSourceTapeArchiveSink({
-			captureBundleId: "a".repeat(64),
-			tradingPair: "ARB-USDT",
-			window: request.window,
-			forwarder: {
-				async submit(batch) {
-					forwardedRows.push(...batch.rows);
-					return { ok: true, inserted: batch.rows.length };
-				},
-			},
-		});
-		await sink.writeBatch([
-			{
-				tapeState: "initialization",
-				targetTimeMs: request.window.startTimeMs - 1,
-				sourceTimeMs: request.window.startTimeMs - 1,
-				receivedTimeMs: request.window.startTimeMs - 1,
-				sequence: "1",
-				bids: [[1, 2]],
-				asks: [[2, 3]],
-				datasetObjectIdentity: object.identity,
-				datasetObjectChecksum: object.checksum,
-			},
-		]);
-		await sink.complete({
-			expectedObjectIdentities: [object.identity],
-			observedObjects: [object],
-			stateCount: 1,
-		});
-		const sinkResult = sink.result();
-		const levelRows = forwardedRows
-			.filter(({ table }) => table.endsWith("order_book_levels"))
-			.map(({ row }) => row);
-		const summaryRows = forwardedRows
-			.filter(({ table }) => table.endsWith("depth_summary"))
-			.map(({ row }) => row);
-		const verification = await verifySourceTapeArchive({
+		const verification = await verifyCandidateCInputTapeArchive({
 			request,
 			sinkResult,
 			client: {
@@ -89,23 +53,9 @@ describe("source-tape disposable sandbox archive path", () => {
 					if (sql.includes("replay_qualified")) {
 						return [{ qualified_rows: "0" }];
 					}
-					if (
-						sql.includes(
-							"FROM market_data.cex_order_book_depth_summary_canonical",
-						) &&
-						!sql.includes("AS summary_rows")
-					) {
-						return summaryRows;
-					}
-					if (
-						sql.includes("FROM market_data.cex_order_book_levels_canonical") &&
-						!sql.includes("AS level_rows")
-					) {
-						return levelRows;
-					}
 					return [
 						{
-							level_rows: String(levelRows.length),
+							level_rows: "200",
 							summary_rows: "1",
 							state_count: "1",
 						},
@@ -117,42 +67,23 @@ describe("source-tape disposable sandbox archive path", () => {
 			passed: true,
 			coverageVerified: true,
 		});
-		const countOnly = await verifySourceTapeArchive({
-			request,
-			sinkResult,
-			client: {
-				async query(sql) {
-					if (sql.includes("cex_order_book_levels_conflicts")) {
-						return [{ conflicts: "0" }];
-					}
-					if (sql.includes("replay_qualified")) {
-						return [{ qualified_rows: "0" }];
-					}
-					if (!sql.includes(" AS level_rows")) return [];
-					return [
-						{
-							level_rows: String(levelRows.length),
-							summary_rows: "1",
-							state_count: "1",
-						},
-					];
-				},
-			},
-		});
-		expect(countOnly).toMatchObject({
-			passed: false,
-			coverageVerified: false,
-		});
 
 		let receiptId = "";
 		let promotionIdentity = "";
 		let qualificationEventId = "";
 		let exportedConstructionMode = "";
-		const manifest = await promoteAndExportSourceTapeSandbox({
+		const manifest = await promoteAndExportCandidateCInputTapeSandbox({
 			request,
 			sinkResult,
 			verification,
-			datasetObjects: [object],
+			datasetObjects: [
+				{
+					identity: "okx_spot/2026-08-18/09/ARB-USDT_orderbook.parquet.zst",
+					checksum: "c".repeat(64),
+					bytes: 1_000,
+					rows: 2,
+				},
+			],
 			vendorSemanticDigest: "d".repeat(64),
 			verifiedAt: "2026-08-26T12:00:00.000Z",
 			forwarder: {
@@ -219,7 +150,7 @@ describe("source-tape disposable sandbox archive path", () => {
 						promotionReceiptIds: [receiptId],
 						levels: {
 							file_name: "order_book_levels.parquet",
-							rows: levelRows.length,
+							rows: 200,
 							bytes: 2_000,
 							sha256: "f".repeat(64),
 							projection_schema_id:
@@ -241,10 +172,12 @@ describe("source-tape disposable sandbox archive path", () => {
 				},
 			},
 		});
-		expect(exportedConstructionMode).toBe(SOURCE_TAPE_CONSTRUCTION_MODE);
+		expect(exportedConstructionMode).toBe(
+			CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE,
+		);
 		expect(manifest).toMatchObject({
 			archive_target: { environment: "sandbox", cluster: "cex-archive-local" },
-			construction_mode: SOURCE_TAPE_CONSTRUCTION_MODE,
+			construction_mode: CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE,
 			normal_archive_path: true,
 			promotion: { receipt_id: receiptId },
 			export: {

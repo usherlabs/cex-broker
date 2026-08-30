@@ -4,7 +4,7 @@ import {
 	MARKET_CAPTURE_SCHEMA_VERSION,
 	sha256Canonical,
 } from "./market-data-archive/capture-contract";
-import sourceTapeCapability from "./market-data-preparation/policies/source-tape-capability-v1.json" with {
+import candidateCInputTapeCapability from "./market-data-preparation/policies/candidate-c-input-tape-capability-v1.json" with {
 	type: "json",
 };
 import depthSummaryProjection from "./market-data-preparation/schemas/order-book-depth-summary-parquet-projection.schema.json" with {
@@ -24,40 +24,41 @@ import type {
 	ProviderObjectEvidence,
 } from "./market-data-vendor-backfill/contracts";
 import {
+	CANDIDATE_C_TAPE_MAX_BATCH_BYTES,
+	CANDIDATE_C_TAPE_MAX_IN_FLIGHT,
+	CANDIDATE_C_TAPE_MAX_STATES_PER_YIELD,
 	type PolicyNeutralCryptoHftBookState,
 	type PolicyNeutralTapeSink,
-	SOURCE_TAPE_MAX_BATCH_BYTES as RECONSTRUCTOR_SOURCE_TAPE_MAX_BATCH_BYTES,
-	SOURCE_TAPE_MAX_IN_FLIGHT as RECONSTRUCTOR_SOURCE_TAPE_MAX_IN_FLIGHT,
-	SOURCE_TAPE_MAX_STATES_PER_YIELD as RECONSTRUCTOR_SOURCE_TAPE_MAX_STATES_PER_YIELD,
 } from "./market-data-vendor-backfill/cryptohftdata";
 import {
 	assertDocumentSha256,
-	jcsCanonicalize,
 	jcsSha256,
 } from "./market-data-vendor-backfill/identity";
-import { semanticDigest } from "./market-data-vendor-backfill/semantic-verification";
 
-assertDocumentSha256(sourceTapeCapability, "policy_sha256");
+assertDocumentSha256(candidateCInputTapeCapability, "policy_sha256");
 
-export const SOURCE_TAPE_CAPABILITY = Object.freeze(sourceTapeCapability);
-export const SOURCE_TAPE_CAPABILITY_ID = SOURCE_TAPE_CAPABILITY.policy_id;
-export const SOURCE_TAPE_CONSTRUCTION_MODE =
+export const CANDIDATE_C_INPUT_TAPE_CAPABILITY = Object.freeze(
+	candidateCInputTapeCapability,
+);
+export const CANDIDATE_C_INPUT_TAPE_CAPABILITY_ID =
+	CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_id;
+export const CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE =
 	"policy_neutral_top_n_state_change_tape/v1" as const;
-export const SOURCE_TAPE_DEPTH = 100 as const;
-export const SOURCE_TAPE_MAX_STATES_PER_YIELD =
-	RECONSTRUCTOR_SOURCE_TAPE_MAX_STATES_PER_YIELD;
-export const SOURCE_TAPE_MAX_BATCH_ROWS = BACKFILL_MAX_BATCH_ROWS;
-export const SOURCE_TAPE_MAX_BATCH_BYTES = BACKFILL_MAX_BATCH_BYTES;
-export const SOURCE_TAPE_MAX_IN_FLIGHT =
-	RECONSTRUCTOR_SOURCE_TAPE_MAX_IN_FLIGHT;
-if (RECONSTRUCTOR_SOURCE_TAPE_MAX_BATCH_BYTES !== BACKFILL_MAX_BATCH_BYTES) {
-	throw new Error("source tape and forwarder byte bounds differ");
+export const CANDIDATE_C_INPUT_TAPE_DEPTH = 100 as const;
+export const CANDIDATE_C_INPUT_TAPE_MAX_STATES_PER_YIELD =
+	CANDIDATE_C_TAPE_MAX_STATES_PER_YIELD;
+export const CANDIDATE_C_INPUT_TAPE_MAX_BATCH_ROWS = BACKFILL_MAX_BATCH_ROWS;
+export const CANDIDATE_C_INPUT_TAPE_MAX_BATCH_BYTES = BACKFILL_MAX_BATCH_BYTES;
+export const CANDIDATE_C_INPUT_TAPE_MAX_IN_FLIGHT =
+	CANDIDATE_C_TAPE_MAX_IN_FLIGHT;
+if (CANDIDATE_C_TAPE_MAX_BATCH_BYTES !== BACKFILL_MAX_BATCH_BYTES) {
+	throw new Error("Candidate C tape and forwarder byte bounds differ");
 }
-export const SOURCE_TAPE_SANDBOX_TARGET = Object.freeze({
+export const CANDIDATE_C_INPUT_TAPE_SANDBOX_TARGET = Object.freeze({
 	environment: "sandbox",
 	cluster: "cex-archive-local",
 });
-export const SOURCE_TAPE_PROJECTION_PINS = Object.freeze([
+export const CANDIDATE_C_INPUT_TAPE_PROJECTION_PINS = Object.freeze([
 	Object.freeze({
 		schema_id: levelsProjection.$id,
 		schema_sha256: jcsSha256(levelsProjection),
@@ -68,20 +69,20 @@ export const SOURCE_TAPE_PROJECTION_PINS = Object.freeze([
 	}),
 ]);
 
-export type SourceTapeProviderObjectInventory = {
+export type CandidateCProviderObjectInventory = {
 	expected_identities: string[];
 	observed_identities: string[];
 	complete: boolean;
 };
 
-export function sourceTapeCaptureBundleId(input: {
+export function candidateCInputTapeCaptureBundleId(input: {
 	idempotencyKey: string;
 	tradingPair: "ARB-USDC" | "ARB-USDT";
 	window: { startTimeMs: number; endTimeMs: number };
 	expectedObjectIdentities: readonly string[];
 }): string {
 	if (!/^[a-f0-9]{64}$/u.test(input.idempotencyKey)) {
-		throw new Error("source_tape_idempotency_key_invalid");
+		throw new Error("candidate_c_input_tape_idempotency_key_invalid");
 	}
 	const identities = [...input.expectedObjectIdentities];
 	if (
@@ -89,25 +90,25 @@ export function sourceTapeCaptureBundleId(input: {
 		new Set(identities).size !== identities.length ||
 		JSON.stringify(identities) !== JSON.stringify([...identities].sort())
 	) {
-		throw new Error("source_tape_expected_inventory_invalid");
+		throw new Error("candidate_c_input_tape_expected_inventory_invalid");
 	}
 	return sha256Canonical({
-		identity: "market-data-source-tape-capture-bundle/v1",
-		capability_policy_sha256: SOURCE_TAPE_CAPABILITY.policy_sha256,
+		identity: "candidate-c-input-tape-capture-bundle/v1",
+		capability_policy_sha256: CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_sha256,
 		idempotency_key: input.idempotencyKey,
 		trading_pair: input.tradingPair,
 		window: input.window,
 		expected_object_identities: identities,
-		construction_mode: SOURCE_TAPE_CONSTRUCTION_MODE,
-		depth: SOURCE_TAPE_DEPTH,
+		construction_mode: CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE,
+		depth: CANDIDATE_C_INPUT_TAPE_DEPTH,
 	});
 }
 
 /**
  * `production` is the stable forwarder mutation-authorization class. It is not
- * an environment assertion: source-tape qualification remains sandbox-local.
+ * an environment assertion: Candidate C qualification remains sandbox-local.
  */
-export function assertSourceTapeSandboxAuthorization(input: {
+export function assertCandidateCInputTapeSandboxAuthorization(input: {
 	requestAuthorizationId: string;
 	requestTarget: { environment: string; cluster: string };
 	preflight: {
@@ -120,10 +121,11 @@ export function assertSourceTapeSandboxAuthorization(input: {
 }): void {
 	if (
 		input.requestTarget.environment !==
-			SOURCE_TAPE_SANDBOX_TARGET.environment ||
-		input.requestTarget.cluster !== SOURCE_TAPE_SANDBOX_TARGET.cluster
+			CANDIDATE_C_INPUT_TAPE_SANDBOX_TARGET.environment ||
+		input.requestTarget.cluster !==
+			CANDIDATE_C_INPUT_TAPE_SANDBOX_TARGET.cluster
 	) {
-		throw new Error("source_tape_sandbox_target_mismatch");
+		throw new Error("candidate_c_input_tape_sandbox_target_mismatch");
 	}
 	if (
 		input.preflight.authorizationId !== input.requestAuthorizationId ||
@@ -132,127 +134,50 @@ export function assertSourceTapeSandboxAuthorization(input: {
 		input.preflight.cluster !== input.requestTarget.cluster ||
 		input.preflight.credentialValidated !== true
 	) {
-		throw new Error("source_tape_authorization_mismatch");
+		throw new Error("candidate_c_input_tape_authorization_mismatch");
 	}
 }
 
-export type SourceTapeArchiveSinkResult = {
+export type CandidateCInputTapeArchiveSinkResult = {
 	capture_bundle_id: string;
 	state_count: number;
 	level_row_count: number;
 	summary_row_count: number;
 	forwarder_batch_count: number;
 	forwarder_batch_identity_sha256: string;
-	initializer: {
-		canonical_snapshot_id: string;
-		source_time_ms: number;
-		sequence: string;
-		semantic_stream_position: 0;
-	};
-	expected_semantic_digest: string;
-	first_state_descriptor_sha256: string;
-	last_state_descriptor_sha256: string;
 	provider_object_inventory_complete: true;
-	max_states_per_yield: typeof SOURCE_TAPE_MAX_STATES_PER_YIELD;
-	max_batch_rows: typeof SOURCE_TAPE_MAX_BATCH_ROWS;
-	max_batch_bytes: typeof SOURCE_TAPE_MAX_BATCH_BYTES;
-	max_in_flight_submissions: typeof SOURCE_TAPE_MAX_IN_FLIGHT;
+	max_states_per_yield: typeof CANDIDATE_C_INPUT_TAPE_MAX_STATES_PER_YIELD;
+	max_batch_rows: typeof CANDIDATE_C_INPUT_TAPE_MAX_BATCH_ROWS;
+	max_batch_bytes: typeof CANDIDATE_C_INPUT_TAPE_MAX_BATCH_BYTES;
+	max_in_flight_submissions: typeof CANDIDATE_C_INPUT_TAPE_MAX_IN_FLIGHT;
 };
 
-export type SourceTapeSemanticStateDescriptor = {
-	state_kind: "initialization" | "change";
-	semantic_stream_position: number;
-	canonical_snapshot_id: string;
-	source_time_ms: number;
-	sequence: string;
-	canonical_rows_sha256: string;
-};
-
-const SOURCE_TAPE_SEMANTIC_DIGEST_DOMAIN =
-	"market-data-source-tape-semantic-stream/v1";
-
-export class SourceTapeSemanticDigestAccumulator {
-	private readonly hash: Hash;
-	private count = 0;
-
-	constructor() {
-		this.hash = createHash("sha256");
-		this.hash.update(`${SOURCE_TAPE_SEMANTIC_DIGEST_DOMAIN}\n`);
-	}
-
-	append(descriptor: SourceTapeSemanticStateDescriptor): void {
-		if (descriptor.semantic_stream_position !== this.count) {
-			throw new Error("source_tape_semantic_position_invalid");
-		}
-		this.hash.update(`${jcsCanonicalize(descriptor)}\n`);
-		this.count += 1;
-	}
-
-	digest(): string {
-		return this.hash.digest("hex");
-	}
-}
-
-export function sourceTapeSemanticStateDescriptor(input: {
-	stateKind: "initialization" | "change";
-	semanticStreamPosition: number;
-	rows: readonly BackfillArchiveRow[];
-}): SourceTapeSemanticStateDescriptor {
-	const summary = input.rows.filter(
-		({ table }) => table === "market_data.cex_order_book_depth_summary",
-	);
-	if (summary.length !== 1) {
-		throw new Error("source_tape_semantic_summary_invalid");
-	}
-	const row = summary[0]?.row;
-	const snapshotId = row?.snapshot_id;
-	const sourceTimeMs = Number(row?.source_time_ms);
-	const sequence = String(row?.sequence ?? "");
-	if (
-		typeof snapshotId !== "string" ||
-		!/^[a-f0-9]{64}$/u.test(snapshotId) ||
-		!Number.isSafeInteger(sourceTimeMs) ||
-		sourceTimeMs < 0 ||
-		!/^\d+$/u.test(sequence)
-	) {
-		throw new Error("source_tape_semantic_summary_invalid");
-	}
-	return {
-		state_kind: input.stateKind,
-		semantic_stream_position: input.semanticStreamPosition,
-		canonical_snapshot_id: snapshotId,
-		source_time_ms: sourceTimeMs,
-		sequence,
-		canonical_rows_sha256: semanticDigest(input.rows),
-	};
-}
-
-export type SourceTapeArchiveSink = PolicyNeutralTapeSink & {
-	result(): SourceTapeArchiveSinkResult;
+export type CandidateCInputTapeArchiveSink = PolicyNeutralTapeSink & {
+	result(): CandidateCInputTapeArchiveSinkResult;
 };
 
 /**
- * Streams canonical tape rows to the existing archive-forwarder admission
+ * Streams canonical tape rows to the existing archive-forwarder candidate
  * tables. Promotion, selection and exporter-v2 finalization remain later
  * gates; this sink never creates a receipt or a success manifest by itself.
  */
-export function createSourceTapeArchiveSink(input: {
+export function createCandidateCInputTapeArchiveSink(input: {
 	captureBundleId: string;
 	tradingPair: "ARB-USDC" | "ARB-USDT";
 	window: { startTimeMs: number; endTimeMs: number };
 	forwarder: {
 		submit(batch: ForwarderBatch): Promise<{ ok: boolean; inserted: number }>;
 	};
-}): SourceTapeArchiveSink {
+}): CandidateCInputTapeArchiveSink {
 	if (!/^[a-f0-9]{64}$/u.test(input.captureBundleId)) {
-		throw new Error("source_tape_capture_bundle_invalid");
+		throw new Error("candidate_c_input_tape_capture_bundle_invalid");
 	}
 	if (
 		!Number.isSafeInteger(input.window.startTimeMs) ||
 		!Number.isSafeInteger(input.window.endTimeMs) ||
 		input.window.endTimeMs <= input.window.startTimeMs
 	) {
-		throw new Error("source_tape_window_invalid");
+		throw new Error("candidate_c_input_tape_window_invalid");
 	}
 	let stateCount = 0;
 	let initializationCount = 0;
@@ -261,75 +186,46 @@ export function createSourceTapeArchiveSink(input: {
 	let lastSourceTimeMs = Number.NEGATIVE_INFINITY;
 	let completed = false;
 	let aborted = false;
-	let initializer: SourceTapeArchiveSinkResult["initializer"] | undefined;
 	const batchIds: string[] = [];
-	const semanticDigestAccumulator = new SourceTapeSemanticDigestAccumulator();
-	let firstStateDescriptorSha256: string | undefined;
-	let lastStateDescriptorSha256: string | undefined;
-	let resultValue: SourceTapeArchiveSinkResult | undefined;
+	let resultValue: CandidateCInputTapeArchiveSinkResult | undefined;
 
 	return {
 		async writeBatch(states) {
 			if (completed || aborted) {
-				throw new Error("source_tape_sink_closed");
+				throw new Error("candidate_c_input_tape_sink_closed");
 			}
 			if (
 				states.length === 0 ||
-				states.length > SOURCE_TAPE_MAX_STATES_PER_YIELD
+				states.length > CANDIDATE_C_INPUT_TAPE_MAX_STATES_PER_YIELD
 			) {
-				throw new Error("source_tape_state_batch_invalid");
+				throw new Error("candidate_c_input_tape_state_batch_invalid");
 			}
 			for (const state of states) {
 				if (state.sourceTimeMs < lastSourceTimeMs) {
-					throw new Error("source_tape_state_order_invalid");
+					throw new Error("candidate_c_input_tape_state_order_invalid");
 				}
 				if (state.sourceTimeMs >= input.window.endTimeMs) {
-					throw new Error("source_tape_end_boundary_invalid");
+					throw new Error("candidate_c_input_tape_end_boundary_invalid");
 				}
 				if (state.tapeState === "initialization") {
 					initializationCount += 1;
 					if (stateCount !== 0 || initializationCount !== 1) {
-						throw new Error("source_tape_initialization_invalid");
+						throw new Error("candidate_c_input_tape_initialization_invalid");
 					}
 				} else if (
 					initializationCount !== 1 ||
 					state.sourceTimeMs < input.window.startTimeMs
 				) {
-					throw new Error("source_tape_change_boundary_invalid");
+					throw new Error("candidate_c_input_tape_change_boundary_invalid");
 				}
 				lastSourceTimeMs = state.sourceTimeMs;
 				stateCount += 1;
 			}
-			const rows = normalizeSourceTapeStates({
+			const rows = normalizeCandidateCInputTapeStates({
 				tape: states,
 				capture_bundle_id: input.captureBundleId,
 				trading_pair: input.tradingPair,
 			});
-			for (const state of states) {
-				const stateRows = rows.filter(
-					({ row }) =>
-						Number(row.source_time_ms) === state.sourceTimeMs &&
-						String(row.sequence) === state.sequence,
-				);
-				const descriptor = sourceTapeSemanticStateDescriptor({
-					stateKind: state.tapeState,
-					semanticStreamPosition:
-						stateCount - states.length + states.indexOf(state),
-					rows: stateRows,
-				});
-				semanticDigestAccumulator.append(descriptor);
-				const descriptorSha256 = jcsSha256(descriptor);
-				firstStateDescriptorSha256 ??= descriptorSha256;
-				lastStateDescriptorSha256 = descriptorSha256;
-				if (state.tapeState === "initialization") {
-					initializer = {
-						canonical_snapshot_id: descriptor.canonical_snapshot_id,
-						source_time_ms: descriptor.source_time_ms,
-						sequence: descriptor.sequence,
-						semantic_stream_position: 0,
-					};
-				}
-			}
 			for (const row of rows) {
 				if (row.table === "market_data.cex_order_book_levels") {
 					levelRowCount += 1;
@@ -339,32 +235,25 @@ export function createSourceTapeArchiveSink(input: {
 			}
 			const batches = buildForwarderBatches({
 				captureBundleId: input.captureBundleId,
-				deploymentId: "cex-okx-source-tape",
+				deploymentId: "candidate-c-okx-input-tape",
 				rows,
-				maxRows: SOURCE_TAPE_MAX_BATCH_ROWS,
-				maxBytes: SOURCE_TAPE_MAX_BATCH_BYTES,
+				maxRows: CANDIDATE_C_INPUT_TAPE_MAX_BATCH_ROWS,
+				maxBytes: CANDIDATE_C_INPUT_TAPE_MAX_BATCH_BYTES,
 			});
 			for (const batch of batches) {
 				const response = await input.forwarder.submit(batch);
 				if (!response.ok || response.inserted !== batch.rows.length) {
-					throw new Error("source_tape_forwarder_rejected");
+					throw new Error("candidate_c_input_tape_forwarder_rejected");
 				}
 				batchIds.push(batch.batch_id);
 			}
 		},
 		async complete(completion) {
-			if (
-				completed ||
-				aborted ||
-				initializationCount !== 1 ||
-				!initializer ||
-				!firstStateDescriptorSha256 ||
-				!lastStateDescriptorSha256
-			) {
-				throw new Error("source_tape_completion_invalid");
+			if (completed || aborted || initializationCount !== 1) {
+				throw new Error("candidate_c_input_tape_completion_invalid");
 			}
 			if (completion.stateCount !== stateCount) {
-				throw new Error("source_tape_state_count_mismatch");
+				throw new Error("candidate_c_input_tape_state_count_mismatch");
 			}
 			const inventory = {
 				expected_identities: [...completion.expectedObjectIdentities],
@@ -374,7 +263,7 @@ export function createSourceTapeArchiveSink(input: {
 				complete: true,
 			};
 			if (!providerObjectInventoryIsComplete(inventory)) {
-				throw new Error("source_tape_inventory_incomplete");
+				throw new Error("candidate_c_input_tape_inventory_incomplete");
 			}
 			completed = true;
 			resultValue = {
@@ -384,15 +273,11 @@ export function createSourceTapeArchiveSink(input: {
 				summary_row_count: summaryRowCount,
 				forwarder_batch_count: batchIds.length,
 				forwarder_batch_identity_sha256: sha256Canonical(batchIds),
-				initializer,
-				expected_semantic_digest: semanticDigestAccumulator.digest(),
-				first_state_descriptor_sha256: firstStateDescriptorSha256,
-				last_state_descriptor_sha256: lastStateDescriptorSha256,
 				provider_object_inventory_complete: true,
-				max_states_per_yield: SOURCE_TAPE_MAX_STATES_PER_YIELD,
-				max_batch_rows: SOURCE_TAPE_MAX_BATCH_ROWS,
-				max_batch_bytes: SOURCE_TAPE_MAX_BATCH_BYTES,
-				max_in_flight_submissions: SOURCE_TAPE_MAX_IN_FLIGHT,
+				max_states_per_yield: CANDIDATE_C_INPUT_TAPE_MAX_STATES_PER_YIELD,
+				max_batch_rows: CANDIDATE_C_INPUT_TAPE_MAX_BATCH_ROWS,
+				max_batch_bytes: CANDIDATE_C_INPUT_TAPE_MAX_BATCH_BYTES,
+				max_in_flight_submissions: CANDIDATE_C_INPUT_TAPE_MAX_IN_FLIGHT,
 			};
 		},
 		async abort() {
@@ -401,7 +286,7 @@ export function createSourceTapeArchiveSink(input: {
 		},
 		result() {
 			if (!completed || !resultValue || aborted) {
-				throw new Error("source_tape_result_unavailable");
+				throw new Error("candidate_c_input_tape_result_unavailable");
 			}
 			return resultValue;
 		},
@@ -409,7 +294,7 @@ export function createSourceTapeArchiveSink(input: {
 }
 
 export function providerObjectInventoryIsComplete(
-	inventory: SourceTapeProviderObjectInventory,
+	inventory: CandidateCProviderObjectInventory,
 ): boolean {
 	const expected = [...inventory.expected_identities].sort();
 	const observed = [...inventory.observed_identities].sort();
@@ -421,9 +306,10 @@ export function providerObjectInventoryIsComplete(
 	);
 }
 
-export function evaluateSourceTapeEligibility(input: {
+export function evaluateCandidateCInputTapeEligibility(input: {
+	bootstrap_qualified: boolean;
 	source_enumeration_eligible: boolean;
-	provider_object_inventory: SourceTapeProviderObjectInventory;
+	provider_object_inventory: CandidateCProviderObjectInventory;
 	tape_complete: boolean;
 	capability_id: string;
 	capability_sha256: string;
@@ -435,19 +321,21 @@ export function evaluateSourceTapeEligibility(input: {
 	artifact_sha256s: readonly string[];
 	tape_manifest_sha256: string;
 }): boolean {
-	const expectedProjectionPins = [...SOURCE_TAPE_PROJECTION_PINS]
+	const expectedProjectionPins = [...CANDIDATE_C_INPUT_TAPE_PROJECTION_PINS]
 		.map(({ schema_id, schema_sha256 }) => `${schema_id}:${schema_sha256}`)
 		.sort();
 	const actualProjectionPins = input.projection_schema_pins
 		.map(({ schema_id, schema_sha256 }) => `${schema_id}:${schema_sha256}`)
 		.sort();
 	return (
+		input.bootstrap_qualified &&
 		input.source_enumeration_eligible &&
 		providerObjectInventoryIsComplete(input.provider_object_inventory) &&
 		input.tape_complete &&
-		input.capability_id === SOURCE_TAPE_CAPABILITY_ID &&
-		input.capability_sha256 === SOURCE_TAPE_CAPABILITY.policy_sha256 &&
-		input.construction_mode === SOURCE_TAPE_CONSTRUCTION_MODE &&
+		input.capability_id === CANDIDATE_C_INPUT_TAPE_CAPABILITY_ID &&
+		input.capability_sha256 ===
+			CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_sha256 &&
+		input.construction_mode === CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE &&
 		JSON.stringify(actualProjectionPins) ===
 			JSON.stringify(expectedProjectionPins) &&
 		input.artifact_sha256s.length === 2 &&
@@ -457,17 +345,19 @@ export function evaluateSourceTapeEligibility(input: {
 	);
 }
 
-export function normalizeSourceTapeStates(input: {
+export function normalizeCandidateCInputTapeStates(input: {
 	tape: readonly PolicyNeutralCryptoHftBookState[];
 	capture_bundle_id: string;
 	trading_pair: "ARB-USDC" | "ARB-USDT";
 }): BackfillArchiveRow[] {
 	if (!/^[a-f0-9]{64}$/u.test(input.capture_bundle_id)) {
-		throw new Error("source tape capture bundle identity is invalid");
+		throw new Error(
+			"Candidate C input-tape capture bundle identity is invalid",
+		);
 	}
 	return input.tape.flatMap((state) => {
 		const rawCaptureId = sha256Canonical({
-			capability_policy_sha256: SOURCE_TAPE_CAPABILITY.policy_sha256,
+			capability_policy_sha256: CANDIDATE_C_INPUT_TAPE_CAPABILITY.policy_sha256,
 			capture_bundle_id: input.capture_bundle_id,
 			dataset_object_identity: state.datasetObjectIdentity,
 			dataset_object_checksum: state.datasetObjectChecksum,
@@ -478,7 +368,7 @@ export function normalizeSourceTapeStates(input: {
 		const canonical = buildCanonicalOrderBookRows({
 			context: {
 				source: "external_backfill",
-				deploymentId: "cex-okx-source-tape",
+				deploymentId: "candidate-c-okx-input-tape",
 				captureBundleId: input.capture_bundle_id,
 				exchange: "okx",
 				symbol: input.trading_pair,
@@ -504,8 +394,8 @@ export function normalizeSourceTapeStates(input: {
 				receivedTimeMs: state.receivedTimeMs,
 				checksumAlgorithm: CHECKSUM_ALGORITHM,
 			},
-			depthLimit: SOURCE_TAPE_DEPTH,
-			constructionMode: SOURCE_TAPE_CONSTRUCTION_MODE,
+			depthLimit: CANDIDATE_C_INPUT_TAPE_DEPTH,
+			constructionMode: CANDIDATE_C_INPUT_TAPE_CONSTRUCTION_MODE,
 			snapshot: {
 				bids: state.bids,
 				asks: state.asks,
@@ -513,7 +403,7 @@ export function normalizeSourceTapeStates(input: {
 				receivedTimestamp: state.receivedTimeMs,
 				exchange: "okx",
 				symbol: input.trading_pair,
-				depthLimit: SOURCE_TAPE_DEPTH,
+				depthLimit: CANDIDATE_C_INPUT_TAPE_DEPTH,
 				sequence: state.sequence,
 			},
 		});
@@ -522,11 +412,9 @@ export function normalizeSourceTapeStates(input: {
 				entry.table !== "market_data.cex_order_book_levels" &&
 				entry.table !== "market_data.cex_order_book_depth_summary"
 			) {
-				throw new Error("source tape archive table is invalid");
+				throw new Error("Candidate C input-tape archive table is invalid");
 			}
 			return { table: entry.table, row: entry.row };
 		});
 	});
 }
-
-import { createHash, type Hash } from "node:crypto";

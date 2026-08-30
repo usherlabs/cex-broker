@@ -14,38 +14,6 @@ OpenSpec implementation. This is pre-freeze engineering evidence only.
 > may be reserved until the reopened role-neutral boundary and pre-freeze
 > conformance tasks are complete.
 
-## Role-neutral post-amendment verification
-
-The superseding deterministic run was completed on `2026-08-26` from base
-commit `4fec8b8f653c1d3e5f36fc8866d7a4fc4cb1d5c8` plus the current uncommitted
-OpenSpec implementation:
-
-- `bun test --max-concurrency 1 test`: 982 passed, 0 failed, 3,045
-  expectations across 103 files;
-- focused operation/forensics/tape suite: 69 passed, 0 failed, 189
-  expectations;
-- TypeScript, build, Node package import/construction, all changed-file Biome
-  checks, `git diff --check`, and strict OpenSpec validation: passed;
-- clean tarball extraction imported and invoked both role-neutral operations
-  without a sibling checkout or credential and observed durable terminal
-  qualification records;
-- the unpacked package retained exactly two preparation executables, twelve
-  schemas, one role-neutral source-tape capability, and the exact two-symbol
-  preparation-library ABI;
-- independent Python verification reproduced the role-neutral operation
-  fixture, policy, schema, result, and product-pin identities; and
-- a credential-free disposable runtime smoke resolved the pinned ClickHouse
-  image digest, reported `24.8.14.39`, initialized the sandbox archive,
-  completed exact authorization preflight, and cleaned up.
-
-The diagnostic local package remains `0.2.50`; its current tarball SHA-256 is
-`5b8fef3ca0329843f756c89e15137ec441d941dd5110d6187224455563c4fda9`.
-It is not a reserved successor version or registry product. The licensed
-provider smoke was deliberately not enabled, and no live provider bytes,
-publication, or Maker acceptance are claimed. Repository-wide Biome still
-reports unrelated pre-existing unused-variable diagnostics outside the change;
-every changed and newly added TypeScript/JSON file passes.
-
 ## Repository and contract gates
 
 - Bun `1.3.12`; Node `v22.22.2`.

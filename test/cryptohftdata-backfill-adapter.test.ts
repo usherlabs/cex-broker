@@ -3,6 +3,7 @@ import { zstdCompressSync } from "node:zlib";
 import { parquetWriteBuffer } from "hyparquet-writer";
 import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 import {
+	CANDIDATE_C_TAPE_MAX_STATES_PER_YIELD,
 	CRYPTOHFTDATA_BINANCE_SPOT_BTCUSDT_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDC_PROFILE,
 	CRYPTOHFTDATA_OKX_SPOT_ARBUSDT_PROFILE,
@@ -13,7 +14,6 @@ import {
 	enumerateCryptoHftDataObjects,
 	enumerateCryptoHftDataWindowObjects,
 	providerAcquisitionRequest,
-	SOURCE_TAPE_MAX_STATES_PER_YIELD,
 } from "../src/helpers/market-data-vendor-backfill/cryptohftdata";
 import { validBackfillRequest } from "./market-data-vendor-backfill-contract.test";
 
@@ -377,7 +377,7 @@ describe("CryptoHFTData capability and acquisition", () => {
 				async writeBatch(states) {
 					tapeBatches.push(states.length);
 					expect(states.length).toBeLessThanOrEqual(
-						SOURCE_TAPE_MAX_STATES_PER_YIELD,
+						CANDIDATE_C_TAPE_MAX_STATES_PER_YIELD,
 					);
 					if (!firstBatchObserved) {
 						firstBatchObserved = true;
@@ -452,104 +452,6 @@ describe("CryptoHFTData capability and acquisition", () => {
 			"c".repeat(64),
 		);
 		expect(normalized.rows).toHaveLength(6);
-	});
-
-	test("yields after four reconstructed states before applying a fifth group", async () => {
-		const firstHour = Date.UTC(2026, 7, 18, 9);
-		const request = validBackfillRequest({
-			providerPolicy: {
-				provider: "cryptohftdata",
-				allowedAdapterVersions: ["cryptohftdata-orderbook/v2"],
-			},
-			scope: {
-				exchange: "okx",
-				tradingPair: "ARB-USDT",
-				sourceSymbol: "ARB-USDT",
-				marketType: "spot",
-				feed: "ORDERBOOK",
-			},
-			window: { startTimeMs: firstHour, endTimeMs: firstHour + 3_600_000 },
-			requiredClockTargetsMs: [firstHour + 30 * 60_000],
-			maxPriorAsOfLagMs: 5_000,
-			depth: 100,
-			sourcePolicy: "authoritative_window",
-			budgets: {
-				...validBackfillRequest().budgets,
-				maxFiles: 1,
-				maxBoundaryLookbackMs: 0,
-			},
-		});
-		let releaseFirstBatch = () => {};
-		const firstBatchAccepted = new Promise<void>((resolve) => {
-			releaseFirstBatch = resolve;
-		});
-		let firstBatchObserved = false;
-		let laterGapObserved = false;
-		const adapter = new CryptoHftDataAdapter({
-			profiles: provenProfiles,
-			observer: {
-				observe(observation) {
-					if (observation.type === "sequence_discontinuity") {
-						laterGapObserved = true;
-					}
-				},
-			},
-			policyNeutralTapeSink: {
-				async writeBatch(states) {
-					expect(states.map(({ sequence }) => sequence)).toEqual([
-						"200",
-						"201",
-						"202",
-						"203",
-					]);
-					firstBatchObserved = true;
-					await firstBatchAccepted;
-				},
-				async complete() {},
-				async abort() {},
-			},
-			fetch: async (input) =>
-				String(input).endsWith("/jwt-token")
-					? Response.json({ jwt_token: "jwt" })
-					: new Response(new Uint8Array([1])),
-			decode: async () => {
-				const event = (
-					eventTimeMs: number,
-					sequence: string,
-					previous: string,
-					eventType: "snapshot" | "update",
-				) =>
-					(["bid", "ask"] as const).map((side) => ({
-						received_time: String(BigInt(eventTimeMs + 1) * 1_000_000n),
-						event_time: String(eventTimeMs),
-						symbol: "ARB-USDT",
-						event_type: eventType,
-						first_update_id: null,
-						final_update_id: sequence,
-						prev_final_update_id: null,
-						last_update_id: previous,
-						side,
-						price: side === "bid" ? "99" : "101",
-						quantity: sequence,
-					}));
-				return [
-					...event(firstHour, "200", "-1", "snapshot"),
-					...event(firstHour + 1_000, "201", "200", "update"),
-					...event(firstHour + 2_000, "202", "201", "update"),
-					...event(firstHour + 3_000, "203", "202", "update"),
-					...event(firstHour + 4_000, "205", "999", "update"),
-				];
-			},
-		});
-		const acquisition = adapter.acquire(request, capability(request), {
-			apiKey: "secret",
-		});
-		while (!firstBatchObserved) await Bun.sleep(1);
-		expect(laterGapObserved).toBe(false);
-		releaseFirstBatch();
-		await expect(acquisition).rejects.toMatchObject({
-			reason: "update_chain_gap",
-		});
 	});
 
 	test("fails before fetching when the enumerated object count exceeds budget", async () => {
