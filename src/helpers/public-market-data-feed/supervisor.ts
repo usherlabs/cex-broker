@@ -19,6 +19,8 @@ import {
 	createOhlcvBarTracker,
 	createOrderbookSampler,
 	getOrderbookArchiveDepthLimit,
+	getOrderbookIntervalMs,
+	getOrderbookMeasurementBandsBps,
 	type OhlcvArchiveInput,
 	type OhlcvBarTracker,
 	type OrderbookArchiveInput,
@@ -374,8 +376,30 @@ class PublicFeedWorker {
 				depthLimit: retainedDepth,
 				receivedTimestamp,
 			});
+			const observedBidCount = snapshot.bids.length;
+			const observedAskCount = snapshot.asks.length;
 			this.options.archiveSink.orderbook(
-				{ ...context, snapshot },
+				{
+					...context,
+					snapshot,
+					archiveMetadata: {
+						captureProfileId:
+							this.options.profile?.id ??
+							`${this.options.exchangeName}:conservative:default`,
+						effectiveCadenceMs: getOrderbookIntervalMs(),
+						requestedUpstreamDepth:
+							this.options.profile?.upstreamLimit ?? null,
+						observedBidCount,
+						observedAskCount,
+						observedFarthestBid: snapshot.bids.at(-1)?.[0] ?? Number.NaN,
+						observedFarthestAsk: snapshot.asks.at(-1)?.[0] ?? Number.NaN,
+						bidExhausted:
+							this.options.profile?.bidExhaustionEvidence ?? false,
+						askExhausted:
+							this.options.profile?.askExhaustionEvidence ?? false,
+						measurementBandsBps: getOrderbookMeasurementBandsBps(),
+					},
+				},
 				{ sampledOut: !this.#sampler.shouldEmit(receivedTimestamp) },
 			);
 			this.#recordCounter("public_feed_archive_decisions_total");
@@ -485,6 +509,8 @@ class PublicFeedWorker {
 		limit: number,
 		ownsArchive: boolean,
 	): Promise<void> {
+		// SAFETY: CCXT exchange typings omit optional runtime methods exposed by
+		// individual adapters; this branch checks the property before invocation.
 		const fetch = (this.options.exchange as unknown as { fetchOHLCV?: unknown })
 			.fetchOHLCV;
 		if (typeof fetch !== "function") {
@@ -568,6 +594,8 @@ class PublicFeedWorker {
 	}
 
 	#unwatch(): Promise<unknown> | null {
+		// SAFETY: adapter-specific unwatch methods are discovered dynamically and
+		// guarded with a typeof function check before they are invoked.
 		const exchange = this.options.exchange as unknown as Record<
 			string,
 			unknown

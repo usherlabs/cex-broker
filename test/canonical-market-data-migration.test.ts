@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { parseReplayValidationConfig } from "../scripts/validate-canonical-market-replay";
 
 const migrationPath = new URL(
 	"../schema/clickhouse/migrations/canonical_market_data_replay_cutover.sql",
@@ -22,45 +21,6 @@ function executableSql(sql: string): string {
 }
 
 describe("canonical market-data migration contracts", () => {
-	test("replay validation config covers explicit strategy pair windows", () => {
-		expect(
-			parseReplayValidationConfig({
-				windows: [
-					{
-						captureBundleIds: ["bundle-a"],
-						exchange: "binance",
-						tradingPair: "BTC-USDT",
-						startTimeMs: 100,
-						endTimeMs: 200,
-					},
-					{
-						captureBundleIds: ["bundle-a", "bundle-b"],
-						exchange: "coinbase",
-						tradingPair: "ETH-USD",
-						startTimeMs: 200,
-						endTimeMs: 300,
-					},
-				],
-			}),
-		).toHaveLength(2);
-		expect(() => parseReplayValidationConfig({ windows: [] })).toThrow(
-			"validation window",
-		);
-		expect(() =>
-			parseReplayValidationConfig({
-				windows: [
-					{
-						captureBundleIds: [],
-						exchange: "binance",
-						tradingPair: "BTC-USDT",
-						startTimeMs: 200,
-						endTimeMs: 100,
-					},
-				],
-			}),
-		).toThrow("Invalid replay validation config");
-	});
-
 	test("cutover requires a table migration before canonical-only deployment", async () => {
 		const migration = await Bun.file(migrationPath).text();
 		expect(executableSql(migration)).not.toMatch(/\bDROP\b/i);
@@ -88,6 +48,22 @@ describe("canonical market-data migration contracts", () => {
 		expect(migration).toContain("buildLegacyOhlcvMigrationRow");
 		expect(migration).not.toContain("createBroker(");
 		expect(migration).not.toContain("Bun.file(");
+	});
+
+	test("legacy order-book migration emits incomplete schema-v1 levels only", async () => {
+		const helper = await Bun.file(
+			new URL(
+				"../src/helpers/market-data-archive/legacy-migration.ts",
+				import.meta.url,
+			),
+		).text();
+		expect(helper).toContain(
+			"They never invoke or manufacture a summary of either version",
+		);
+		expect(helper).toContain(
+			'table: "market_data.cex_order_book_levels" as const',
+		);
+		expect(helper).not.toContain("canonical.summary");
 	});
 
 	test("replay is windowed and conflict-preflighted before canonical reads", async () => {

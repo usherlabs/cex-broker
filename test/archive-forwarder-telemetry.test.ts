@@ -44,7 +44,28 @@ function archiveRequest(rows: unknown[]): Request {
 		body: JSON.stringify({
 			source: "broker_write",
 			deployment_id: "deploy-a",
-			rows,
+			rows: rows.map((entry) => {
+				if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+					return entry;
+				}
+				const candidate = entry as { table?: unknown; row?: unknown };
+				if (
+					typeof candidate.table === "string" &&
+					candidate.table.startsWith("market_data.") &&
+					candidate.row &&
+					typeof candidate.row === "object" &&
+					!Array.isArray(candidate.row)
+				) {
+					return {
+						...candidate,
+						row: {
+							...(candidate.row as Record<string, unknown>),
+							source: "broker_write",
+						},
+					};
+				}
+				return entry;
+			}),
 		}),
 	});
 }
@@ -266,14 +287,37 @@ describe("archive forwarder telemetry", () => {
 		const { telemetry, counters } = createCapturingTelemetry();
 		const common = {
 			source: "broker_write",
+			deployment_id: "deploy-a",
 			capture_bundle_id: "bundle-a",
 			exchange: "binance",
+			symbol: "BTC/USDT",
 			trading_pair: "BTC-USDT",
-			raw_capture_id: "raw-a",
-			snapshot_id: "snapshot-a",
+			source_symbol: "BTC/USDT",
+			asset_type: "spot",
+			feed: "ORDERBOOK",
+			provider: "ccxt:binance",
+			source_mode: "broker_live_sampling_v1",
+			source_time_ms: 1,
+			received_time_ms: 1,
+			raw_capture_id: "a".repeat(64),
+			raw_capture_scope: "ccxt_normalized_object",
 			schema_version: "1.0.0",
+			checksum_algorithm: "sha256-canonical-json-v1",
+			raw_checksum: "b".repeat(64),
+			provenance_complete: 1,
+			snapshot_id: "c".repeat(64),
+			construction_mode: "sampled_top_n_snapshot",
+			gap_policy: "record_gap",
+			depth_limit: 25,
+			sequence: null,
+			exact_l2_reconstruction_complete: 0,
 			side: "bid",
 			level_index: 0,
+			price: 100,
+			amount: 1,
+			notional: 100,
+			mid_price: 100.5,
+			spread_from_mid_bps: 49.75124378109453,
 		};
 		const response = await handleArchiveRequest(
 			archiveRequest([

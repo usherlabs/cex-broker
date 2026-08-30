@@ -32,6 +32,7 @@ export {
 	canonicalSerialize,
 	createRawCapture,
 	GAP_POLICIES,
+	projectRawCapturePayload,
 	MARKET_CAPTURE_SCHEMA_VERSION,
 	RAW_CAPTURE_SCOPES,
 	SOURCE_MODES,
@@ -53,6 +54,8 @@ export { resolveOhlcvBootstrapLimit } from "./ohlcv-bootstrap";
 export { bootstrapOhlcvHistory } from "./ohlcv-history";
 export {
 	getOrderbookArchiveDepthLimit,
+	getOrderbookMeasurementBandsBps,
+	normalizeOrderbookMeasurementBandsBps,
 	splitOrderBookSide,
 } from "./orderbook-depth";
 export {
@@ -70,6 +73,12 @@ export {
 	buildCanonicalTradeRow,
 	buildCexStreamEventRow,
 } from "./rows";
+export {
+	canonicalDecimal38,
+	ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELDS,
+	ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELD_NAMES,
+	projectOrderBookSummaryV2SupportedView,
+} from "./summary-v2-conformance";
 export type {
 	CaptureFeed,
 	CaptureSourceMode,
@@ -80,6 +89,8 @@ export type {
 	OhlcvArchiveCandidate,
 	OhlcvArchiveInput,
 	OrderbookArchiveInput,
+	OrderbookArchiveMetadata,
+	OrderbookMetadataOnlyPayload,
 	OrderbookSnapshotArchiveInput,
 	OrderbookTobArchiveInput,
 	ParsedOhlcvBar,

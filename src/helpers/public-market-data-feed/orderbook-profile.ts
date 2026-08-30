@@ -9,6 +9,8 @@ export type OrderBookAcquisitionProfile = {
 	upstreamOptions?: Record<string, unknown>;
 	guaranteedRetainedDepth?: number;
 	coalescingSupported: boolean;
+	bidExhaustionEvidence: boolean;
+	askExhaustionEvidence: boolean;
 };
 
 export type OrderBookAcquisitionProfileInput = {
@@ -28,6 +30,8 @@ export function resolveConservativeOrderBookAcquisitionProfile(
 			upstreamLimit: undefined,
 			guaranteedRetainedDepth: undefined,
 			coalescingSupported: false,
+			bidExhaustionEvidence: false,
+			askExhaustionEvidence: false,
 		};
 	}
 	return {
@@ -35,6 +39,8 @@ export function resolveConservativeOrderBookAcquisitionProfile(
 		upstreamLimit: input.requestedDepth,
 		guaranteedRetainedDepth: input.requestedDepth,
 		coalescingSupported: false,
+		bidExhaustionEvidence: false,
+		askExhaustionEvidence: false,
 	};
 }
 
@@ -54,6 +60,8 @@ export function resolveOrderBookAcquisitionProfile(
 			upstreamLimit: VERIFIED_PROFILE_DEPTH,
 			guaranteedRetainedDepth: VERIFIED_PROFILE_DEPTH,
 			coalescingSupported: true,
+			bidExhaustionEvidence: false,
+			askExhaustionEvidence: false,
 		};
 	}
 

@@ -1,18 +1,14 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { request } from "node:http";
+import { resolve } from "node:path";
 import { startProductionBrokerCollectorTopology } from "../test/e2e/archive/support/archive-lifecycle";
 import {
 	type SidecarManifest,
 	validateSidecarManifest,
 } from "./archive-sidecar";
-import {
-	exportCanonicalOrderBookParquet,
-	validateCanonicalMarketReplayWindow,
-} from "./export-canonical-orderbook-parquet";
 
 const REPOSITORY_ROOT = resolve(import.meta.dir, "..");
 
@@ -28,7 +24,6 @@ type SidecarState = {
 	};
 	forwarderHealth?: Record<string, unknown>;
 	brokerObservations?: Record<string, unknown>;
-	referenceExport?: Record<string, unknown>;
 	error?: string;
 };
 
@@ -62,6 +57,49 @@ async function writeState(
 	});
 }
 
+async function readLoopbackHealth(
+	manifest: SidecarManifest,
+): Promise<{ statusCode: number; body: Record<string, unknown> }> {
+	const url = new URL(manifest.forwarderHealthUrl);
+	if (
+		url.protocol !== "http:" ||
+		url.hostname !== "127.0.0.1" ||
+		url.pathname !== "/health" ||
+		!url.port
+	) {
+		throw new Error("Forwarder health URL is outside loopback");
+	}
+	return new Promise((resolveHealth, reject) => {
+		const healthRequest = request(
+			{
+				host: "127.0.0.1",
+				port: Number(url.port),
+				path: "/health",
+				method: "GET",
+			},
+			(response) => {
+				const chunks: Buffer[] = [];
+				response.on("data", (chunk: Buffer) => chunks.push(chunk));
+				response.once("error", reject);
+				response.once("end", () => {
+					try {
+						resolveHealth({
+							statusCode: response.statusCode ?? 0,
+							body: JSON.parse(
+								Buffer.concat(chunks).toString("utf8"),
+							) as Record<string, unknown>,
+						});
+					} catch (error) {
+						reject(error);
+					}
+				});
+			},
+		);
+		healthRequest.once("error", reject);
+		healthRequest.end();
+	});
+}
+
 async function waitForForwarder(
 	manifest: SidecarManifest,
 ): Promise<Record<string, unknown>> {
@@ -69,14 +107,16 @@ async function waitForForwarder(
 	let diagnostic = "forwarder has not responded";
 	while (Date.now() < deadline) {
 		try {
-			const response = await fetch(manifest.forwarderHealthUrl);
-			const health = (await response.json()) as Record<string, unknown>;
+			const response = await readLoopbackHealth(manifest);
+			const health = response.body;
 			if (
-				response.ok &&
+				response.statusCode >= 200 &&
+				response.statusCode < 300 &&
 				health.clickhouse === true &&
 				health.durableAdmission === true
-			)
+			) {
 				return health;
+			}
 			diagnostic = JSON.stringify(health);
 		} catch (error) {
 			diagnostic = error instanceof Error ? error.message : String(error);
@@ -88,79 +128,33 @@ async function waitForForwarder(
 	);
 }
 
+function spoolIsDrained(health: Record<string, unknown>): boolean {
+	const spool = health.spool as Record<string, unknown> | undefined;
+	return (
+		Number(spool?.queuedBatches ?? -1) === 0 &&
+		Number(spool?.queuedWork ?? -1) === 0 &&
+		Number(spool?.terminalWork ?? -1) === 0
+	);
+}
+
 async function waitForDrain(
 	manifest: SidecarManifest,
 ): Promise<Record<string, unknown>> {
 	const deadline = Date.now() + 60_000;
 	let latest: Record<string, unknown> = {};
 	while (Date.now() < deadline) {
-		const response = await fetch(manifest.forwarderHealthUrl);
-		latest = (await response.json()) as Record<string, unknown>;
-		const spool = latest.spool as Record<string, unknown> | undefined;
+		const response = await readLoopbackHealth(manifest);
+		latest = response.body;
 		if (
-			response.ok &&
-			Number(spool?.queuedBatches ?? -1) === 0 &&
-			Number(spool?.queuedWork ?? -1) === 0 &&
-			Number(spool?.terminalWork ?? -1) === 0
-		)
+			response.statusCode >= 200 &&
+			response.statusCode < 300 &&
+			spoolIsDrained(latest)
+		) {
 			return latest;
+		}
 		await Bun.sleep(100);
 	}
 	throw new Error(`Strategy spool did not drain: ${JSON.stringify(latest)}`);
-}
-
-async function sha256File(path: string): Promise<string> {
-	return createHash("sha256")
-		.update(await readFile(path))
-		.digest("hex");
-}
-
-async function prepareReferenceExport(
-	manifest: SidecarManifest,
-	secret: string,
-	marketCapture: NonNullable<SidecarState["marketCapture"]>,
-): Promise<Record<string, unknown>> {
-	const replayWindow = {
-		clickhouseUrl: manifest.clickhouseUrl,
-		username: "default",
-		password: secret,
-		captureBundleIds: [manifest.captureBundleId],
-		exchange: "binance",
-		tradingPair: "BTC-USDT",
-		...marketCapture.sourceWindow,
-	};
-	const coverage = await validateCanonicalMarketReplayWindow(replayWindow);
-	const exported = await exportCanonicalOrderBookParquet({
-		...replayWindow,
-		outputDirectory: join(manifest.artifactsDir, "fiet-907-reference-export"),
-	});
-	const result = {
-		schemaVersion: "cex-canonical-orderbook-export/v1",
-		runId: manifest.runId,
-		captureBundleId: manifest.captureBundleId,
-		exchange: "binance",
-		tradingPair: "BTC-USDT",
-		sourceWindow: marketCapture.sourceWindow,
-		levels: {
-			path: exported.levelsPath,
-			rows: exported.levelRows,
-			sha256: await sha256File(exported.levelsPath),
-		},
-		summary: {
-			path: exported.summaryPath,
-			rows: exported.summaryRows,
-			sha256: await sha256File(exported.summaryPath),
-		},
-		coverage,
-	};
-	await writeFile(
-		manifest.referenceExportPath,
-		`${JSON.stringify(result, null, 2)}\n`,
-		{
-			mode: 0o600,
-		},
-	);
-	return result;
 }
 
 async function main(): Promise<void> {
@@ -183,8 +177,6 @@ async function main(): Promise<void> {
 				CLICKHOUSE_URL: manifest.clickhouseUrl,
 				CLICKHOUSE_USER: "default",
 				CLICKHOUSE_PASSWORD: secret,
-				// Schema statements create and address fully qualified databases. Connecting
-				// through default avoids requiring market_data to exist before initialization.
 				CLICKHOUSE_DATABASE: "default",
 			},
 		},
@@ -233,11 +225,8 @@ async function main(): Promise<void> {
 			brokerPort: Number(manifest.brokerUrl.split(":")[1]),
 		});
 		const marketCapture = await topology.capture();
-		const referenceExport =
-			manifest.profile === "native_replay"
-				? await prepareReferenceExport(manifest, secret, marketCapture)
-				: undefined;
 		const forwarderHealth = await waitForDrain(manifest);
+		let latestForwarderHealth = forwarderHealth;
 		const readyState: SidecarState = {
 			ready: true,
 			brokerPort: topology.brokerPort,
@@ -245,19 +234,31 @@ async function main(): Promise<void> {
 			marketCapture,
 			forwarderHealth,
 			brokerObservations: topology.brokerObservations(),
-			...(referenceExport ? { referenceExport } : {}),
 		};
 		await writeState(manifest, readyState);
+		const activeTopology = topology;
 		observationTimer = setInterval(() => {
-			if (observationWrite || shuttingDown || !topology) return;
-			const write = writeState(manifest, {
-				...readyState,
-				brokerObservations: topology.brokerObservations(),
-			});
+			if (observationWrite || shuttingDown) return;
+			const write = (async () => {
+				const healthResponse = await readLoopbackHealth(manifest);
+				if (
+					healthResponse.statusCode >= 200 &&
+					healthResponse.statusCode < 300
+				) {
+					latestForwarderHealth = healthResponse.body;
+				}
+				await writeState(manifest, {
+					...readyState,
+					forwarderHealth: latestForwarderHealth,
+					brokerObservations: activeTopology.brokerObservations(),
+				});
+			})();
 			observationWrite = write;
-			void write.finally(() => {
-				if (observationWrite === write) observationWrite = undefined;
-			});
+			void write
+				.catch(() => {})
+				.finally(() => {
+					if (observationWrite === write) observationWrite = undefined;
+				});
 		}, 250);
 		await new Promise<void>((resolveStop) => {
 			const finish = () => resolveStop();

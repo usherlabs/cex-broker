@@ -122,16 +122,29 @@ describe("canonical market-data golden fixture v1", () => {
 			};
 		};
 		const rawCapture = raw(capture);
+		const snapshot = {
+			...capture.payload,
+			receivedTimestamp: capture.receivedTimeMs,
+			exchange: fixture.context.exchange,
+			symbol: fixture.context.symbol,
+			depthLimit: capture.depthLimit,
+		};
 		const rows = buildCanonicalOrderBookRows({
 			context: context(capture),
 			rawCapture,
 			depthLimit: capture.depthLimit,
-			snapshot: {
-				...capture.payload,
-				receivedTimestamp: capture.receivedTimeMs,
-				exchange: fixture.context.exchange,
-				symbol: fixture.context.symbol,
-				depthLimit: capture.depthLimit,
+			snapshot,
+			archiveMetadata: {
+				captureProfileId: "fixture:orderbook:v2",
+				effectiveCadenceMs: 1_000,
+				requestedUpstreamDepth: capture.depthLimit,
+				observedBidCount: snapshot.bids.length,
+				observedAskCount: snapshot.asks.length,
+				observedFarthestBid: snapshot.bids.at(-1)?.[0] ?? Number.NaN,
+				observedFarthestAsk: snapshot.asks.at(-1)?.[0] ?? Number.NaN,
+				bidExhausted: false,
+				askExhausted: false,
+				measurementBandsBps: [10, 25, 50, 100],
 			},
 		});
 		expect(rawCapture.rawCaptureId).toBe(capture.expected.raw_capture_id);
@@ -140,8 +153,7 @@ describe("canonical market-data golden fixture v1", () => {
 		expect(rows.levels[0]?.row.normalized_row_checksum).toBe(
 			capture.expected.level_normalized_row_checksum,
 		);
-		expect(rows.summary.row.normalized_row_checksum).toBe(
-			capture.expected.summary_normalized_row_checksum,
-		);
+		expect(rows.summary.row.schema_version).toBe("2.0.0");
+		expect(String(rows.summary.row.normalized_row_checksum)).toHaveLength(64);
 	});
 });

@@ -269,6 +269,17 @@ export function createRawCapture(
 	};
 }
 
+/**
+ * Retains identity/checksum material from a complete observation while replacing
+ * only the stored raw projection with bounded ORDERBOOK metadata.
+ */
+export function projectRawCapturePayload(
+	rawCapture: RawCapture,
+	redactedPayload: unknown,
+): RawCapture {
+	return { ...rawCapture, redactedPayload };
+}
+
 export function captureCoreFields(
 	context: MarketCaptureContext,
 	rawCapture: RawCapture,

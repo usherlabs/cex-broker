@@ -88,8 +88,39 @@ export type RawCapture = {
 	checksumAlgorithm: string;
 };
 
+/** Closed provenance supplied by the physical ORDERBOOK acquisition. */
+export type OrderbookArchiveMetadata = {
+	captureProfileId: string;
+	effectiveCadenceMs: number;
+	requestedUpstreamDepth: number | null;
+	observedBidCount: number;
+	observedAskCount: number;
+	observedFarthestBid: number;
+	observedFarthestAsk: number;
+	bidExhausted: boolean;
+	askExhausted: boolean;
+	measurementBandsBps: readonly number[];
+};
+
+export type OrderbookMetadataOnlyPayload = {
+	capture_profile_id: string;
+	effective_cadence_ms: number;
+	requested_upstream_depth: number | null;
+	archive_depth_limit: number;
+	observed_bid_count: number;
+	observed_ask_count: number;
+	observed_farthest_bid: string;
+	observed_farthest_ask: string;
+	bid_exhausted: boolean;
+	ask_exhausted: boolean;
+	retained_bid_count: number;
+	retained_ask_count: number;
+	measurement_bands_bps: number[];
+};
+
 export type OrderbookArchiveInput = MarketArchiveContext & {
 	snapshot: NormalizedOrderBookSnapshot;
+	archiveMetadata: OrderbookArchiveMetadata;
 };
 
 /** @deprecated Use OrderbookArchiveInput */
