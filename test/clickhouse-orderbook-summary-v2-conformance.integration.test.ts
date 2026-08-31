@@ -79,6 +79,12 @@ const decimalArrayFields = [
 	"bid_depth_by_band",
 	"ask_depth_by_band",
 ] as const;
+const jsonSafeIntegerFields = [
+	"source_time_ms",
+	"received_time_ms",
+	"sequence",
+	"staleness_ms",
+] as const;
 
 function typedProjectionSql(): string {
 	return ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELD_NAMES.map((field) => {
@@ -87,6 +93,9 @@ function typedProjectionSql(): string {
 		}
 		if ((decimalArrayFields as readonly string[]).includes(field)) {
 			return `arrayMap(value -> toDecimalString(value, 18), ${field}) AS ${field}`;
+		}
+		if ((jsonSafeIntegerFields as readonly string[]).includes(field)) {
+			return `toFloat64(${field}) AS ${field}`;
 		}
 		return field;
 	}).join(",\n");
