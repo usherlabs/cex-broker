@@ -62,6 +62,7 @@ function archiveRequest(rows: unknown[]): Request {
 						row: {
 							...(candidate.row as Record<string, unknown>),
 							source: "broker_write",
+							deployment_id: "deploy-a",
 						},
 					};
 				}

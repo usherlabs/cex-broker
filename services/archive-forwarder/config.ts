@@ -26,9 +26,19 @@ function parsePort(value: string | undefined, fallback: number): number {
 
 export function loadForwarderConfig(): ForwarderConfig {
 	const authToken = process.env.ARCHIVE_FORWARDER_TOKEN?.trim();
-	const marketSource = process.env.ARCHIVE_FORWARDER_MARKET_SOURCE?.trim();
-	const marketDeploymentId =
-		process.env.ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID?.trim();
+	const rawMarketSource = process.env.ARCHIVE_FORWARDER_MARKET_SOURCE;
+	const rawMarketDeploymentId =
+		process.env.ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID;
+	const marketSource = rawMarketSource?.trim() || undefined;
+	const marketDeploymentId = rawMarketDeploymentId?.trim() || undefined;
+	if (
+		(rawMarketSource !== undefined && marketSource === undefined) ||
+		(rawMarketDeploymentId !== undefined && marketDeploymentId === undefined)
+	) {
+		throw new Error(
+			"ARCHIVE_FORWARDER_MARKET_SOURCE and ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID must be non-empty when configured",
+		);
+	}
 	if (
 		marketSource !== undefined &&
 		marketSource !== "broker_read" &&

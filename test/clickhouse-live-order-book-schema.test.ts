@@ -5,6 +5,7 @@ import {
 	ARCHIVE_SCHEMA_FILES,
 	splitSqlStatements,
 } from "../services/archive-forwarder/schema";
+import { ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELDS } from "../src/helpers/market-data-archive/summary-v2-conformance";
 
 const schemaPath = path.join(
 	import.meta.dir,
@@ -71,6 +72,27 @@ describe("final ClickHouse live/hot order-book schema", () => {
 		]) {
 			expect(schema).not.toContain(removed);
 		}
+	});
+
+	test("summary-v2 supported view uses an explicit installation-independent projection", () => {
+		const compactSchema = schema.replaceAll(/\s+/g, "");
+		for (const [
+			field,
+			type,
+			nullable,
+		] of ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELDS) {
+			const castType = (nullable ? `Nullable(${type})` : type).replaceAll(
+				"'",
+				"\\'",
+			);
+			expect(compactSchema).toContain(`'${castType}')AS${field}`);
+		}
+		expect(schema).not.toContain(
+			"SELECT DISTINCT evidence.*\nFROM market_data.cex_order_book_depth_summary",
+		);
+		expect(schema).toContain(
+			"CAST(assumeNotNull(evidence.capture_bundle_id), 'String') AS capture_bundle_id",
+		);
 	});
 
 	test("canonical and conflict views are broker-only and version-closed", () => {

@@ -157,6 +157,13 @@ describe("retained live order-book row contract", () => {
 				bid_status_by_band: ["exact", "unknown", "exact", "exact"],
 			}),
 			summaryRow({ ask_depth_by_band: ["1"] }),
+			summaryRow({ measurement_bands_bps: [10_001] }),
+			summaryRow({
+				measurement_bands_bps: Array.from(
+					{ length: 65 },
+					(_, index) => index + 1,
+				),
+			}),
 			summaryRow({ observed_bid_count: 0 }),
 			summaryRow({ producer_id: "maker" }),
 		]) {

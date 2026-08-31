@@ -1,4 +1,8 @@
 import { sha256Canonical } from "../../src/helpers/market-data-archive/capture-contract";
+import {
+	MAX_ORDERBOOK_MEASUREMENT_BAND_BPS,
+	MAX_ORDERBOOK_MEASUREMENT_BANDS,
+} from "../../src/helpers/market-data-archive/orderbook-depth";
 import type { ArchiveBatchRequest } from "./types";
 
 const LEVEL_TABLE = "market_data.cex_order_book_levels";
@@ -365,10 +369,17 @@ function validateSummary(
 	if (
 		!Array.isArray(bands) ||
 		bands.length === 0 ||
-		!bands.every((band) => isUInt(band, 4_294_967_295) && band !== 0) ||
+		bands.length > MAX_ORDERBOOK_MEASUREMENT_BANDS ||
+		!bands.every(
+			(band) =>
+				isUInt(band, MAX_ORDERBOOK_MEASUREMENT_BAND_BPS) && band !== 0,
+		) ||
 		!bands.every((band, index) => index === 0 || Number(band) > Number(bands[index - 1]))
 	) {
-		return { ok: false, error: "measurement bands must be positive ascending unique UInt32 values" };
+		return {
+			ok: false,
+			error: "measurement bands must be 1..64 ascending unique values in 1..10000 bps",
+		};
 	}
 	const alignedArrays = [
 		row.bid_boundary_price_by_band,

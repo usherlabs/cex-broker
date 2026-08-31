@@ -653,6 +653,7 @@ export async function validateMakerSidecarResult(
 	if (
 		delivery.httpStatus !== 202 ||
 		!validBoundedId(delivery.batchId) ||
+		delivery.batchId !== result.runId ||
 		!Number.isSafeInteger(delivery.acceptedRows) ||
 		Number(delivery.acceptedRows) < STRATEGY_TABLES.length ||
 		Number(delivery.acceptedRows) > MAX_STRATEGY_ROWS ||
@@ -1120,6 +1121,19 @@ async function queryCount(
 	return Number(rows[0]?.rows ?? 0);
 }
 
+async function queryArchiveEventIds(
+	client: ReturnType<typeof createClient>,
+	table: string,
+	where: string,
+): Promise<string[]> {
+	const result = await client.query({
+		query: `SELECT archive_event_id FROM ${table} WHERE ${where} ORDER BY archive_event_id`,
+		format: "JSONEachRow",
+	});
+	const rows = (await result.json()) as Array<{ archive_event_id: string }>;
+	return rows.map(({ archive_event_id }) => archive_event_id);
+}
+
 async function sha256File(path: string): Promise<string> {
 	return createHash("sha256")
 		.update(await readFile(path))
@@ -1245,15 +1259,20 @@ async function verify(
 		const strategyCounts: Record<string, number> = {};
 		for (const table of STRATEGY_TABLES) {
 			const expected = makerResult.tableRows[table];
-			const rowIds = expected.archiveEventIds.map(sqlString).join(", ");
-			strategyCounts[table] = await queryCount(
+			const identityPredicate = `deployment_id = ${sqlString(manifest.deploymentId)} AND source = 'hb_runtime' AND schema_version = '2' AND producer_id = ${sqlString(expectedProducerId)} AND producer_run_id = ${sqlString(manifest.runId)} AND stream_seq > 0 AND seq > 0`;
+			const observedIds = await queryArchiveEventIds(
 				client,
 				table,
-				`deployment_id = ${sqlString(manifest.deploymentId)} AND source = 'hb_runtime' AND schema_version = '2' AND producer_id = ${sqlString(expectedProducerId)} AND producer_run_id = ${sqlString(manifest.runId)} AND archive_event_id IN (${rowIds}) AND stream_seq > 0 AND seq > 0`,
+				identityPredicate,
 			);
-			if (strategyCounts[table] !== expected.count) {
+			const expectedIds = [...expected.archiveEventIds].sort();
+			strategyCounts[table] = observedIds.length;
+			if (
+				observedIds.length !== expected.count ||
+				observedIds.join("\0") !== expectedIds.join("\0")
+			) {
 				throw new Error(
-					`Exact hb_runtime row identities did not land in ${table}: expected ${expected.count}, observed ${strategyCounts[table]}`,
+					`Exact hb_runtime row identities differ in ${table}: expected ${JSON.stringify(expectedIds)}, observed ${JSON.stringify(observedIds)}`,
 				);
 			}
 		}

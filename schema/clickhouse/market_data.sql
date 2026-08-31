@@ -468,7 +468,8 @@ WHERE source IN ('broker_read', 'broker_write')
   AND observed_ask_count > 0
   AND bid_level_count > 0
   AND ask_level_count > 0
-  AND length(measurement_bands_bps) > 0
+  AND length(measurement_bands_bps) BETWEEN 1 AND 64
+  AND arrayAll(value -> value BETWEEN 1 AND 10000, measurement_bands_bps)
   AND length(bid_boundary_price_by_band) = length(measurement_bands_bps)
   AND length(ask_boundary_price_by_band) = length(measurement_bands_bps)
   AND length(bid_depth_by_band) = length(measurement_bands_bps)
@@ -480,7 +481,61 @@ GROUP BY capture_bundle_id, exchange, trading_pair, raw_capture_id, snapshot_id,
 HAVING uniqExact(normalized_row_checksum) > 1;
 
 CREATE OR REPLACE VIEW market_data.cex_order_book_depth_summary_canonical AS
-SELECT DISTINCT evidence.*
+SELECT DISTINCT
+    CAST(evidence.source, 'String') AS source,
+    CAST(evidence.deployment_id, 'String') AS deployment_id,
+    CAST(assumeNotNull(evidence.capture_bundle_id), 'String') AS capture_bundle_id,
+    CAST(evidence.exchange, 'String') AS exchange,
+    CAST(evidence.symbol, 'String') AS symbol,
+    CAST(evidence.trading_pair, 'String') AS trading_pair,
+    CAST(evidence.source_symbol, 'String') AS source_symbol,
+    CAST(evidence.asset_type, 'String') AS asset_type,
+    CAST(evidence.feed, 'String') AS feed,
+    CAST(evidence.provider, 'String') AS provider,
+    CAST(evidence.source_mode, 'String') AS source_mode,
+    CAST(evidence.source_time_ms, 'UInt64') AS source_time_ms,
+    CAST(evidence.received_time_ms, 'UInt64') AS received_time_ms,
+    CAST(assumeNotNull(evidence.raw_capture_id), 'String') AS raw_capture_id,
+    CAST(assumeNotNull(evidence.raw_capture_scope), 'String') AS raw_capture_scope,
+    CAST(evidence.schema_version, 'String') AS schema_version,
+    CAST(evidence.checksum_algorithm, 'String') AS checksum_algorithm,
+    CAST(assumeNotNull(evidence.raw_checksum), 'String') AS raw_checksum,
+    CAST(evidence.provenance_complete, 'UInt8') AS provenance_complete,
+    CAST(evidence.snapshot_id, 'String') AS snapshot_id,
+    CAST(evidence.construction_mode, 'String') AS construction_mode,
+    CAST(evidence.gap_policy, 'String') AS gap_policy,
+    CAST(evidence.depth_limit, 'UInt16') AS depth_limit,
+    CAST(evidence.sequence, 'Nullable(UInt64)') AS sequence,
+    CAST(evidence.exact_l2_reconstruction_complete, 'UInt8') AS exact_l2_reconstruction_complete,
+    CAST(evidence.capture_profile_id, 'String') AS capture_profile_id,
+    CAST(evidence.effective_cadence_ms, 'UInt32') AS effective_cadence_ms,
+    CAST(evidence.requested_upstream_depth, 'Nullable(UInt16)') AS requested_upstream_depth,
+    CAST(evidence.observed_bid_count, 'UInt32') AS observed_bid_count,
+    CAST(evidence.observed_ask_count, 'UInt32') AS observed_ask_count,
+    CAST(evidence.observed_farthest_bid, 'Decimal(38, 18)') AS observed_farthest_bid,
+    CAST(evidence.observed_farthest_ask, 'Decimal(38, 18)') AS observed_farthest_ask,
+    CAST(evidence.retained_farthest_bid, 'Decimal(38, 18)') AS retained_farthest_bid,
+    CAST(evidence.retained_farthest_ask, 'Decimal(38, 18)') AS retained_farthest_ask,
+    CAST(evidence.bid_exhausted, 'UInt8') AS bid_exhausted,
+    CAST(evidence.ask_exhausted, 'UInt8') AS ask_exhausted,
+    CAST(evidence.best_bid, 'Decimal(38, 18)') AS best_bid,
+    CAST(evidence.best_ask, 'Decimal(38, 18)') AS best_ask,
+    CAST(evidence.best_bid_amount, 'Decimal(38, 18)') AS best_bid_amount,
+    CAST(evidence.best_ask_amount, 'Decimal(38, 18)') AS best_ask_amount,
+    CAST(evidence.mid_price, 'Decimal(38, 18)') AS mid_price,
+    CAST(evidence.spread, 'Decimal(38, 18)') AS spread,
+    CAST(evidence.spread_bps, 'Float64') AS spread_bps,
+    CAST(evidence.staleness_ms, 'UInt64') AS staleness_ms,
+    CAST(evidence.bid_level_count, 'UInt16') AS bid_level_count,
+    CAST(evidence.ask_level_count, 'UInt16') AS ask_level_count,
+    CAST(evidence.measurement_bands_bps, 'Array(UInt32)') AS measurement_bands_bps,
+    CAST(evidence.bid_boundary_price_by_band, 'Array(Decimal(38, 18))') AS bid_boundary_price_by_band,
+    CAST(evidence.ask_boundary_price_by_band, 'Array(Decimal(38, 18))') AS ask_boundary_price_by_band,
+    CAST(evidence.bid_depth_by_band, 'Array(Decimal(38, 18))') AS bid_depth_by_band,
+    CAST(evidence.ask_depth_by_band, 'Array(Decimal(38, 18))') AS ask_depth_by_band,
+    CAST(evidence.bid_status_by_band, 'Array(Enum8(\'exact\' = 1, \'censored\' = 2))') AS bid_status_by_band,
+    CAST(evidence.ask_status_by_band, 'Array(Enum8(\'exact\' = 1, \'censored\' = 2))') AS ask_status_by_band,
+    CAST(evidence.normalized_row_checksum, 'String') AS normalized_row_checksum
 FROM market_data.cex_order_book_depth_summary AS evidence
 INNER JOIN
 (
@@ -491,8 +546,13 @@ INNER JOIN
     WHERE source IN ('broker_read', 'broker_write')
       AND schema_version = '2.0.0'
       AND provenance_complete = 1
+      AND capture_bundle_id IS NOT NULL
+      AND raw_capture_id IS NOT NULL
+      AND raw_capture_scope IS NOT NULL
+      AND raw_checksum IS NOT NULL
       AND capture_bundle_id != ''
       AND raw_capture_id != ''
+      AND raw_capture_scope != ''
       AND raw_checksum != ''
       AND capture_profile_id != ''
       AND effective_cadence_ms > 0
@@ -500,7 +560,8 @@ INNER JOIN
       AND observed_ask_count > 0
       AND bid_level_count > 0
       AND ask_level_count > 0
-      AND length(measurement_bands_bps) > 0
+      AND length(measurement_bands_bps) BETWEEN 1 AND 64
+      AND arrayAll(value -> value BETWEEN 1 AND 10000, measurement_bands_bps)
       AND length(bid_boundary_price_by_band) = length(measurement_bands_bps)
       AND length(ask_boundary_price_by_band) = length(measurement_bands_bps)
       AND length(bid_depth_by_band) = length(measurement_bands_bps)
@@ -511,16 +572,20 @@ INNER JOIN
         snapshot_id, schema_version
     HAVING uniqExact(normalized_row_checksum) = 1
 ) AS consistent
-ON evidence.capture_bundle_id = consistent.capture_bundle_id
+ON evidence.capture_bundle_id IS NOT DISTINCT FROM consistent.capture_bundle_id
 AND evidence.exchange = consistent.exchange
 AND evidence.trading_pair = consistent.trading_pair
-AND evidence.raw_capture_id = consistent.raw_capture_id
+AND evidence.raw_capture_id IS NOT DISTINCT FROM consistent.raw_capture_id
 AND evidence.snapshot_id = consistent.snapshot_id
 AND evidence.schema_version = consistent.schema_version
 AND evidence.normalized_row_checksum = consistent.agreed_checksum
 WHERE evidence.source IN ('broker_read', 'broker_write')
   AND evidence.schema_version = '2.0.0'
-  AND evidence.provenance_complete = 1;
+  AND evidence.provenance_complete = 1
+  AND evidence.capture_bundle_id IS NOT NULL
+  AND evidence.raw_capture_id IS NOT NULL
+  AND evidence.raw_capture_scope IS NOT NULL
+  AND evidence.raw_checksum IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS market_data.cex_ohlcv
 (

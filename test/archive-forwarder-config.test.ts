@@ -38,6 +38,11 @@ describe("archive forwarder spool configuration", () => {
 		});
 		delete process.env.ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID;
 		expect(() => loadForwarderConfig()).toThrow("configured together");
+		process.env.ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID = "   ";
+		expect(() => loadForwarderConfig()).toThrow("must be non-empty");
+		process.env.ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID = "market-reader-eu-1";
+		process.env.ARCHIVE_FORWARDER_MARKET_SOURCE = "   ";
+		expect(() => loadForwarderConfig()).toThrow("must be non-empty");
 		process.env.ARCHIVE_FORWARDER_MARKET_SOURCE = "external_backfill";
 		expect(() => loadForwarderConfig()).toThrow("broker_read or broker_write");
 	});

@@ -43,11 +43,13 @@ export function classifyMarketSource(
 		return "invalid_market_source";
 	}
 	for (const entry of marketRows) {
+		if (!entry.row || typeof entry.row !== "object" || Array.isArray(entry.row)) {
+			return "invalid_market_source";
+		}
+		const row = entry.row as Record<string, unknown>;
 		if (
-			!entry.row ||
-			typeof entry.row !== "object" ||
-			Array.isArray(entry.row) ||
-			(entry.row as Record<string, unknown>).source !== envelope.source
+			row.source !== envelope.source ||
+			row.deployment_id !== expected.deploymentId
 		) {
 			return "invalid_market_source";
 		}

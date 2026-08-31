@@ -88,7 +88,7 @@ function makerResult() {
 		completedAt: "2026-08-04T00:01:00.000Z",
 		delivery: {
 			httpStatus: 202,
-			batchId: "maker-batch-run-a",
+			batchId: "run-a",
 			acceptedRows: 5,
 			spoolQueuedBefore: 0,
 			spoolQueuedAfter: 0,
@@ -249,6 +249,12 @@ describe("archive sidecar v2 command contract", () => {
 			validateMakerSidecarResult({
 				...value,
 				delivery: { ...value.delivery, httpStatus: 200 },
+			}),
+		).rejects.toThrow("delivery evidence is invalid");
+		await expect(
+			validateMakerSidecarResult({
+				...value,
+				delivery: { ...value.delivery, batchId: "different-batch" },
 			}),
 		).rejects.toThrow("delivery evidence is invalid");
 

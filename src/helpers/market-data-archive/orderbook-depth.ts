@@ -1,5 +1,7 @@
 const DEFAULT_ORDERBOOK_ARCHIVE_DEPTH_LIMIT = 25;
 const MAX_ORDERBOOK_ARCHIVE_DEPTH_LIMIT = 500;
+export const MAX_ORDERBOOK_MEASUREMENT_BANDS = 64;
+export const MAX_ORDERBOOK_MEASUREMENT_BAND_BPS = 10_000;
 const DEFAULT_ORDERBOOK_MEASUREMENT_BANDS_BPS = [10, 25, 50, 100] as const;
 
 function parseBoundedDepth(raw: string, field: string): number {
@@ -32,13 +34,23 @@ export function normalizeOrderbookMeasurementBandsBps(
 		throw new Error("ORDERBOOK measurement bands must not be empty");
 	}
 	for (const band of bands) {
-		if (!Number.isSafeInteger(band) || band <= 0 || band > 4_294_967_295) {
+		if (
+			!Number.isSafeInteger(band) ||
+			band <= 0 ||
+			band > MAX_ORDERBOOK_MEASUREMENT_BAND_BPS
+		) {
 			throw new Error(
-				"ORDERBOOK measurement bands must be positive UInt32 basis points",
+				"ORDERBOOK measurement bands must be integer basis points in 1..10000",
 			);
 		}
 	}
-	return [...new Set(bands)].sort((left, right) => left - right);
+	const normalized = [...new Set(bands)].sort((left, right) => left - right);
+	if (normalized.length > MAX_ORDERBOOK_MEASUREMENT_BANDS) {
+		throw new Error(
+			`ORDERBOOK measurement bands must contain at most ${MAX_ORDERBOOK_MEASUREMENT_BANDS} unique entries`,
+		);
+	}
+	return normalized;
 }
 
 export function getOrderbookMeasurementBandsBps(): number[] {

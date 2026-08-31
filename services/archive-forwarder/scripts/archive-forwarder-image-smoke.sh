@@ -29,7 +29,9 @@ fi
 
 for _ in $(seq 1 30); do
   if body="$(docker exec "$container_name" bun -e '
-    const response = await fetch("http://127.0.0.1:8090/health");
+    const response = await fetch("http://127.0.0.1:8090/health", {
+      signal: AbortSignal.timeout(2000),
+    });
     if (!response.ok) process.exit(1);
     console.log(await response.text());
   ' 2>/dev/null)"; then

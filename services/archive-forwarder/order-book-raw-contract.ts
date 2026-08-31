@@ -1,4 +1,8 @@
 import { canonicalSerialize, sha256Canonical } from "../../src/helpers/market-data-archive/capture-contract";
+import {
+	MAX_ORDERBOOK_MEASUREMENT_BAND_BPS,
+	MAX_ORDERBOOK_MEASUREMENT_BANDS,
+} from "../../src/helpers/market-data-archive/orderbook-depth";
 import type { ArchiveBatchRequest } from "./types";
 
 const RAW_TABLE = "market_data.cex_stream_events";
@@ -84,8 +88,9 @@ export function validateOrderBookRawRow(
 		Number(metadata.retained_ask_count) > Number(metadata.observed_ask_count) ||
 		!Array.isArray(metadata.measurement_bands_bps) ||
 		metadata.measurement_bands_bps.length === 0 ||
+		metadata.measurement_bands_bps.length > MAX_ORDERBOOK_MEASUREMENT_BANDS ||
 		!metadata.measurement_bands_bps.every((band, index, bands) =>
-			positiveInteger(band, 4_294_967_295) &&
+			positiveInteger(band, MAX_ORDERBOOK_MEASUREMENT_BAND_BPS) &&
 			(index === 0 || Number(band) > Number(bands[index - 1])),
 		)
 	) {

@@ -199,6 +199,17 @@ describe("ORDERBOOK summary v2 core", () => {
 		["conflicting count", book(), { observedBidCount: 3 }],
 		["conflicting boundary", book(), { observedFarthestAsk: 999 }],
 		["empty bands", book(), { measurementBandsBps: [] }],
+		["band above 10000 bps", book(), { measurementBandsBps: [10_001] }],
+		[
+			"more than 64 unique bands",
+			book(),
+			{
+				measurementBandsBps: Array.from(
+					{ length: 65 },
+					(_, index) => index + 1,
+				),
+			},
+		],
 	] as const)("rejects %s metadata", (_name, snapshot, overrides) => {
 		expect(() => build(snapshot, overrides)).toThrow();
 	});
