@@ -52,14 +52,13 @@ fails if the file is absent, no test is discovered, the binary cannot be
 verified, or schema initialization fails. `bun run test` selects the `test/`
 tree and therefore remains the separate unit/server-integration command.
 
-On Linux x64 and arm64, the harness downloads the official pinned static
-archive into `.cache/clickhouse-local`, verifies the committed SHA-512 digest,
-extracts only the ClickHouse binary, and verifies its reported four-part
-version. CI caches that directory using the version-and-digest cache key. To
-use a pre-provisioned binary, set `CLICKHOUSE_LOCAL_BIN` to an executable that
-reports exactly `25.8.24.21`; an absent, non-executable, or differently versioned
-override is a hard failure. `CLICKHOUSE_LOCAL_CACHE_DIR` may relocate the
-verified cache.
+The harness downloads the official pinned static archive into
+`.cache/clickhouse-local`, verifies the committed SHA-512 digest, extracts only
+the ClickHouse binary, and verifies its reported four-part version. CI caches
+that directory using the version-and-digest cache key. To use a pre-provisioned
+binary, set `CLICKHOUSE_LOCAL_BIN` to an executable that reports exactly
+`25.8.24.21`; an absent, non-executable, or differently versioned override is a
+hard failure. `CLICKHOUSE_LOCAL_CACHE_DIR` may relocate the verified cache.
 
 Each test owns a unique temporary persistent `--path` database, applies every
 file from the production archive schema manifest, and serializes Local CLI
