@@ -73,11 +73,11 @@ ORDERBOOK physical identity is venue-resolved. Binance and MEXC have candidate d
 
 ## Services, tools, and external systems
 
-The following repository components are not production services:
+The following repository components are not production services. Service-owned operator, maintenance, replay, migration, and image-smoke tools live under `services/<service>/scripts/`; repository-wide, cross-service, release, E2E, and fixture-generation tools remain under the root `scripts/` directory.
 
 - `examples/archive-watch-subscribe.ts` is an interactive/local subscription example, not the managed continuous collector.
-- `scripts/migrate-legacy-market-data-to-canonical.ts` is a bounded direct-ClickHouse operator migration. Its ORDERBOOK path emits incomplete-provenance diagnostic levels only and never a summary.
-- `services/archive-forwarder/order-book-schema-retirement.ts` and the matching SQL artifacts implement the separately approved terminal historical-schema retirement. Normal startup never invokes them.
+- `services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts` is a bounded direct-ClickHouse operator migration. Its ORDERBOOK path emits incomplete-provenance diagnostic levels only and never a summary.
+- `services/archive-forwarder/scripts/order-book-schema-retirement.ts` and the matching SQL artifacts implement the separately approved terminal historical-schema retirement. Normal startup never invokes them.
 - `scripts/archive-upgrade-acceptance.ts` is the one-time Server 24.8 A/B acceptance harness for the canonical upgrade. It is not a recurring service.
 - `scripts/archive-sidecar.ts` and its supervisor form a bounded cross-repository test composition for the `production_compatible` shared-wire Proof C profile only; they add no production broker startup mode.
 - `research/python/` and `research/hummingbot/` are research libraries and reference integrations, not broker-side daemons.

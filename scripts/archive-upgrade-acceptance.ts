@@ -300,7 +300,9 @@ async function runMigration(
 	);
 	const result = await command(
 		"bun",
-		["scripts/migrate-legacy-market-data-to-canonical.ts"],
+		[
+			"services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts",
+		],
 		{
 			env: {
 				...process.env,

@@ -11,6 +11,8 @@ the immutable export from authoritative CEX Broker `develop` commit
 `7a83de5f29a08f42d81f64a75a83bc9318dce94a` (package `0.2.38`). Its B-side is the
 committed candidate checked out in this repository.
 
+The acceptance invokes the service-owned migration at `services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts`.
+
 Verify the committed baseline and then run the real Server 24.8 acceptance from
 a clean final candidate:
 
@@ -21,7 +23,7 @@ bun run test:acceptance:archive-upgrade
 
 Both servers start from the same pre-upgrade DDL/data. The command keeps A
 immutable, applies the production schema initializer to B, runs
-`migrate-legacy-market-data-to-canonical.ts` in confirmed write mode twice over
+the service-owned migration in confirmed write mode twice over
 the fixture-derived `[start_time_ms, end_time_ms)` window, binds that same window
 to cutover/parity SQL, and then sends upgraded four-feed capture through the
 normal gRPC broker, collector, HTTP forwarder, and `@clickhouse/client` path.

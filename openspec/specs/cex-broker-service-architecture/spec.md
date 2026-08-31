@@ -81,7 +81,13 @@ The service architecture SHALL document minimal broker, archived broker, continu
 
 ### Requirement: Migration and replay tools retain direct ClickHouse boundaries
 
-CEX-owned migration and replay diagnostics SHALL operate directly against CEX-owned ClickHouse hot tables and SHALL remain separate from the live gRPC server. CEX SHALL NOT proxy Maker historical data through a file exporter, preparation package, or runtime repository dependency.
+CEX-owned migration and replay diagnostics SHALL operate directly against CEX-owned ClickHouse hot tables and SHALL remain separate from the live gRPC server. Service-owned operator, maintenance, replay, migration, and image-smoke tools SHALL live under `services/<service>/scripts/`; repository-wide, cross-service, release, E2E, and fixture-generation tools SHALL remain under root `scripts/`. Service-local operator scripts SHALL NOT be packaged into the production service image. CEX SHALL NOT proxy Maker historical data through a file exporter, preparation package, or runtime repository dependency.
+
+#### Scenario: Reader distinguishes service-owned tooling from service runtime
+
+- **WHEN** a reader inspects `services/archive-forwarder/scripts/`
+- **THEN** the architecture SHALL identify those files as operator tools rather than archive-forwarder startup modules
+- **AND** the production archive-forwarder image SHALL omit that scripts directory
 
 #### Scenario: CEX diagnostic reads hot data directly
 

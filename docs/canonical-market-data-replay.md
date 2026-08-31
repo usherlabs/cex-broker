@@ -64,7 +64,7 @@ Both order-book tables use the uniform 90-day hot TTL. CEX Broker exposes no ven
 
 ## Legacy migration
 
-`scripts/migrate-legacy-market-data-to-canonical.ts` may migrate retained legacy order-book snapshots into bounded schema-v1 level rows with honest incomplete provenance. It emits no summary of either version and cannot make a historical interval visible through the supported v2 summary view.
+`services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts` may migrate retained legacy order-book snapshots into bounded schema-v1 level rows with honest incomplete provenance. It emits no summary of either version and cannot make a historical interval visible through the supported v2 summary view.
 
 ## Terminal deployed-schema retirement
 
@@ -79,7 +79,7 @@ After source rejection is deployed and all historical writers are stopped, an ex
 5. drop vendor-only `capture_origin`; and
 6. run the terminal absence verifier.
 
-The SQL artifacts are under `schema/clickhouse/migrations/retire_cex_order_book_historical_{inventory,apply,verify}.sql`. The typed orchestration is `services/archive-forwarder/order-book-schema-retirement.ts`. Destructive execution requires a named approval and backup; it is not performed automatically by tests or startup.
+The SQL artifacts are under `schema/clickhouse/migrations/retire_cex_order_book_historical_{inventory,apply,verify}.sql`. The typed orchestration is `services/archive-forwarder/scripts/order-book-schema-retirement.ts`. Destructive execution requires a named approval and backup; it is not performed automatically by tests or startup.
 
 ## Conformance boundaries
 

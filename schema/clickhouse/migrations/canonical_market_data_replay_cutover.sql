@@ -9,7 +9,8 @@
 -- pass.
 
 -- PHASE 2: migrate every retained bounded source-time partition with
--- scripts/migrate-legacy-market-data-to-canonical.ts. Re-running a window is safe:
+-- services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts.
+-- Re-running a window is safe:
 -- append-only order-book duplicates collapse in canonical views when their
 -- checksums agree, and cex_ohlcv uses ReplacingMergeTree(broker_version).
 -- Migrated rows use source_mode=legacy_migration_v1,

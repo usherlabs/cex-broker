@@ -61,7 +61,7 @@
 		"test:acceptance:archive-upgrade": "bun run scripts/archive-upgrade-acceptance.ts",
 		"archive:sidecar": "bun run scripts/archive-sidecar.ts",
 		"archive:proof-a": "bun run scripts/archive-orderbook-coalescing-evidence.ts",
-		"archive:loss:replay": "bun run scripts/archive-loss-replay.ts",
+		"archive:loss:replay": "bun run services/archive-forwarder/scripts/archive-loss-replay.ts",
 		"test:smoke:archive": "bun run scripts/archive-live-smoke.ts",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint",

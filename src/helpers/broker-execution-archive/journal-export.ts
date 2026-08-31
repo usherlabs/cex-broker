@@ -40,9 +40,10 @@ export type DeadLetterJournalExportResult =
 // its host-side bytes are MRSIGNER-sealed ciphertext no external tool can
 // read. The enclave is the only place the plaintext is visible, which makes
 // the broker itself the only possible exporter: replay
-// (scripts/archive-loss-replay.ts) runs outside and needs a plaintext copy on
-// an untrusted mount. The export is a boot-time snapshot: losses journaled
-// after startup are not in the copy and need a fresh export.
+// (services/archive-forwarder/scripts/archive-loss-replay.ts) runs outside and
+// needs a plaintext copy on an untrusted mount. The export is a boot-time
+// snapshot: losses journaled after startup are not in the copy and need a fresh
+// export.
 export function exportDeadLetterJournalFromEnv(): DeadLetterJournalExportResult {
 	const exportPath =
 		process.env.CEX_BROKER_ARCHIVE_DEAD_LETTER_EXPORT_PATH?.trim();

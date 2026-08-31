@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-repository_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repository_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 image_tag="${ARCHIVE_FORWARDER_SMOKE_IMAGE:-cex-broker-archive-forwarder:smoke}"
 container_name="archive-forwarder-image-smoke-$$"
 
@@ -21,6 +21,11 @@ docker run --detach \
   --name "$container_name" \
   --env CLICKHOUSE_URL=http://127.0.0.1:9 \
   "$image_tag" >/dev/null
+
+if docker exec "$container_name" test -e /app/services/archive-forwarder/scripts; then
+  echo "archive-forwarder image unexpectedly contains operator scripts" >&2
+  exit 1
+fi
 
 for _ in $(seq 1 30); do
   if body="$(docker exec "$container_name" bun -e '

@@ -15,14 +15,14 @@ import {
 	MAX_ARCHIVE_BODY_BYTES,
 	MAX_ARCHIVE_ROWS,
 	MAX_ARCHIVE_ROWS_BY_TABLE,
-} from "../services/archive-forwarder/limits";
-import { isSupportedTable } from "../services/archive-forwarder/types";
+} from "../limits";
+import { isSupportedTable } from "../types";
 import {
 	LOSS_JOURNAL_RECORD_VERSION,
 	lossJournalLineDigest,
 	type ParsedArchiveLossRecord,
 	parseLossJournalLine,
-} from "../src/helpers/broker-execution-archive/loss-journal";
+} from "../../../src/helpers/broker-execution-archive/loss-journal";
 
 const FRESH_BATCH_PREFIX = "cex-archive-replay-v1\0";
 const FRESH_BODY_BUDGET = Math.floor(MAX_ARCHIVE_BODY_BYTES * 0.95);

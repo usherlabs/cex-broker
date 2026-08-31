@@ -9,7 +9,7 @@ const replayPath = new URL(
 	import.meta.url,
 );
 const tableMigrationPath = new URL(
-	"../scripts/migrate-legacy-market-data-to-canonical.ts",
+	"../services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts",
 	import.meta.url,
 );
 
@@ -28,7 +28,7 @@ describe("canonical market-data migration contracts", () => {
 		expect(migration).not.toContain("dual-write");
 		expect(migration).toContain("quiesce legacy writers");
 		expect(migration).toContain(
-			"scripts/migrate-legacy-market-data-to-canonical.ts",
+			"services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts",
 		);
 		expect(migration).toContain("market_data.orderbook_snapshots_legacy");
 		expect(migration).toContain("market_data.candles_legacy");

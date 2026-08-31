@@ -3,13 +3,13 @@ import { createClient } from "@clickhouse/client";
 import type {
 	BrokerArchiveRow,
 	BrokerArchiveSource,
-} from "../src/helpers/broker-execution-archive/types";
+} from "../../../src/helpers/broker-execution-archive/types";
 import {
 	buildLegacyOhlcvMigrationRow,
 	buildLegacyOrderBookMigrationRows,
 	type LegacyCandle,
 	type LegacyOrderBookSnapshot,
-} from "../src/helpers/market-data-archive/legacy-migration";
+} from "../../../src/helpers/market-data-archive/legacy-migration";
 
 const startTimeMs = Number(process.env.CEX_BROKER_MIGRATION_START_TIME_MS);
 const endTimeMs = Number(process.env.CEX_BROKER_MIGRATION_END_TIME_MS);

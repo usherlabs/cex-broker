@@ -4,7 +4,7 @@ import {
 	applyHistoricalOrderBookRetirement,
 	inventoryHistoricalOrderBookSchema,
 	verifyHistoricalOrderBookRetirement,
-} from "../services/archive-forwarder/order-book-schema-retirement";
+} from "../services/archive-forwarder/scripts/order-book-schema-retirement";
 
 type MockResult = Record<string, unknown>[];
 
