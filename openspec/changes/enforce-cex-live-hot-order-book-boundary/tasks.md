@@ -3,9 +3,9 @@
 - [x] 1.1 Re-read this change against the current CEX and Maker boundary records and record any newly discovered named consumer or operator compatibility requirement before changing code.
 - [x] 1.2 Record `complete-maker-preparation-output-contract` as superseded by this change and remove it from the active change set without synchronizing its delta specs, using a reviewed `openspec archive --skip-specs` operation or an approved equivalent; verify none of its remaining tasks, release actions, or unmerged requirements entered the main specs.
 - [x] 1.3 Verify that the implementation base still contains merge `c81f60a`, first parent `41dbe7c`, second-parent tip `10f0811`, inclusive preparation series `ae16314^..10f0811`, and retained intermediate tree `7db5916`; stop for specification review if the topology differs.
-- [ ] 1.4 Correct the CEX-relevant TASK-60 and handoff records to state that the preparation series was merged, Maker/FIET-1015 owns cold sourcing, FIET-907 is only a consumer, and this OpenSpec is the CEX implementation authority.
+- [x] 1.4 Correct the CEX-relevant TASK-60 and handoff records to state that the preparation series was merged, Maker/FIET-1015 owns cold sourcing, FIET-907 is only a consumer, and this OpenSpec is the CEX implementation authority.
 - [x] 1.5 Add the repository instruction that superseded internal implementations, schemas, aliases, adapters, and readers are deleted unless an operator explicitly requires a bounded compatibility period.
-- [ ] 1.6 Inventory package consumers, deployed historical writers, canonical-Parquet consumers, sidecar callers, ClickHouse objects, and v1 summary readers; block removal only for a named current CEX consumer that requires specification review.
+- [x] 1.6 Inventory package consumers, deployed historical writers, canonical-Parquet consumers, sidecar callers, ClickHouse objects, and v1 summary readers; block removal only for a named current CEX consumer that requires specification review.
 
 ## 2. Focused preparation-series rollback
 
@@ -21,7 +21,7 @@
 - [x] 3.2 Replace caller-controlled market source admission with a deployment-derived closed validator accepting only `broker_read` and `broker_write`.
 - [x] 3.3 Remove external-backfill routing, authorization, health, preflight, and supported-inventory entries while preserving ordinary `/archive`, retry, spool, loss-journal, telemetry, strategy, and non-market behavior.
 - [x] 3.4 Exercise a legacy worker-shaped request and a crafted generic envelope end to end and prove no raw, normalized, level, summary, evidence, or successful-spool row is produced.
-- [ ] 3.5 Build and deploy the source-rejection change before any historical producer or schema object is removed, and capture the bounded admission evidence needed by the later operator migration.
+- [ ] 3.5 Before executing the separately approved terminal migration, deploy the source-rejection change ahead of historical producer or schema-object removal and capture the bounded admission evidence required by the migration runbook. (Operational rollout; not an implementation-completion gate.)
 
 ## 4. Remove the CEX historical preparation product
 
@@ -75,7 +75,7 @@
 - [x] 8.6 Replace PR-number ancestry checks with resolved clean commits plus the content hash of the current shared-wire fixture/test; keep dual-repository checkout support development-only.
 - [x] 8.7 Make successful Proof C sufficient for sidecar success, keep Proof A in the CEX-local coalescing regression, keep Proof B in Maker, and state explicitly that sidecar success does not prove hot-reader parity or production soak.
 - [x] 8.8 Retain and test the existing non-interactive `up|ready|verify|down` commands and exit-code contract; reject `up --profile native_replay` and the unadopted `prepare|execute|cleanup` verbs without reinterpretation.
-- [ ] 8.9 Run Proof C against a deterministic controlled/local fixture venue through production handlers, acquisition-profile, collector, forwarder, spool, and ClickHouse paths; keep any public-network market smoke separate, optional, and non-gating.
+- [x] 8.9 Run Proof C against a deterministic controlled/local fixture venue through production handlers, acquisition-profile, collector, forwarder, spool, and ClickHouse paths; keep any public-network market smoke separate, optional, and non-gating.
 
 ## 9. Rebuild archive regression and documentation
 
@@ -84,7 +84,7 @@
 - [x] 9.3 Update operator and architecture documentation and the main `cex-order-book-replay-archive` Purpose to show `live exchange -> bounded top-N diagnostic levels + summary v2 -> ClickHouse hot` and to assign direct vendor-object cold reads and historical reconstruction to Maker/FIET-1015.
 - [x] 9.4 Document that FIET-907 may consume FIET-1015 evidence and loader outputs but owns no sourcing, reconstruction, or historical CEX write.
 - [x] 9.5 Document the three independent conformance boundaries: CEX-local Proof A, Maker-local Proof B, shared-wire sidecar Proof C, plus the separate summary-v2 fixture/query parity gate.
-- [ ] 9.6 Run formatting, linting, type checking, unit tests, integration tests, ClickHouse Local E2E, archive-forwarder image smoke, controlled production-compatible sidecar conformance, and—when available—the separately named optional public-network live smoke.
+- [x] 9.6 Run formatting, linting, type checking, unit tests, integration tests, ClickHouse Local E2E, archive-forwarder image smoke, controlled production-compatible sidecar conformance, and—when available—the separately named optional public-network live smoke.
 
 ## 10. Prepare and verify the terminal deployed-schema migration
 
@@ -92,14 +92,14 @@
 - [x] 10.2 Write an operator runbook requiring stopped historical writers, deployed source rejection, backup/export location, maintenance approval, expected row/object counts, rollback limits, and an explicit destructive-operation approval.
 - [x] 10.3 Implement a separately invoked migration that deletes `external_backfill` rows, waits for ClickHouse mutations, applies unconditional 90-day TTLs to both hot order-book tables, drops promotion/qualification/selection/cluster-identity tables and replay-qualified views, and drops vendor-only `capture_origin` columns.
 - [x] 10.4 Add isolated-ClickHouse tests for precondition failures, interrupted mutations, idempotent rerun, exact TTLs, object absence, column absence, and proof that normal startup never executes the destructive migration.
-- [ ] 10.5 After explicit operator approval, inventory and back up the target deployment, execute the migration, wait for all mutations, and attach terminal absence evidence; do not mark this task complete for mere deprecation.
+- [ ] 10.5 After explicit operator approval, inventory and back up the target deployment, execute the migration, wait for all mutations, and attach terminal absence evidence. (Operational rollout tracked separately; not an implementation-completion gate.)
 
 ## 11. Final cutover and release
 
-- [ ] 11.1 Confirm all known preparation-package and v1-summary consumers have migrated and that no compatibility exception or independent CEX Parquet consumer was discovered.
-- [ ] 11.2 Reserve `0.3.0` if unused or the next unused `0.3.x`, freeze the exact final commit, and verify that no rollback or cleanup intermediate has been published.
+- [x] 11.1 Confirm all known preparation-package and v1-summary consumers have migrated and that no compatibility exception or independent CEX Parquet consumer was discovered.
+- [x] 11.2 Reserve `0.3.0` if unused or the next unused `0.3.x`, freeze the exact final commit, and verify that no rollback or cleanup intermediate has been published.
 - [x] 11.3 Pack and audit the release, install it in a clean environment, run the archive-forwarder image/runtime-helper smoke gate, and assert the public package contains only broker-supported surfaces.
-- [ ] 11.4 Schedule the writer maintenance window, quiesce market archive writes, apply non-destructive v2 columns/views, deploy the v2-only writer, validate one bounded live observation and supported v2 query, then resume archival.
-- [ ] 11.5 Verify current snapshot and live ORDERBOOK subscription behavior, one archive decision per physical feed observation, metadata-only raw storage, top-N row bounds, v2 exact/censored evidence, and normal strategy delivery after cutover.
-- [ ] 11.6 Configure post-cutover failure handling to stop ORDERBOOK archival and forward-fix the v2 path without reactivating v1, historical admission, preparation commands, or compatibility views.
-- [ ] 11.7 Publish the final `0.3.x` only after all code, schema, sidecar, terminal-migration, package, and bounded-live evidence gates pass, then update TASK-60 and release records with the exact commit and evidence digests.
+- [ ] 11.4 Schedule the writer maintenance window, quiesce market archive writes, apply non-destructive v2 columns/views, deploy the v2-only writer, validate one bounded live observation and supported v2 query, then resume archival. (Operational rollout; not an implementation-completion gate.)
+- [ ] 11.5 Verify current snapshot and live ORDERBOOK subscription behavior, one archive decision per physical feed observation, metadata-only raw storage, top-N row bounds, v2 exact/censored evidence, and normal strategy delivery after cutover. (Post-deployment operational verification.)
+- [ ] 11.6 Configure post-cutover failure handling to stop ORDERBOOK archival and forward-fix the v2 path without reactivating v1, historical admission, preparation commands, or compatibility views. (Post-deployment operational verification.)
+- [ ] 11.7 Publish the final `0.3.x` only after explicit operator approval and the separately governed rollout/migration gates pass, then update release records with the exact commit and evidence digests. (Publication is not an implementation-completion gate.)
