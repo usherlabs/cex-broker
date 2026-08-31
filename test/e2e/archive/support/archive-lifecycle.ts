@@ -1152,7 +1152,10 @@ export async function runProductionServerArchiveCapture(options: {
 		endpoint = await startArchiveForwarderEndpoint({
 			inserter: options.inserter,
 			authToken: AUTH_TOKEN,
-			marketIdentity: { source: "broker_read", deploymentId: options.deploymentId },
+			marketIdentity: {
+				source: "broker_read",
+				deploymentId: options.deploymentId,
+			},
 			spoolPath: join(runDirectory, "strategy-spool.sqlite"),
 		});
 		environment.set({
@@ -1821,9 +1824,7 @@ export async function runOrderBookConflictRegression(): Promise<{
 				...sameRequest,
 				row: {
 					...sameRequestConflictContent,
-					normalized_row_checksum: sha256Canonical(
-						sameRequestConflictContent,
-					),
+					normalized_row_checksum: sha256Canonical(sameRequestConflictContent),
 				},
 			};
 			const unrelated =
@@ -1865,9 +1866,7 @@ export async function runOrderBookConflictRegression(): Promise<{
 				...crossBatch,
 				row: {
 					...crossBatchConflictContent,
-					normalized_row_checksum: sha256Canonical(
-						crossBatchConflictContent,
-					),
+					normalized_row_checksum: sha256Canonical(crossBatchConflictContent),
 				},
 			};
 			if (

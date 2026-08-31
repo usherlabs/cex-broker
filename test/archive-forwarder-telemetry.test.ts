@@ -73,10 +73,10 @@ function archiveRequest(rows: unknown[]): Request {
 
 describe("archive forwarder telemetry", () => {
 	const originalEnv = { ...process.env };
-const marketIdentity = {
-	source: "broker_write" as const,
-	deploymentId: "deploy-a",
-};
+	const marketIdentity = {
+		source: "broker_write" as const,
+		deploymentId: "deploy-a",
+	};
 
 	afterEach(() => {
 		process.env = { ...originalEnv };
