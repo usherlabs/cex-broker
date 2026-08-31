@@ -5,7 +5,6 @@ set -euo pipefail
 repository_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_tag="${ARCHIVE_FORWARDER_SMOKE_IMAGE:-cex-broker-archive-forwarder:smoke}"
 container_name="archive-forwarder-image-smoke-$$"
-host_port="${ARCHIVE_FORWARDER_SMOKE_PORT:-}"
 
 cleanup() {
   docker logs "$container_name" 2>/dev/null || true
@@ -18,28 +17,17 @@ docker build \
   --tag "$image_tag" \
   "$repository_dir"
 
-if [ -n "$host_port" ]; then
-  publish=(--publish "127.0.0.1:${host_port}:8090")
-else
-  publish=(--publish "127.0.0.1::8090")
-fi
-
 docker run --detach \
   --name "$container_name" \
-  "${publish[@]}" \
   --env CLICKHOUSE_URL=http://127.0.0.1:9 \
   "$image_tag" >/dev/null
 
-if [ -z "$host_port" ]; then
-  host_port="$(docker port "$container_name" 8090/tcp | sed -n 's/.*://p' | head -1)"
-fi
-[ -n "$host_port" ] || {
-  echo "archive-forwarder image did not receive a host port" >&2
-  exit 1
-}
-
 for _ in $(seq 1 30); do
-  if body="$(curl --fail --silent --max-time 2 "http://127.0.0.1:${host_port}/health")"; then
+  if body="$(docker exec "$container_name" bun -e '
+    const response = await fetch("http://127.0.0.1:8090/health");
+    if (!response.ok) process.exit(1);
+    console.log(await response.text());
+  ' 2>/dev/null)"; then
     if grep --quiet '"durableAdmission":true' <<<"$body"; then
       exit 0
     fi
