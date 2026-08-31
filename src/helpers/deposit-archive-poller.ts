@@ -36,8 +36,8 @@ export type DepositArchivePollerConfig = {
 	// How far back the first poll of an account reaches. A restart loses the
 	// in-memory cursor and re-scans this window; duplicate rows are acceptable
 	// because transfer_events is plain MergeTree and consumers deduplicate at read
-	// time over (exchange, account, symbol, external_id, status). A Binance deposit
-	// unlocking intentionally produces distinct credited_not_withdrawable and ok rows.
+	// time over the full transfer identity plus the observed progress. A Binance
+	// deposit can therefore produce multiple rows before it becomes withdrawable.
 	lookbackMs: number;
 	depositsLimit: number;
 };
@@ -75,9 +75,59 @@ type DepositPollTarget = {
 
 type PollOutcome = "ok" | "error" | "unsupported";
 
+type BinanceUnlockProgressState =
+	| "pending"
+	| "credited_not_withdrawable"
+	| "ok"
+	| "failed"
+	| "unknown";
+
+type BinanceUnlockProgressQuality = "valid" | "unknown" | "contradictory";
+
+const BINANCE_UNLOCK_PROGRESS_SOURCE = {
+	venue: "binance",
+	endpoint: "GET /sapi/v1/capital/deposit/hisrec",
+	fields: {
+		status: "info.status",
+		confirmTimes: "info.confirmTimes",
+		unlockConfirm: "info.unlockConfirm",
+		completeTime: "info.completeTime",
+	},
+} as const;
+
+export type BinanceUnlockProgress = {
+	version: 1;
+	state: BinanceUnlockProgressState;
+	progress_state: BinanceUnlockProgressQuality;
+	reason: string | null;
+	native_status: number | null;
+	current: number | null;
+	credit_required: number | null;
+	unlock_required: number | null;
+	complete_time: number | null;
+	observed_at: string;
+	source: typeof BINANCE_UNLOCK_PROGRESS_SOURCE;
+};
+
+type UnlockProgressWatermark = {
+	current: number;
+	credit_required: number;
+	unlock_required: number;
+};
+
 type LastArchivedDeposit = {
 	status: string | undefined;
 	timestamp: number | undefined;
+	progressKey: string | undefined;
+	highWatermark: UnlockProgressWatermark | undefined;
+};
+
+type DepositClassification = {
+	archiveStatus: string;
+	holdCursor: boolean;
+	unlockProgress?: BinanceUnlockProgress;
+	progressKey?: string;
+	highWatermark?: UnlockProgressWatermark;
 };
 
 function depositTimestamp(record: Record<string, unknown>): number | undefined {
@@ -98,18 +148,264 @@ function depositTimestamp(record: Record<string, unknown>): number | undefined {
 	return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
-function archivedDepositStatus(
+function parseNonNegativeInteger(value: unknown): number | undefined {
+	if (typeof value === "number") {
+		return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+	}
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	if (!/^\d+$/.test(trimmed)) {
+		return undefined;
+	}
+	const parsed = Number(trimmed);
+	return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function parseConfirmTimes(value: unknown): {
+	current?: number;
+	creditRequired?: number;
+	reason: string | null;
+} {
+	if (value === undefined || value === null) {
+		return { reason: "missing_confirmTimes" };
+	}
+
+	let currentValue: unknown;
+	let creditRequiredValue: unknown;
+	if (typeof value === "string") {
+		const match = /^(\d+)\s*\/\s*(\d+)$/.exec(value.trim());
+		if (!match) {
+			return { reason: "invalid_confirmTimes" };
+		}
+		currentValue = match[1];
+		creditRequiredValue = match[2];
+	} else {
+		const record = asRecord(value);
+		if (!record) {
+			return { reason: "invalid_confirmTimes" };
+		}
+		currentValue = record.current;
+		creditRequiredValue = record.credit_required;
+	}
+
+	const current = parseNonNegativeInteger(currentValue);
+	const creditRequired = parseNonNegativeInteger(creditRequiredValue);
+	if (current === undefined || creditRequired === undefined) {
+		return { reason: "invalid_confirmTimes" };
+	}
+	return { current, creditRequired, reason: null };
+}
+
+function parseOptionalNonNegativeInteger(
+	value: unknown,
+	fieldName: string,
+): { value: number | undefined; reason: string | null } {
+	if (value === undefined || value === null) {
+		return { value: undefined, reason: null };
+	}
+	const parsed = parseNonNegativeInteger(value);
+	return parsed === undefined
+		? { value: undefined, reason: `invalid_${fieldName}` }
+		: { value: parsed, reason: null };
+}
+
+/**
+ * Extracts Binance's native deposit confirmation fields without trusting
+ * ccxt's normalized status. `confirmTimes` is normally the venue string
+ * `"current/credit_required"`; the object form is accepted only for callers
+ * that already decoded that exact field.
+ */
+export function parseBinanceUnlockProgress(
+	record: Record<string, unknown>,
+): BinanceUnlockProgress {
+	const info = asRecord(record.info);
+	const nativeStatus = parseNonNegativeInteger(info?.status);
+	const confirmations = parseConfirmTimes(info?.confirmTimes);
+	const unlockRequired = parseOptionalNonNegativeInteger(
+		info?.unlockConfirm,
+		"unlockConfirm",
+	);
+	const completeTime = parseOptionalNonNegativeInteger(
+		info?.completeTime,
+		"completeTime",
+	);
+
+	let quality: BinanceUnlockProgressQuality = "valid";
+	let reason: string | null = null;
+	if (nativeStatus === undefined) {
+		quality = "unknown";
+		reason = "missing_or_invalid_status";
+	} else if (confirmations.reason !== null) {
+		quality = "unknown";
+		reason = confirmations.reason;
+	} else if (unlockRequired.reason !== null) {
+		quality = "unknown";
+		reason = unlockRequired.reason;
+	} else if (completeTime.reason !== null) {
+		quality = "unknown";
+		reason = completeTime.reason;
+	}
+
+	let state: BinanceUnlockProgressState = "unknown";
+	switch (nativeStatus) {
+		case 0:
+			state = "pending";
+			break;
+		case 1:
+			if (
+				quality === "valid" &&
+				confirmations.current !== undefined &&
+				unlockRequired.value !== undefined &&
+				confirmations.current >= unlockRequired.value
+			) {
+				state = "ok";
+			} else if (quality === "valid") {
+				state = "credited_not_withdrawable";
+			}
+			break;
+		case 2:
+		case 7:
+			state = "failed";
+			break;
+		case 6:
+			state = "credited_not_withdrawable";
+			break;
+		case 8:
+			state = "pending";
+			break;
+		default:
+			quality = "unknown";
+			reason = "unsupported_status";
+			break;
+	}
+
+	return {
+		version: 1,
+		state,
+		progress_state: quality,
+		reason,
+		native_status: nativeStatus ?? null,
+		current: confirmations.current ?? null,
+		credit_required: confirmations.creditRequired ?? null,
+		unlock_required: unlockRequired.value ?? null,
+		complete_time: completeTime.value ?? null,
+		observed_at: new Date().toISOString(),
+		source: BINANCE_UNLOCK_PROGRESS_SOURCE,
+	};
+}
+
+function unlockProgressKey(progress: BinanceUnlockProgress): string {
+	return JSON.stringify({
+		version: progress.version,
+		state: progress.state,
+		progress_state: progress.progress_state,
+		reason: progress.reason,
+		native_status: progress.native_status,
+		current: progress.current,
+		credit_required: progress.credit_required,
+		unlock_required: progress.unlock_required,
+		complete_time: progress.complete_time,
+	});
+}
+
+function progressWatermark(
+	progress: BinanceUnlockProgress,
+	previous: UnlockProgressWatermark | undefined,
+): UnlockProgressWatermark | undefined {
+	if (
+		progress.progress_state !== "valid" ||
+		progress.current === null ||
+		progress.credit_required === null ||
+		progress.unlock_required === null
+	) {
+		return previous;
+	}
+	return {
+		current: Math.max(previous?.current ?? 0, progress.current),
+		credit_required: progress.credit_required,
+		unlock_required: progress.unlock_required,
+	};
+}
+
+function classifyBinanceDeposit(
+	record: Record<string, unknown>,
+	previous: LastArchivedDeposit | undefined,
+): DepositClassification {
+	let progress = parseBinanceUnlockProgress(record);
+	let highWatermark = previous?.highWatermark;
+	if (
+		progress.progress_state === "valid" &&
+		progress.current !== null &&
+		progress.credit_required !== null &&
+		progress.unlock_required !== null &&
+		previous?.highWatermark !== undefined &&
+		(progress.current < previous.highWatermark.current ||
+			progress.credit_required !== previous.highWatermark.credit_required ||
+			progress.unlock_required !== previous.highWatermark.unlock_required)
+	) {
+		progress = {
+			...progress,
+			state: "unknown",
+			progress_state: "contradictory",
+			reason: "confirmation_progress_regressed_or_requirement_changed",
+		};
+	} else {
+		highWatermark = progressWatermark(progress, previous?.highWatermark);
+	}
+
+	return {
+		archiveStatus: progress.state,
+		holdCursor:
+			progress.state === "pending" ||
+			progress.state === "credited_not_withdrawable" ||
+			progress.state === "unknown",
+		unlockProgress: progress,
+		progressKey: unlockProgressKey(progress),
+		highWatermark,
+	};
+}
+
+function classifyDeposit(
 	exchangeId: string | undefined,
 	record: Record<string, unknown>,
-): string | undefined {
-	const rawStatus = asRecord(record.info)?.status;
-	if (
-		exchangeId?.toLowerCase() === "binance" &&
-		String(rawStatus ?? "").trim() === "6"
-	) {
-		return "credited_not_withdrawable";
+	previous?: LastArchivedDeposit,
+): DepositClassification {
+	if (exchangeId?.toLowerCase() === "binance") {
+		return classifyBinanceDeposit(record, previous);
 	}
-	return normalizeCcxtTransactionForArchive(record).status;
+	const archiveStatus = normalizeCcxtTransactionForArchive(record).status ?? "";
+	const status = normalizeDepositStatus(
+		depositField(record, ["status", "state"]),
+	);
+	return {
+		archiveStatus,
+		holdCursor:
+			archiveStatus === "credited_not_withdrawable" || status === "pending",
+		progressKey: JSON.stringify({ status: archiveStatus }),
+	};
+}
+
+function depositIdentity(input: {
+	exchangeId: string;
+	accountSelector: string;
+	coin: unknown;
+	network: unknown;
+	externalId: string | undefined;
+	txid: string | undefined;
+}): string | undefined {
+	if (input.externalId === undefined && input.txid === undefined) {
+		return undefined;
+	}
+	return JSON.stringify({
+		exchange: input.exchangeId,
+		account: input.accountSelector,
+		coin: input.coin === undefined ? "" : String(input.coin),
+		network: input.network === undefined ? "" : String(input.network),
+		external_id: input.externalId ?? "",
+		txid: input.txid ?? "",
+	});
 }
 
 /**
@@ -137,12 +433,8 @@ export function nextDepositCursor(
 			return currentSince;
 		}
 		const timestamp = depositTimestamp(record);
-		const archiveStatus = archivedDepositStatus(exchangeId, record);
-		const status = normalizeDepositStatus(
-			depositField(record, ["status", "state"]),
-		);
-		const isPending =
-			archiveStatus === "credited_not_withdrawable" || status === "pending";
+		const classification = classifyDeposit(exchangeId, record);
+		const isPending = classification.holdCursor;
 		if (timestamp === undefined) {
 			if (isPending) {
 				return currentSince;
@@ -308,7 +600,9 @@ export class DepositArchivePoller {
 			if (!record) {
 				continue;
 			}
-			const assetSymbol = depositField(record, ["currency", "code", "asset"]);
+			const info = asRecord(record.info);
+			const assetSymbol =
+				depositField(record, ["currency", "code", "asset"]) ?? info?.coin;
 			const amount = depositField(record, ["amount"]);
 			const address = depositField(record, [
 				"address",
@@ -317,8 +611,33 @@ export class DepositArchivePoller {
 				"destination",
 			]);
 			const txid = depositField(record, ["txid", "txId", "tx_hash", "txHash"]);
-			const network = depositField(record, ["network", "chain"]);
-			const archiveStatus = archivedDepositStatus(target.exchangeId, record);
+			const network =
+				depositField(record, ["network", "chain"]) ?? info?.network;
+			const depositTxid = txid === undefined ? undefined : String(txid);
+			const identity = depositIdentity({
+				exchangeId: target.exchangeId,
+				accountSelector: target.account.label,
+				coin: assetSymbol,
+				network,
+				externalId: depositTxid,
+				txid: depositTxid,
+			});
+			const lastArchived =
+				identity === undefined
+					? undefined
+					: this.#lastArchivedByTarget.get(key)?.get(identity);
+			const classification = classifyDeposit(
+				target.exchangeId,
+				record,
+				lastArchived,
+			);
+			if (
+				lastArchived &&
+				lastArchived.status === classification.archiveStatus &&
+				lastArchived.progressKey === classification.progressKey
+			) {
+				continue;
+			}
 			const creditedAt = depositField(record, [
 				"creditedAt",
 				"credited_at",
@@ -327,14 +646,10 @@ export class DepositArchivePoller {
 				"timestamp",
 				"datetime",
 			]);
-			const depositTxid = txid === undefined ? undefined : String(txid);
-			const lastArchived =
-				depositTxid === undefined
-					? undefined
-					: this.#lastArchivedByTarget.get(key)?.get(depositTxid);
-			if (lastArchived && lastArchived.status === archiveStatus) {
-				continue;
-			}
+			const payload =
+				classification.unlockProgress === undefined
+					? record
+					: { ...record, unlock_progress: classification.unlockProgress };
 
 			this.params.archiver.enqueue(
 				buildTransferEventArchiveRow({
@@ -347,26 +662,28 @@ export class DepositArchivePoller {
 					transfer: {
 						eventKind: "deposit",
 						lifecycleAction: "observe_deposit",
-						status: archiveStatus,
+						status: classification.archiveStatus,
 						amount: amount === undefined ? undefined : String(amount),
 						address: address === undefined ? undefined : String(address),
 						network: network === undefined ? undefined : String(network),
 						externalId: depositTxid,
 						txid: depositTxid,
 						exchangeTimestamp: normalizeTimestamp(creditedAt),
-						payload: record,
+						payload,
 					},
 				}),
 			);
-			if (depositTxid !== undefined) {
+			if (identity !== undefined) {
 				let targetDeposits = this.#lastArchivedByTarget.get(key);
 				if (!targetDeposits) {
 					targetDeposits = new Map();
 					this.#lastArchivedByTarget.set(key, targetDeposits);
 				}
-				targetDeposits.set(depositTxid, {
-					status: archiveStatus,
+				targetDeposits.set(identity, {
+					status: classification.archiveStatus,
 					timestamp: depositTimestamp(record),
+					progressKey: classification.progressKey,
+					highWatermark: classification.highWatermark,
 				});
 			}
 			archived += 1;
