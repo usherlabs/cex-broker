@@ -470,6 +470,7 @@ WHERE source IN ('broker_read', 'broker_write')
   AND ask_level_count > 0
   AND length(measurement_bands_bps) BETWEEN 1 AND 64
   AND arrayAll(value -> value BETWEEN 1 AND 10000, measurement_bands_bps)
+  AND measurement_bands_bps = arraySort(arrayDistinct(measurement_bands_bps))
   AND length(bid_boundary_price_by_band) = length(measurement_bands_bps)
   AND length(ask_boundary_price_by_band) = length(measurement_bands_bps)
   AND length(bid_depth_by_band) = length(measurement_bands_bps)
@@ -562,6 +563,7 @@ INNER JOIN
       AND ask_level_count > 0
       AND length(measurement_bands_bps) BETWEEN 1 AND 64
       AND arrayAll(value -> value BETWEEN 1 AND 10000, measurement_bands_bps)
+      AND measurement_bands_bps = arraySort(arrayDistinct(measurement_bands_bps))
       AND length(bid_boundary_price_by_band) = length(measurement_bands_bps)
       AND length(ask_boundary_price_by_band) = length(measurement_bands_bps)
       AND length(bid_depth_by_band) = length(measurement_bands_bps)

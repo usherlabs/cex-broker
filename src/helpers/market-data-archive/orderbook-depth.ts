@@ -33,6 +33,11 @@ export function normalizeOrderbookMeasurementBandsBps(
 	if (bands.length === 0) {
 		throw new Error("ORDERBOOK measurement bands must not be empty");
 	}
+	if (bands.length > MAX_ORDERBOOK_MEASUREMENT_BANDS) {
+		throw new Error(
+			`ORDERBOOK measurement bands must contain at most ${MAX_ORDERBOOK_MEASUREMENT_BANDS} entries`,
+		);
+	}
 	for (const band of bands) {
 		if (
 			!Number.isSafeInteger(band) ||

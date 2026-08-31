@@ -1127,7 +1127,7 @@ async function queryArchiveEventIds(
 	where: string,
 ): Promise<string[]> {
 	const result = await client.query({
-		query: `SELECT archive_event_id FROM ${table} WHERE ${where} ORDER BY archive_event_id`,
+		query: `SELECT archive_event_id FROM ${table} WHERE ${where} ORDER BY archive_event_id LIMIT ${MAX_STRATEGY_ROWS + 1}`,
 		format: "JSONEachRow",
 	});
 	const rows = (await result.json()) as Array<{ archive_event_id: string }>;
