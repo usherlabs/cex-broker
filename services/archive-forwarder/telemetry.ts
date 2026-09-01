@@ -43,6 +43,14 @@ export const ARCHIVE_FORWARDER_METRICS = {
 	strategyExpiredWork: "archive_forwarder_strategy_expired_work_total",
 	lastSuccessfulStrategyDrain:
 		"archive_forwarder_last_successful_strategy_drain_timestamp_seconds",
+	marketDataRowsRetained: "archive_forwarder_market_data_rows_retained_total",
+	marketDataRetentionRejected:
+		"archive_forwarder_market_data_retention_rejected_total",
+	marketDataSpoolPendingWork:
+		"archive_forwarder_market_data_spool_pending_work",
+	marketDataSpoolBytes: "archive_forwarder_market_data_spool_accounted_bytes",
+	marketDataSpoolOldestAge:
+		"archive_forwarder_market_data_spool_oldest_age_milliseconds",
 } as const;
 
 const STRATEGY_REJECTION_REASONS = new Set([
@@ -51,13 +59,33 @@ const STRATEGY_REJECTION_REASONS = new Set([
 	"spool_unavailable",
 ]);
 
+const MARKET_DATA_REJECTION_REASONS: Record<string, true> = {
+	quota: true,
+	spool_unavailable: true,
+	not_retryable: true,
+};
+
 const INSERT_ERROR_CLASSES = new Set([
 	"timeout",
 	"connection",
+	"overloaded",
 	"authentication",
 	"schema",
 	"unknown",
 ]);
+
+/**
+ * Insert error classes worth retaining for a later retry. A class absent here
+ * is treated as non-retryable at admission, so the sender keeps its existing
+ * failure response and its own dead-letter path stays the last resort. `unknown`
+ * is deliberately excluded: retaining unclassified failures would fill the spool
+ * with work that can never drain.
+ */
+export const RETRYABLE_INSERT_ERROR_CLASSES: Record<string, true> = {
+	timeout: true,
+	connection: true,
+	overloaded: true,
+};
 
 export type ArchiveMetricsRecorder = Pick<
 	OtelMetrics,
@@ -201,6 +229,38 @@ export class ArchiveForwarderTelemetry {
 		);
 	}
 
+	public recordMarketDataRetention(rowCount: number): void {
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.marketDataRowsRetained,
+				rowCount,
+				{},
+			),
+		);
+	}
+
+	public recordMarketDataRetentionRejected(reason: string): void {
+		this.bestEffort(() =>
+			this.metrics.recordCounter(
+				ARCHIVE_FORWARDER_METRICS.marketDataRetentionRejected,
+				1,
+				{
+					reason: MARKET_DATA_REJECTION_REASONS[reason] ? reason : "other",
+				},
+			),
+		);
+	}
+
+	public recordMarketDataSpoolStats(stats: StrategySpoolStats): void {
+		for (const [name, value] of [
+			[ARCHIVE_FORWARDER_METRICS.marketDataSpoolPendingWork, stats.queuedWork],
+			[ARCHIVE_FORWARDER_METRICS.marketDataSpoolBytes, stats.accountedBytes],
+			[ARCHIVE_FORWARDER_METRICS.marketDataSpoolOldestAge, stats.oldestAgeMs],
+		] as const) {
+			this.bestEffort(() => this.metrics.setObservableGauge(name, value, {}));
+		}
+	}
+
 	public recordStrategySpoolStats(stats: StrategySpoolStats): void {
 		for (const [name, value] of [
 			[ARCHIVE_FORWARDER_METRICS.strategySpoolPendingBatches, stats.queuedBatches],
@@ -302,6 +362,17 @@ export function classifyInsertError(error: unknown): string {
 			? `${error.name} ${error.message}`.toLowerCase()
 			: String(error).toLowerCase();
 
+	// Checked before every other class: a server that refuses the allocation is
+	// rejecting work it would accept once load drops, which is retryable, while
+	// the generic `unknown` bucket is treated as non-retryable at admission. The
+	// wire form carries both the prose and the type name, so match on both.
+	if (
+		/memory limit exceeded|memory_limit_exceeded|too many simultaneous queries|too_many_simultaneous_queries/.test(
+			message,
+		)
+	) {
+		return "overloaded";
+	}
 	if (/timeout|timed out|abort/.test(message)) return "timeout";
 	if (/econn|connection|network|socket|fetch failed/.test(message)) {
 		return "connection";

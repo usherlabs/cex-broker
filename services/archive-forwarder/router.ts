@@ -1,4 +1,8 @@
-import type { ArchiveBatchRequest, ArchiveBatchResult } from "./types";
+import type {
+	ArchiveBatchRequest,
+	ArchiveBatchResult,
+	SupportedTable,
+} from "./types";
 import { isSupportedTable, MALFORMED_TABLE_LABEL } from "./types";
 import { insertArchiveRows, type RowInserter } from "./insert";
 import type { ArchiveForwarderTelemetry } from "./telemetry";
@@ -206,12 +210,14 @@ export async function handleArchiveBatch(
 	inserter: RowInserter,
 	request: ArchiveBatchRequest,
 	telemetry?: ArchiveForwarderTelemetry,
+	onTableFailure?: (table: SupportedTable, error: unknown) => void,
 ): Promise<ArchiveBatchResult> {
 	const result = await insertArchiveRows(
 		inserter,
 		request.rows,
 		telemetry,
 		request.batch_id,
+		onTableFailure,
 	);
 	// Requires rows to have actually landed. `failed === 0` is also true for an
 	// empty batch, and an empty POST advancing this gauge would keep a staleness
