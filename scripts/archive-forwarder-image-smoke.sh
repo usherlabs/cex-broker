@@ -25,7 +25,16 @@ docker run --detach \
   "$image_tag" >/dev/null
 
 for _ in $(seq 1 30); do
-  if body="$(curl --fail --silent --max-time 2 "http://127.0.0.1:${host_port}/health")"; then
+  response="$(curl --silent --max-time 2 --write-out '\n%{http_code}' "http://127.0.0.1:${host_port}/health")" || response=""
+  if [ -n "$response" ]; then
+    status_code="${response##*$'\n'}"
+    body="${response%$'\n'*}"
+    # ClickHouse is deliberately unreachable in this harness, so honest health
+    # must report 503 while the spool keeps durable admission available.
+    if [ "$status_code" != "503" ]; then
+      echo "archive-forwarder health returned $status_code despite unreachable ClickHouse: $body" >&2
+      exit 1
+    fi
     if grep --quiet '"durableAdmission":true' <<<"$body"; then
       exit 0
     fi
