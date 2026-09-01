@@ -36,6 +36,11 @@ export async function insertArchiveRows(
 	rows: ArchiveRow[],
 	telemetry?: ArchiveForwarderTelemetry,
 	batchId?: string,
+	// Reports the raw error per failed table. `ArchiveBatchResult` deliberately
+	// keeps carrying only table names, because it is spread verbatim into the
+	// HTTP response; callers that must decide whether a failure is retryable
+	// need the error itself, and this hands it over without widening that body.
+	onTableFailure?: (table: SupportedTable, error: unknown) => void,
 ): Promise<ArchiveBatchResult> {
 	const grouped = groupRowsByTable(rows);
 	const byTable: Record<string, number> = {};
@@ -67,6 +72,7 @@ export async function insertArchiveRows(
 			failedTables.push(table);
 			failed += tableRows.length;
 			telemetry?.recordInsertFailure(table, error);
+			onTableFailure?.(table, error);
 			console.error(`Archive insert failed for ${table}:`, error);
 		}
 	}

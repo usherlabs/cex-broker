@@ -14,6 +14,18 @@ export type ArchiveClusterIdentity = {
 	cluster: string;
 };
 
+/**
+ * `statusCode` answers "is this forwarder doing its job right now", not merely
+ * "is the process up". An unreachable ClickHouse is reported as 503 even though
+ * the spool keeps accepting, because a 200 here previously let a total archive
+ * outage look healthy to every operator surface for days.
+ *
+ * Consequence to keep in mind: the container healthcheck polls this endpoint, so
+ * a ClickHouse outage marks the container unhealthy, and any compose unit that
+ * gates on `service_healthy` will refuse to start until ClickHouse recovers.
+ * `status` still distinguishes the two failure modes: `degraded` means rows are
+ * being retained durably, `unavailable` means they are not.
+ */
 export function evaluateForwarderHealth(input: ForwarderHealthInput) {
 	const status = !input.spoolOk
 		? "unavailable"
@@ -21,7 +33,7 @@ export function evaluateForwarderHealth(input: ForwarderHealthInput) {
 			? "ok"
 			: "degraded";
 	return {
-		statusCode: input.spoolOk ? 200 : 503,
+		statusCode: input.spoolOk && input.clickhouseOk ? 200 : 503,
 		body: {
 			status,
 			clickhouse: input.clickhouseOk,
