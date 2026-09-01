@@ -124,6 +124,81 @@ describe("market_data durable retention", () => {
 		spool.close();
 	});
 
+	test("retains broker_execution rows and returns 202 on an overloaded failure", async () => {
+		const spool = new StrategyArchiveSpool({ path: ":memory:" });
+		const response = await handleArchiveRequest(
+			post(marketDataBatch(["broker_execution.transfer_events"])),
+			{
+				inserter: async () => {
+					throw MEMORY_LIMIT_ERROR;
+				},
+				spool,
+				telemetry: telemetry(),
+			},
+		);
+
+		expect(response.status).toBe(202);
+		expect(await response.json()).toMatchObject({ ok: true, retained: 1 });
+		expect(spool.stats("market_data")).toMatchObject({
+			queuedBatches: 1,
+			queuedWork: 1,
+		});
+		spool.close();
+	});
+
+	test("retains broker_account rows", async () => {
+		const spool = new StrategyArchiveSpool({ path: ":memory:" });
+		const response = await handleArchiveRequest(
+			post(marketDataBatch(["broker_account.balance_snapshots"])),
+			{
+				inserter: async () => {
+					throw MEMORY_LIMIT_ERROR;
+				},
+				spool,
+				telemetry: telemetry(),
+			},
+		);
+
+		expect(response.status).toBe(202);
+		expect(await response.json()).toMatchObject({ ok: true, retained: 1 });
+		expect(spool.stats("market_data")).toMatchObject({
+			queuedBatches: 1,
+			queuedWork: 1,
+		});
+		spool.close();
+	});
+
+	test("a mixed batch retains only the broker table that failed, not the market_data table that landed", async () => {
+		const spool = new StrategyArchiveSpool({ path: ":memory:" });
+		const landed: string[] = [];
+		const response = await handleArchiveRequest(
+			post(
+				marketDataBatch([
+					"market_data.cex_ohlcv",
+					"broker_execution.fill_events",
+				]),
+			),
+			{
+				inserter: async (table) => {
+					if (table === "broker_execution.fill_events") {
+						throw MEMORY_LIMIT_ERROR;
+					}
+					landed.push(table);
+				},
+				spool,
+				telemetry: telemetry(),
+			},
+		);
+
+		expect(response.status).toBe(202);
+		expect(await response.json()).toMatchObject({ inserted: 1, retained: 1 });
+		expect(landed).toEqual(["market_data.cex_ohlcv"]);
+		expect(spool.dueWork().map((work) => work.table)).toEqual([
+			"broker_execution.fill_events",
+		]);
+		spool.close();
+	});
+
 	test("a full market_data budget stops retaining without touching the strategy lane", async () => {
 		// Size the market_data budget to exactly one batch so the second retention
 		// is the one that overflows, rather than relying on a guessed byte count.
