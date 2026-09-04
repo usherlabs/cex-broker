@@ -9,8 +9,8 @@ import {
 import strategyFixture from "./fixtures/archive_forwarder_envelope.json";
 
 const noopRecorder: ArchiveMetricsRecorder = {
-	recordCounter: () => {},
-	setObservableGauge: () => {},
+	recordCounter: () => Promise.resolve(),
+	setObservableGauge: () => Promise.resolve(),
 };
 
 /**
