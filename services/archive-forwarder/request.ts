@@ -22,8 +22,17 @@ import {
 	StrategySpoolUnavailableError,
 	type StrategyArchiveSpool,
 } from "./strategy-spool";
-import type { ArchiveForwarderTelemetry } from "./telemetry";
 import { classifyMarketSource } from "./market-source-contract";
+import {
+	classifyInsertError,
+	RETRYABLE_INSERT_ERROR_CLASSES,
+	type ArchiveForwarderTelemetry,
+} from "./telemetry";
+import type {
+	ArchiveBatchRequest,
+	ArchiveBatchResult,
+	SupportedTable,
+} from "./types";
 
 export type ArchiveRequestDependencies = {
 	authToken?: string;
@@ -36,6 +45,91 @@ export type ArchiveRequestDependencies = {
 	streamHealthStore?: StreamHealthReplayStore;
 	telemetry: ArchiveForwarderTelemetry;
 };
+
+// Tables whose rows are worth holding through a transient ClickHouse outage.
+// Strategy tables are absent on purpose: they are admit-first and never reach
+// the direct-insert failure path with rows that lack a durable home.
+const RETAINED_TABLE_PREFIXES = [
+	"market_data.",
+	"broker_execution.",
+	"broker_account.",
+];
+
+type InsertFailure = { table: SupportedTable; errorClass: string };
+
+/**
+ * Durably retains rows that ClickHouse refused for a reason that will pass,
+ * so a transient archive outage stops costing rows.
+ *
+ * Retention is all-or-nothing on purpose. A 202 tells the sender every row it
+ * posted is safe, so it is only returned when every failed table was retained;
+ * if any failure is non-retryable, names a table outside the retained lane,
+ * or the spool refuses the batch, the caller keeps its 500 and its own
+ * dead-letter path remains the last resort. Only the failed tables are handed
+ * to the spool: tables that already landed must not be replayed.
+ *
+ * The spool class and metric names still say market_data because the lane
+ * started there and both are externally consumed (persisted spool rows,
+ * dashboards); the lane now also covers broker_execution and broker_account.
+ */
+function retainFailedDurableRows(
+	batch: ArchiveBatchRequest,
+	failures: readonly InsertFailure[],
+	result: ArchiveBatchResult,
+	dependencies: ArchiveRequestDependencies,
+): Response | undefined {
+	const retainable =
+		failures.length > 0 &&
+		failures.every(
+			(failure) =>
+				RETAINED_TABLE_PREFIXES.some((prefix) =>
+					failure.table.startsWith(prefix),
+				) &&
+				RETRYABLE_INSERT_ERROR_CLASSES[failure.errorClass],
+		);
+	if (!retainable) {
+		dependencies.telemetry.recordMarketDataRetentionRejected("not_retryable");
+		return undefined;
+	}
+	if (!dependencies.spool) {
+		dependencies.telemetry.recordMarketDataRetentionRejected("spool_unavailable");
+		return undefined;
+	}
+	const failedTables: Record<string, true> = {};
+	for (const failure of failures) {
+		failedTables[failure.table] = true;
+	}
+	const failedRows = batch.rows.filter((row) => failedTables[row.table]);
+	try {
+		const admitted = dependencies.spool.admit(
+			{ ...batch, rows: failedRows },
+			"market_data",
+		);
+		dependencies.telemetry.recordMarketDataRetention(failedRows.length);
+		return Response.json(
+			{
+				ok: true,
+				accepted: true,
+				inserted: result.inserted,
+				retained: failedRows.length,
+				batchId: admitted.batchId,
+				byTable: result.byTable,
+			},
+			{ status: 202 },
+		);
+	} catch (error) {
+		if (
+			!(error instanceof StrategySpoolQuotaError) &&
+			!(error instanceof StrategySpoolUnavailableError)
+		) {
+			console.error("Market data retention failed:", error);
+		}
+		dependencies.telemetry.recordMarketDataRetentionRejected(
+			error instanceof StrategySpoolQuotaError ? "quota" : "spool_unavailable",
+		);
+		return undefined;
+	}
+}
 
 export async function handleArchiveRequest(
 	request: Request,
@@ -232,11 +326,15 @@ export async function handleArchiveRequest(
 		}
 	}
 
+	const insertFailures: InsertFailure[] = [];
 	try {
 		const result = await handleArchiveBatch(
 			dependencies.inserter,
 			parsed.batch,
 			dependencies.telemetry,
+			(table, error) => {
+				insertFailures.push({ table, errorClass: classifyInsertError(error) });
+			},
 		);
 		if (result.skipped > 0) {
 			console.warn(
@@ -250,6 +348,20 @@ export async function handleArchiveRequest(
 			console.warn(
 				`Failed ${result.failed} archive row(s) from ${parsed.batch.source}: ${result.failedTables.join(", ")}`,
 			);
+			// Replay batches are excluded: they are a re-drive of rows that already
+			// have a durable home, so retaining them here would double-store them.
+			const retained =
+				strategyClassification === "strategy_replay"
+					? undefined
+					: retainFailedDurableRows(
+							parsed.batch,
+							insertFailures,
+							result,
+							dependencies,
+						);
+			if (retained) {
+				return retained;
+			}
 			return Response.json(
 				{ error: "Archive insert failed", ...result },
 				{ status: 500 },

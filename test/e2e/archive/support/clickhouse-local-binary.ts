@@ -21,43 +21,23 @@ export type ClickHouseLocalArtifact = {
 	cacheKey: string;
 };
 
-export const CLICKHOUSE_LOCAL_ARTIFACTS = {
-	"linux-amd64": {
-		url: "https://packages.clickhouse.com/tgz/lts/clickhouse-common-static-25.8.24.21-amd64.tgz",
-		sha512:
-			"a687eff77c58afbe56b7112d9130ee429d0a39a308c2494ff99ef9f8dd4e573b601f6f96be4a32cffb745b6ff9262c653e575b3ca8df5bde12a6238efbe538bd",
-		extractedBinary: "clickhouse-common-static-25.8.24.21/usr/bin/clickhouse",
-		cacheKey: "clickhouse-local-25.8.24.21-linux-amd64-a687eff77c58afbe",
-	},
-	"linux-arm64": {
-		url: "https://packages.clickhouse.com/tgz/lts/clickhouse-common-static-25.8.24.21-arm64.tgz",
-		sha512:
-			"34e5c4198ae8b7a598f218db51ebc7a9b1649b405fef8d77456f91da5c0c498ee1f99341f64e88a3d0b5ddd370e2fcedf60a0487a9339d378bd7e958d6c6b079",
-		extractedBinary: "clickhouse-common-static-25.8.24.21/usr/bin/clickhouse",
-		cacheKey: "clickhouse-local-25.8.24.21-linux-arm64-34e5c4198ae8b7a5",
-	},
-} as const satisfies Record<string, ClickHouseLocalArtifact>;
-
-type SupportedPlatform = keyof typeof CLICKHOUSE_LOCAL_ARTIFACTS;
+export const CLICKHOUSE_LOCAL_ARTIFACT = {
+	url: "https://packages.clickhouse.com/tgz/lts/clickhouse-common-static-25.8.24.21-amd64.tgz",
+	sha512:
+		"a687eff77c58afbe56b7112d9130ee429d0a39a308c2494ff99ef9f8dd4e573b601f6f96be4a32cffb745b6ff9262c653e575b3ca8df5bde12a6238efbe538bd",
+	extractedBinary: "clickhouse-common-static-25.8.24.21/usr/bin/clickhouse",
+	cacheKey: "clickhouse-local-25.8.24.21-a687eff77c58afbe",
+} as const satisfies ClickHouseLocalArtifact;
 
 const REPOSITORY_ROOT = join(import.meta.dir, "../../../..");
 const DEFAULT_CACHE_ROOT = join(REPOSITORY_ROOT, ".cache", "clickhouse-local");
 
-function supportedPlatform(): SupportedPlatform {
+function assertSupportedPlatform(): void {
 	if (process.platform !== "linux") {
 		throw new Error(
-			`ClickHouse Local ${CLICKHOUSE_LOCAL_VERSION} is unsupported on ${process.platform}-${process.arch}`,
+			`ClickHouse Local ${CLICKHOUSE_LOCAL_VERSION} is unsupported on ${process.platform}`,
 		);
 	}
-	if (process.arch === "x64") {
-		return "linux-amd64";
-	}
-	if (process.arch === "arm64") {
-		return "linux-arm64";
-	}
-	throw new Error(
-		`ClickHouse Local ${CLICKHOUSE_LOCAL_VERSION} is unsupported on linux-${process.arch}`,
-	);
 }
 
 async function runCommand(
@@ -212,9 +192,9 @@ export async function resolveClickHouseLocalBinary(options?: {
 			);
 		}
 	}
-	const artifact = CLICKHOUSE_LOCAL_ARTIFACTS[supportedPlatform()];
+	assertSupportedPlatform();
 	return installArtifact(
-		artifact,
+		CLICKHOUSE_LOCAL_ARTIFACT,
 		options?.cacheRoot ??
 			process.env.CLICKHOUSE_LOCAL_CACHE_DIR?.trim() ??
 			DEFAULT_CACHE_ROOT,

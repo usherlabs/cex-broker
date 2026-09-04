@@ -80,7 +80,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/clickhouse-local
-          key: clickhouse-local-25.8.24.21-linux-amd64-a687eff77c58afbe
+          key: clickhouse-local-25.8.24.21-a687eff77c58afbe
 
       - name: Run required archive E2E regression
         run: bun run test:e2e:archive
