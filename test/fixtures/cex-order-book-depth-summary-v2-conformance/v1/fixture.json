@@ -1,0 +1,3340 @@
+{
+  "fixture_schema": "cex-order-book-depth-summary-v2-conformance/v1",
+  "summary_schema_version": "2.0.0",
+  "capture_schema_version": "1.0.0",
+  "checksum_algorithm": "sha256-canonical-json-v1",
+  "supported_view": "market_data.cex_order_book_depth_summary_canonical",
+  "table": "market_data.cex_order_book_depth_summary",
+  "canonical_ordering": [
+    "source_time_ms",
+    "capture_bundle_id",
+    "exchange",
+    "trading_pair",
+    "raw_capture_id",
+    "snapshot_id",
+    "schema_version"
+  ],
+  "supported_view_fields": [
+    {
+      "name": "source",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "deployment_id",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "capture_bundle_id",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "exchange",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "symbol",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "trading_pair",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "source_symbol",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "asset_type",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "feed",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "provider",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "source_mode",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "source_time_ms",
+      "clickhouse_type": "UInt64",
+      "nullable": false
+    },
+    {
+      "name": "received_time_ms",
+      "clickhouse_type": "UInt64",
+      "nullable": false
+    },
+    {
+      "name": "raw_capture_id",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "raw_capture_scope",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "schema_version",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "checksum_algorithm",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "raw_checksum",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "provenance_complete",
+      "clickhouse_type": "UInt8",
+      "nullable": false
+    },
+    {
+      "name": "snapshot_id",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "construction_mode",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "gap_policy",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "depth_limit",
+      "clickhouse_type": "UInt16",
+      "nullable": false
+    },
+    {
+      "name": "sequence",
+      "clickhouse_type": "UInt64",
+      "nullable": true
+    },
+    {
+      "name": "exact_l2_reconstruction_complete",
+      "clickhouse_type": "UInt8",
+      "nullable": false
+    },
+    {
+      "name": "capture_profile_id",
+      "clickhouse_type": "String",
+      "nullable": false
+    },
+    {
+      "name": "effective_cadence_ms",
+      "clickhouse_type": "UInt32",
+      "nullable": false
+    },
+    {
+      "name": "requested_upstream_depth",
+      "clickhouse_type": "UInt16",
+      "nullable": true
+    },
+    {
+      "name": "observed_bid_count",
+      "clickhouse_type": "UInt32",
+      "nullable": false
+    },
+    {
+      "name": "observed_ask_count",
+      "clickhouse_type": "UInt32",
+      "nullable": false
+    },
+    {
+      "name": "observed_farthest_bid",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "observed_farthest_ask",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "retained_farthest_bid",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "retained_farthest_ask",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "bid_exhausted",
+      "clickhouse_type": "UInt8",
+      "nullable": false
+    },
+    {
+      "name": "ask_exhausted",
+      "clickhouse_type": "UInt8",
+      "nullable": false
+    },
+    {
+      "name": "best_bid",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "best_ask",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "best_bid_amount",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "best_ask_amount",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "mid_price",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "spread",
+      "clickhouse_type": "Decimal(38,18)",
+      "nullable": false
+    },
+    {
+      "name": "spread_bps",
+      "clickhouse_type": "Float64",
+      "nullable": false
+    },
+    {
+      "name": "staleness_ms",
+      "clickhouse_type": "UInt64",
+      "nullable": false
+    },
+    {
+      "name": "bid_level_count",
+      "clickhouse_type": "UInt16",
+      "nullable": false
+    },
+    {
+      "name": "ask_level_count",
+      "clickhouse_type": "UInt16",
+      "nullable": false
+    },
+    {
+      "name": "measurement_bands_bps",
+      "clickhouse_type": "Array(UInt32)",
+      "nullable": false
+    },
+    {
+      "name": "bid_boundary_price_by_band",
+      "clickhouse_type": "Array(Decimal(38,18))",
+      "nullable": false
+    },
+    {
+      "name": "ask_boundary_price_by_band",
+      "clickhouse_type": "Array(Decimal(38,18))",
+      "nullable": false
+    },
+    {
+      "name": "bid_depth_by_band",
+      "clickhouse_type": "Array(Decimal(38,18))",
+      "nullable": false
+    },
+    {
+      "name": "ask_depth_by_band",
+      "clickhouse_type": "Array(Decimal(38,18))",
+      "nullable": false
+    },
+    {
+      "name": "bid_status_by_band",
+      "clickhouse_type": "Array(Enum8('exact'=1,'censored'=2))",
+      "nullable": false
+    },
+    {
+      "name": "ask_status_by_band",
+      "clickhouse_type": "Array(Enum8('exact'=1,'censored'=2))",
+      "nullable": false
+    },
+    {
+      "name": "normalized_row_checksum",
+      "clickhouse_type": "String",
+      "nullable": false
+    }
+  ],
+  "accepted_cases": [
+    {
+      "id": "asymmetric-non-empty",
+      "category": "asymmetric-non-empty",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:asymmetric-non-empty",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ],
+            [
+              99.8,
+              2
+            ],
+            [
+              99.4,
+              3
+            ],
+            [
+              98.5,
+              4
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              9
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9004
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:asymmetric-non-empty",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 4,
+          "observedAskCount": 1,
+          "observedFarthestBid": 98.5,
+          "observedFarthestAsk": 100.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": true,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            50,
+            150
+          ]
+        },
+        "archive_depth_limit": 2,
+        "measurement_bands_bps": [
+          10,
+          50,
+          150
+        ]
+      },
+      "expected_writer": {
+        "table": "market_data.cex_order_book_depth_summary",
+        "raw_capture_id": "de0890262307ab3c97ca55be60f482eda9ce6392452172d7d06c722997727cff",
+        "raw_checksum": "e223987979a1fe98b61ffa48dba05565f28af117d9cde430c0c611b44c53eb78",
+        "snapshot_id": "6dab79b47e4a3a7e33adba3f23af4fd85d753984291c420ddb1d3fee80c381e6",
+        "normalized_row_checksum": "2b55c89c782409cf110d3550edd72a0317e0785e38857ea3fe8c1e4103504557",
+        "retained_bid_rows": 2,
+        "retained_ask_rows": 1,
+        "row": {
+          "source": "broker_read",
+          "deployment_id": "summary-v2-fixture-deployment",
+          "capture_bundle_id": "summary-v2-fixture-bundle:asymmetric-non-empty",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "trading_pair": "BTC-USDT",
+          "source_symbol": "BTCUSDT",
+          "asset_type": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "source_mode": "broker_live_sampling_v1",
+          "source_time_ms": 1900000000000,
+          "received_time_ms": 1900000000025,
+          "raw_capture_id": "de0890262307ab3c97ca55be60f482eda9ce6392452172d7d06c722997727cff",
+          "raw_capture_scope": "ccxt_normalized_object",
+          "schema_version": "2.0.0",
+          "checksum_algorithm": "sha256-canonical-json-v1",
+          "raw_checksum": "e223987979a1fe98b61ffa48dba05565f28af117d9cde430c0c611b44c53eb78",
+          "provenance_complete": 1,
+          "snapshot_id": "6dab79b47e4a3a7e33adba3f23af4fd85d753984291c420ddb1d3fee80c381e6",
+          "construction_mode": "sampled_top_n_snapshot",
+          "gap_policy": "record_gap",
+          "depth_limit": 2,
+          "sequence": 9004,
+          "exact_l2_reconstruction_complete": 0,
+          "capture_profile_id": "fixture-profile:asymmetric-non-empty",
+          "effective_cadence_ms": 250,
+          "requested_upstream_depth": 100,
+          "observed_bid_count": 4,
+          "observed_ask_count": 1,
+          "observed_farthest_bid": 98.5,
+          "observed_farthest_ask": 100.2,
+          "retained_farthest_bid": 99.8,
+          "retained_farthest_ask": 100.2,
+          "bid_exhausted": 0,
+          "ask_exhausted": 1,
+          "best_bid": 100,
+          "best_ask": 100.2,
+          "best_bid_amount": 1,
+          "best_ask_amount": 9,
+          "mid_price": 100.1,
+          "spread": 0.20000000000000284,
+          "spread_bps": 19.980019980020266,
+          "staleness_ms": 25,
+          "bid_level_count": 2,
+          "ask_level_count": 1,
+          "measurement_bands_bps": [
+            10,
+            50,
+            150
+          ],
+          "bid_boundary_price_by_band": [
+            99.9999,
+            99.59949999999999,
+            98.59849999999999
+          ],
+          "ask_boundary_price_by_band": [
+            100.20009999999998,
+            100.60049999999998,
+            101.60149999999999
+          ],
+          "bid_depth_by_band": [
+            1,
+            3,
+            6
+          ],
+          "ask_depth_by_band": [
+            9,
+            9,
+            9
+          ],
+          "bid_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "ask_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "normalized_row_checksum": "2b55c89c782409cf110d3550edd72a0317e0785e38857ea3fe8c1e4103504557"
+        }
+      },
+      "expected_supported_view": {
+        "source": "broker_read",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:asymmetric-non-empty",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "de0890262307ab3c97ca55be60f482eda9ce6392452172d7d06c722997727cff",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "e223987979a1fe98b61ffa48dba05565f28af117d9cde430c0c611b44c53eb78",
+        "provenance_complete": 1,
+        "snapshot_id": "6dab79b47e4a3a7e33adba3f23af4fd85d753984291c420ddb1d3fee80c381e6",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 2,
+        "sequence": 9004,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:asymmetric-non-empty",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": 100,
+        "observed_bid_count": 4,
+        "observed_ask_count": 1,
+        "observed_farthest_bid": "98.500000000000000000",
+        "observed_farthest_ask": "100.200000000000000000",
+        "retained_farthest_bid": "99.800000000000000000",
+        "retained_farthest_ask": "100.200000000000000000",
+        "bid_exhausted": 0,
+        "ask_exhausted": 1,
+        "best_bid": "100.000000000000000000",
+        "best_ask": "100.200000000000000000",
+        "best_bid_amount": "1.000000000000000000",
+        "best_ask_amount": "9.000000000000000000",
+        "mid_price": "100.100000000000000000",
+        "spread": "0.200000000000002840",
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 2,
+        "ask_level_count": 1,
+        "measurement_bands_bps": [
+          10,
+          50,
+          150
+        ],
+        "bid_boundary_price_by_band": [
+          "99.999900000000000000",
+          "99.599499999999990000",
+          "98.598499999999990000"
+        ],
+        "ask_boundary_price_by_band": [
+          "100.200099999999980000",
+          "100.600499999999980000",
+          "101.601499999999990000"
+        ],
+        "bid_depth_by_band": [
+          "1.000000000000000000",
+          "3.000000000000000000",
+          "6.000000000000000000"
+        ],
+        "ask_depth_by_band": [
+          "9.000000000000000000",
+          "9.000000000000000000",
+          "9.000000000000000000"
+        ],
+        "bid_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "ask_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "normalized_row_checksum": "2b55c89c782409cf110d3550edd72a0317e0785e38857ea3fe8c1e4103504557"
+      },
+      "expected_outcome": {
+        "writer": "accepted",
+        "forwarder": "accepted",
+        "supported_view": "selected"
+      }
+    },
+    {
+      "id": "censored-short-observation",
+      "category": "censored",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:censored-short-observation",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              5
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9002
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:censored-short-observation",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 1,
+          "observedAskCount": 1,
+          "observedFarthestBid": 100,
+          "observedFarthestAsk": 100.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25,
+            100
+          ]
+        },
+        "archive_depth_limit": 1,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ]
+      },
+      "expected_writer": {
+        "table": "market_data.cex_order_book_depth_summary",
+        "raw_capture_id": "0fc9ab07f76de5dbeee62b28c04ebbe4f1159d885a72233077a39d41e2067620",
+        "raw_checksum": "04a7daf3c3c05329a21146bf1d3bbc4fcd9c77623074a76b92a309357a0b6494",
+        "snapshot_id": "47f18164cd4924f4929db3dcd61d1c77496129cce8ef272988faaf652d19003e",
+        "normalized_row_checksum": "ad2ba888b69d3fc535f8049e7357b252c3dd5dd8a31e4d5057daec8b332c1b5f",
+        "retained_bid_rows": 1,
+        "retained_ask_rows": 1,
+        "row": {
+          "source": "broker_read",
+          "deployment_id": "summary-v2-fixture-deployment",
+          "capture_bundle_id": "summary-v2-fixture-bundle:censored-short-observation",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "trading_pair": "BTC-USDT",
+          "source_symbol": "BTCUSDT",
+          "asset_type": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "source_mode": "broker_live_sampling_v1",
+          "source_time_ms": 1900000000000,
+          "received_time_ms": 1900000000025,
+          "raw_capture_id": "0fc9ab07f76de5dbeee62b28c04ebbe4f1159d885a72233077a39d41e2067620",
+          "raw_capture_scope": "ccxt_normalized_object",
+          "schema_version": "2.0.0",
+          "checksum_algorithm": "sha256-canonical-json-v1",
+          "raw_checksum": "04a7daf3c3c05329a21146bf1d3bbc4fcd9c77623074a76b92a309357a0b6494",
+          "provenance_complete": 1,
+          "snapshot_id": "47f18164cd4924f4929db3dcd61d1c77496129cce8ef272988faaf652d19003e",
+          "construction_mode": "sampled_top_n_snapshot",
+          "gap_policy": "record_gap",
+          "depth_limit": 1,
+          "sequence": 9002,
+          "exact_l2_reconstruction_complete": 0,
+          "capture_profile_id": "fixture-profile:censored-short-observation",
+          "effective_cadence_ms": 250,
+          "requested_upstream_depth": 100,
+          "observed_bid_count": 1,
+          "observed_ask_count": 1,
+          "observed_farthest_bid": 100,
+          "observed_farthest_ask": 100.2,
+          "retained_farthest_bid": 100,
+          "retained_farthest_ask": 100.2,
+          "bid_exhausted": 0,
+          "ask_exhausted": 0,
+          "best_bid": 100,
+          "best_ask": 100.2,
+          "best_bid_amount": 1,
+          "best_ask_amount": 5,
+          "mid_price": 100.1,
+          "spread": 0.20000000000000284,
+          "spread_bps": 19.980019980020266,
+          "staleness_ms": 25,
+          "bid_level_count": 1,
+          "ask_level_count": 1,
+          "measurement_bands_bps": [
+            10,
+            25,
+            100
+          ],
+          "bid_boundary_price_by_band": [
+            99.9999,
+            99.84975,
+            99.09899999999999
+          ],
+          "ask_boundary_price_by_band": [
+            100.20009999999998,
+            100.35024999999999,
+            101.101
+          ],
+          "bid_depth_by_band": [
+            1,
+            1,
+            1
+          ],
+          "ask_depth_by_band": [
+            5,
+            5,
+            5
+          ],
+          "bid_status_by_band": [
+            "censored",
+            "censored",
+            "censored"
+          ],
+          "ask_status_by_band": [
+            "censored",
+            "censored",
+            "censored"
+          ],
+          "normalized_row_checksum": "ad2ba888b69d3fc535f8049e7357b252c3dd5dd8a31e4d5057daec8b332c1b5f"
+        }
+      },
+      "expected_supported_view": {
+        "source": "broker_read",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:censored-short-observation",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "0fc9ab07f76de5dbeee62b28c04ebbe4f1159d885a72233077a39d41e2067620",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "04a7daf3c3c05329a21146bf1d3bbc4fcd9c77623074a76b92a309357a0b6494",
+        "provenance_complete": 1,
+        "snapshot_id": "47f18164cd4924f4929db3dcd61d1c77496129cce8ef272988faaf652d19003e",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 1,
+        "sequence": 9002,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:censored-short-observation",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": 100,
+        "observed_bid_count": 1,
+        "observed_ask_count": 1,
+        "observed_farthest_bid": "100.000000000000000000",
+        "observed_farthest_ask": "100.200000000000000000",
+        "retained_farthest_bid": "100.000000000000000000",
+        "retained_farthest_ask": "100.200000000000000000",
+        "bid_exhausted": 0,
+        "ask_exhausted": 0,
+        "best_bid": "100.000000000000000000",
+        "best_ask": "100.200000000000000000",
+        "best_bid_amount": "1.000000000000000000",
+        "best_ask_amount": "5.000000000000000000",
+        "mid_price": "100.100000000000000000",
+        "spread": "0.200000000000002840",
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 1,
+        "ask_level_count": 1,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ],
+        "bid_boundary_price_by_band": [
+          "99.999900000000000000",
+          "99.849750000000000000",
+          "99.098999999999990000"
+        ],
+        "ask_boundary_price_by_band": [
+          "100.200099999999980000",
+          "100.350249999999990000",
+          "101.101000000000000000"
+        ],
+        "bid_depth_by_band": [
+          "1.000000000000000000",
+          "1.000000000000000000",
+          "1.000000000000000000"
+        ],
+        "ask_depth_by_band": [
+          "5.000000000000000000",
+          "5.000000000000000000",
+          "5.000000000000000000"
+        ],
+        "bid_status_by_band": [
+          "censored",
+          "censored",
+          "censored"
+        ],
+        "ask_status_by_band": [
+          "censored",
+          "censored",
+          "censored"
+        ],
+        "normalized_row_checksum": "ad2ba888b69d3fc535f8049e7357b252c3dd5dd8a31e4d5057daec8b332c1b5f"
+      },
+      "expected_outcome": {
+        "writer": "accepted",
+        "forwarder": "accepted",
+        "supported_view": "selected"
+      }
+    },
+    {
+      "id": "exact-both-sides",
+      "category": "exact",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:exact-both-sides",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ],
+            [
+              99.9,
+              2
+            ],
+            [
+              99.7,
+              3
+            ],
+            [
+              99,
+              4
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              5
+            ],
+            [
+              100.3,
+              6
+            ],
+            [
+              100.5,
+              7
+            ],
+            [
+              101.2,
+              8
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:exact-both-sides",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 4,
+          "observedAskCount": 4,
+          "observedFarthestBid": 99,
+          "observedFarthestAsk": 101.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25,
+            100
+          ]
+        },
+        "archive_depth_limit": 4,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ]
+      },
+      "expected_writer": {
+        "table": "market_data.cex_order_book_depth_summary",
+        "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+        "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638",
+        "retained_bid_rows": 4,
+        "retained_ask_rows": 4,
+        "row": {
+          "source": "broker_read",
+          "deployment_id": "summary-v2-fixture-deployment",
+          "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "trading_pair": "BTC-USDT",
+          "source_symbol": "BTCUSDT",
+          "asset_type": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "source_mode": "broker_live_sampling_v1",
+          "source_time_ms": 1900000000000,
+          "received_time_ms": 1900000000025,
+          "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+          "raw_capture_scope": "ccxt_normalized_object",
+          "schema_version": "2.0.0",
+          "checksum_algorithm": "sha256-canonical-json-v1",
+          "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+          "provenance_complete": 1,
+          "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+          "construction_mode": "sampled_top_n_snapshot",
+          "gap_policy": "record_gap",
+          "depth_limit": 4,
+          "sequence": 9001,
+          "exact_l2_reconstruction_complete": 0,
+          "capture_profile_id": "fixture-profile:exact-both-sides",
+          "effective_cadence_ms": 250,
+          "requested_upstream_depth": 100,
+          "observed_bid_count": 4,
+          "observed_ask_count": 4,
+          "observed_farthest_bid": 99,
+          "observed_farthest_ask": 101.2,
+          "retained_farthest_bid": 99,
+          "retained_farthest_ask": 101.2,
+          "bid_exhausted": 0,
+          "ask_exhausted": 0,
+          "best_bid": 100,
+          "best_ask": 100.2,
+          "best_bid_amount": 1,
+          "best_ask_amount": 5,
+          "mid_price": 100.1,
+          "spread": 0.20000000000000284,
+          "spread_bps": 19.980019980020266,
+          "staleness_ms": 25,
+          "bid_level_count": 4,
+          "ask_level_count": 4,
+          "measurement_bands_bps": [
+            10,
+            25,
+            100
+          ],
+          "bid_boundary_price_by_band": [
+            99.9999,
+            99.84975,
+            99.09899999999999
+          ],
+          "ask_boundary_price_by_band": [
+            100.20009999999998,
+            100.35024999999999,
+            101.101
+          ],
+          "bid_depth_by_band": [
+            1,
+            3,
+            6
+          ],
+          "ask_depth_by_band": [
+            5,
+            11,
+            18
+          ],
+          "bid_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "ask_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638"
+        }
+      },
+      "expected_supported_view": {
+        "source": "broker_read",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "provenance_complete": 1,
+        "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 4,
+        "sequence": 9001,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:exact-both-sides",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": 100,
+        "observed_bid_count": 4,
+        "observed_ask_count": 4,
+        "observed_farthest_bid": "99.000000000000000000",
+        "observed_farthest_ask": "101.200000000000000000",
+        "retained_farthest_bid": "99.000000000000000000",
+        "retained_farthest_ask": "101.200000000000000000",
+        "bid_exhausted": 0,
+        "ask_exhausted": 0,
+        "best_bid": "100.000000000000000000",
+        "best_ask": "100.200000000000000000",
+        "best_bid_amount": "1.000000000000000000",
+        "best_ask_amount": "5.000000000000000000",
+        "mid_price": "100.100000000000000000",
+        "spread": "0.200000000000002840",
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 4,
+        "ask_level_count": 4,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ],
+        "bid_boundary_price_by_band": [
+          "99.999900000000000000",
+          "99.849750000000000000",
+          "99.098999999999990000"
+        ],
+        "ask_boundary_price_by_band": [
+          "100.200099999999980000",
+          "100.350249999999990000",
+          "101.101000000000000000"
+        ],
+        "bid_depth_by_band": [
+          "1.000000000000000000",
+          "3.000000000000000000",
+          "6.000000000000000000"
+        ],
+        "ask_depth_by_band": [
+          "5.000000000000000000",
+          "11.000000000000000000",
+          "18.000000000000000000"
+        ],
+        "bid_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "ask_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638"
+      },
+      "expected_outcome": {
+        "writer": "accepted",
+        "forwarder": "accepted",
+        "supported_view": "selected"
+      }
+    },
+    {
+      "id": "explicitly-exhausted",
+      "category": "explicitly-exhausted",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:explicitly-exhausted",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              5
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9003
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:explicitly-exhausted",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 1,
+          "observedAskCount": 1,
+          "observedFarthestBid": 100,
+          "observedFarthestAsk": 100.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": true,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": true,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25,
+            100
+          ]
+        },
+        "archive_depth_limit": 1,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ]
+      },
+      "expected_writer": {
+        "table": "market_data.cex_order_book_depth_summary",
+        "raw_capture_id": "b3ea260336bba7d347296404670c9cd61f3d3b9c5c4a8805406e2c97b58855cb",
+        "raw_checksum": "63055d225d87384d5ef73bdc010759b57355c7d89163d91c0f9b6c2744952ac2",
+        "snapshot_id": "8faf43ef8be10c4e29a533b6f40d6ac619049f156980d7bd0b83e24c3b893f1c",
+        "normalized_row_checksum": "06925c82884d22460bc8adbbf10e699a299b2e300e0e3c6dc4fce07a4721d4cc",
+        "retained_bid_rows": 1,
+        "retained_ask_rows": 1,
+        "row": {
+          "source": "broker_read",
+          "deployment_id": "summary-v2-fixture-deployment",
+          "capture_bundle_id": "summary-v2-fixture-bundle:explicitly-exhausted",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "trading_pair": "BTC-USDT",
+          "source_symbol": "BTCUSDT",
+          "asset_type": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "source_mode": "broker_live_sampling_v1",
+          "source_time_ms": 1900000000000,
+          "received_time_ms": 1900000000025,
+          "raw_capture_id": "b3ea260336bba7d347296404670c9cd61f3d3b9c5c4a8805406e2c97b58855cb",
+          "raw_capture_scope": "ccxt_normalized_object",
+          "schema_version": "2.0.0",
+          "checksum_algorithm": "sha256-canonical-json-v1",
+          "raw_checksum": "63055d225d87384d5ef73bdc010759b57355c7d89163d91c0f9b6c2744952ac2",
+          "provenance_complete": 1,
+          "snapshot_id": "8faf43ef8be10c4e29a533b6f40d6ac619049f156980d7bd0b83e24c3b893f1c",
+          "construction_mode": "sampled_top_n_snapshot",
+          "gap_policy": "record_gap",
+          "depth_limit": 1,
+          "sequence": 9003,
+          "exact_l2_reconstruction_complete": 0,
+          "capture_profile_id": "fixture-profile:explicitly-exhausted",
+          "effective_cadence_ms": 250,
+          "requested_upstream_depth": 100,
+          "observed_bid_count": 1,
+          "observed_ask_count": 1,
+          "observed_farthest_bid": 100,
+          "observed_farthest_ask": 100.2,
+          "retained_farthest_bid": 100,
+          "retained_farthest_ask": 100.2,
+          "bid_exhausted": 1,
+          "ask_exhausted": 1,
+          "best_bid": 100,
+          "best_ask": 100.2,
+          "best_bid_amount": 1,
+          "best_ask_amount": 5,
+          "mid_price": 100.1,
+          "spread": 0.20000000000000284,
+          "spread_bps": 19.980019980020266,
+          "staleness_ms": 25,
+          "bid_level_count": 1,
+          "ask_level_count": 1,
+          "measurement_bands_bps": [
+            10,
+            25,
+            100
+          ],
+          "bid_boundary_price_by_band": [
+            99.9999,
+            99.84975,
+            99.09899999999999
+          ],
+          "ask_boundary_price_by_band": [
+            100.20009999999998,
+            100.35024999999999,
+            101.101
+          ],
+          "bid_depth_by_band": [
+            1,
+            1,
+            1
+          ],
+          "ask_depth_by_band": [
+            5,
+            5,
+            5
+          ],
+          "bid_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "ask_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "normalized_row_checksum": "06925c82884d22460bc8adbbf10e699a299b2e300e0e3c6dc4fce07a4721d4cc"
+        }
+      },
+      "expected_supported_view": {
+        "source": "broker_read",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:explicitly-exhausted",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "b3ea260336bba7d347296404670c9cd61f3d3b9c5c4a8805406e2c97b58855cb",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "63055d225d87384d5ef73bdc010759b57355c7d89163d91c0f9b6c2744952ac2",
+        "provenance_complete": 1,
+        "snapshot_id": "8faf43ef8be10c4e29a533b6f40d6ac619049f156980d7bd0b83e24c3b893f1c",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 1,
+        "sequence": 9003,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:explicitly-exhausted",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": 100,
+        "observed_bid_count": 1,
+        "observed_ask_count": 1,
+        "observed_farthest_bid": "100.000000000000000000",
+        "observed_farthest_ask": "100.200000000000000000",
+        "retained_farthest_bid": "100.000000000000000000",
+        "retained_farthest_ask": "100.200000000000000000",
+        "bid_exhausted": 1,
+        "ask_exhausted": 1,
+        "best_bid": "100.000000000000000000",
+        "best_ask": "100.200000000000000000",
+        "best_bid_amount": "1.000000000000000000",
+        "best_ask_amount": "5.000000000000000000",
+        "mid_price": "100.100000000000000000",
+        "spread": "0.200000000000002840",
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 1,
+        "ask_level_count": 1,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ],
+        "bid_boundary_price_by_band": [
+          "99.999900000000000000",
+          "99.849750000000000000",
+          "99.098999999999990000"
+        ],
+        "ask_boundary_price_by_band": [
+          "100.200099999999980000",
+          "100.350249999999990000",
+          "101.101000000000000000"
+        ],
+        "bid_depth_by_band": [
+          "1.000000000000000000",
+          "1.000000000000000000",
+          "1.000000000000000000"
+        ],
+        "ask_depth_by_band": [
+          "5.000000000000000000",
+          "5.000000000000000000",
+          "5.000000000000000000"
+        ],
+        "bid_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "ask_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "normalized_row_checksum": "06925c82884d22460bc8adbbf10e699a299b2e300e0e3c6dc4fce07a4721d4cc"
+      },
+      "expected_outcome": {
+        "writer": "accepted",
+        "forwarder": "accepted",
+        "supported_view": "selected"
+      }
+    },
+    {
+      "id": "normalized-bands-and-null-request",
+      "category": "top-n",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:normalized-bands-and-null-request",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ],
+            [
+              99.9,
+              2
+            ],
+            [
+              99.7,
+              3
+            ],
+            [
+              99,
+              4
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              5
+            ],
+            [
+              100.3,
+              6
+            ],
+            [
+              100.5,
+              7
+            ],
+            [
+              101.2,
+              8
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:normalized-bands-and-null-request",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": null,
+          "observedBidCount": 4,
+          "observedAskCount": 4,
+          "observedFarthestBid": 99,
+          "observedFarthestAsk": 101.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            100,
+            10,
+            25,
+            10
+          ]
+        },
+        "archive_depth_limit": 3,
+        "measurement_bands_bps": [
+          100,
+          10,
+          25,
+          10
+        ]
+      },
+      "expected_writer": {
+        "table": "market_data.cex_order_book_depth_summary",
+        "raw_capture_id": "d3c0a7cca48a6fb1f36bbf20d80acae2001d835a672b8d8dfd799e4eadc489f6",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "snapshot_id": "9ee9f11c1e38029c1b53bde902175b1fd338955d406595b2db4c55e75c0048a5",
+        "normalized_row_checksum": "69c86e12027c23fea51d5423b969e09f2b17eb647e26f0d6e900d69a4b838732",
+        "retained_bid_rows": 3,
+        "retained_ask_rows": 3,
+        "row": {
+          "source": "broker_read",
+          "deployment_id": "summary-v2-fixture-deployment",
+          "capture_bundle_id": "summary-v2-fixture-bundle:normalized-bands-and-null-request",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "trading_pair": "BTC-USDT",
+          "source_symbol": "BTCUSDT",
+          "asset_type": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "source_mode": "broker_live_sampling_v1",
+          "source_time_ms": 1900000000000,
+          "received_time_ms": 1900000000025,
+          "raw_capture_id": "d3c0a7cca48a6fb1f36bbf20d80acae2001d835a672b8d8dfd799e4eadc489f6",
+          "raw_capture_scope": "ccxt_normalized_object",
+          "schema_version": "2.0.0",
+          "checksum_algorithm": "sha256-canonical-json-v1",
+          "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+          "provenance_complete": 1,
+          "snapshot_id": "9ee9f11c1e38029c1b53bde902175b1fd338955d406595b2db4c55e75c0048a5",
+          "construction_mode": "sampled_top_n_snapshot",
+          "gap_policy": "record_gap",
+          "depth_limit": 3,
+          "sequence": 9001,
+          "exact_l2_reconstruction_complete": 0,
+          "capture_profile_id": "fixture-profile:normalized-bands-and-null-request",
+          "effective_cadence_ms": 250,
+          "requested_upstream_depth": null,
+          "observed_bid_count": 4,
+          "observed_ask_count": 4,
+          "observed_farthest_bid": 99,
+          "observed_farthest_ask": 101.2,
+          "retained_farthest_bid": 99.7,
+          "retained_farthest_ask": 100.5,
+          "bid_exhausted": 0,
+          "ask_exhausted": 0,
+          "best_bid": 100,
+          "best_ask": 100.2,
+          "best_bid_amount": 1,
+          "best_ask_amount": 5,
+          "mid_price": 100.1,
+          "spread": 0.20000000000000284,
+          "spread_bps": 19.980019980020266,
+          "staleness_ms": 25,
+          "bid_level_count": 3,
+          "ask_level_count": 3,
+          "measurement_bands_bps": [
+            10,
+            25,
+            100
+          ],
+          "bid_boundary_price_by_band": [
+            99.9999,
+            99.84975,
+            99.09899999999999
+          ],
+          "ask_boundary_price_by_band": [
+            100.20009999999998,
+            100.35024999999999,
+            101.101
+          ],
+          "bid_depth_by_band": [
+            1,
+            3,
+            6
+          ],
+          "ask_depth_by_band": [
+            5,
+            11,
+            18
+          ],
+          "bid_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "ask_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "normalized_row_checksum": "69c86e12027c23fea51d5423b969e09f2b17eb647e26f0d6e900d69a4b838732"
+        }
+      },
+      "expected_supported_view": {
+        "source": "broker_read",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:normalized-bands-and-null-request",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "d3c0a7cca48a6fb1f36bbf20d80acae2001d835a672b8d8dfd799e4eadc489f6",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "provenance_complete": 1,
+        "snapshot_id": "9ee9f11c1e38029c1b53bde902175b1fd338955d406595b2db4c55e75c0048a5",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 3,
+        "sequence": 9001,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:normalized-bands-and-null-request",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": null,
+        "observed_bid_count": 4,
+        "observed_ask_count": 4,
+        "observed_farthest_bid": "99.000000000000000000",
+        "observed_farthest_ask": "101.200000000000000000",
+        "retained_farthest_bid": "99.700000000000000000",
+        "retained_farthest_ask": "100.500000000000000000",
+        "bid_exhausted": 0,
+        "ask_exhausted": 0,
+        "best_bid": "100.000000000000000000",
+        "best_ask": "100.200000000000000000",
+        "best_bid_amount": "1.000000000000000000",
+        "best_ask_amount": "5.000000000000000000",
+        "mid_price": "100.100000000000000000",
+        "spread": "0.200000000000002840",
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 3,
+        "ask_level_count": 3,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ],
+        "bid_boundary_price_by_band": [
+          "99.999900000000000000",
+          "99.849750000000000000",
+          "99.098999999999990000"
+        ],
+        "ask_boundary_price_by_band": [
+          "100.200099999999980000",
+          "100.350249999999990000",
+          "101.101000000000000000"
+        ],
+        "bid_depth_by_band": [
+          "1.000000000000000000",
+          "3.000000000000000000",
+          "6.000000000000000000"
+        ],
+        "ask_depth_by_band": [
+          "5.000000000000000000",
+          "11.000000000000000000",
+          "18.000000000000000000"
+        ],
+        "bid_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "ask_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "normalized_row_checksum": "69c86e12027c23fea51d5423b969e09f2b17eb647e26f0d6e900d69a4b838732"
+      },
+      "expected_outcome": {
+        "writer": "accepted",
+        "forwarder": "accepted",
+        "supported_view": "selected"
+      }
+    },
+    {
+      "id": "truncated-top-n",
+      "category": "truncated",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:truncated-top-n",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ],
+            [
+              99.9,
+              2
+            ],
+            [
+              99.7,
+              3
+            ],
+            [
+              99,
+              4
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              5
+            ],
+            [
+              100.3,
+              6
+            ],
+            [
+              100.5,
+              7
+            ],
+            [
+              101.2,
+              8
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:truncated-top-n",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 4,
+          "observedAskCount": 4,
+          "observedFarthestBid": 99,
+          "observedFarthestAsk": 101.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25,
+            100
+          ]
+        },
+        "archive_depth_limit": 2,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ]
+      },
+      "expected_writer": {
+        "table": "market_data.cex_order_book_depth_summary",
+        "raw_capture_id": "eb951c580b752a5aa8676d3037160f0409ce608ef9c1feab79b12baf018df034",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "snapshot_id": "4fcd17fa3fef7bd52972a727f5ad041747ba784d295c396692ce0ffabbaaa0b1",
+        "normalized_row_checksum": "0b2fc4c888b1ba64dd0f8f7c38795fe718847fc49c0578a7bcd108fdfa67e36d",
+        "retained_bid_rows": 2,
+        "retained_ask_rows": 2,
+        "row": {
+          "source": "broker_read",
+          "deployment_id": "summary-v2-fixture-deployment",
+          "capture_bundle_id": "summary-v2-fixture-bundle:truncated-top-n",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "trading_pair": "BTC-USDT",
+          "source_symbol": "BTCUSDT",
+          "asset_type": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "source_mode": "broker_live_sampling_v1",
+          "source_time_ms": 1900000000000,
+          "received_time_ms": 1900000000025,
+          "raw_capture_id": "eb951c580b752a5aa8676d3037160f0409ce608ef9c1feab79b12baf018df034",
+          "raw_capture_scope": "ccxt_normalized_object",
+          "schema_version": "2.0.0",
+          "checksum_algorithm": "sha256-canonical-json-v1",
+          "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+          "provenance_complete": 1,
+          "snapshot_id": "4fcd17fa3fef7bd52972a727f5ad041747ba784d295c396692ce0ffabbaaa0b1",
+          "construction_mode": "sampled_top_n_snapshot",
+          "gap_policy": "record_gap",
+          "depth_limit": 2,
+          "sequence": 9001,
+          "exact_l2_reconstruction_complete": 0,
+          "capture_profile_id": "fixture-profile:truncated-top-n",
+          "effective_cadence_ms": 250,
+          "requested_upstream_depth": 100,
+          "observed_bid_count": 4,
+          "observed_ask_count": 4,
+          "observed_farthest_bid": 99,
+          "observed_farthest_ask": 101.2,
+          "retained_farthest_bid": 99.9,
+          "retained_farthest_ask": 100.3,
+          "bid_exhausted": 0,
+          "ask_exhausted": 0,
+          "best_bid": 100,
+          "best_ask": 100.2,
+          "best_bid_amount": 1,
+          "best_ask_amount": 5,
+          "mid_price": 100.1,
+          "spread": 0.20000000000000284,
+          "spread_bps": 19.980019980020266,
+          "staleness_ms": 25,
+          "bid_level_count": 2,
+          "ask_level_count": 2,
+          "measurement_bands_bps": [
+            10,
+            25,
+            100
+          ],
+          "bid_boundary_price_by_band": [
+            99.9999,
+            99.84975,
+            99.09899999999999
+          ],
+          "ask_boundary_price_by_band": [
+            100.20009999999998,
+            100.35024999999999,
+            101.101
+          ],
+          "bid_depth_by_band": [
+            1,
+            3,
+            6
+          ],
+          "ask_depth_by_band": [
+            5,
+            11,
+            18
+          ],
+          "bid_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "ask_status_by_band": [
+            "exact",
+            "exact",
+            "exact"
+          ],
+          "normalized_row_checksum": "0b2fc4c888b1ba64dd0f8f7c38795fe718847fc49c0578a7bcd108fdfa67e36d"
+        }
+      },
+      "expected_supported_view": {
+        "source": "broker_read",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:truncated-top-n",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "eb951c580b752a5aa8676d3037160f0409ce608ef9c1feab79b12baf018df034",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "provenance_complete": 1,
+        "snapshot_id": "4fcd17fa3fef7bd52972a727f5ad041747ba784d295c396692ce0ffabbaaa0b1",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 2,
+        "sequence": 9001,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:truncated-top-n",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": 100,
+        "observed_bid_count": 4,
+        "observed_ask_count": 4,
+        "observed_farthest_bid": "99.000000000000000000",
+        "observed_farthest_ask": "101.200000000000000000",
+        "retained_farthest_bid": "99.900000000000000000",
+        "retained_farthest_ask": "100.300000000000000000",
+        "bid_exhausted": 0,
+        "ask_exhausted": 0,
+        "best_bid": "100.000000000000000000",
+        "best_ask": "100.200000000000000000",
+        "best_bid_amount": "1.000000000000000000",
+        "best_ask_amount": "5.000000000000000000",
+        "mid_price": "100.100000000000000000",
+        "spread": "0.200000000000002840",
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 2,
+        "ask_level_count": 2,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ],
+        "bid_boundary_price_by_band": [
+          "99.999900000000000000",
+          "99.849750000000000000",
+          "99.098999999999990000"
+        ],
+        "ask_boundary_price_by_band": [
+          "100.200099999999980000",
+          "100.350249999999990000",
+          "101.101000000000000000"
+        ],
+        "bid_depth_by_band": [
+          "1.000000000000000000",
+          "3.000000000000000000",
+          "6.000000000000000000"
+        ],
+        "ask_depth_by_band": [
+          "5.000000000000000000",
+          "11.000000000000000000",
+          "18.000000000000000000"
+        ],
+        "bid_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "ask_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "normalized_row_checksum": "0b2fc4c888b1ba64dd0f8f7c38795fe718847fc49c0578a7bcd108fdfa67e36d"
+      },
+      "expected_outcome": {
+        "writer": "accepted",
+        "forwarder": "accepted",
+        "supported_view": "selected"
+      }
+    }
+  ],
+  "batch_cases": [
+    {
+      "id": "duplicate-identical-retry",
+      "category": "duplicate",
+      "archive_depth_limit": 4,
+      "measurement_bands_bps": [
+        10,
+        25,
+        100
+      ],
+      "input_rows": [
+        {
+          "table": "market_data.cex_order_book_depth_summary",
+          "row": {
+            "source": "broker_read",
+            "deployment_id": "summary-v2-fixture-deployment",
+            "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+            "exchange": "fixture-exchange",
+            "symbol": "BTC/USDT",
+            "trading_pair": "BTC-USDT",
+            "source_symbol": "BTCUSDT",
+            "asset_type": "spot",
+            "feed": "ORDERBOOK",
+            "provider": "fixture:normalized-l2",
+            "source_mode": "broker_live_sampling_v1",
+            "source_time_ms": 1900000000000,
+            "received_time_ms": 1900000000025,
+            "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+            "raw_capture_scope": "ccxt_normalized_object",
+            "schema_version": "2.0.0",
+            "checksum_algorithm": "sha256-canonical-json-v1",
+            "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+            "provenance_complete": 1,
+            "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+            "construction_mode": "sampled_top_n_snapshot",
+            "gap_policy": "record_gap",
+            "depth_limit": 4,
+            "sequence": 9001,
+            "exact_l2_reconstruction_complete": 0,
+            "capture_profile_id": "fixture-profile:exact-both-sides",
+            "effective_cadence_ms": 250,
+            "requested_upstream_depth": 100,
+            "observed_bid_count": 4,
+            "observed_ask_count": 4,
+            "observed_farthest_bid": 99,
+            "observed_farthest_ask": 101.2,
+            "retained_farthest_bid": 99,
+            "retained_farthest_ask": 101.2,
+            "bid_exhausted": 0,
+            "ask_exhausted": 0,
+            "best_bid": 100,
+            "best_ask": 100.2,
+            "best_bid_amount": 1,
+            "best_ask_amount": 5,
+            "mid_price": 100.1,
+            "spread": 0.20000000000000284,
+            "spread_bps": 19.980019980020266,
+            "staleness_ms": 25,
+            "bid_level_count": 4,
+            "ask_level_count": 4,
+            "measurement_bands_bps": [
+              10,
+              25,
+              100
+            ],
+            "bid_boundary_price_by_band": [
+              99.9999,
+              99.84975,
+              99.09899999999999
+            ],
+            "ask_boundary_price_by_band": [
+              100.20009999999998,
+              100.35024999999999,
+              101.101
+            ],
+            "bid_depth_by_band": [
+              1,
+              3,
+              6
+            ],
+            "ask_depth_by_band": [
+              5,
+              11,
+              18
+            ],
+            "bid_status_by_band": [
+              "exact",
+              "exact",
+              "exact"
+            ],
+            "ask_status_by_band": [
+              "exact",
+              "exact",
+              "exact"
+            ],
+            "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638"
+          }
+        },
+        {
+          "table": "market_data.cex_order_book_depth_summary",
+          "row": {
+            "source": "broker_read",
+            "deployment_id": "summary-v2-fixture-deployment",
+            "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+            "exchange": "fixture-exchange",
+            "symbol": "BTC/USDT",
+            "trading_pair": "BTC-USDT",
+            "source_symbol": "BTCUSDT",
+            "asset_type": "spot",
+            "feed": "ORDERBOOK",
+            "provider": "fixture:normalized-l2",
+            "source_mode": "broker_live_sampling_v1",
+            "source_time_ms": 1900000000000,
+            "received_time_ms": 1900000000025,
+            "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+            "raw_capture_scope": "ccxt_normalized_object",
+            "schema_version": "2.0.0",
+            "checksum_algorithm": "sha256-canonical-json-v1",
+            "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+            "provenance_complete": 1,
+            "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+            "construction_mode": "sampled_top_n_snapshot",
+            "gap_policy": "record_gap",
+            "depth_limit": 4,
+            "sequence": 9001,
+            "exact_l2_reconstruction_complete": 0,
+            "capture_profile_id": "fixture-profile:exact-both-sides",
+            "effective_cadence_ms": 250,
+            "requested_upstream_depth": 100,
+            "observed_bid_count": 4,
+            "observed_ask_count": 4,
+            "observed_farthest_bid": 99,
+            "observed_farthest_ask": 101.2,
+            "retained_farthest_bid": 99,
+            "retained_farthest_ask": 101.2,
+            "bid_exhausted": 0,
+            "ask_exhausted": 0,
+            "best_bid": 100,
+            "best_ask": 100.2,
+            "best_bid_amount": 1,
+            "best_ask_amount": 5,
+            "mid_price": 100.1,
+            "spread": 0.20000000000000284,
+            "spread_bps": 19.980019980020266,
+            "staleness_ms": 25,
+            "bid_level_count": 4,
+            "ask_level_count": 4,
+            "measurement_bands_bps": [
+              10,
+              25,
+              100
+            ],
+            "bid_boundary_price_by_band": [
+              99.9999,
+              99.84975,
+              99.09899999999999
+            ],
+            "ask_boundary_price_by_band": [
+              100.20009999999998,
+              100.35024999999999,
+              101.101
+            ],
+            "bid_depth_by_band": [
+              1,
+              3,
+              6
+            ],
+            "ask_depth_by_band": [
+              5,
+              11,
+              18
+            ],
+            "bid_status_by_band": [
+              "exact",
+              "exact",
+              "exact"
+            ],
+            "ask_status_by_band": [
+              "exact",
+              "exact",
+              "exact"
+            ],
+            "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638"
+          }
+        }
+      ],
+      "expected_outcome": {
+        "forwarder": "accepted",
+        "accepted_physical_rows": 2,
+        "same_batch_conflict_rows": 0,
+        "supported_view_rows": 1
+      }
+    },
+    {
+      "id": "conflicting-same-key-retry",
+      "category": "conflicting",
+      "archive_depth_limit": 4,
+      "measurement_bands_bps": [
+        10,
+        25,
+        100
+      ],
+      "input_rows": [
+        {
+          "table": "market_data.cex_order_book_depth_summary",
+          "row": {
+            "source": "broker_read",
+            "deployment_id": "summary-v2-fixture-deployment",
+            "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+            "exchange": "fixture-exchange",
+            "symbol": "BTC/USDT",
+            "trading_pair": "BTC-USDT",
+            "source_symbol": "BTCUSDT",
+            "asset_type": "spot",
+            "feed": "ORDERBOOK",
+            "provider": "fixture:normalized-l2",
+            "source_mode": "broker_live_sampling_v1",
+            "source_time_ms": 1900000000000,
+            "received_time_ms": 1900000000025,
+            "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+            "raw_capture_scope": "ccxt_normalized_object",
+            "schema_version": "2.0.0",
+            "checksum_algorithm": "sha256-canonical-json-v1",
+            "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+            "provenance_complete": 1,
+            "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+            "construction_mode": "sampled_top_n_snapshot",
+            "gap_policy": "record_gap",
+            "depth_limit": 4,
+            "sequence": 9001,
+            "exact_l2_reconstruction_complete": 0,
+            "capture_profile_id": "fixture-profile:exact-both-sides",
+            "effective_cadence_ms": 250,
+            "requested_upstream_depth": 100,
+            "observed_bid_count": 4,
+            "observed_ask_count": 4,
+            "observed_farthest_bid": 99,
+            "observed_farthest_ask": 101.2,
+            "retained_farthest_bid": 99,
+            "retained_farthest_ask": 101.2,
+            "bid_exhausted": 0,
+            "ask_exhausted": 0,
+            "best_bid": 100,
+            "best_ask": 100.2,
+            "best_bid_amount": 1,
+            "best_ask_amount": 5,
+            "mid_price": 100.1,
+            "spread": 0.20000000000000284,
+            "spread_bps": 19.980019980020266,
+            "staleness_ms": 25,
+            "bid_level_count": 4,
+            "ask_level_count": 4,
+            "measurement_bands_bps": [
+              10,
+              25,
+              100
+            ],
+            "bid_boundary_price_by_band": [
+              99.9999,
+              99.84975,
+              99.09899999999999
+            ],
+            "ask_boundary_price_by_band": [
+              100.20009999999998,
+              100.35024999999999,
+              101.101
+            ],
+            "bid_depth_by_band": [
+              1,
+              3,
+              6
+            ],
+            "ask_depth_by_band": [
+              5,
+              11,
+              18
+            ],
+            "bid_status_by_band": [
+              "exact",
+              "exact",
+              "exact"
+            ],
+            "ask_status_by_band": [
+              "exact",
+              "exact",
+              "exact"
+            ],
+            "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638"
+          }
+        },
+        {
+          "table": "market_data.cex_order_book_depth_summary",
+          "row": {
+            "source": "broker_read",
+            "deployment_id": "summary-v2-fixture-deployment",
+            "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+            "exchange": "fixture-exchange",
+            "symbol": "BTC/USDT",
+            "trading_pair": "BTC-USDT",
+            "source_symbol": "BTCUSDT",
+            "asset_type": "spot",
+            "feed": "ORDERBOOK",
+            "provider": "fixture:normalized-l2",
+            "source_mode": "broker_live_sampling_v1",
+            "source_time_ms": 1900000000000,
+            "received_time_ms": 1900000000025,
+            "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+            "raw_capture_scope": "ccxt_normalized_object",
+            "schema_version": "2.0.0",
+            "checksum_algorithm": "sha256-canonical-json-v1",
+            "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+            "provenance_complete": 1,
+            "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+            "construction_mode": "sampled_top_n_snapshot",
+            "gap_policy": "record_gap",
+            "depth_limit": 4,
+            "sequence": 9001,
+            "exact_l2_reconstruction_complete": 0,
+            "capture_profile_id": "fixture-profile:exact-both-sides",
+            "effective_cadence_ms": 250,
+            "requested_upstream_depth": 100,
+            "observed_bid_count": 4,
+            "observed_ask_count": 4,
+            "observed_farthest_bid": 99,
+            "observed_farthest_ask": 101.2,
+            "retained_farthest_bid": 99,
+            "retained_farthest_ask": 101.2,
+            "bid_exhausted": 0,
+            "ask_exhausted": 0,
+            "best_bid": 100,
+            "best_ask": 100.2,
+            "best_bid_amount": 1.25,
+            "best_ask_amount": 5,
+            "mid_price": 100.1,
+            "spread": 0.20000000000000284,
+            "spread_bps": 19.980019980020266,
+            "staleness_ms": 25,
+            "bid_level_count": 4,
+            "ask_level_count": 4,
+            "measurement_bands_bps": [
+              10,
+              25,
+              100
+            ],
+            "bid_boundary_price_by_band": [
+              99.9999,
+              99.84975,
+              99.09899999999999
+            ],
+            "ask_boundary_price_by_band": [
+              100.20009999999998,
+              100.35024999999999,
+              101.101
+            ],
+            "bid_depth_by_band": [
+              1,
+              3,
+              6
+            ],
+            "ask_depth_by_band": [
+              5,
+              11,
+              18
+            ],
+            "bid_status_by_band": [
+              "exact",
+              "exact",
+              "exact"
+            ],
+            "ask_status_by_band": [
+              "exact",
+              "exact",
+              "exact"
+            ],
+            "normalized_row_checksum": "18b3df644892e9c07f61fcce2fa1c7ffa7323c05501a138591afb30af030507b"
+          }
+        }
+      ],
+      "expected_outcome": {
+        "forwarder": "rejected",
+        "accepted_rows": 0,
+        "rejected_rows": 2,
+        "checksum_conflict_rows": 2,
+        "supported_view_rows": 0
+      }
+    }
+  ],
+  "rejected_writer_cases": [
+    {
+      "id": "incomplete-provenance",
+      "category": "incomplete-provenance",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:incomplete-provenance",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": false
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ],
+            [
+              99.9,
+              2
+            ],
+            [
+              99.7,
+              3
+            ],
+            [
+              99,
+              4
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              5
+            ],
+            [
+              100.3,
+              6
+            ],
+            [
+              100.5,
+              7
+            ],
+            [
+              101.2,
+              8
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:incomplete-provenance",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 4,
+          "observedAskCount": 4,
+          "observedFarthestBid": 99,
+          "observedFarthestAsk": 101.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25
+          ]
+        },
+        "archive_depth_limit": 2,
+        "measurement_bands_bps": [
+          10,
+          25
+        ]
+      },
+      "expected_outcome": {
+        "writer": "rejected",
+        "error_includes": "summary v2 requires complete live provenance",
+        "forwarder_rows": 0,
+        "supported_view_rows": 0
+      }
+    },
+    {
+      "id": "malformed-duplicate-bid",
+      "category": "malformed",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:malformed-duplicate-bid",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ],
+            [
+              100,
+              2
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              5
+            ],
+            [
+              100.3,
+              6
+            ],
+            [
+              100.5,
+              7
+            ],
+            [
+              101.2,
+              8
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:malformed-duplicate-bid",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 2,
+          "observedAskCount": 4,
+          "observedFarthestBid": 100,
+          "observedFarthestAsk": 101.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25
+          ]
+        },
+        "archive_depth_limit": 2,
+        "measurement_bands_bps": [
+          10,
+          25
+        ]
+      },
+      "expected_outcome": {
+        "writer": "rejected",
+        "error_includes": "bid levels are not strictly descending",
+        "forwarder_rows": 0,
+        "supported_view_rows": 0
+      }
+    },
+    {
+      "id": "malformed-conflicting-observed-count",
+      "category": "malformed",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:malformed-conflicting-observed-count",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ],
+            [
+              99.9,
+              2
+            ],
+            [
+              99.7,
+              3
+            ],
+            [
+              99,
+              4
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              5
+            ],
+            [
+              100.3,
+              6
+            ],
+            [
+              100.5,
+              7
+            ],
+            [
+              101.2,
+              8
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:malformed-conflicting-observed-count",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 999,
+          "observedAskCount": 4,
+          "observedFarthestBid": 99,
+          "observedFarthestAsk": 101.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25
+          ]
+        },
+        "archive_depth_limit": 2,
+        "measurement_bands_bps": [
+          10,
+          25
+        ]
+      },
+      "expected_outcome": {
+        "writer": "rejected",
+        "error_includes": "observed_bid_count does not match the complete observation",
+        "forwarder_rows": 0,
+        "supported_view_rows": 0
+      }
+    },
+    {
+      "id": "empty-bid",
+      "category": "empty-bid",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:empty-bid",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [],
+          "asks": [
+            [
+              100.2,
+              5
+            ],
+            [
+              100.3,
+              6
+            ],
+            [
+              100.5,
+              7
+            ],
+            [
+              101.2,
+              8
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:empty-bid",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 0,
+          "observedAskCount": 4,
+          "observedFarthestBid": null,
+          "observedFarthestAsk": 101.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25
+          ]
+        },
+        "archive_depth_limit": 2,
+        "measurement_bands_bps": [
+          10,
+          25
+        ]
+      },
+      "expected_outcome": {
+        "writer": "rejected",
+        "error_includes": "bid side is missing",
+        "forwarder_rows": 0,
+        "supported_view_rows": 0
+      }
+    },
+    {
+      "id": "empty-ask",
+      "category": "empty-ask",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:empty-ask",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ],
+            [
+              99.9,
+              2
+            ],
+            [
+              99.7,
+              3
+            ],
+            [
+              99,
+              4
+            ]
+          ],
+          "asks": [],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:empty-ask",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 4,
+          "observedAskCount": 0,
+          "observedFarthestBid": 99,
+          "observedFarthestAsk": null,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25
+          ]
+        },
+        "archive_depth_limit": 2,
+        "measurement_bands_bps": [
+          10,
+          25
+        ]
+      },
+      "expected_outcome": {
+        "writer": "rejected",
+        "error_includes": "ask side is missing",
+        "forwarder_rows": 0,
+        "supported_view_rows": 0
+      }
+    },
+    {
+      "id": "both-empty",
+      "category": "both-empty",
+      "input": {
+        "context": {
+          "source": "broker_read",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:both-empty",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [],
+          "asks": [],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:both-empty",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 0,
+          "observedAskCount": 0,
+          "observedFarthestBid": null,
+          "observedFarthestAsk": null,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25
+          ]
+        },
+        "archive_depth_limit": 2,
+        "measurement_bands_bps": [
+          10,
+          25
+        ]
+      },
+      "expected_outcome": {
+        "writer": "rejected",
+        "error_includes": "bid side is missing",
+        "forwarder_rows": 0,
+        "supported_view_rows": 0
+      }
+    },
+    {
+      "id": "source-rejection",
+      "category": "source-rejection",
+      "input": {
+        "context": {
+          "source": "external_backfill",
+          "deploymentId": "summary-v2-fixture-deployment",
+          "captureBundleId": "summary-v2-fixture-bundle:source-rejection",
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "tradingPair": "BTC-USDT",
+          "sourceSymbol": "BTCUSDT",
+          "assetType": "spot",
+          "feed": "ORDERBOOK",
+          "provider": "fixture:normalized-l2",
+          "sourceMode": "broker_live_sampling_v1",
+          "schemaVersion": "1.0.0",
+          "checksumAlgorithm": "sha256-canonical-json-v1",
+          "provenanceComplete": true
+        },
+        "snapshot": {
+          "bids": [
+            [
+              100,
+              1
+            ],
+            [
+              99.9,
+              2
+            ],
+            [
+              99.7,
+              3
+            ],
+            [
+              99,
+              4
+            ]
+          ],
+          "asks": [
+            [
+              100.2,
+              5
+            ],
+            [
+              100.3,
+              6
+            ],
+            [
+              100.5,
+              7
+            ],
+            [
+              101.2,
+              8
+            ]
+          ],
+          "timestamp": 1900000000000,
+          "receivedTimestamp": 1900000000025,
+          "exchange": "fixture-exchange",
+          "symbol": "BTC/USDT",
+          "depthLimit": 4,
+          "sequence": 9001
+        },
+        "archive_metadata": {
+          "captureProfileId": "fixture-profile:source-rejection",
+          "effectiveCadenceMs": 250,
+          "requestedUpstreamDepth": 100,
+          "observedBidCount": 4,
+          "observedAskCount": 4,
+          "observedFarthestBid": 99,
+          "observedFarthestAsk": 101.2,
+          "exhaustionEvidence": {
+            "bid": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            },
+            "ask": {
+              "exhausted": false,
+              "validated": true,
+              "source": "fixture"
+            }
+          },
+          "measurementBandsBps": [
+            10,
+            25
+          ]
+        },
+        "archive_depth_limit": 2,
+        "measurement_bands_bps": [
+          10,
+          25
+        ]
+      },
+      "expected_outcome": {
+        "writer": "rejected",
+        "error_includes": "Unsupported archive source: external_backfill",
+        "forwarder_rows": 0,
+        "supported_view_rows": 0
+      }
+    }
+  ],
+  "rejected_forwarder_cases": [
+    {
+      "id": "forwarder-incomplete-provenance",
+      "category": "incomplete-provenance",
+      "archive_depth_limit": 4,
+      "measurement_bands_bps": [
+        10,
+        25,
+        100
+      ],
+      "row": {
+        "source": "broker_read",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "provenance_complete": 0,
+        "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 4,
+        "sequence": 9001,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:exact-both-sides",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": 100,
+        "observed_bid_count": 4,
+        "observed_ask_count": 4,
+        "observed_farthest_bid": 99,
+        "observed_farthest_ask": 101.2,
+        "retained_farthest_bid": 99,
+        "retained_farthest_ask": 101.2,
+        "bid_exhausted": 0,
+        "ask_exhausted": 0,
+        "best_bid": 100,
+        "best_ask": 100.2,
+        "best_bid_amount": 1,
+        "best_ask_amount": 5,
+        "mid_price": 100.1,
+        "spread": 0.20000000000000284,
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 4,
+        "ask_level_count": 4,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ],
+        "bid_boundary_price_by_band": [
+          99.9999,
+          99.84975,
+          99.09899999999999
+        ],
+        "ask_boundary_price_by_band": [
+          100.20009999999998,
+          100.35024999999999,
+          101.101
+        ],
+        "bid_depth_by_band": [
+          1,
+          3,
+          6
+        ],
+        "ask_depth_by_band": [
+          5,
+          11,
+          18
+        ],
+        "bid_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "ask_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638"
+      },
+      "expected_error": "summary v2 provenance must be complete",
+      "expected_outcome": {
+        "forwarder": "rejected",
+        "rejected_rows": 1,
+        "supported_view_rows": 0
+      }
+    },
+    {
+      "id": "forwarder-malformed-status",
+      "category": "malformed",
+      "archive_depth_limit": 4,
+      "measurement_bands_bps": [
+        10,
+        25,
+        100
+      ],
+      "row": {
+        "source": "broker_read",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "provenance_complete": 1,
+        "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 4,
+        "sequence": 9001,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:exact-both-sides",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": 100,
+        "observed_bid_count": 4,
+        "observed_ask_count": 4,
+        "observed_farthest_bid": 99,
+        "observed_farthest_ask": 101.2,
+        "retained_farthest_bid": 99,
+        "retained_farthest_ask": 101.2,
+        "bid_exhausted": 0,
+        "ask_exhausted": 0,
+        "best_bid": 100,
+        "best_ask": 100.2,
+        "best_bid_amount": 1,
+        "best_ask_amount": 5,
+        "mid_price": 100.1,
+        "spread": 0.20000000000000284,
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 4,
+        "ask_level_count": 4,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ],
+        "bid_boundary_price_by_band": [
+          99.9999,
+          99.84975,
+          99.09899999999999
+        ],
+        "ask_boundary_price_by_band": [
+          100.20009999999998,
+          100.35024999999999,
+          101.101
+        ],
+        "bid_depth_by_band": [
+          1,
+          3,
+          6
+        ],
+        "ask_depth_by_band": [
+          5,
+          11,
+          18
+        ],
+        "bid_status_by_band": [
+          "unknown",
+          "exact",
+          "exact"
+        ],
+        "ask_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638"
+      },
+      "expected_error": "bid_status_by_band contains an invalid status",
+      "expected_outcome": {
+        "forwarder": "rejected",
+        "rejected_rows": 1,
+        "supported_view_rows": 0
+      }
+    },
+    {
+      "id": "forwarder-misaligned-arrays",
+      "category": "malformed",
+      "archive_depth_limit": 4,
+      "measurement_bands_bps": [
+        10,
+        25,
+        100
+      ],
+      "row": {
+        "source": "broker_read",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "provenance_complete": 1,
+        "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 4,
+        "sequence": 9001,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:exact-both-sides",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": 100,
+        "observed_bid_count": 4,
+        "observed_ask_count": 4,
+        "observed_farthest_bid": 99,
+        "observed_farthest_ask": 101.2,
+        "retained_farthest_bid": 99,
+        "retained_farthest_ask": 101.2,
+        "bid_exhausted": 0,
+        "ask_exhausted": 0,
+        "best_bid": 100,
+        "best_ask": 100.2,
+        "best_bid_amount": 1,
+        "best_ask_amount": 5,
+        "mid_price": 100.1,
+        "spread": 0.20000000000000284,
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 4,
+        "ask_level_count": 4,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ],
+        "bid_boundary_price_by_band": [
+          99.9999,
+          99.84975,
+          99.09899999999999
+        ],
+        "ask_boundary_price_by_band": [
+          100.20009999999998,
+          100.35024999999999,
+          101.101
+        ],
+        "bid_depth_by_band": [
+          1,
+          3,
+          6
+        ],
+        "ask_depth_by_band": [
+          5
+        ],
+        "bid_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "ask_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638"
+      },
+      "expected_error": "summary band arrays must be aligned",
+      "expected_outcome": {
+        "forwarder": "rejected",
+        "rejected_rows": 1,
+        "supported_view_rows": 0
+      }
+    },
+    {
+      "id": "forwarder-source-rejection",
+      "category": "source-rejection",
+      "archive_depth_limit": 4,
+      "measurement_bands_bps": [
+        10,
+        25,
+        100
+      ],
+      "row": {
+        "source": "external_backfill",
+        "deployment_id": "summary-v2-fixture-deployment",
+        "capture_bundle_id": "summary-v2-fixture-bundle:exact-both-sides",
+        "exchange": "fixture-exchange",
+        "symbol": "BTC/USDT",
+        "trading_pair": "BTC-USDT",
+        "source_symbol": "BTCUSDT",
+        "asset_type": "spot",
+        "feed": "ORDERBOOK",
+        "provider": "fixture:normalized-l2",
+        "source_mode": "broker_live_sampling_v1",
+        "source_time_ms": 1900000000000,
+        "received_time_ms": 1900000000025,
+        "raw_capture_id": "13e9c1d4fd37fd638d044d440cd56bf8372d918a02e53382e87978c282e76efd",
+        "raw_capture_scope": "ccxt_normalized_object",
+        "schema_version": "2.0.0",
+        "checksum_algorithm": "sha256-canonical-json-v1",
+        "raw_checksum": "db0d4ace888b233195b044746db439b1259d2a1cfeb108af07cd703757360618",
+        "provenance_complete": 1,
+        "snapshot_id": "57344ad3230f66d712c5f5e23bb6a26d24de96ff0856e7ef2a5af68edafe5ea6",
+        "construction_mode": "sampled_top_n_snapshot",
+        "gap_policy": "record_gap",
+        "depth_limit": 4,
+        "sequence": 9001,
+        "exact_l2_reconstruction_complete": 0,
+        "capture_profile_id": "fixture-profile:exact-both-sides",
+        "effective_cadence_ms": 250,
+        "requested_upstream_depth": 100,
+        "observed_bid_count": 4,
+        "observed_ask_count": 4,
+        "observed_farthest_bid": 99,
+        "observed_farthest_ask": 101.2,
+        "retained_farthest_bid": 99,
+        "retained_farthest_ask": 101.2,
+        "bid_exhausted": 0,
+        "ask_exhausted": 0,
+        "best_bid": 100,
+        "best_ask": 100.2,
+        "best_bid_amount": 1,
+        "best_ask_amount": 5,
+        "mid_price": 100.1,
+        "spread": 0.20000000000000284,
+        "spread_bps": 19.980019980020266,
+        "staleness_ms": 25,
+        "bid_level_count": 4,
+        "ask_level_count": 4,
+        "measurement_bands_bps": [
+          10,
+          25,
+          100
+        ],
+        "bid_boundary_price_by_band": [
+          99.9999,
+          99.84975,
+          99.09899999999999
+        ],
+        "ask_boundary_price_by_band": [
+          100.20009999999998,
+          100.35024999999999,
+          101.101
+        ],
+        "bid_depth_by_band": [
+          1,
+          3,
+          6
+        ],
+        "ask_depth_by_band": [
+          5,
+          11,
+          18
+        ],
+        "bid_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "ask_status_by_band": [
+          "exact",
+          "exact",
+          "exact"
+        ],
+        "normalized_row_checksum": "c181528adb43f47df811e4b17be33f527e1c8f4d68ed525bd7339068cb7eb638"
+      },
+      "expected_error": "source must match the broker archive envelope",
+      "expected_outcome": {
+        "forwarder": "rejected",
+        "rejected_rows": 1,
+        "supported_view_rows": 0
+      }
+    }
+  ]
+}

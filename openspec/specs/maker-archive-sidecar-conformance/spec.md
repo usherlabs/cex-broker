@@ -6,203 +6,215 @@ Define the CEX-owned conformance sidecar, Maker-owned orchestration boundary, tr
 ## Requirements
 ### Requirement: CEX Broker provides a bounded archive-conformance sidecar lifecycle
 
-The CEX Broker repository SHALL provide a documented test composition with `up`, `ready`, `verify`, and `down` operations that an external FIET Maker job can invoke non-interactively. The composition MUST be a test utility, not a production service or an additional core broker startup mode.
+CEX Broker SHALL provide a bounded, non-production sidecar lifecycle for the `production_compatible` profile only. It SHALL retain the established `up|ready|verify|down` lifecycle: `up` starts deterministic infrastructure and writes the v2 manifest, `ready` reports bounded readiness for external Maker execution, `verify` evaluates the resulting shared-wire Proof C and writes the v2 result, and `down` cleans up owned resources. It SHALL NOT expose a native replay profile or execute Maker sourcing, policy, loader, or Parquet behavior.
 
-#### Scenario: Sidecar is started
-- **WHEN** an external job invokes `up` with a unique run ID and pinned CEX candidate commit
-- **THEN** the composition MUST start run-isolated ClickHouse Server 24.8, the production archive-forwarder with a unique SQLite spool, a deterministic broker fixture using normal gRPC wiring, and the independent collector service entrypoint
-- **AND** it MUST expose only the bounded broker, archive, health, and ClickHouse test endpoints needed by the job
+#### Scenario: Production-compatible sidecar is started
 
-#### Scenario: Sidecar readiness is requested
-- **WHEN** the external job invokes `ready`
-- **THEN** readiness MUST require broker gRPC service, ClickHouse schema, forwarder health, spool writability, and configured collector subscription readiness
-- **AND** the command MUST fail within a deterministic timeout if any required component is unavailable
+- **WHEN** an orchestrator invokes `up` with a unique run ID, pinned commits, and `production_compatible`
+- **THEN** the composition SHALL start run-isolated ClickHouse, the production archive-forwarder with a unique durable spool, the controlled broker fixture through normal gRPC wiring, and the independent collector entrypoint
+- **AND** it SHALL write a v2 manifest and expose only bounded test endpoints
 
-#### Scenario: Sidecar is stopped
-- **WHEN** the external job invokes `down` after success, failure, or interruption
-- **THEN** shutdown MUST be bounded and idempotent and remove only run-owned processes, containers, ports, spool, and temporary data
-- **AND** it MUST retain only explicitly selected bounded evidence artifacts
+#### Scenario: Production-compatible readiness is requested
+
+- **WHEN** the orchestrator invokes `ready`
+- **THEN** readiness SHALL require broker gRPC, ClickHouse schema, forwarder health, spool writability, and configured collector subscription readiness
+- **AND** it SHALL fail within the configured bounded timeout if any component is unavailable
+
+#### Scenario: Production-compatible verification completes
+
+- **WHEN** external Maker execution has exercised live gRPC and durable `hb_runtime` wires and the orchestrator invokes `verify`
+- **THEN** verification SHALL succeed or fail solely from bounded Proof C evidence
+- **AND** it SHALL write the v2 result without executing Maker policy, sourcing, loader, or Parquet behavior
+
+#### Scenario: Production-compatible sidecar is stopped
+
+- **WHEN** an orchestrator invokes `down` after success, failure, or interruption
+- **THEN** shutdown SHALL be bounded and idempotent and remove only run-owned resources
+- **AND** it SHALL retain only explicitly selected bounded evidence
+
+#### Scenario: Native replay profile is unavailable
+
+- **WHEN** an orchestrator invokes `up --profile native_replay` or requests a native result, reference export, or replay validator
+- **THEN** the sidecar SHALL reject the request as an invalid unsupported profile or artifact
+- **AND** it SHALL NOT emit a v1-compatible result
 
 ### Requirement: The sidecar exposes a stable non-interactive command contract
 
-The repository SHALL expose `bun run archive:sidecar -- <up|ready|verify|down>`. `up` MUST require `--run-id`, `--profile` with exactly `native_replay` or `production_compatible`, `--candidate-sha`, `--maker-sha`, and `--artifacts-dir`, and MUST write `<artifacts-dir>/<run-id>/manifest.json`. `ready`, `verify`, and `down` MUST require `--manifest <path>`. `ready` MUST accept `--timeout-ms` with default `120000`, and `verify` MUST write `<artifacts-dir>/<run-id>/verification.json`. Exit code `0` SHALL mean success, `2` invalid invocation or manifest, and `1` lifecycle, readiness, or verification failure.
+The repository SHALL expose `bun run archive:sidecar -- <up|ready|verify|down>` for `production_compatible`. `up` SHALL require `--run-id`, `--profile production_compatible`, `--candidate-sha`, `--maker-sha`, and `--artifacts-dir`, and SHALL write `<artifacts-dir>/<run-id>/manifest.json`. `ready`, `verify`, and `down` SHALL require `--manifest <path>`; `ready` SHALL retain its `--timeout-ms` default of `120000`; and `verify` SHALL write `<artifacts-dir>/<run-id>/verification.json`. Inputs and outputs SHALL use version-2 schemas only. Exit code `0` SHALL mean success, `2` invalid invocation or manifest, and `1` lifecycle, readiness, or verification failure. The removed `native_replay` profile SHALL NOT be accepted by `up`; no replacement `prepare|execute|cleanup` command family SHALL be introduced by this change.
 
-#### Scenario: Sidecar command is invoked correctly
-- **WHEN** an external job supplies every required `up` flag and a supported profile
-- **THEN** the command MUST create the run directory and manifest and return exit code `0` only after owned components start
-- **AND** subsequent lifecycle commands MUST operate on that manifest without requiring a process environment dump
+#### Scenario: Automation invokes the supported profile
+
+- **WHEN** CI supplies resolved CEX and Maker commits, fixture identity, output directory, and time bounds
+- **THEN** `up`, `ready`, `verify`, and `down` SHALL run non-interactively
+- **AND** produced paths and status codes SHALL be machine-readable
+
+#### Scenario: Removed command and profile shapes fail explicitly
+
+- **WHEN** automation invokes `up --profile native_replay` or a proposed `prepare`, `execute`, or `cleanup` verb
+- **THEN** the command SHALL exit non-zero with a machine-readable unsupported-command or unsupported-profile diagnostic
+- **AND** it SHALL NOT reinterpret the invocation as `production_compatible`
 
 #### Scenario: Readiness times out
-- **WHEN** any required component remains unavailable for 120 seconds or the explicitly supplied bounded timeout
-- **THEN** `ready` MUST return exit code `1` and retain bounded diagnostics below the run artifact directory
-- **AND** it MUST NOT emit a successful readiness result
+
+- **WHEN** a required component remains unavailable for 120 seconds or the explicit bounded timeout
+- **THEN** `ready` SHALL return exit code `1` and retain bounded diagnostics in the run artifact directory
+- **AND** it SHALL NOT emit successful readiness
 
 #### Scenario: Invocation or manifest is invalid
-- **WHEN** a required flag is absent, a profile or commit is invalid, or the manifest cannot be validated
-- **THEN** the command MUST return exit code `2` without claiming lifecycle or conformance success
+
+- **WHEN** a required flag is absent, a commit is invalid, or a manifest fails v2 validation
+- **THEN** the command SHALL return exit code `2` without claiming lifecycle or conformance success
 
 #### Scenario: Verification fails
-- **WHEN** any selected profile assertion fails
-- **THEN** `verify` MUST return exit code `1` and write a failed secret-free verification result
-- **AND** `down` MUST remain usable and idempotent for the same manifest
+
+- **WHEN** any Proof C assertion fails
+- **THEN** `verify` SHALL return exit code `1` and write a failed secret-free v2 result
+- **AND** `down` SHALL remain usable and idempotent for the same manifest
+
+#### Scenario: V1 result cannot be decoded
+
+- **WHEN** verify receives a sidecar manifest or result using the deleted v1 schema
+- **THEN** it SHALL fail with an unsupported-schema error
+- **AND** it SHALL NOT upgrade, alias, or infer missing v2 evidence
 
 ### Requirement: The sidecar uses production boundaries without production credentials
 
-The composition SHALL use the production archive-forwarder HTTP handler/client, schema initializer, broker gRPC registration/Subscribe handler, canonical writer, collector process, and strategy spool worker. It MUST use a deterministic controlled exchange and MUST NOT require or accept live CEX trading credentials as conformance evidence.
+The sidecar SHALL exercise the real CEX Broker current/live ORDERBOOK gRPC boundary, the production acquisition-profile and collector/feed-sharing paths, the normal archive-forwarder HTTP boundary, durable spool admission, and the production ClickHouse strategy tables. Proof C SHALL use a deterministic controlled/local fixture venue and SHALL NOT require public-network market access, production secrets, external vendor credentials, or a production deployment. “Real broker” SHALL mean production handlers and domain paths, not a live public exchange.
 
-#### Scenario: Deterministic market capture runs
-- **WHEN** the sidecar releases controlled public market frames
-- **THEN** the collector MUST keep the broker subscriptions alive and canonical rows MUST traverse the broker writer and archive-forwarder into ClickHouse
-- **AND** no fake HTTP handler, research watcher, or direct fixture insertion may substitute for the claimed service boundary
+#### Scenario: Layer12 reaches the real broker
 
-#### Scenario: Core broker configuration is audited
+- **WHEN** Proof C requests current depth and subscribes to live ORDERBOOK through Layer12
+- **THEN** the request SHALL traverse the registered production broker handler and return a valid live-boundary result
+- **AND** the observation SHALL originate from the controlled fixture venue through the production acquisition-profile path
+
+#### Scenario: Strategy write uses durable production semantics
+
+- **WHEN** Maker's ArchiveEmitter posts an `hb_runtime` batch through the production-compatible forwarder
+- **THEN** HTTP 202 SHALL be returned only after durable spool admission
+- **AND** the spool SHALL drain the expected identities into all five strategy tables
+
+#### Scenario: No production secret is required
+
+- **WHEN** the sidecar runs in CI
+- **THEN** deterministic local fixtures and credentials SHALL be sufficient without public market access
+- **AND** the manifest SHALL contain no secret material
+
+#### Scenario: Public-network smoke is separate and optional
+
+- **WHEN** maintainers run an external public-market smoke test
+- **THEN** it SHALL be a separately named non-gating job
+- **AND** its result SHALL NOT be included in or required by Proof C verification
+
+#### Scenario: Core broker configuration is unchanged
+
 - **WHEN** sidecar support is reviewed
-- **THEN** it MUST introduce no credential profile, credential-source policy, credential attestation, runtime archive write mode, or mandatory archive configuration for the core full broker
-- **AND** existing `.env`-over-in-flight credential precedence and optional archival startup behavior MUST remain unchanged
+- **THEN** it SHALL introduce no credential profile, credential-source policy, runtime archive write mode, or mandatory archive configuration for the core broker
+- **AND** ordinary production archival startup behavior SHALL remain independent of sidecar fixtures
 
 ### Requirement: Sidecar evidence is bounded, reproducible, and secret-free
 
-Each sidecar run SHALL emit a machine-readable JSON manifest and verification result. Evidence MUST include run ID, profile, resolved CEX baseline/candidate and Maker commits, capture/deployment identities, non-secret endpoints, table/schema/checksum versions, ClickHouse/Bun/Python versions, migration and spool outcomes, invoked commands, and artifact hashes. Evidence MUST whitelist fields and MUST NOT serialize process environments, tokens, CEX credentials, or unredacted credential-bearing payloads.
+The v2 manifest and v2 result SHALL record resolved CEX and Maker commits, bounded timestamps and row identities, the hash-bound shared-wire fixture/test identity, broker/collector feed-sharing evidence, archive-decision cardinality, 202/spool evidence, and exact producer/run identities in the five strategy tables. They SHALL NOT contain Parquet descriptors, `parquetOwnership`, native replay results, FIET-907 loader evidence, policy-equivalence evidence, PR-number ancestry, credentials, or unbounded payloads.
 
-#### Scenario: Evidence manifest is emitted
-- **WHEN** `up` and `verify` complete
-- **THEN** the manifest MUST identify the exact source commits and every evidence artifact used for the result
-- **AND** a consumer MUST be able to distinguish admission, drainage, migration, query, and replay assertions without reading transient logs
+#### Scenario: Evidence can be independently rechecked
 
-#### Scenario: Required identity is absent
-- **WHEN** run ID, selected profile, candidate commit, Maker commit, or required schema/version evidence is missing
-- **THEN** verification MUST fail rather than emit a partial conformance success
-- **AND** the failure artifact MUST remain secret-free
+- **WHEN** a reviewer receives a successful v2 result
+- **THEN** the reviewer SHALL be able to resolve both commits, verify the fixture hash, locate the bounded rows, and reproduce the Proof C assertions
+
+#### Scenario: Secrets and obsolete proof fields are absent
+
+- **WHEN** the result directory is scanned
+- **THEN** it SHALL contain no tokens, passwords, private endpoints, canonical Parquet artifacts, native profile records, Proof B decisions, or FIET-907 loader outputs
 
 #### Scenario: External Maker producer is handed off safely
-- **WHEN** the sidecar becomes ready for a Maker-owned profile command
-- **THEN** its manifest MUST already expose the loopback broker endpoint, fixed Maker result path, and any required checksum-bound native reference export
-- **AND** producer authorization MUST be available only through an owner-only ephemeral file whose contents are omitted from retained evidence and removed by `down`
 
-#### Scenario: Sidecar attempts to substitute for Maker
-- **WHEN** the supervisor constructs or posts strategy rows, or verification accepts a producer other than the exact Maker conformance producer
-- **THEN** conformance MUST fail because the external-producer boundary was bypassed
-- **AND** CEX-generated substitute rows MUST not count in any of the five strategy-table queries
+- **WHEN** the sidecar becomes ready for Maker-owned Layer12 and ArchiveEmitter execution
+- **THEN** its manifest SHALL expose only the loopback endpoints and bounded identities needed by that producer
+- **AND** any ephemeral authorization material SHALL remain outside retained evidence and be removed by `down`
+
+#### Scenario: Sidecar cannot substitute for Maker
+
+- **WHEN** a CEX sidecar component constructs or posts the strategy rows used as ArchiveEmitter evidence
+- **THEN** conformance SHALL fail because the external-producer boundary was bypassed
+- **AND** CEX-generated substitute rows SHALL not count in the five strategy-table queries
 
 ### Requirement: FIET Maker owns external orchestration from a pinned develop checkout
 
-The required cross-repository job SHALL be initiated from a clean FIET Maker `develop` checkout, SHALL resolve and record its immutable commit at execution time, and SHALL verify that the expected PR 1067 wire contract is present. No proposal-time Maker commit SHALL act as a permanent pin. The Maker job MUST pin the CEX candidate SHA, supply a shared run identity, start the CEX-owned sidecar, execute the Maker-owned runtime/materializer command, invoke CEX verification, and always stop the sidecar.
+Maker MAY own a development-only dual-repository orchestration that pins exact CEX and Maker commits and invokes the CEX production-compatible sidecar. The orchestration SHALL bind the current shared-wire fixture/test by content hash and SHALL NOT require ancestry from a named pull request. Production thesis materialization SHALL remain independent of the CEX checkout and sidecar.
 
-#### Scenario: Required Maker conformance runs
-- **WHEN** the Maker job resolves `develop`
-- **THEN** it MUST record the Maker commit and use the CEX sidecar interface without copying CEX schema or service orchestration into Maker
-- **AND** the final evidence MUST bind both repository commits to the same run ID
+#### Scenario: Development orchestration pins content
 
-#### Scenario: A floating branch is used without a resolved commit
-- **WHEN** a required result identifies only `develop` or a feature branch name without its resolved SHA
-- **THEN** it MUST not qualify as release conformance evidence
-- **AND** a scheduled floating compatibility job MAY remain informative but MUST NOT replace the pinned result
+- **WHEN** Maker invokes the sidecar in cross-repository CI
+- **THEN** both repositories SHALL be clean at resolved commits
+- **AND** the shared-wire test identity and digest SHALL match the manifest
 
-### Requirement: Native Maker replay remains an offline FIET-907-backed profile
+#### Scenario: Pull-request ancestry is not a pass condition
 
-The native replay profile SHALL represent the truthful flow `collector -> CEX Broker -> archive-forwarder -> ClickHouse -> FIET-907 materializer -> Parquet -> native Hummingbot emulation`. The retained CEX reference exporter MUST query ClickHouse directly and MUST be documented as a FIET-907 compatibility tool; CEX capture services MUST NOT produce Parquet inline. Native strategy reports MUST use `source=maker_replay` and MUST NOT claim direct broker participation by the native runtime or `hb_runtime` delivery semantics.
-
-#### Scenario: Replay fixture boundary is exercised
-- **WHEN** the native profile selects a bounded conflict-free canonical window
-- **THEN** the direct-ClickHouse reference exporter or FIET-907 materializer MUST produce schema-compatible Parquet evidence and verify canonical checksums
-- **AND** fixture coverage, replay-bundle assembly, and Maker-specific extensions MUST remain FIET-907/Maker ownership
-
-#### Scenario: Native emulation reports strategy evidence
-- **WHEN** the Maker emulation produces policy, identity, mapping, snapshot, or settlement rows
-- **THEN** it MUST submit approved strategy rows as `maker_replay` and receive the synchronous replay contract
-- **AND** queried ClickHouse rows MUST retain that source and the shared run identity
-
-#### Scenario: Native profile claims live behavior
-- **WHEN** evidence labels native emulation as directly connected to CEX Broker or labels its replay rows as `hb_runtime`
-- **THEN** profile verification MUST fail
-- **AND** the result MUST not satisfy production-compatible conformance
+- **WHEN** equivalent shared-wire code is rebased, merged, or carried by a different commit topology
+- **THEN** verification SHALL rely on the resolved content-bound fixture and observed wire evidence
+- **AND** it SHALL NOT require ancestry from PR 1067 or any other PR number
 
 ### Requirement: Production-compatible Maker conformance exercises live and durable boundaries
-The production-compatible profile SHALL run the Maker Layer 12 live/sandbox boundary against the sidecar broker, with `hb_runtime` strategy rows posted to the archive-forwarder and durably admitted to SQLite before HTTP 202. The collector SHALL remain an independent broker client that keeps configured market subscriptions alive; it MUST NOT be represented as the third-party Maker client. CEX-owned Proof C SHALL establish logical-versus-physical feed ownership and the durable spool/ClickHouse boundary. The final CEX verifier SHALL combine Proof C and freshly generated CEX Proof A with a separately produced, hash-bound FIET Maker Proof B v2 attachment. CEX Broker MUST NOT execute Maker position-policy logic or require Maker Proof B to reproduce CEX topology/archive facts.
 
-#### Scenario: Production-compatible profile runs
-- **WHEN** Layer 12 starts with the sidecar broker endpoint and shared run identity
-- **THEN** its CEX interactions MUST traverse the normal broker gRPC surface while the collector independently sustains archival subscriptions
-- **AND** retained evidence MUST distinguish the real Hummingbot connector subscription from the Layer 12 reference-depth snapshot action used by policy authoring
-- **AND** live strategy batches MUST receive HTTP 202 only after durable spool admission
+The production-compatible profile SHALL prove that Layer12 can fetch and subscribe to live depth through the real broker, Maker and the collector can share one physical feed with one archive decision per observation, and ArchiveEmitter `hb_runtime` writes receive durable 202 admission and drain to the five strategy tables with exact producer and run identities.
 
-#### Scenario: Collector and Maker overlap on a public feed
-- **WHEN** the independent collector and real Maker connector subscribe to the same exchange, resolved symbol, market type, and public feed with options that resolve to one explicitly enabled candidate acquisition profile
-- **THEN** CEX-owned Proof C MUST record both logical subscriptions and MUST prove Maker receives the shared feed frame
-- **AND** the controlled exchange MUST record one physical CCXT watch and one archive decision for the canonical observation rather than treating Maker as an additional physical producer
-- **AND** ClickHouse evidence MUST contain one canonical broker capture for the controlled physical observation
+#### Scenario: Shared physical feed has one archive decision
 
-#### Scenario: One controlled venue establishes Proof C
-- **WHEN** the production-compatible sidecar uses one controlled Binance candidate profile to prove the real cross-repository broker and archive topology
-- **THEN** that topology proof MAY satisfy Proof C without duplicating the full sidecar run for MEXC
-- **AND** the final verifier MUST still require independent Binance and MEXC cases in both Proof A and Proof B because venue-specific data and policy equivalence are not delegated to Proof C
+- **WHEN** Layer12 and the collector observe the same bounded live feed during Proof C
+- **THEN** evidence SHALL identify one physical subscription/feed owner
+- **AND** each physical observation SHALL produce no more than one broker archive decision
 
-#### Scenario: Candidate depth profile overlaps in controlled verification
-- **WHEN** collector explicit depth and Maker omitted depth target a Binance or MEXC candidate that the controlled sidecar composition explicitly enables and the profile guarantees coverage of both requests plus archive depth
-- **THEN** Proof C MUST identify the resolved profile and prove the two logical clients share it
-- **AND** Maker and collector payloads MUST retain their respective omitted-depth and explicit-depth response contracts
-- **AND** controlled evidence enablement MUST NOT alter the empty production enabled-profile default
+#### Scenario: Five-table strategy persistence is exact
 
-#### Scenario: Maker Proof B attachment is supplied
-- **WHEN** the final production-compatible CEX verifier consumes Maker policy-equivalence evidence
-- **THEN** `profileEvidence.immediateHedgeability` MUST be an attachment descriptor with schema `fiet-maker-immediate-hedgeability-attachment/v1`, a path under the run-owned artifact directory, and a claimed `sha256`
-- **AND** the verifier MUST reject path traversal or a path outside that directory, recompute the attachment's whole-file SHA-256, and require it to equal the claimed hash before parsing the document
-- **AND** the document MUST use schema `fiet-maker-immediate-hedgeability/v2`
-
-#### Scenario: Maker Proof B is bound to current CEX Proof A
-- **WHEN** the CEX verifier validates the parsed Maker Proof B attachment
-- **THEN** `sourceCexEvidence.schemaVersion` MUST equal `cex-orderbook-coalescing-evidence/v1` and `sourceCexEvidence.sha256` MUST equal the freshly recomputed hash of the current real Proof A file
-- **AND** Proof B MUST contain `policyConfigSha256`, artifact hashes, and exactly one Binance and one MEXC case whose profile IDs are `<venue>:l2-diff:500`
-- **AND** each case MUST contain four isolated live Layer 12 evaluation streams for conservative/coalesced multiplied by live/rehydrated inputs, with cap, width, authored position, limiting side, rebalance, equivalence verdict, and diagnostic-hash evidence
-- **AND** an attachment bound only to a synthetic or stale Proof A fixture MUST fail final CEX verification
-
-#### Scenario: Proof ownership is enforced
-- **WHEN** the verifier inspects Maker Proof B
-- **THEN** it MUST reject `sharedObservation`, `logicalDeliveries`, `physicalWatches`, `archiveDecisions`, `logicalPayloadsEqual`, and `canonicalArchiveEqual` wherever the Proof B contract forbids copied CEX facts
-- **AND** logical subscription/watch/archive counts, spool state, and ClickHouse delivery MUST be taken only from CEX-owned Proof C
-- **AND** broker payload/archive equality, band coverage, replay sufficiency, and physical-work reduction MUST be taken only from CEX-owned Proof A
-
-#### Scenario: Replay depth is insufficient for the position policy
-- **WHEN** Proof A's negative 25-level ORDERBOOK frame does not reach a required policy band and does not carry explicit exhaustion evidence
-- **THEN** the final verifier MUST require coverage rejection before that frame is offered to Layer 12 as exact replay evidence
-- **AND** the failure MUST include band and side diagnostics and MUST be distinguished from an L3 capability requirement
-
-#### Scenario: Production-compatible verification runs
-- **WHEN** Maker execution completes and the sidecar worker drains admitted work
-- **THEN** Proof C verification MUST query the expected market and all required strategy tables, confirm v2 producer/stream identity, and prove spool queue/table work reached completed state
-- **AND** one isolated table retry or restart-recovery case MUST prove stable deduplication without duplicate logical strategy events
-- **AND** the final verifier MUST require passing current Proof A, hash-bound Proof B, and local Proof C while reporting their hashes and verdicts separately
-- **AND** passing all three proofs MUST NOT activate Binance or MEXC coalescing; activation belongs to a later CEX change that pins accepted evidence hashes
-
-#### Scenario: HTTP 202 is the only available evidence
-- **WHEN** a live batch was admitted but no completed spool and ClickHouse query evidence exists
-- **THEN** production-compatible conformance MUST fail as incomplete
-- **AND** admission MUST be reported separately from delivery
+- **WHEN** the spool drains an accepted `hb_runtime` batch
+- **THEN** the expected rows SHALL appear in each required strategy table
+- **AND** producer id, run id, batch identity, and expected row counts SHALL match the v2 manifest
 
 ### Requirement: Cross-service verification enforces source and ownership boundaries
 
-The verifier SHALL reject mixed strategy/non-strategy envelopes, row/envelope provenance mismatch, unsupported strategy sources, unknown schema versions, missing v2 identities, legacy writes from the upgraded market producer, and any attempt to route `maker_replay` through the live spool or `hb_runtime` through the replay direct path.
+Sidecar verification SHALL enforce only the remaining shared transport and storage ownership boundary. CEX-local Proof A and Maker-owned Proof B SHALL NOT be prerequisites or result fields. The sidecar SHALL NOT claim hot-summary reader parity; that boundary SHALL be verified by the versioned summary-v2 fixture/query contract and MAY be supplemented by an optional SQL compatibility job.
 
-#### Scenario: Both profiles are evaluated
-- **WHEN** a candidate provides native replay and production-compatible evidence
-- **THEN** each result MUST independently prove its expected broker participation, source, HTTP acknowledgement, persistence path, and queried tables
-- **AND** passing one profile MUST NOT imply the other passed
+#### Scenario: Proof C is sufficient
+
+- **WHEN** all live gRPC, feed-sharing, archive-decision, durable-202, spool-drain, and five-table assertions pass
+- **THEN** sidecar verification SHALL report success without a CEX reference export or Maker policy result
+
+#### Scenario: Hot schema parity remains separate
+
+- **WHEN** the sidecar succeeds but a downstream summary-v2 reader fixture fails
+- **THEN** the sidecar result SHALL remain a truthful shared-wire result
+- **AND** the independent schema-compatibility gate SHALL fail until the reader is corrected
 
 #### Scenario: Ownership boundary is crossed
-- **WHEN** a producer, sidecar component, or test adapter performs work assigned to another service or repository and thereby bypasses a required boundary
-- **THEN** verification MUST fail with the skipped boundary identified
-- **AND** the bypassed result MUST not count toward release evidence
+
+- **WHEN** a component performs another repository's sourcing, policy, loader, or strategy-producer work and thereby bypasses a required shared wire
+- **THEN** verification SHALL fail with the skipped boundary identified
+- **AND** that result SHALL not count toward release evidence
 
 ### Requirement: Deterministic cross-service evidence replaces production soak for this change
 
-Completion of this capability SHALL require the pinned Local lifecycle, real ClickHouse 24.8 A/B migration, CEX sidecar verification, and Maker `develop` conformance evidence. It MUST NOT require a production-soak task, live venue credentials, real-asset movement, or production trading.
+The sidecar SHALL use bounded deterministic evidence to catch shared-wire drift before release. It SHALL NOT claim availability, exchange fidelity, production retention, or long-duration soak coverage.
 
-#### Scenario: Deterministic evidence is complete
-- **WHEN** all required CEX and Maker jobs pass at recorded commits and their manifests agree
-- **THEN** the implementation tasks for this change MAY be marked complete and prepared for OpenSpec sync/archive
-- **AND** any separate production observation ticket MUST remain independent of this definition of done
+#### Scenario: Deterministic pass has bounded meaning
 
-#### Scenario: Production soak has not run
-- **WHEN** deterministic conformance is complete but no production observation exists
-- **THEN** the absence of soak MUST NOT block this change's completion
-- **AND** the evidence MUST not claim that deterministic CI constitutes production observation
+- **WHEN** Proof C passes within its configured time and row limits
+- **THEN** the result SHALL attest only to the exercised live gRPC and durable strategy-write compatibility
+- **AND** release documentation SHALL not characterize it as production soak evidence
+
+### Requirement: Proof C verifies the complete producer-run row set
+
+For each of the five strategy tables, Proof C SHALL query every row matching the exact deployment, `hb_runtime` source, schema version, producer ID, producer run ID, and positive sequence contract. The complete persisted `archive_event_id` set and count SHALL equal the Maker-declared set and manifest expectation. The Maker result `delivery.batchId` SHALL equal the sidecar run/batch identity.
+
+#### Scenario: Expected rows land with no extras
+
+- **WHEN** each strategy table contains exactly its declared producer-run row IDs
+- **THEN** Proof C SHALL accept the five-table persistence evidence
+
+#### Scenario: Extra or stale producer-run row exists
+
+- **WHEN** any strategy table contains an additional row matching the producer/run predicate but absent from Maker evidence
+- **THEN** Proof C SHALL fail and report the expected and observed identity sets
+
+#### Scenario: Delivery batch identity differs
+
+- **WHEN** the Maker result declares a batch ID other than the manifest run/batch identity
+- **THEN** result validation SHALL fail before querying persistence

@@ -30,11 +30,11 @@ class FirstFrameObserver {
 	private readonly seen = new Set<PublicFeed>();
 	private readonly waiters = new Map<PublicFeed, () => void>();
 
-	public recordCounter = (
+	public recordCounter = async (
 		name: string,
 		_value: number,
 		labels: Record<string, unknown>,
-	): void => {
+	): Promise<void> => {
 		if (name !== "cex_market_data_collector_frames_received_total") return;
 		const feed = labels.feed as PublicFeed;
 		this.seen.add(feed);
@@ -292,8 +292,9 @@ async function runSmoke(): Promise<void> {
 
 try {
 	await withDeadline(runSmoke(), "archive live smoke", OVERALL_TIMEOUT_MS);
+	process.exit(0);
 } catch (error) {
 	const message = error instanceof Error ? error.message : String(error);
 	console.error(message);
-	process.exitCode = 1;
+	process.exit(1);
 }

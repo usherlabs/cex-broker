@@ -458,7 +458,20 @@ async function insertCanonicalTape(
 			snapshot,
 			rawCapture,
 			depthLimit: depth,
-			measurementBandsBps: [BAND_BPS],
+			archiveMetadata: {
+				captureProfileId: `${venue}:proof-a:${depth}`,
+				effectiveCadenceMs: 1_000,
+				requestedUpstreamDepth: depth,
+				observedBidCount: snapshot.bids.length,
+				observedAskCount: snapshot.asks.length,
+				observedFarthestBid: snapshot.bids.at(-1)?.[0] ?? Number.NaN,
+				observedFarthestAsk: snapshot.asks.at(-1)?.[0] ?? Number.NaN,
+				exhaustionEvidence: {
+					bid: { exhausted: false, validated: true, source: "proof-a" },
+					ask: { exhausted: false, validated: true, source: "proof-a" },
+				},
+				measurementBandsBps: [BAND_BPS],
+			},
 		});
 		levels.push(...rows.levels.map(({ row }) => row));
 		summaries.push(rows.summary.row);

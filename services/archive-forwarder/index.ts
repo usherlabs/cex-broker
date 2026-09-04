@@ -1,13 +1,8 @@
 import { createClient } from "@clickhouse/client";
 import { loadForwarderConfig } from "./config";
 import { createClickHouseInserter } from "./insert";
-import {
-	evaluateForwarderHealth,
-	pingClickHouse,
-	readArchiveClusterIdentity,
-} from "./health";
+import { evaluateForwarderHealth, pingClickHouse } from "./health";
 import { handleArchiveRequest } from "./request";
-import { handleProductionBackfillPreflight } from "./production-authorization";
 import { ensureArchiveSchema } from "./schema";
 import { createClickHouseStreamHealthReplayStore } from "./stream-health-contract";
 import { createArchiveForwarderTelemetry } from "./telemetry";
@@ -70,31 +65,17 @@ void ensureSchemaAndStartDrainage();
 const server = Bun.serve({
 	port: config.port,
 	async fetch(request) {
-		const url = new URL(request.url);
-		if (
-			request.method === "GET" &&
-			url.pathname === "/health/market-data-vendor-backfill"
-		) {
-			const archiveIdentity = schemaReady
-				? await readArchiveClusterIdentity(clickhouse)
-				: null;
-			return handleProductionBackfillPreflight(request, {
-				authToken: config.authToken,
-				authorization: config.productionAuthorization,
-				archiveIdentity,
-				nowMs: Date.now(),
-			});
+		let pathname: string;
+		try {
+			pathname = new URL(request.url).pathname;
+		} catch {
+			return Response.json({ error: "Invalid request URL" }, { status: 400 });
 		}
-		if (request.method === "GET" && url.pathname === "/health") {
-			const archiveIdentity = schemaReady
-				? await readArchiveClusterIdentity(clickhouse)
-				: null;
-			const clickhouseOk =
-				archiveIdentity !== null && (await pingClickHouse(clickhouse));
+		if (request.method === "GET" && pathname === "/health") {
+			const clickhouseOk = schemaReady && (await pingClickHouse(clickhouse));
 			if (!spool) {
 				const health = evaluateForwarderHealth({
 					clickhouseOk,
-					archiveIdentity,
 					spoolOk: false,
 					spool: null,
 				});
@@ -105,7 +86,6 @@ const server = Bun.serve({
 				telemetry.recordStrategySpoolStats(spoolStats);
 				const health = evaluateForwarderHealth({
 					clickhouseOk,
-					archiveIdentity,
 					spoolOk: true,
 					spool: spoolStats,
 				});
@@ -114,7 +94,6 @@ const server = Bun.serve({
 				telemetry.recordStrategyAdmissionRejected("spool_unavailable");
 				const health = evaluateForwarderHealth({
 					clickhouseOk,
-					archiveIdentity,
 					spoolOk: false,
 					spool: null,
 				});
@@ -125,9 +104,16 @@ const server = Bun.serve({
 			}
 		}
 
-		if (request.method === "POST" && url.pathname === "/archive") {
+		if (request.method === "POST" && pathname === "/archive") {
 			return handleArchiveRequest(request, {
 				authToken: config.authToken,
+				marketIdentity:
+					config.marketSource && config.marketDeploymentId
+						? {
+								source: config.marketSource,
+								deploymentId: config.marketDeploymentId,
+							}
+						: undefined,
 				inserter,
 				spool,
 				streamHealthStore,
@@ -142,9 +128,7 @@ const server = Bun.serve({
 console.log(
 	`Archive forwarder listening on http://0.0.0.0:${server.port}/archive`,
 );
-console.log(
-	`ClickHouse target: ${new URL(config.clickhouse.url).origin}/${config.clickhouse.database}`,
-);
+console.log(`ClickHouse target: ${config.clickhouse.url}/${config.clickhouse.database}`);
 console.log(`Strategy archive spool: ${config.spoolPath}`);
 
 let shuttingDown = false;

@@ -70,9 +70,6 @@ describe("archive E2E immutable baseline", () => {
 			),
 		).toEqual([
 			...CANONICAL_BASE_TABLES,
-			"market_data.cex_order_book_capture_promotions",
-			"market_data.cex_order_book_capture_qualifications",
-			"market_data.cex_order_book_archive_selections",
 			// Landed after the immutable baseline was cut, so it is outside the
 			// frozen inventory until the fixture is regenerated.
 			"broker_account.user_asset_snapshots",
@@ -82,7 +79,11 @@ describe("archive E2E immutable baseline", () => {
 			new URL("../schema/clickhouse/market_data.sql", import.meta.url),
 		).text();
 		for (const view of CANONICAL_VIEWS) {
-			expect(marketSchema).toContain(`CREATE VIEW IF NOT EXISTS ${view}`);
+			expect(marketSchema).toMatch(
+				new RegExp(
+					`CREATE (?:OR REPLACE )?VIEW(?: IF NOT EXISTS)? ${view.replaceAll(".", "\\.")}`,
+				),
+			);
 		}
 	});
 

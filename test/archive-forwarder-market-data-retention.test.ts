@@ -9,8 +9,8 @@ import {
 import strategyFixture from "./fixtures/archive_forwarder_envelope.json";
 
 const noopRecorder: ArchiveMetricsRecorder = {
-	recordCounter: () => {},
-	setObservableGauge: () => {},
+	recordCounter: () => Promise.resolve(),
+	setObservableGauge: () => Promise.resolve(),
 };
 
 /**
@@ -23,14 +23,20 @@ const MEMORY_LIMIT_ERROR = new Error(
 	"(total) memory limit exceeded: would use 11.08 GiB (attempt to allocate chunk of 0.00 B), current RSS: 11.08 GiB, maximum: 10.80 GiB",
 );
 const SCHEMA_ERROR = new Error("Unknown table market_data.cex_ohlcv");
+const MARKET_IDENTITY = {
+	source: "broker_read" as const,
+	deploymentId: "deployment-1",
+};
 
 function marketDataBatch(tables: string[] = ["market_data.cex_ohlcv"]) {
 	return {
-		source: "prod-eu-1-read",
-		deployment_id: "deployment-1",
+		source: MARKET_IDENTITY.source,
+		deployment_id: MARKET_IDENTITY.deploymentId,
 		rows: tables.map((table, index) => ({
 			table,
 			row: {
+				source: MARKET_IDENTITY.source,
+				deployment_id: MARKET_IDENTITY.deploymentId,
 				exchange: "binance",
 				trading_pair: "BTC/USDT",
 				sequence: index + 1,
@@ -55,6 +61,7 @@ describe("market_data durable retention", () => {
 	test("retains rows and returns 202 when ClickHouse is over its memory limit", async () => {
 		const spool = new StrategyArchiveSpool({ path: ":memory:" });
 		const response = await handleArchiveRequest(post(marketDataBatch()), {
+			marketIdentity: MARKET_IDENTITY,
 			inserter: async () => {
 				throw MEMORY_LIMIT_ERROR;
 			},
@@ -76,6 +83,7 @@ describe("market_data durable retention", () => {
 	test("keeps failing with 500 when the error is not retryable", async () => {
 		const spool = new StrategyArchiveSpool({ path: ":memory:" });
 		const response = await handleArchiveRequest(post(marketDataBatch()), {
+			marketIdentity: MARKET_IDENTITY,
 			inserter: async () => {
 				throw SCHEMA_ERROR;
 			},
@@ -104,6 +112,7 @@ describe("market_data durable retention", () => {
 				marketDataBatch(["market_data.cex_ohlcv", "market_data.cex_trades"]),
 			),
 			{
+				marketIdentity: MARKET_IDENTITY,
 				inserter: async (table) => {
 					if (table === "market_data.cex_trades") {
 						throw MEMORY_LIMIT_ERROR;
@@ -179,6 +188,7 @@ describe("market_data durable retention", () => {
 				]),
 			),
 			{
+				marketIdentity: MARKET_IDENTITY,
 				inserter: async (table) => {
 					if (table === "broker_execution.fill_events") {
 						throw MEMORY_LIMIT_ERROR;
@@ -215,6 +225,7 @@ describe("market_data durable retention", () => {
 		};
 
 		const firstRetained = await handleArchiveRequest(post(marketDataBatch()), {
+			marketIdentity: MARKET_IDENTITY,
 			inserter: saturatedInserter,
 			spool,
 			telemetry: telemetry(),
@@ -224,6 +235,7 @@ describe("market_data durable retention", () => {
 		// Budget is now full: the caller must get its failure back rather than a
 		// success code, so its own dead-letter path stays the last resort.
 		const overflowed = await handleArchiveRequest(post(marketDataBatch()), {
+			marketIdentity: MARKET_IDENTITY,
 			inserter: saturatedInserter,
 			spool,
 			telemetry: telemetry(),
@@ -254,6 +266,7 @@ describe("market_data durable retention", () => {
 		};
 
 		const response = await handleArchiveRequest(post(marketDataBatch()), {
+			marketIdentity: MARKET_IDENTITY,
 			inserter,
 			spool,
 			telemetry: telemetry(),

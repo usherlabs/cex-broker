@@ -6,6 +6,7 @@ import {
 	type ArchiveMetricsRecorder,
 	createArchiveForwarderTelemetry,
 } from "../services/archive-forwarder/telemetry";
+import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 
 type CounterRecord = {
 	name: string;
@@ -44,13 +45,39 @@ function archiveRequest(rows: unknown[]): Request {
 		body: JSON.stringify({
 			source: "broker_write",
 			deployment_id: "deploy-a",
-			rows,
+			rows: rows.map((entry) => {
+				if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+					return entry;
+				}
+				const candidate = entry as { table?: unknown; row?: unknown };
+				if (
+					typeof candidate.table === "string" &&
+					candidate.table.startsWith("market_data.") &&
+					candidate.row &&
+					typeof candidate.row === "object" &&
+					!Array.isArray(candidate.row)
+				) {
+					return {
+						...candidate,
+						row: {
+							...(candidate.row as Record<string, unknown>),
+							source: "broker_write",
+							deployment_id: "deploy-a",
+						},
+					};
+				}
+				return entry;
+			}),
 		}),
 	});
 }
 
 describe("archive forwarder telemetry", () => {
 	const originalEnv = { ...process.env };
+	const marketIdentity = {
+		source: "broker_write" as const,
+		deploymentId: "deploy-a",
+	};
 
 	afterEach(() => {
 		process.env = { ...originalEnv };
@@ -67,7 +94,7 @@ describe("archive forwarder telemetry", () => {
 					row: { order_id: "order-1" },
 				},
 			]),
-			{ inserter: async () => {}, telemetry },
+			{ inserter: async () => {}, marketIdentity, telemetry },
 		);
 
 		expect(response.status).toBe(200);
@@ -94,6 +121,7 @@ describe("archive forwarder telemetry", () => {
 		const { telemetry, gauges } = createCapturingTelemetry();
 		const response = await handleArchiveRequest(archiveRequest([]), {
 			inserter: async () => {},
+			marketIdentity,
 			telemetry,
 		});
 
@@ -185,6 +213,7 @@ describe("archive forwarder telemetry", () => {
 				inserter: async () => {
 					insertCalled = true;
 				},
+				marketIdentity,
 				telemetry,
 			},
 		);
@@ -218,7 +247,7 @@ describe("archive forwarder telemetry", () => {
 					row: {},
 				})),
 			),
-			{ inserter: async () => {}, telemetry },
+			{ inserter: async () => {}, marketIdentity, telemetry },
 		);
 
 		expect(response.status).toBe(400);
@@ -246,6 +275,7 @@ describe("archive forwarder telemetry", () => {
 				inserter: async () => {
 					throw new Error("unknown table market_data.cex_trades");
 				},
+				marketIdentity,
 				telemetry,
 			},
 		);
@@ -266,27 +296,63 @@ describe("archive forwarder telemetry", () => {
 		const { telemetry, counters } = createCapturingTelemetry();
 		const common = {
 			source: "broker_write",
+			deployment_id: "deploy-a",
 			capture_bundle_id: "bundle-a",
 			exchange: "binance",
+			symbol: "BTC/USDT",
 			trading_pair: "BTC-USDT",
-			raw_capture_id: "raw-a",
-			snapshot_id: "snapshot-a",
+			source_symbol: "BTC/USDT",
+			asset_type: "spot",
+			feed: "ORDERBOOK",
+			provider: "ccxt:binance",
+			source_mode: "broker_live_sampling_v1",
+			source_time_ms: 1,
+			received_time_ms: 1,
+			raw_capture_id: "a".repeat(64),
+			raw_capture_scope: "ccxt_normalized_object",
 			schema_version: "1.0.0",
+			checksum_algorithm: "sha256-canonical-json-v1",
+			raw_checksum: "b".repeat(64),
+			provenance_complete: 1,
+			snapshot_id: "c".repeat(64),
+			construction_mode: "sampled_top_n_snapshot",
+			gap_policy: "record_gap",
+			depth_limit: 25,
+			sequence: null,
+			exact_l2_reconstruction_complete: 0,
 			side: "bid",
 			level_index: 0,
+			price: 100,
+			amount: 1,
+			notional: 100,
+			mid_price: 100.5,
+			spread_from_mid_bps: 49.75124378109453,
+		};
+		const firstContent = { ...common, normalized_row_checksum: "" };
+		const secondContent = {
+			...common,
+			amount: 2,
+			notional: 200,
+			normalized_row_checksum: "",
 		};
 		const response = await handleArchiveRequest(
 			archiveRequest([
 				{
 					table: "market_data.cex_order_book_levels",
-					row: { ...common, normalized_row_checksum: "a" },
+					row: {
+						...firstContent,
+						normalized_row_checksum: sha256Canonical(firstContent),
+					},
 				},
 				{
 					table: "market_data.cex_order_book_levels",
-					row: { ...common, normalized_row_checksum: "b" },
+					row: {
+						...secondContent,
+						normalized_row_checksum: sha256Canonical(secondContent),
+					},
 				},
 			]),
-			{ inserter: async () => {}, telemetry },
+			{ inserter: async () => {}, marketIdentity, telemetry },
 		);
 		expect(response.status).toBe(400);
 		expect(counters).toContainEqual({
@@ -318,6 +384,7 @@ describe("archive forwarder telemetry", () => {
 				inserter: async (table) => {
 					insertedTables.push(table);
 				},
+				marketIdentity,
 				telemetry: new ArchiveForwarderTelemetry(throwingRecorder),
 			},
 		);
@@ -335,6 +402,7 @@ describe("archive forwarder telemetry", () => {
 			]),
 			{
 				inserter: async () => {},
+				marketIdentity,
 				telemetry: createArchiveForwarderTelemetry(),
 			},
 		);

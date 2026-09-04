@@ -22,6 +22,7 @@ import {
 	StrategySpoolUnavailableError,
 	type StrategyArchiveSpool,
 } from "./strategy-spool";
+import { classifyMarketSource } from "./market-source-contract";
 import {
 	classifyInsertError,
 	RETRYABLE_INSERT_ERROR_CLASSES,
@@ -32,13 +33,13 @@ import type {
 	ArchiveBatchResult,
 	SupportedTable,
 } from "./types";
-import {
-	classifyExternalBackfillBatch,
-	validateExternalBackfillBatch,
-} from "./market-data-backfill-contract";
 
 export type ArchiveRequestDependencies = {
 	authToken?: string;
+	marketIdentity?: {
+		source: "broker_read" | "broker_write";
+		deploymentId: string;
+	};
 	inserter: RowInserter;
 	spool?: Pick<StrategyArchiveSpool, "admit">;
 	streamHealthStore?: StreamHealthReplayStore;
@@ -162,26 +163,14 @@ export async function handleArchiveRequest(
 		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
 	}
 
-	const externalClassification = classifyExternalBackfillBatch(body);
 	if (
-		externalClassification === "invalid_external_source" ||
-		externalClassification === "invalid_external_mix"
+		classifyMarketSource(body, dependencies.marketIdentity) ===
+		"invalid_market_source"
 	) {
 		return Response.json(
-			{ error: "Invalid external backfill source or table mix" },
+			{ error: "Market archive source must be broker_read or broker_write" },
 			{ status: 400 },
 		);
-	}
-	if (
-		externalClassification === "candidate" ||
-		externalClassification === "promotion" ||
-		externalClassification === "qualification" ||
-		externalClassification === "selection"
-	) {
-		const validation = validateExternalBackfillBatch(body);
-		if (!validation.ok) {
-			return Response.json({ error: validation.error }, { status: 400 });
-		}
 	}
 
 	const streamHealthClassification = classifyStreamHealthArchiveBatch(body);

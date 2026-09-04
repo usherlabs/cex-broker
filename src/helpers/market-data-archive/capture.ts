@@ -14,9 +14,16 @@ import {
 	createMarketCaptureContext,
 	resolveMarketCaptureArchiveState,
 } from "./capture-context";
-import { createRawCapture } from "./capture-contract";
+import {
+	canonicalDecimal,
+	createRawCapture,
+	projectRawCapturePayload,
+} from "./capture-contract";
 import { OhlcvBarTracker } from "./ohlcv-bar-tracker";
-import { getOrderbookArchiveDepthLimit } from "./orderbook-depth";
+import {
+	getOrderbookArchiveDepthLimit,
+	normalizeOrderbookMeasurementBandsBps,
+} from "./orderbook-depth";
 import { isMarketArchiveEnabled, OrderbookSampler } from "./orderbook-sampler";
 import { extractTrades, parseTicker } from "./parse-stream";
 import {
@@ -34,6 +41,7 @@ import type {
 	MarketCaptureContext,
 	OhlcvArchiveInput,
 	OrderbookArchiveInput,
+	OrderbookMetadataOnlyPayload,
 	TickerArchiveInput,
 	TradesArchiveInput,
 } from "./types";
@@ -139,7 +147,15 @@ export function archiveOrderbookInBackground(
 				"ORDERBOOK",
 				options?.sourceMode ?? "broker_live_sampling_v1",
 			);
-			const rawCapture = createRawCapture(context, {
+			const depthLimit = options?.depthLimit ?? getOrderbookArchiveDepthLimit();
+			const measurementBandsBps = normalizeOrderbookMeasurementBandsBps(
+				input.archiveMetadata.measurementBandsBps,
+			);
+			const archiveMetadata = {
+				...input.archiveMetadata,
+				measurementBandsBps,
+			};
+			const completeRawCapture = createRawCapture(context, {
 				payload: input.snapshot,
 				eventTimeMs: input.snapshot.timestamp,
 				receivedTimeMs: input.snapshot.receivedTimestamp,
@@ -148,10 +164,42 @@ export function archiveOrderbookInBackground(
 			const canonical = buildCanonicalOrderBookRows({
 				context,
 				snapshot: input.snapshot,
-				rawCapture,
-				depthLimit: options?.depthLimit ?? getOrderbookArchiveDepthLimit(),
+				rawCapture: completeRawCapture,
+				depthLimit,
+				archiveMetadata,
 			});
-			archiver.enqueue(buildCanonicalCexStreamEventRow(context, rawCapture));
+			const rawMetadata: OrderbookMetadataOnlyPayload = {
+				capture_profile_id: archiveMetadata.captureProfileId,
+				effective_cadence_ms: archiveMetadata.effectiveCadenceMs,
+				requested_upstream_depth: archiveMetadata.requestedUpstreamDepth,
+				archive_depth_limit: depthLimit,
+				observed_bid_count: archiveMetadata.observedBidCount,
+				observed_ask_count: archiveMetadata.observedAskCount,
+				observed_farthest_bid: canonicalDecimal(
+					archiveMetadata.observedFarthestBid,
+				),
+				observed_farthest_ask: canonicalDecimal(
+					archiveMetadata.observedFarthestAsk,
+				),
+				bid_exhausted: archiveMetadata.exhaustionEvidence.bid.exhausted,
+				ask_exhausted: archiveMetadata.exhaustionEvidence.ask.exhausted,
+				retained_bid_count: canonical.levels.filter(
+					({ row }) => row.side === "bid",
+				).length,
+				retained_ask_count: canonical.levels.filter(
+					({ row }) => row.side === "ask",
+				).length,
+				measurement_bands_bps: measurementBandsBps,
+			};
+			const storedRawCapture = projectRawCapturePayload(
+				completeRawCapture,
+				rawMetadata,
+			);
+			archiver.enqueue(
+				buildCanonicalCexStreamEventRow(context, storedRawCapture, {
+					payloadEncoding: "orderbook_metadata_only_v1",
+				}),
+			);
 			for (const row of canonical.levels) archiver.enqueue(row);
 			archiver.enqueue(canonical.summary);
 			void recordWatchMetric(
@@ -372,6 +420,11 @@ export function archiveCexStreamEventInBackground(
 	otelMetrics: OtelMetrics | undefined,
 	input: CexStreamArchiveInput,
 ): void {
+	if (input.streamType === "ORDERBOOK") {
+		throw new Error(
+			"Generic ORDERBOOK archive events are unsupported; use archiveOrderbookInBackground",
+		);
+	}
 	archiveMarketRowsInBackground(
 		archiver,
 		otelMetrics,

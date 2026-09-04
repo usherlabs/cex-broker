@@ -11,7 +11,7 @@ import { basename, join } from "node:path";
 import {
 	type ArchiveLossReplayResult,
 	runArchiveLossReplay,
-} from "../scripts/archive-loss-replay";
+} from "../services/archive-forwarder/scripts/archive-loss-replay";
 import { BrokerExecutionArchiver } from "../src/helpers/broker-execution-archive/writer";
 import { startForwarderServer } from "./archive-forwarder-server";
 

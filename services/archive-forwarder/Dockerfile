@@ -24,9 +24,9 @@ COPY patches ./patches
 RUN bun install --frozen-lockfile
 
 # Forwarder source, its complete shared-helper dependency boundary, and the SQL
-# files its schema initializer applies at startup. Copy the boundary rather than
-# a hand-maintained file allowlist: the vendor-backfill request validator is part
-# of the forwarder runtime and imports the canonical archive helpers.
+# files its schema initializer applies at startup. Dockerfile.dockerignore keeps
+# service-owned operator scripts out of the production image while preserving
+# the broad runtime-source boundary.
 COPY services/archive-forwarder ./services/archive-forwarder
 COPY src/helpers ./src/helpers
 COPY schema/clickhouse ./schema/clickhouse

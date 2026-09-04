@@ -5,137 +5,165 @@
 The archive E2E regression capability SHALL preserve historical storage compatibility and prove the canonical public-market-data lifecycle, integrity, failure isolation, and CI behavior against a mandatory pinned ClickHouse Local runtime, while keeping live CEX validation credentialless, public-only, and non-gating.
 ## Requirements
 ### Requirement: The archive E2E suite uses a mandatory pinned ClickHouse Local runtime
+
 The system SHALL run archive E2E storage assertions with the standard ClickHouse binary in local mode at exactly `v25.8.24.21-lts`, using checksum-pinned official artifacts and a unique persistent `--path` directory for each harness instance. The suite MUST execute the production archive schema files, serialize all commands for one path, and MUST NOT silently skip because the runtime, schema, or tests are unavailable.
 
 #### Scenario: Verified cached binary is available
+
 - **WHEN** `test:e2e:archive` finds a cached or explicitly configured ClickHouse binary whose digest and reported version match the committed pin
 - **THEN** it MUST use that binary in local mode for every schema, insert, and query operation
 - **AND** all operations for one persistent path MUST be serialized
 
 #### Scenario: No verified binary is initially available
+
 - **WHEN** `test:e2e:archive` cannot find a verified cached or configured binary
 - **THEN** its bootstrap MUST obtain the architecture-appropriate official artifact and verify it against a digest committed in the repository
 - **AND** download, checksum, extraction, executable, platform, or exact-version failure MUST fail the command
 
 #### Scenario: Archive schema initialization fails
+
 - **WHEN** any production archive schema file is missing, excluded from the production manifest, or rejected by ClickHouse Local
 - **THEN** the E2E command MUST fail before reporting any lifecycle assertion as passing
 - **AND** the failure MUST identify the schema file or statement that could not be applied
 
 #### Scenario: Harness execution finishes
+
 - **WHEN** a harness completes, fails an assertion, or is aborted by test cleanup
 - **THEN** it MUST stop owned processes and remove its temporary persistent data directory
 - **AND** cleanup MUST be idempotent
 
 ### Requirement: The pre-canonical compatibility baseline is immutable and reproducible
+
 The system SHALL retain a versioned golden fixture derived from a clean checkout of `64fdf0607a234be05bac98f3edd3125e2c05d083` and SHALL record its runtime-equivalent parent. This historical compatibility fixture is distinct from the `develop`-derived one-time A/B upgrade fixture and MUST contain sufficient provenance and deterministic expectations to detect a changed legacy row without executing historical code during normal CI.
 
 #### Scenario: Historical baseline fixture is generated
+
 - **WHEN** the explicit baseline-regeneration command runs against the clean baseline commit
 - **THEN** it MUST record the baseline commit, runtime-equivalent parent, fixture schema version, generation command, exact 15-table inventory, and SHA-256 hashes of every source, schema, and input fixture used
 - **AND** it MUST record deterministic inputs, explicit projected field names and types, comparison keys, sort order, and expected rows for every baseline table
 
 #### Scenario: Normal E2E uses the historical baseline
+
 - **WHEN** `test:e2e:archive` runs in a shallow or offline checkout
 - **THEN** it MUST consume the committed fixture without fetching, checking out, or executing the historical commit
 - **AND** it MUST compare fixed timestamps, identifiers, nullable values, arrays, and payload strings rather than omitting nondeterministic-looking fields
 
 #### Scenario: Regeneration reproduces the current historical baseline
+
 - **WHEN** the approved regeneration command is run twice with the same commit, inputs, tool versions, and environment
 - **THEN** it MUST produce byte-equivalent semantic fixture content
 - **AND** an uncommitted generated difference MUST fail the fixture verification command rather than update expectations implicitly
 
 #### Scenario: A historical baseline revision is proposed
+
 - **WHEN** an intentional legacy compatibility change requires new expectations
 - **THEN** regeneration MUST require an explicit replacement baseline commit and review of the provenance and row differences
 - **AND** the baseline MUST NOT change as part of an unrelated canonical addition, A/B fixture generation, or test repair
 
 ### Requirement: Every pre-canonical forwarder table remains compatible through its actual ownership path
+
 The archive E2E suite SHALL cover exactly these 15 historical tables: `market_data.candles`, `market_data.orderbook_snapshots`, `market_data.cex_stream_events`, `market_data.cex_ticker_events`, `market_data.cex_trades`, `broker_execution.order_events`, `broker_execution.market_metadata_snapshots`, `broker_execution.transfer_events`, `broker_execution.fill_events`, `broker_account.balance_snapshots`, `strategy_data.policy_evaluation_events`, `strategy_data.strategy_policy_snapshots`, `strategy_data.market_identity`, `strategy_data.symbol_mapping`, and `strategy_data.inventory_settlement_events`. Every table MUST traverse the production HTTP parser, allowlist, source validation, batching, schema, and query-back path, while direct and durable strategy ownership remain distinct.
 
 #### Scenario: Baseline table inventory is checked
+
 - **WHEN** the suite loads the committed baseline fixture
 - **THEN** its table set MUST equal `market_data.candles`, `market_data.orderbook_snapshots`, `market_data.cex_stream_events`, `market_data.cex_ticker_events`, `market_data.cex_trades`, `broker_execution.order_events`, `broker_execution.market_metadata_snapshots`, `broker_execution.transfer_events`, `broker_execution.fill_events`, `broker_account.balance_snapshots`, `strategy_data.policy_evaluation_events`, `strategy_data.strategy_policy_snapshots`, `strategy_data.market_identity`, `strategy_data.symbol_mapping`, and `strategy_data.inventory_settlement_events`
 - **AND** a missing, renamed, or unsupported baseline table MUST fail the suite
 
 #### Scenario: Ten non-strategy baseline tables are archived
+
 - **WHEN** fixture batches for the five market, four execution, and one account table are posted to the production endpoint
 - **THEN** each valid batch MUST use the synchronous direct-insert path and return HTTP 200 only after the Local inserter adapter succeeds
 - **AND** ordered queries MUST return the exact expected projected multiset for every target table
 
 #### Scenario: Five historical strategy tables are archived
+
 - **WHEN** the fixture's `source=hb_runtime` batches for the five strategy tables are posted with a unique writable SQLite spool and active worker
 - **THEN** each valid batch MUST return HTTP 202 after durable admission rather than synchronous inserter success
 - **AND** the suite MUST wait for explicit spool drainage before ordered queries compare the exact expected projected rows
 
 #### Scenario: Envelope and row sources disagree
+
 - **WHEN** a fixture-driven HTTP batch has an envelope source that differs from a row source
 - **THEN** the production forwarder path MUST reject the inconsistent batch before direct insertion or spool admission
 - **AND** ClickHouse Local MUST contain no row from the rejected batch
 
 #### Scenario: Current schemas add columns
+
 - **WHEN** a baseline table has additive post-baseline columns
 - **THEN** the comparison MUST use the fixture's explicit legacy-column projection
 - **AND** every projected value and legacy row cardinality MUST still match exactly
 
 #### Scenario: Legacy data is changed or duplicated
+
 - **WHEN** a projected baseline value changes, a baseline row is missing, or an extra legacy row appears within the fixture's test identity
 - **THEN** the suite MUST fail even if canonical tables contain otherwise valid additive rows
 
 ### Requirement: All four public feeds traverse the complete integrated archive lifecycle
+
 The archive E2E suite SHALL drive deterministic ORDERBOOK, TICKER, TRADES, and OHLCV frames through a controlled fake `Exchange`, the normal broker gRPC server and Subscribe handler, the production multi-feed gRPC Subscribe client implemented by `MarketDataCollector`, the production archive writer and `node:http` transport, the production HTTP forwarder handler and router, and the ClickHouse Local adapter. It SHALL overlap independent logical clients with collector feeds to prove broker-owned physical sharing and single archive ownership. It SHALL also compare conservative depth-isolated and explicitly candidate-enabled Binance/MEXC profile-coalesced collection over the same bounded deterministic observation window and publish CEX-owned Proof A for logical payloads, L2 immediate-hedgeability input coverage, archive replay inputs, and reduced physical work. It MUST NOT implement or invoke FIET Maker policy logic. `OhlcvCollector` MUST remain a compatibility value alias rather than the canonical E2E type. A research watcher, fake gRPC service, arbitrary sleep-only comparison, or path bypassing the production HTTP handler SHALL NOT satisfy this requirement.
 
 #### Scenario: Deterministic archive configuration is provisioned
+
 - **WHEN** the lifecycle harness prepares to start before releasing any fake-exchange frame
 - **THEN** it MUST set `CEX_BROKER_ARCHIVE_ENABLED=true`, `CEX_BROKER_MARKET_ARCHIVE_ENABLED=true`, `CEX_BROKER_ARCHIVE_SOURCE=broker_read`, and `CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT=production`, provision a unique writable `CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH`, local `CEX_BROKER_ARCHIVE_FORWARDER_URL`, and fixed non-empty `CEX_BROKER_DEPLOYMENT_ID` and `CEX_BROKER_CAPTURE_BUNDLE_ID`
 - **AND** it MUST either disable archive authentication at both ends or give `CEX_BROKER_ARCHIVE_FORWARDER_TOKEN` and `ARCHIVE_FORWARDER_TOKEN` the same fixed value
 - **AND** missing or inconsistent setup MUST fail before any frame is released or lifecycle assertion is reported as passing
 
 #### Scenario: Multi-feed lifecycle starts
+
 - **WHEN** the test configures one deterministic exchange, pair, capture bundle, and all four public feed subscriptions
 - **THEN** `MarketDataCollector` MUST open four gRPC Subscribe streams against a server created through normal production wiring
 - **AND** the server MUST obtain frames from the injected controlled fake exchange through the real Subscribe handler
 
 #### Scenario: Independent client overlaps the collector
+
 - **WHEN** an independent gRPC client opens an ORDERBOOK subscription whose options resolve to the same acquisition profile as the collector before the controlled frame is released
 - **THEN** the harness MUST observe two logical subscriptions but exactly one physical ORDERBOOK watch invocation
 - **AND** compatible explicit and omitted client depth options MUST NOT split that physical watch
 
 #### Scenario: Deterministic frames are released
+
 - **WHEN** the fake exchange releases the fixed ORDERBOOK, TICKER, TRADES, and OHLCV payloads
 - **THEN** the collector MUST observe a valid response for every feed, the overlapping client MUST observe its shared frame, and the writer MUST send archive rows through its real queue, batching, and HTTP transport
 - **AND** the controlled ORDERBOOK observation MUST enter the physical archive path once rather than once per logical client
 - **AND** the test MUST use explicit subscription, frame, flush, spool, and query barriers rather than arbitrary sleeps
 
 #### Scenario: OHLCV client overlaps the collector
+
 - **WHEN** a zero-bootstrap independent OHLCV client creates the worker before a positive-bootstrap collector attaches for the same timeframe
 - **THEN** the harness MUST observe two logical subscriptions, one physical OHLCV watch/tracker, and one successfully archived bootstrap owned by the collector request
 - **AND** both clients MUST continue receiving live OHLCV frames after bootstrap completion or non-fatal bootstrap retry
 
 #### Scenario: Conservative and coalesced models are compared
+
 - **WHEN** the harness runs `MarketDataCollector` against conservative and candidate coalesced broker compositions fed the same ordered event tape for the configured observation duration and minimum frame count
 - **THEN** it MUST compare ordered logical ORDERBOOK payloads per subscription after deterministic normalization and MUST find them equivalent
 - **AND** it MUST compare canonicalized unique archive rows after removing deployment/run identity and MUST find the same market-data outcomes
 - **AND** it MUST separately prove that the coalesced composition used fewer physical watch iterations and archive offers without producing an additional canonical event
 
 #### Scenario: Policy-visible tape exercises depth changes
+
 - **WHEN** Proof A runs the conservative and candidate compositions for either venue
 - **THEN** the common ordered tape MUST contain at least five observations at policy-visible depth 100 with material bid and ask quantity changes while preserving required price-band coverage
 - **AND** a tape that only shifts prices while leaving depth quantities constant MUST NOT satisfy the cross-repository verification input contract
 
 #### Scenario: Acquisition profiles cover every Maker measurement band
+
 - **WHEN** the comparison configures Maker policy depth P and candidate bands including the immediate sell-into-bids and buy-from-asks band used to cap DEX liquidity
 - **THEN** every conservative and coalesced snapshot MUST prove bid and ask coverage through each band boundary or explicit visible-book exhaustion
 - **AND** the gate MUST fail when a retained side stops inside a required band even when it contains P levels
 - **AND** diagnostics MUST identify venue profile, band, side, boundary, farthest retained price, and retained count
 
 #### Scenario: Archived depth reproduces live policy inputs
+
 - **WHEN** the gate rehydrates ORDERBOOK evidence from canonical ClickHouse rows captured for a Maker policy with requested depth P
 - **THEN** archive depth MUST be at least P unless explicit exhaustion or retained boundary evidence proves every required band complete
 - **AND** rehydrated mid price, per-band bid and ask displayed depth, limiting side, and coverage verdict MUST equal the corresponding live snapshot inputs
 - **AND** a negative fixture using the ordinary 25-level archive cap against a policy requiring deeper evidence MUST fail replay sufficiency rather than pass by row presence alone
 
 #### Scenario: CEX Proof A is published deterministically
+
 - **WHEN** the Binance and MEXC CEX comparisons complete
 - **THEN** the gate MUST publish one UTF-8 JSON evidence file whose top level contains `schemaVersion: cex-orderbook-coalescing-evidence/v1`, `policyDepth: 100`, `archiveDepth`, `bandsBps`, and ordered `cases[]`
 - **AND** `cases[]` MUST contain exactly one Binance and one MEXC item with `venue`, `profileId: <venue>:l2-diff:500`, ordered `observations[]`, `cexVerdicts`, and `insufficientReplayCase`
@@ -144,115 +172,108 @@ The archive E2E suite SHALL drive deterministic ORDERBOOK, TICKER, TRADES, and O
 - **AND** CEX Broker MUST export policy-visible input facts only and MUST NOT calculate Maker envelope caps, authored positions, widths, or rebalance decisions
 
 #### Scenario: Binance resolver passes the equivalence gate
+
 - **WHEN** the candidate composition enables the Binance acquisition-profile resolver for compatible explicit and omitted depths
 - **THEN** the collector comparison MUST satisfy logical/archive equality, band coverage, archive replay sufficiency, and reduced physical work in the Binance Proof A case
 - **AND** passing this CEX-owned case MUST NOT enable Binance coalescing by default in this change
 - **AND** the gate MUST fail on a missing, reordered, changed, or additional logical/canonical market event
 
 #### Scenario: MEXC resolver passes the equivalence gate
+
 - **WHEN** the candidate composition enables the MEXC acquisition-profile resolver for compatible explicit and omitted depths
 - **THEN** the collector comparison MUST satisfy logical/archive equality, band coverage, archive replay sufficiency, and reduced physical work in the MEXC Proof A case
 - **AND** passing this CEX-owned case MUST NOT enable MEXC coalescing by default in this change
 - **AND** the gate MUST fail on a missing, reordered, changed, or additional logical/canonical market event
 
 #### Scenario: Core broker has no archive configuration
+
 - **WHEN** the normal full broker starts outside the E2E composition without archive configuration
 - **THEN** gRPC construction and service registration MUST succeed and archival behavior MUST remain disabled
 - **AND** the E2E configuration contract MUST NOT become a production broker startup requirement
 
 #### Scenario: Lifecycle rows reach storage
+
 - **WHEN** the writer reports successful forwarding for the deterministic lifecycle
 - **THEN** ClickHouse Local queries MUST find the expected feed-specific rows under the fixed deployment and capture identity
 - **AND** the test MUST wait on explicit frame, flush, and query barriers rather than arbitrary sleeps
 
 #### Scenario: Removed archive and credential configuration remains absent
+
 - **WHEN** the suite audits executable production code, test support, scripts, workflows, and operational configuration
 - **THEN** every path MUST avoid reading, setting, or branching on `CEX_BROKER_MARKET_ARCHIVE_WRITE_MODE`, `CEX_BROKER_CREDENTIAL_SOURCE_POLICY`, `CEX_BROKER_PROVISIONED_CREDENTIAL_PROFILE`, `CEX_BROKER_CREDENTIAL_ATTESTATION_KIND`, or `CEX_BROKER_CREDENTIAL_ATTESTATION_REFERENCE`
 - **AND** server and handler wiring MUST NOT accept an equivalent credential-policy, profile, permission-attestation, or market write-mode object
 
 ### Requirement: Canonical lifecycle output is restricted to the closed inventory
-Raw broker captures SHALL use `market_data.cex_stream_events`; normalized ticker
-and trade rows SHALL use `market_data.cex_ticker_events` and
-`market_data.cex_trades`; post-baseline normalized rows SHALL use only
-`market_data.cex_ohlcv`, `market_data.cex_order_book_levels`, and
-`market_data.cex_order_book_depth_summary`; and external-backfill qualification
-SHALL use only `market_data.cex_order_book_capture_promotions`. View assertions
-MUST use `market_data.cex_ohlcv_closed`, the existing order-book canonical and
-conflict views, plus
-`market_data.cex_order_book_levels_replay_qualified` and
-`market_data.cex_order_book_depth_summary_replay_qualified`.
 
-#### Scenario: Canonical inventory is checked
-- **WHEN** the suite compares the integrated forwarder and schema with the pre-canonical 15-table inventory
-- **THEN** the post-baseline supported base tables MUST be exactly `market_data.cex_ohlcv`, `market_data.cex_order_book_levels`, `market_data.cex_order_book_depth_summary`, and `market_data.cex_order_book_capture_promotions`
-- **AND** every named canonical, conflict, and replay-qualified view MUST execute against its corresponding base table
+The archive lifecycle SHALL derive accepted live tables, validators, writers, and verification queries from the final closed live/hot inventory. For ORDERBOOK that inventory SHALL include metadata-only raw events, bounded level rows, and summary-v2 rows and SHALL exclude vendor qualification, promotion, selection, replay-qualified, and Parquet output.
 
-#### Scenario: Canonical output is evaluated
-- **WHEN** canonical-only lifecycle or bounded backfill output is queried
-- **THEN** additive rows MUST be classified by the named raw, normalized, or
-  promotion destination and producer identity
-- **AND** an unexpected table, view substitution, or unclassified extra row MUST fail the suite rather than be accepted as arbitrary additive output
+#### Scenario: One inventory governs the live lifecycle
+
+- **WHEN** a supported public feed passes through collection, forwarder admission, ClickHouse insertion, and verification
+- **THEN** each stage SHALL accept only objects in the same closed live/hot inventory
+
+#### Scenario: Removed product cannot re-enter through a stale list
+
+- **WHEN** a test scans schemas, route registries, fixtures, exports, bins, and E2E expectations
+- **THEN** no vendor, promotion, selection, replay-qualified, or canonical-Parquet item SHALL appear in an active inventory
 
 ### Requirement: The upgraded lifecycle remains canonical-only
+
 The composed upgraded producer SHALL emit only the latest canonical archive inventory. Historical compatibility SHALL be verified independently through committed HTTP fixtures and MUST NOT rely on current producer output. No production, E2E, smoke, or migration path may provide a runtime legacy/dual/canonical write selector.
 
 #### Scenario: Current producer archives ORDERBOOK and OHLCV
+
 - **WHEN** the deterministic ORDERBOOK and OHLCV frames traverse the upgraded runtime
 - **THEN** ORDERBOOK MUST write raw stream, canonical level, and canonical depth-summary rows and OHLCV MUST write raw stream and `market_data.cex_ohlcv` rows
 - **AND** the lifecycle MUST write no `market_data.orderbook_snapshots` or `market_data.candles` row for its identity
 
 #### Scenario: Historical market rows are checked
+
 - **WHEN** pre-canonical ORDERBOOK, TICKER, TRADES, OHLCV, and raw-stream fixture rows are tested
 - **THEN** they MUST traverse the production HTTP parser, source validation, router, schema, inserter, and query-back path
 - **AND** their exact compatibility MUST NOT depend on current producer output or a runtime write-mode switch
 
 #### Scenario: A runtime write-mode branch is introduced
+
 - **WHEN** executable production, E2E, or smoke code adds a legacy/dual/canonical selector or conditionally emits legacy rows from the upgraded producer
 - **THEN** the regression suite MUST fail
 - **AND** setting an unrecognized removed variable MUST NOT be treated as a supported way to alter canonical output
 
 ### Requirement: Canonical-only capture proves stored linkage, provenance, and checksums
-The canonical integrity lifecycle SHALL set `CEX_BROKER_ARCHIVE_SOURCE=broker_read`. Every public feed MUST store a raw capture in `market_data.cex_stream_events` linked to its normalized output in the closed canonical inventory, and the suite MUST verify integrity from queried storage values rather than trusting only producer-side objects. Source MUST remain deployment-controlled provenance and MUST NOT be inferred from credentials, TEE state, provider, or feed type.
 
-#### Scenario: Canonical ORDERBOOK is stored
-- **WHEN** a deterministic ORDERBOOK frame is archived by the upgraded writer
-- **THEN** one `market_data.cex_stream_events` raw capture, `market_data.cex_order_book_levels` rows, and one `market_data.cex_order_book_depth_summary` row MUST share the fixed capture bundle, raw capture, snapshot, provider, exchange, pair, schema, and source identities
-- **AND** the lifecycle MUST write no legacy `orderbook_snapshots` row for that identity
+Canonical capture E2E SHALL prove that raw, bounded level, and summary-v2 rows agree on broker-owned source, deployment id, capture bundle, provider, raw-capture identity, and full normalized observation checksum; retained levels and summary SHALL additionally agree on retained-N snapshot identity. It SHALL also prove that raw and level rows use capture schema `1.0.0`, the summary alone uses schema `2.0.0`, and each row type has its own normalized-row checksum. ORDERBOOK raw rows SHALL prove the exact closed metadata-only key set while non-order-book feeds retain their established raw contract. Market rows SHALL NOT require or introduce strategy `producer_id` or `producer_run_id` fields.
 
-#### Scenario: Canonical TICKER, TRADES, and OHLCV are stored
-- **WHEN** deterministic TICKER, TRADES, and OHLCV frames are archived by the upgraded writer
-- **THEN** rows in `market_data.cex_ticker_events`, `market_data.cex_trades`, and `market_data.cex_ohlcv` MUST link to their corresponding `market_data.cex_stream_events` raw rows and carry `broker_read`, capture bundle, provider, source mode, schema version, and source/received time provenance
-- **AND** the lifecycle MUST write no legacy `candles` row for that identity
+#### Scenario: ORDERBOOK linkage survives raw-body removal
 
-#### Scenario: Canonical lifecycle retains one raw capture per feed identity
-- **WHEN** the deterministic lifecycle archives accepted ORDERBOOK, TICKER, TRADES, and OHLCV frames
-- **THEN** `market_data.cex_stream_events` MUST contain at least one raw row for each of the four feed identities under the fixed capture bundle
-- **AND** every normalized row MUST reference the corresponding raw row's `capture_bundle_id` and `raw_capture_id`
+- **WHEN** the collector archives a live ORDERBOOK observation
+- **THEN** raw metadata, retained levels, and summary v2 SHALL share the required live provenance, raw identity, and raw checksum
+- **AND** retained levels and summary v2 SHALL share retained-N snapshot identity
+- **AND** the full normalized observation SHALL be integrity-checkable without being stored in raw JSON
+- **AND** summary `2.0.0` SHALL not alter the schema-`1.0.0` raw-capture or snapshot identity
 
-#### Scenario: Stored checksums are verified
-- **WHEN** TypeScript and Python verifiers project queried raw and normalized rows
-- **THEN** both MUST recompute every checksum from the same versioned stored-value contract, decimal normalization, field order, and algorithm version
-- **AND** recomputed values MUST equal stored checksum fields
+#### Scenario: Incomplete provenance is not supported output
 
-#### Scenario: Canonical views are queried
-- **WHEN** the lifecycle has no checksum conflict
-- **THEN** `market_data.cex_order_book_levels_canonical`, `market_data.cex_order_book_depth_summary_canonical`, and `market_data.cex_ohlcv_closed` MUST expose the expected logical rows with their stored provenance intact
-- **AND** `market_data.cex_order_book_levels_conflicts` and `market_data.cex_order_book_depth_summary_conflicts` MUST be empty for the lifecycle identity
+- **WHEN** a row omits required capture, checksum, broker-owned source, deployment, bundle, provider, or live provenance
+- **THEN** validation SHALL reject it or the supported view SHALL exclude it
 
 ### Requirement: Duplicate and checksum-conflict behavior remains auditable
+
 The archive E2E suite SHALL verify physical evidence, canonical deduplication, same-request rejection, and cross-batch conflict visibility for each of `market_data.cex_order_book_levels` and `market_data.cex_order_book_depth_summary` using their corresponding canonical and conflict views. The level logical key SHALL be `(capture_bundle_id, exchange, trading_pair, raw_capture_id, snapshot_id, schema_version, side, level_index)`, and the summary logical key SHALL use the same fields except `side` and `level_index`. The suite MUST NOT infer the same rejection semantics for raw, ticker, trade, or OHLCV tables.
 
 #### Scenario: Identical delivery is repeated across batches
+
 - **WHEN** the same order-book level or depth-summary logical key and checksum are delivered in two accepted HTTP batches
 - **THEN** both physical deliveries MUST remain queryable in the append-only evidence table
 - **AND** the corresponding `market_data.cex_order_book_levels_canonical` or `market_data.cex_order_book_depth_summary_canonical` view MUST expose one logical row
 
 #### Scenario: Same batch contains conflicting checksums
+
 - **WHEN** one HTTP archive request contains the same order-book level or depth-summary logical key with different normalized checksums
 - **THEN** the production request handler MUST reject the entire request before insertion
 - **AND** the forwarder MUST persist zero rows from every table represented in that request
 
 #### Scenario: Different batches contain conflicting checksums
+
 - **WHEN** accepted batches reuse one order-book level or depth-summary logical key with different normalized checksums
 - **THEN** both physical values MUST remain queryable and the corresponding `market_data.cex_order_book_levels_conflicts` or `market_data.cex_order_book_depth_summary_conflicts` view MUST expose the logical key and distinct checksums
 - **AND** the corresponding canonical view MUST exclude the conflicted key
@@ -262,179 +283,186 @@ The archive E2E suite SHALL verify physical evidence, canonical deduplication, s
 The suite SHALL use a real temporary SQLite spool and worker for `hb_runtime` and the synchronous direct path for `maker_replay`. It MUST distinguish durable admission from ClickHouse delivery and MUST NOT turn live-runtime batches into immediate synchronous inserter success.
 
 #### Scenario: Live-runtime strategy fixture is admitted
+
 - **WHEN** a conforming `hb_runtime` fixture is posted
 - **THEN** the endpoint MUST return HTTP 202 after SQLite admission without waiting for ClickHouse
 - **AND** the suite MUST wait for explicit drainage and query all expected rows
 
 #### Scenario: Replay strategy fixture is inserted
+
 - **WHEN** a conforming `maker_replay` fixture is posted
 - **THEN** the endpoint MUST return HTTP 200 only after direct insertion succeeds
 - **AND** queued batches, queued work, and accounted spool bytes MUST remain unchanged
 
 #### Scenario: Forwarder restarts with live work pending
+
 - **WHEN** admitted `hb_runtime` work remains across a controlled forwarder restart
 - **THEN** a new worker MUST recover and drain it with stable per-table deduplication tokens
 - **AND** a deterministic failure in one table MUST NOT reinsert completed sibling tables
 
 ### Requirement: Archive sink latency and failure do not terminate delivery or hide loss
+
 Archival SHALL remain asynchronous to successful gRPC market-data delivery. A terminal JSONL record MUST have exactly the required fields `timestamp`, `source`, `deployment_id`, `reason`, and `payload`; `payload` MUST contain the complete emitted `{ table, row }`. Bounded-shutdown failures use `reason=shutdown_forwarder_failure`, and composed queue shedding uses `reason=queue_shed`.
 
 #### Scenario: Inserter is blocked
+
 - **WHEN** the first HTTP archive insertion is held unresolved by a deterministic inserter gate
 - **THEN** the fake exchange MUST be able to release later feed frames and the real collector MUST observe them before the gate resolves
 - **AND** every gRPC stream MUST remain active without reporting an archive error because the sink is blocked
 
 #### Scenario: Inserter failure is recoverable
+
 - **WHEN** a deterministic insertion attempt fails and a later retry is allowed to succeed
 - **THEN** the writer MUST retry the undelivered batch according to its production behavior
 - **AND** queried storage MUST account for every intended row with the contract's expected idempotency semantics
 
 #### Scenario: Inserter failure persists through shutdown
+
 - **WHEN** insertion continues to fail and the writer reaches bounded shutdown with undelivered rows
 - **THEN** successful gRPC frames MUST remain delivered and the persistent loss journal MUST contain exactly one valid JSONL record for every undelivered row with a parseable `timestamp`, the lifecycle `source` and `deployment_id`, and reason `shutdown_forwarder_failure`
 - **AND** each record's `payload.table` and stable `payload.row` identity fields MUST match the emitted row exactly, and no successfully stored row may be classified as terminally lost
 
 #### Scenario: Queue shedding is composed
+
 - **WHEN** deterministic queue saturation causes a row to be shed
 - **THEN** the exact emitted row MUST have one durable record with `reason=queue_shed` and the complete `payload`
 - **AND** it MUST not also be classified as a shutdown failure or successful insert
 
 #### Scenario: An emitted row is unaccounted for
+
 - **WHEN** any row produced by the failure lifecycle is neither verifiably stored nor represented by the exact required loss-journal record
 - **THEN** the E2E suite MUST fail
 - **AND** queue saturation, retry exhaustion, or shutdown MUST NOT permit silent loss
 
 ### Requirement: Archive E2E is the standard ongoing CI regression gate
+
 The repository SHALL expose `test:e2e:archive` as a required serialized CI command alongside normal tests, build/type/lint, TypeScript and Python checksum fixtures, existing real-server integration tests, and `openspec validate --all --strict`. The one-time two-instance A/B acceptance for this change SHALL NOT become a permanent CI job unless a future specification generalizes upgrade regression across version pairs.
 
 #### Scenario: Pull-request CI runs
+
 - **WHEN** required CI executes for a supported branch or pull request
 - **THEN** it MUST run normal checks, `test:e2e:archive`, cross-language fixtures, existing integration checks, and strict current-spec validation as failing steps
 - **AND** normal tests MUST exclude dedicated archive E2E files so the expensive suite is not run twice
 
 #### Scenario: E2E prerequisite is missing in CI
+
 - **WHEN** the pinned binary cannot be verified, schema initialization fails, the fixture is incomplete, or no E2E test is discovered
 - **THEN** the required CI step MUST fail
 - **AND** it MUST NOT return success through a conditional skip or pass-with-no-tests path
 
 #### Scenario: Normal tests run separately
+
 - **WHEN** the repository's normal test command runs
 - **THEN** it MUST exclude the dedicated archive E2E files so the expensive suite is not run twice
 - **AND** all existing unit and integration tests, including the ClickHouse-server suite when its server is provisioned, MUST remain present
 
 #### Scenario: OpenSpec implementing changes have been archived
+
 - **WHEN** strict validation runs after an implementing change was synced and archived
 - **THEN** CI MUST validate all current main specs or an existing main spec
 - **AND** it MUST NOT reference an archived change name that the CLI cannot resolve
 
 #### Scenario: This upgrade has already been accepted
+
 - **WHEN** later ordinary pull requests run after the recorded A/B acceptance
 - **THEN** standard archive E2E and existing integration checks MUST remain sufficient for this change's ongoing regression contract
 - **AND** CI MUST NOT recreate the fixed pre/post upgrade acceptance unless upgrade testing is deliberately generalized
 
 ### Requirement: Live CEX smoke coverage is bounded, public-only, credentialless, and non-gating
+
 The repository SHALL provide `test:smoke:archive` in a scheduled/manual workflow that is not a pull-request trigger or merge requirement. It MUST use the credentialless public exchange path and only public ORDERBOOK, TICKER, TRADES, and OHLCV subscriptions. It MUST NOT introduce exchange keys, a credential profile, credential-source policy, permission attestation, or archive write mode.
 
 #### Scenario: Scheduled or manual smoke succeeds
+
 - **WHEN** each configured public feed is available without exchange credentials within its timeout
 - **THEN** every feed MUST archive at least one valid raw row linked to at least one valid normalized canonical row under a unique smoke capture bundle
 - **AND** the workflow MUST clean up its broker, streams, forwarder, ClickHouse Local path, and temporary files within a bounded deadline
 
 #### Scenario: Smoke code selects operations
+
 - **WHEN** the live smoke constructs its broker and requests
 - **THEN** it MUST use only public market-data Subscribe types
 - **AND** it MUST NOT invoke `ExecuteAction`, account streams, order placement, cancellation, deposits, withdrawals, transfers, or asset movement
 
 #### Scenario: Smoke configuration is inspected
+
 - **WHEN** the scheduled/manual workflow and smoke entry point are reviewed
 - **THEN** they MUST provide no exchange API key, exchange API secret, credential policy, credential profile, or permission attestation
 - **AND** archive-forwarder authentication MAY use its existing matched token because that token authenticates the local archive sink rather than a CEX account
 
 #### Scenario: Smoke prerequisite or feed is unavailable
+
 - **WHEN** the pinned binary, schema initialization, any required public feed, raw linkage, normalized linkage, or cleanup deadline is unavailable
 - **THEN** the smoke workflow MUST report a failing run rather than silently skip the missing assertion
 - **AND** that failure MUST remain non-merge-gating
 
 #### Scenario: Smoke diagnostics are retained
+
 - **WHEN** a live smoke run fails
 - **THEN** any feed-specific diagnostics retained according to workflow policy MUST be bounded to the failed smoke run
 - **AND** logs and artifacts MUST exclude credentials, secret values, and unredacted credential-bearing payloads
 
-### Requirement: Final-v1 archive conformance covers identity and authority transitions
-The isolated ClickHouse/forwarder suite SHALL cover production-only coverage,
-authoritative vendor promotion, idempotent selection reuse, fill-gaps
-composition, qualification quarantine and revocation, unauthorized production
-submission, and reader/forwarder cluster mismatch using the final v1 schemas
-and hash fixtures.
+### Requirement: Archive E2E rejects historical producer admission
 
-#### Scenario: Final-v1 protected provider gate runs
-- **WHEN** all synthetic schema, policy, archive, authorization, and qualification tests pass
-- **THEN** the OKX live-provider gate MUST be rerun with final origin/mode, receipt, selection, and policy identities
-- **AND** retained evidence MUST remain hash-safe
+The integrated archive suite SHALL exercise both the named legacy source and an arbitrary unknown source through the public admission boundary and SHALL prove that neither can reach routing, spool success, or ClickHouse insertion.
 
-### Requirement: Real ClickHouse proves the promotion commit boundary
-The archive E2E suite SHALL use the production schema, HTTP request parser,
-allowlist, inserter, and real pinned ClickHouse runtime to prove external capture
-qualification. It MUST cover complete promotion, partial insertion, malformed
-promotion rejection, same-receipt retry, conflicting candidate rows, old
-historical source timestamps, and replay-qualified export selection.
+#### Scenario: External backfill is rejected end to end
 
-#### Scenario: Partial candidate is not replay eligible
-- **WHEN** only a subset of deterministic external-backfill chunks is inserted
-- **THEN** physical rows MUST remain queryable by capture identity
-- **AND** both replay-qualified order-book views MUST return zero candidate rows
+- **WHEN** an otherwise valid market batch uses `source = 'external_backfill'`
+- **THEN** the forwarder SHALL reject it before table routing
+- **AND** all archive, evidence, and success-count queries SHALL remain unchanged
 
-#### Scenario: Passing promotion qualifies the exact scope
-- **WHEN** all candidate rows are inserted and one valid passing promotion row is
-  committed
-- **THEN** replay-qualified views MUST expose only the receipt-bound exchange,
-  pair, window, depth, construction, and schema scope
-- **AND** the retained exporter MUST consume that qualified scope
+#### Scenario: Unknown source is rejected end to end
 
-#### Scenario: Historical external rows survive TTL processing
-- **WHEN** external-backfill rows older than the live retention horizon are
-  inserted and ClickHouse TTL maintenance is exercised
-- **THEN** the external rows MUST remain available for promotion and qualified
-  replay
-- **AND** equivalent expired broker-origin rows MUST retain their existing TTL
-  behavior
+- **WHEN** an otherwise valid market batch uses an unrecognized source string
+- **THEN** the same fail-closed assertions SHALL hold
 
-### Requirement: Worker conformance covers the closed state machine
-Required tests SHALL cover request validation before I/O, deterministic
-idempotency and capture identities, complete qualified preflight, capability
-before credentials, every closed result status, provider budget enforcement,
-snapshot/update reconstruction, sequence and timestamp failures, forwarder
-chunking/retry, semantic promotion, and secret redaction. Tests MUST use
-synthetic or expressly redistributable provider fixtures; licensed real vendor
-rows MUST NOT be checked into the repository.
+### Requirement: Archive E2E proves summary-v2 and bounded-raw parity
 
-#### Scenario: Provider integration evidence is retained
-- **WHEN** an opt-in secret-backed provider conformance run succeeds
-- **THEN** retained evidence MUST contain only non-secret object identities,
-  counts, versions, and cryptographic hashes
-- **AND** it MUST NOT publish downloaded vendor payload rows
+The integrated suite SHALL run the shared summary-v2 fixture through the production writer and real ClickHouse. It SHALL prove metadata-only ORDERBOOK raw bodies, bounded per-side level counts, deterministic v2 rows, v2-only supported query projections, idempotent duplicates, and auditable conflicts.
 
-### Requirement: Live provider promotion is verified against isolated ClickHouse
-The opt-in CEX-owned gate SHALL run the complete worker with a licensed provider
-object before the initial provider profile is declared ready, using the production
-schema and HTTP forwarder, and an ephemeral ClickHouse Server 24.8 instance. The
-gate MUST remain absent from pull-request, push, and scheduled CI and MUST
-require explicit credential and positive-control window injection.
+#### Scenario: Large observation remains bounded
 
-#### Scenario: Live provider object is promoted and replayed idempotently
-- **WHEN** the protected gate runs one bounded supported request against an empty
-  isolated archive
-- **THEN** the first invocation MUST return `promoted`, persist one exact-scope
-  passing receipt, expose nonzero matching candidate and qualified rows, and
-  satisfy the qualified reader and canonical exporter
-- **AND** an identical second invocation MUST return `already_covered` without
-  changing row or promotion counts
+- **WHEN** a fixture contains more levels than the configured archive depth
+- **THEN** ClickHouse SHALL contain no more than the configured level count per side
+- **AND** the raw payload SHALL contain no level arrays or provider body
+- **AND** the summary-v2 result SHALL still reflect the complete observed boundary metadata
 
-#### Scenario: Live gate retains secret-free evidence on every outcome
-- **WHEN** the gate succeeds or fails after startup
-- **THEN** it MUST atomically retain a versioned pass/fail record containing
-  only versions, scope, stable statuses and reasons, identities, counts,
-  durations, and cryptographic hashes
-- **AND** it MUST clean up downloaded bytes, exported files, forwarder state,
-  credentials, and the isolated archive without publishing vendor rows or
-  response bodies
+#### Scenario: Fixture typed projection matches real ClickHouse
+
+- **WHEN** exact, censored, exhausted, asymmetric non-empty, truncated, and duplicate fixture cases are inserted with explicitly pinned archive depth and measurement bands
+- **THEN** the supported query SHALL match the fixture's canonical typed projection
+- **AND** `Decimal(38,18)` values SHALL compare as canonical decimal strings, arrays SHALL retain specified order, integer and enum values SHALL compare exactly, and raw driver bytes SHALL be ignored
+
+#### Scenario: Empty and one-sided books fail closed
+
+- **WHEN** the fixture presents an empty bid side, empty ask side, or both sides empty
+- **THEN** the writer SHALL reject the complete observation before raw, level, or summary insertion
+- **AND** the E2E suite SHALL prove that none of those identities appears in ClickHouse
+
+#### Scenario: Malformed and conflicting v2 input fails closed
+
+- **WHEN** the fixture presents malformed arrays, invalid status, incomplete provenance, or conflicting identity content
+- **THEN** no row from that input SHALL become visible through the supported summary view
+- **AND** the failure SHALL remain auditable
+
+### Requirement: Final-schema regression asserts removed objects are absent
+
+The fresh-database E2E suite SHALL assert that the final DDL creates no vendor evidence, promotion, qualification, archive-selection, cluster-identity, replay-qualified view, external source default, vendor-only column, or historical TTL exception.
+
+#### Scenario: Fresh schema matches the live hot inventory
+
+- **WHEN** E2E initializes an empty ClickHouse database from production DDL
+- **THEN** every expected live/hot object SHALL exist
+- **AND** every removed historical object and compatibility view SHALL be absent
+- **AND** both hot order-book tables SHALL have the unconditional 90-day TTL contract
+
+### Requirement: Archive regression covers hardening boundaries
+
+The archive regression suite SHALL cover blank deployment configuration, per-row deployment mismatch, bounded measurement bands, upgraded supported-view type parity, and complete Proof C producer-run row-set behavior at their owning test layers.
+
+#### Scenario: Hardening regression runs
+
+- **WHEN** required qualification executes
+- **THEN** each accepted review boundary SHALL have a positive and negative test
+- **AND** strict OpenSpec and archive E2E gates SHALL remain passing

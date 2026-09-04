@@ -2,10 +2,9 @@ import type {
 	BrokerArchiveRow,
 	BrokerArchiveSource,
 } from "../broker-execution-archive/types";
-import type { NormalizedOrderBookSnapshot } from "../order-book";
-import { buildCanonicalOrderBookRows } from "./canonical-orderbook";
 import {
 	CHECKSUM_ALGORITHM,
+	canonicalDecimal,
 	MARKET_CAPTURE_SCHEMA_VERSION,
 	sha256Canonical,
 } from "./capture-contract";
@@ -122,29 +121,119 @@ export function buildLegacyOrderBookMigrationRows(
 	) {
 		throw new Error("Legacy order-book price and size arrays must align");
 	}
-	const snapshot: NormalizedOrderBookSnapshot = {
-		bids: legacy.bids_price.map((price, index) => [
+	if (
+		!Number.isSafeInteger(legacy.depth_limit) ||
+		legacy.depth_limit <= 0 ||
+		legacy.depth_limit > 500
+	) {
+		throw new Error("Legacy order-book depth_limit must be in 1..500");
+	}
+	const bids = legacy.bids_price
+		.slice(0, legacy.depth_limit)
+		.map((price, index) => ({
 			price,
-			legacy.bids_size[index] as number,
-		]),
-		asks: legacy.asks_price.map((price, index) => [
+			amount: legacy.bids_size[index] as number,
+		}));
+	const asks = legacy.asks_price
+		.slice(0, legacy.depth_limit)
+		.map((price, index) => ({
 			price,
-			legacy.asks_size[index] as number,
-		]),
-		timestamp: legacy.event_time_ms,
-		receivedTimestamp: legacy.received_time_ms,
-		exchange: legacy.exchange,
-		symbol: legacy.symbol,
-		depthLimit: legacy.depth_limit,
+			amount: legacy.asks_size[index] as number,
+		}));
+	if (bids.length === 0 || asks.length === 0) {
+		throw new Error("Legacy order-book migration requires both sides");
+	}
+	for (const [side, levels] of [
+		["bid", bids],
+		["ask", asks],
+	] as const) {
+		for (let index = 0; index < levels.length; index += 1) {
+			const level = levels[index] as { price: number; amount: number };
+			if (
+				!Number.isFinite(level.price) ||
+				!Number.isFinite(level.amount) ||
+				level.price <= 0 ||
+				level.amount <= 0
+			) {
+				throw new Error(`Invalid legacy ${side} level ${index}`);
+			}
+			const previous = levels[index - 1]?.price;
+			if (
+				previous !== undefined &&
+				(side === "bid" ? level.price >= previous : level.price <= previous)
+			) {
+				throw new Error(`Legacy ${side} levels are not strictly ordered`);
+			}
+		}
+	}
+	const bestBid = bids[0] as { price: number; amount: number };
+	const bestAsk = asks[0] as { price: number; amount: number };
+	if (bestBid.price >= bestAsk.price) {
+		throw new Error("Legacy order-book is crossed or locked");
+	}
+	const midPrice = (bestBid.price + bestAsk.price) / 2;
+	const snapshotId = sha256Canonical({
+		exchange: legacy.exchange.trim().toLowerCase(),
+		trading_pair: legacy.symbol.trim().replace("/", "-"),
+		source_time_ms: legacy.event_time_ms,
 		sequence: legacy.sequence,
-	};
-	const canonical = buildCanonicalOrderBookRows({
-		context: legacyContext({ ...legacy, feed: "ORDERBOOK" }),
-		snapshot,
-		rawCapture: unavailableRaw(legacy.event_time_ms, legacy.received_time_ms),
-		depthLimit: legacy.depth_limit,
+		depth_limit: legacy.depth_limit,
+		bids,
+		asks,
+		schema_version: MARKET_CAPTURE_SCHEMA_VERSION,
 	});
-	return [...canonical.levels, canonical.summary].map(markIncomplete);
+	const common = {
+		source: legacy.source ?? "broker_write",
+		deployment_id: legacy.deployment_id,
+		capture_bundle_id: null,
+		exchange: legacy.exchange.trim().toLowerCase(),
+		symbol: legacy.symbol.trim(),
+		trading_pair: legacy.symbol.trim().replace("/", "-"),
+		source_symbol: legacy.symbol.trim(),
+		asset_type: legacy.asset_type,
+		feed: "ORDERBOOK",
+		provider: "legacy:orderbook_snapshots",
+		source_mode: "legacy_migration_v1",
+		source_time_ms: legacy.event_time_ms,
+		received_time_ms: legacy.received_time_ms,
+		raw_capture_id: null,
+		raw_capture_scope: null,
+		schema_version: MARKET_CAPTURE_SCHEMA_VERSION,
+		checksum_algorithm: CHECKSUM_ALGORITHM,
+		raw_checksum: null,
+		provenance_complete: 0,
+		snapshot_id: snapshotId,
+		construction_mode: "sampled_top_n_snapshot",
+		gap_policy: "record_gap",
+		depth_limit: legacy.depth_limit,
+		sequence: legacy.sequence,
+		exact_l2_reconstruction_complete: 0,
+	};
+	// Legacy snapshots retain bounded schema-v1 levels as honest incomplete
+	// diagnostics. They never invoke or manufacture a summary of either version.
+	return (
+		[
+			["bid", bids],
+			["ask", asks],
+		] as const
+	).flatMap(([side, levels]) =>
+		levels.map(({ price, amount }, levelIndex) => {
+			const row = {
+				...common,
+				side,
+				level_index: levelIndex,
+				price: Number(canonicalDecimal(price)),
+				amount: Number(canonicalDecimal(amount)),
+				notional: price * amount,
+				mid_price: midPrice,
+				spread_from_mid_bps: Math.abs((price - midPrice) / midPrice) * 10_000,
+			};
+			return {
+				table: "market_data.cex_order_book_levels" as const,
+				row: { ...row, normalized_row_checksum: sha256Canonical(row) },
+			};
+		}),
+	);
 }
 
 export function buildLegacyOhlcvMigrationRow(

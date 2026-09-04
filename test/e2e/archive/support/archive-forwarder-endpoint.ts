@@ -2,10 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ConfiguredProductionAuthorization } from "../../../../services/archive-forwarder/config";
-import type { ArchiveClusterIdentity } from "../../../../services/archive-forwarder/health";
 import type { RowInserter } from "../../../../services/archive-forwarder/insert";
-import { handleProductionBackfillPreflight } from "../../../../services/archive-forwarder/production-authorization";
 import { handleArchiveRequest } from "../../../../services/archive-forwarder/request";
 import { StrategyArchiveSpool } from "../../../../services/archive-forwarder/strategy-spool";
 import { StrategySpoolWorker } from "../../../../services/archive-forwarder/strategy-worker";
@@ -17,10 +14,9 @@ export async function startArchiveForwarderEndpoint(options: {
 	inserter: RowInserter;
 	authToken?: string;
 	spoolPath?: string;
-	productionBackfill?: {
-		authorization: ConfiguredProductionAuthorization;
-		archiveIdentity: ArchiveClusterIdentity;
-		nowMs?: () => number;
+	marketIdentity?: {
+		source: "broker_read" | "broker_write";
+		deploymentId: string;
 	};
 }): Promise<ArchiveForwarderEndpoint> {
 	const ownsSpoolDirectory = !options.spoolPath;
@@ -35,8 +31,8 @@ export async function startArchiveForwarderEndpoint(options: {
 	let requestCount = 0;
 	const batches: ArchiveBatchRequest[] = [];
 	const telemetry = new ArchiveForwarderTelemetry({
-		recordCounter: () => {},
-		setObservableGauge: () => {},
+		recordCounter: async () => {},
+		setObservableGauge: async () => {},
 	});
 	const worker = new StrategySpoolWorker({
 		spool,
@@ -48,28 +44,6 @@ export async function startArchiveForwarderEndpoint(options: {
 		void (async () => {
 			try {
 				requestCount += 1;
-				if (
-					incoming.method === "GET" &&
-					incoming.url === "/health/market-data-vendor-backfill"
-				) {
-					const request = new Request(
-						"http://127.0.0.1/health/market-data-vendor-backfill",
-						{ headers: incoming.headers as HeadersInit },
-					);
-					const response = handleProductionBackfillPreflight(request, {
-						authToken: options.authToken,
-						authorization: options.productionBackfill?.authorization,
-						archiveIdentity:
-							options.productionBackfill?.archiveIdentity ?? null,
-						nowMs: options.productionBackfill?.nowMs?.() ?? Date.now(),
-					});
-					outgoing.writeHead(
-						response.status,
-						Object.fromEntries(response.headers.entries()),
-					);
-					outgoing.end(Buffer.from(await response.arrayBuffer()));
-					return;
-				}
 				if (incoming.method !== "POST" || incoming.url !== "/archive") {
 					outgoing.writeHead(404, { "content-type": "application/json" });
 					outgoing.end('{"error":"Not found"}');
@@ -87,13 +61,22 @@ export async function startArchiveForwarderEndpoint(options: {
 				} catch {
 					// Invalid JSON remains the production handler's responsibility.
 				}
+				const requestHeaders = new Headers();
+				for (const [name, value] of Object.entries(incoming.headers)) {
+					if (Array.isArray(value)) {
+						for (const entry of value) requestHeaders.append(name, entry);
+					} else if (value !== undefined) {
+						requestHeaders.set(name, value);
+					}
+				}
 				const request = new Request("http://127.0.0.1/archive", {
 					method: "POST",
-					headers: incoming.headers as HeadersInit,
+					headers: requestHeaders,
 					body,
 				});
 				const response = await handleArchiveRequest(request, {
 					authToken: options.authToken,
+					marketIdentity: options.marketIdentity,
 					inserter: options.inserter,
 					spool,
 					telemetry,

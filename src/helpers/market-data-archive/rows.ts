@@ -56,13 +56,23 @@ function legacyDecimal8(value: number | undefined): number | undefined {
 export function buildCanonicalCexStreamEventRow(
 	context: MarketCaptureContext,
 	rawCapture: RawCapture,
+	options?: {
+		payloadEncoding?: "canonical_json_v1" | "orderbook_metadata_only_v1";
+	},
 ): BrokerArchiveRow {
+	const payloadEncoding = options?.payloadEncoding ?? "canonical_json_v1";
+	if (
+		payloadEncoding === "orderbook_metadata_only_v1" &&
+		context.feed !== "ORDERBOOK"
+	) {
+		throw new Error("Metadata-only raw encoding requires an ORDERBOOK context");
+	}
 	const row = withNormalizedChecksum({
 		...captureCoreFields(context, rawCapture),
 		...legacyMarketFields(context, rawCapture),
 		stream_type: context.feed,
 		event_time_ms: rawCapture.eventTimeMs,
-		payload_encoding: "canonical_json_v1",
+		payload_encoding: payloadEncoding,
 		payload_json: canonicalSerialize(rawCapture.redactedPayload),
 	});
 	return { table: "market_data.cex_stream_events", row };

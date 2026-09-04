@@ -8,7 +8,14 @@ import {
 	normalizeTimestampMs,
 	sha256Canonical,
 } from "./capture-contract";
-import type { MarketCaptureContext, RawCapture } from "./types";
+import { normalizeOrderbookMeasurementBandsBps } from "./orderbook-depth";
+import type {
+	MarketCaptureContext,
+	OrderbookArchiveMetadata,
+	RawCapture,
+} from "./types";
+
+export const ORDERBOOK_SUMMARY_SCHEMA_VERSION = "2.0.0" as const;
 
 export class OrderBookValidationError extends Error {
 	readonly reason: string;
@@ -21,6 +28,7 @@ export class OrderBookValidationError extends Error {
 }
 
 type ValidLevel = { price: number; amount: number };
+type BandStatus = "exact" | "censored";
 
 export type CanonicalOrderBookRows = {
 	snapshotId: string;
@@ -50,17 +58,25 @@ function parseSequence(
 	return parsed.toString(10);
 }
 
-function validateSide(
-	side: "bid" | "ask",
-	levels: number[][],
-	depthLimit: number,
-): ValidLevel[] {
+function validatePositiveInteger(
+	value: number,
+	field: string,
+	maximum = Number.MAX_SAFE_INTEGER,
+): void {
+	if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+		throw new OrderBookValidationError(
+			`${field} must be a positive integer${maximum === 500 ? " between 1 and 500" : ""}`,
+		);
+	}
+}
+
+function validateSide(side: "bid" | "ask", levels: number[][]): ValidLevel[] {
 	if (levels.length === 0) {
 		throw new OrderBookValidationError(`${side} side is missing`);
 	}
-	const retained = levels.slice(0, depthLimit);
-	for (let index = 0; index < retained.length; index += 1) {
-		const entry = retained[index];
+	const validated: ValidLevel[] = [];
+	for (let index = 0; index < levels.length; index += 1) {
+		const entry = levels[index];
 		const price = entry?.[0];
 		const amount = entry?.[1];
 		if (
@@ -78,7 +94,7 @@ function validateSide(
 			);
 		}
 		if (index > 0) {
-			const previous = retained[index - 1]?.[0];
+			const previous = validated[index - 1]?.price;
 			if (
 				previous === undefined ||
 				(side === "bid" ? price >= previous : price <= previous)
@@ -88,23 +104,80 @@ function validateSide(
 				);
 			}
 		}
+		validated.push({ price, amount });
 	}
-	return retained.map(([price, amount]) => ({
-		price: price as number,
-		amount: amount as number,
-	}));
+	return validated;
 }
 
-function normalizedBands(input: readonly number[] | undefined): number[] {
-	const bands = input ?? [10, 25, 50, 100];
-	for (const band of bands) {
-		if (!Number.isFinite(band) || band <= 0 || !Number.isInteger(band)) {
+function validateMetadata(
+	metadata: OrderbookArchiveMetadata,
+	observedBids: ValidLevel[],
+	observedAsks: ValidLevel[],
+): number[] {
+	if (!metadata.captureProfileId.trim()) {
+		throw new OrderBookValidationError("capture_profile_id must not be empty");
+	}
+	validatePositiveInteger(metadata.effectiveCadenceMs, "effective_cadence_ms");
+	if (metadata.requestedUpstreamDepth !== null) {
+		validatePositiveInteger(
+			metadata.requestedUpstreamDepth,
+			"requested_upstream_depth",
+			500,
+		);
+	}
+	validatePositiveInteger(metadata.observedBidCount, "observed_bid_count");
+	validatePositiveInteger(metadata.observedAskCount, "observed_ask_count");
+	if (metadata.observedBidCount !== observedBids.length) {
+		throw new OrderBookValidationError(
+			"observed_bid_count does not match the complete observation",
+		);
+	}
+	if (metadata.observedAskCount !== observedAsks.length) {
+		throw new OrderBookValidationError(
+			"observed_ask_count does not match the complete observation",
+		);
+	}
+	const farthestBid = observedBids.at(-1)?.price;
+	const farthestAsk = observedAsks.at(-1)?.price;
+	if (
+		!Number.isFinite(metadata.observedFarthestBid) ||
+		metadata.observedFarthestBid <= 0 ||
+		metadata.observedFarthestBid !== farthestBid
+	) {
+		throw new OrderBookValidationError(
+			"observed_farthest_bid does not match the complete observation",
+		);
+	}
+	if (
+		!Number.isFinite(metadata.observedFarthestAsk) ||
+		metadata.observedFarthestAsk <= 0 ||
+		metadata.observedFarthestAsk !== farthestAsk
+	) {
+		throw new OrderBookValidationError(
+			"observed_farthest_ask does not match the complete observation",
+		);
+	}
+	for (const [side, evidence] of [
+		["bid", metadata.exhaustionEvidence.bid],
+		["ask", metadata.exhaustionEvidence.ask],
+	] as const) {
+		if (
+			evidence.validated !== true ||
+			typeof evidence.exhausted !== "boolean" ||
+			!evidence.source.trim()
+		) {
 			throw new OrderBookValidationError(
-				"measurement bands must be positive integer basis points",
+				`${side} exhaustion evidence must be validated and source-bound`,
 			);
 		}
 	}
-	return [...new Set(bands)].sort((left, right) => left - right);
+	try {
+		return normalizeOrderbookMeasurementBandsBps(metadata.measurementBandsBps);
+	} catch (error) {
+		throw new OrderBookValidationError(
+			error instanceof Error ? error.message : "invalid measurement bands",
+		);
+	}
 }
 
 function checksumRow(row: Record<string, unknown>): Record<string, unknown> {
@@ -120,9 +193,6 @@ function commonEvidenceFields(
 		depthLimit: number;
 		eventTimeMs: number;
 		receivedTimeMs: number;
-		constructionMode:
-			| OrderBookConstructionMode
-			| "policy_neutral_top_n_state_change_tape/v1";
 	},
 ): Record<string, unknown> {
 	return {
@@ -130,7 +200,7 @@ function commonEvidenceFields(
 		source_time_ms: input.eventTimeMs,
 		received_time_ms: input.receivedTimeMs,
 		snapshot_id: input.snapshotId,
-		construction_mode: input.constructionMode,
+		construction_mode: "sampled_top_n_snapshot",
 		gap_policy: "record_gap",
 		depth_limit: input.depthLimit,
 		sequence: input.sequence,
@@ -138,27 +208,49 @@ function commonEvidenceFields(
 	};
 }
 
+function sideBandEvidence(input: {
+	levels: ValidLevel[];
+	boundaries: number[];
+	side: "bid" | "ask";
+	exhausted: boolean;
+}): { depths: number[]; statuses: BandStatus[] } {
+	const farthest = input.levels.at(-1)?.price as number;
+	const depths = input.boundaries.map((boundary) =>
+		input.levels
+			.filter(({ price }) =>
+				input.side === "bid" ? price >= boundary : price <= boundary,
+			)
+			.reduce((sum, { amount }) => sum + amount, 0),
+	);
+	const statuses = input.boundaries.map<BandStatus>((boundary) => {
+		const boundaryReached =
+			input.side === "bid" ? farthest <= boundary : farthest >= boundary;
+		return boundaryReached || input.exhausted ? "exact" : "censored";
+	});
+	return { depths, statuses };
+}
+
 export function buildCanonicalOrderBookRows(input: {
 	context: MarketCaptureContext;
 	snapshot: NormalizedOrderBookSnapshot;
 	rawCapture: RawCapture;
 	depthLimit: number;
-	measurementBandsBps?: readonly number[];
-	constructionMode?:
-		| OrderBookConstructionMode
-		| "policy_neutral_top_n_state_change_tape/v1";
+	archiveMetadata: OrderbookArchiveMetadata;
+	constructionMode?: OrderBookConstructionMode;
 }): CanonicalOrderBookRows {
-	if (
-		!Number.isSafeInteger(input.depthLimit) ||
-		input.depthLimit <= 0 ||
-		input.depthLimit > 500
-	) {
-		throw new OrderBookValidationError(
-			"depth limit must be an integer between 1 and 500",
-		);
-	}
+	validatePositiveInteger(input.depthLimit, "depth limit", 500);
 	if (input.context.feed !== "ORDERBOOK") {
 		throw new OrderBookValidationError("capture context feed is not ORDERBOOK");
+	}
+	if (input.context.schemaVersion !== "1.0.0") {
+		throw new OrderBookValidationError(
+			"ORDERBOOK raw and level capture schema must be 1.0.0",
+		);
+	}
+	if (!input.context.provenanceComplete) {
+		throw new OrderBookValidationError(
+			"summary v2 requires complete live provenance",
+		);
 	}
 	if (input.constructionMode === "exact_l2_reconstruction") {
 		throw new OrderBookValidationError(
@@ -188,13 +280,22 @@ export function buildCanonicalOrderBookRows(input: {
 		);
 	}
 
-	const bids = validateSide("bid", input.snapshot.bids, input.depthLimit);
-	const asks = validateSide("ask", input.snapshot.asks, input.depthLimit);
-	const bestBid = bids[0] as ValidLevel;
-	const bestAsk = asks[0] as ValidLevel;
+	const observedBids = validateSide("bid", input.snapshot.bids);
+	const observedAsks = validateSide("ask", input.snapshot.asks);
+	const bestBid = observedBids[0] as ValidLevel;
+	const bestAsk = observedAsks[0] as ValidLevel;
 	if (bestBid.price >= bestAsk.price) {
 		throw new OrderBookValidationError("book is crossed or locked");
 	}
+	const bands = validateMetadata(
+		input.archiveMetadata,
+		observedBids,
+		observedAsks,
+	);
+	const bids = observedBids.slice(0, input.depthLimit);
+	const asks = observedAsks.slice(0, input.depthLimit);
+	const retainedFarthestBid = bids.at(-1) as ValidLevel;
+	const retainedFarthestAsk = asks.at(-1) as ValidLevel;
 	const sequence = parseSequence(input.snapshot.sequence);
 	const midPrice = (bestBid.price + bestAsk.price) / 2;
 	const spread = bestAsk.price - bestBid.price;
@@ -215,7 +316,6 @@ export function buildCanonicalOrderBookRows(input: {
 		depthLimit: input.depthLimit,
 		eventTimeMs,
 		receivedTimeMs,
-		constructionMode: input.constructionMode ?? "sampled_top_n_snapshot",
 	});
 
 	const levels: BrokerArchiveRow[] = (
@@ -239,21 +339,38 @@ export function buildCanonicalOrderBookRows(input: {
 		}),
 	);
 
-	const bands = normalizedBands(input.measurementBandsBps);
-	const bidDepth = bands.map((band) => {
-		const minimumPrice = bestBid.price * (1 - band / 10_000);
-		return bids
-			.filter(({ price }) => price >= minimumPrice)
-			.reduce((sum, { amount }) => sum + amount, 0);
+	const bidBoundaries = bands.map((band) => midPrice * (1 - band / 10_000));
+	const askBoundaries = bands.map((band) => midPrice * (1 + band / 10_000));
+	const bidEvidence = sideBandEvidence({
+		levels: observedBids,
+		boundaries: bidBoundaries,
+		side: "bid",
+		exhausted: input.archiveMetadata.exhaustionEvidence.bid.exhausted,
 	});
-	const askDepth = bands.map((band) => {
-		const maximumPrice = bestAsk.price * (1 + band / 10_000);
-		return asks
-			.filter(({ price }) => price <= maximumPrice)
-			.reduce((sum, { amount }) => sum + amount, 0);
+	const askEvidence = sideBandEvidence({
+		levels: observedAsks,
+		boundaries: askBoundaries,
+		side: "ask",
+		exhausted: input.archiveMetadata.exhaustionEvidence.ask.exhausted,
 	});
 	const summaryRow = checksumRow({
 		...common,
+		schema_version: ORDERBOOK_SUMMARY_SCHEMA_VERSION,
+		capture_profile_id: input.archiveMetadata.captureProfileId,
+		effective_cadence_ms: input.archiveMetadata.effectiveCadenceMs,
+		requested_upstream_depth: input.archiveMetadata.requestedUpstreamDepth,
+		observed_bid_count: input.archiveMetadata.observedBidCount,
+		observed_ask_count: input.archiveMetadata.observedAskCount,
+		observed_farthest_bid: input.archiveMetadata.observedFarthestBid,
+		observed_farthest_ask: input.archiveMetadata.observedFarthestAsk,
+		retained_farthest_bid: retainedFarthestBid.price,
+		retained_farthest_ask: retainedFarthestAsk.price,
+		bid_exhausted: input.archiveMetadata.exhaustionEvidence.bid.exhausted
+			? 1
+			: 0,
+		ask_exhausted: input.archiveMetadata.exhaustionEvidence.ask.exhausted
+			? 1
+			: 0,
 		best_bid: bestBid.price,
 		best_ask: bestAsk.price,
 		best_bid_amount: bestBid.amount,
@@ -265,8 +382,12 @@ export function buildCanonicalOrderBookRows(input: {
 		bid_level_count: bids.length,
 		ask_level_count: asks.length,
 		measurement_bands_bps: bands,
-		bid_depth_by_band: bidDepth,
-		ask_depth_by_band: askDepth,
+		bid_boundary_price_by_band: bidBoundaries,
+		ask_boundary_price_by_band: askBoundaries,
+		bid_depth_by_band: bidEvidence.depths,
+		ask_depth_by_band: askEvidence.depths,
+		bid_status_by_band: bidEvidence.statuses,
+		ask_status_by_band: askEvidence.statuses,
 	});
 
 	return {

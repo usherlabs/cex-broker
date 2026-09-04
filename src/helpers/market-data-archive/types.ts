@@ -1,11 +1,11 @@
 import type {
-	BrokerArchiveRow,
+	BrokerArchiveRow as BrokerArchiveRowType,
 	BrokerArchiveSource,
 } from "../broker-execution-archive/types";
 import type { BrokerMarketType } from "../market-type";
 import type { NormalizedOrderBookSnapshot } from "../order-book";
 
-export type MarketArchiveSource = BrokerArchiveSource | "external_backfill";
+export type MarketArchiveSource = BrokerArchiveSource;
 
 export type MarketArchiveTable =
 	| "market_data.orderbook_snapshots"
@@ -59,15 +59,11 @@ export type CaptureSourceMode =
 	| "broker_bootstrap_fetch_v1"
 	| "external_ccxt_fallback_v1"
 	| "external_hummingbot_fallback_v1"
-	| "legacy_migration_v1"
-	| "historical_vendor_orderbook_v1"
-	| "vendor_historical_backfill_v1";
-export type CaptureOrigin = "production_capture" | "vendor_historical_backfill";
+	| "legacy_migration_v1";
 export type RawCaptureScope =
 	| "ccxt_normalized_object"
 	| "broker_visible_payload"
-	| "exchange_wire_frame"
-	| "vendor_normalized_dataset_file";
+	| "exchange_wire_frame";
 
 export type MarketCaptureContext = Omit<MarketArchiveContext, "source"> & {
 	source: MarketArchiveSource;
@@ -92,8 +88,43 @@ export type RawCapture = {
 	checksumAlgorithm: string;
 };
 
+export type OrderbookExhaustionEvidence = {
+	bid: { exhausted: boolean; validated: true; source: string };
+	ask: { exhausted: boolean; validated: true; source: string };
+};
+
+/** Closed provenance supplied by the physical ORDERBOOK acquisition. */
+export type OrderbookArchiveMetadata = {
+	captureProfileId: string;
+	effectiveCadenceMs: number;
+	requestedUpstreamDepth: number | null;
+	observedBidCount: number;
+	observedAskCount: number;
+	observedFarthestBid: number;
+	observedFarthestAsk: number;
+	exhaustionEvidence: OrderbookExhaustionEvidence;
+	measurementBandsBps: readonly number[];
+};
+
+export type OrderbookMetadataOnlyPayload = {
+	capture_profile_id: string;
+	effective_cadence_ms: number;
+	requested_upstream_depth: number | null;
+	archive_depth_limit: number;
+	observed_bid_count: number;
+	observed_ask_count: number;
+	observed_farthest_bid: string;
+	observed_farthest_ask: string;
+	bid_exhausted: boolean;
+	ask_exhausted: boolean;
+	retained_bid_count: number;
+	retained_ask_count: number;
+	measurement_bands_bps: number[];
+};
+
 export type OrderbookArchiveInput = MarketArchiveContext & {
 	snapshot: NormalizedOrderBookSnapshot;
+	archiveMetadata: OrderbookArchiveMetadata;
 };
 
 /** @deprecated Use OrderbookArchiveInput */
@@ -143,4 +174,4 @@ export function isMarketArchiveTable(
 	return MARKET_ARCHIVE_TABLES.has(table);
 }
 
-export type { BrokerArchiveRow };
+export type BrokerArchiveRow = BrokerArchiveRowType;
