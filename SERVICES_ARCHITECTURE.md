@@ -17,9 +17,9 @@ external archive producers ── HTTP ─► archive-forwarder ── native HT
                                               candle viewer / research tools ┘
 ```
 
-The full broker is the only repository service that owns CEX connections and CEX credential resolution. It fans subscription frames out to callers and can archive those same observed frames asynchronously. Archival therefore needs an active subscriber: the market-data collector is the operator utility that keeps the configured subscriptions alive when no third-party client can provide continuous coverage.
+The full broker is the only repository service that owns CEX connections and CEX credential resolution. Within one broker runtime it also owns canonical public-feed workers: compatible collector and third-party `ORDERBOOK`, `TICKER`, `TRADES`, and `OHLCV` subscriptions are independent logical gRPC clients of one physical CCXT watcher and one archive-decision path. Archival therefore still needs an active subscriber, but duplicate prevention does not depend on a singleton collector. The market-data collector is the operator utility that keeps the configured logical subscriptions alive when no third-party client can provide continuous coverage.
 
-The archive-forwarder centralizes trusted ClickHouse writes behind HTTP. It is not a universal ClickHouse proxy: viewers, replay materializers, validators, and externally owned metrics consumers may read ClickHouse directly.
+The archive-forwarder centralizes trusted ClickHouse writes behind HTTP. It is not a universal ClickHouse proxy: viewers, validators, and externally owned metrics consumers may read ClickHouse directly. Market writes are bound to one configured broker source and deployment identity. CEX publishes no historical acquisition, preparation, promotion, or canonical-Parquet product.
 
 ## Repository-owned services
 
@@ -33,6 +33,10 @@ The archive-forwarder centralizes trusted ClickHouse writes behind HTTP. It is n
 - Persistence: none in the minimal profile. With archival enabled, the process owns its bounded delivery queue and configured durable archive loss journal; ClickHouse persistence remains behind the forwarder.
 - Deployment and failure: required for every profile except research-only reads. A broker outage interrupts both direct clients and collector subscriptions. Missing or disabled archival never blocks the gRPC service. When an enabled writer lacks complete production market provenance, canonical market archival is skipped with a bounded warning while RPCs remain available; FIET-901 deployment verification separately requires `broker_read`, an explicit deployment ID, and a capture bundle ID.
 - Operations: [README.md](README.md) and [docs/canonical-market-data-replay.md](docs/canonical-market-data-replay.md).
+
+Public ORDERBOOK workers retain normalized price-aggregated L2 `[price, amount]` levels before subscriber projection. FIET Maker uses those levels as immediate-hedgeability evidence: displayed bids inside a position band bound sell capacity and displayed asks bound buy capacity. This does not claim L3 order identity, queue priority, executed volume, or guaranteed fills. A subscriber `depthLimit` is a top-N presentation count, whereas policy sufficiency is a price-band property: retained bid and ask boundaries must cross every configured band (or explicitly prove visible-book exhaustion). Deployments using the archive for Maker replay align archive depth with the policy depth and verify band coverage; the ordinary 25-level default is not automatically sufficient for a deeper policy.
+
+ORDERBOOK physical identity is venue-resolved. Binance and MEXC have candidate diff-depth profiles that retain one bounded 500-level L2 base book for compatible explicit and omitted subscriber projections and the configured archive cap. The production enabled-profile set is empty in this change: ordinary Binance, MEXC, and unknown-venue requests conservatively preserve explicit-limit versus provider-default workers. Only controlled E2E and sidecar compositions supply candidate IDs explicitly. Evidence files and environment paths never activate a profile, and a later request that exceeds a running profile's guarantee starts a separate compatible worker instead of hot-swapping the active feed. Production activation belongs to the later `activate-binance-mexc-coalesced-orderbook-profiles` change after accepted evidence hashes are pinned.
 
 ### Market-data collector
 
@@ -69,16 +73,17 @@ The archive-forwarder centralizes trusted ClickHouse writes behind HTTP. It is n
 
 ## Services, tools, and external systems
 
-The following repository components are not production services:
+The following repository components are not production services. Service-owned operator, maintenance, replay, migration, and image-smoke tools live under `services/<service>/scripts/`; repository-wide, cross-service, release, E2E, and fixture-generation tools remain under the root `scripts/` directory.
 
 - `examples/archive-watch-subscribe.ts` is an interactive/local subscription example, not the managed continuous collector.
-- `scripts/migrate-legacy-market-data-to-canonical.ts`, replay validators, and Parquet exporters are bounded operator tools that access ClickHouse directly.
-- `scripts/archive-upgrade-acceptance.ts` is the one-time Server 24.8 A/B acceptance harness for the canonical upgrade. It creates isolated A and B databases from the committed `develop` fixture, leaves A immutable, upgrades B with the production schema/migration path, and is not a recurring CI service.
-- `scripts/archive-sidecar.ts` and its supervisor form a bounded cross-repository test composition. They assemble Server 24.8, the production archive-forwarder, a normal deterministic gRPC broker, and an independent collector for FIET Maker conformance; they do not add a production broker startup mode.
+- `services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts` is a bounded direct-ClickHouse operator migration. Its ORDERBOOK path emits incomplete-provenance diagnostic levels only and never a summary.
+- `services/archive-forwarder/scripts/order-book-schema-retirement.ts` and the matching SQL artifacts implement the separately approved terminal historical-schema retirement. Normal startup never invokes them.
+- `scripts/archive-upgrade-acceptance.ts` is the one-time Server 24.8 A/B acceptance harness for the canonical upgrade. It is not a recurring service.
+- `scripts/archive-sidecar.ts` and its supervisor form a bounded cross-repository test composition for the `production_compatible` shared-wire Proof C profile only; they add no production broker startup mode.
 - `research/python/` and `research/hummingbot/` are research libraries and reference integrations, not broker-side daemons.
 - `schema/`, handlers, helpers, generated protobuf modules, and test fixtures are libraries or assets embedded in the services above.
 
-CEX venues, ClickHouse, OpenTelemetry infrastructure, and Verity are external dependencies. FIET Maker/Hummingbot runtimes, `fiet-observer`, and other archive or metrics producers are owned by their respective repositories. Their direct ClickHouse reads or supported archive-forwarder writes do not make them CEX Broker services.
+CEX venues, ClickHouse, OpenTelemetry infrastructure, and Verity are external dependencies. FIET Maker/Hummingbot runtimes, `fiet-observer`, and other archive or metrics producers are owned by their respective repositories. CEX Broker publishes no vendor acquisition, historical reconstruction, preparation-package, promotion, or canonical-Parquet product. Maker/FIET-1015 owns cold sourcing and reconstruction; FIET-907 may consume evidence but owns no CEX historical write path.
 
 ## Deployment profiles
 
@@ -93,6 +98,8 @@ CEX venues, ClickHouse, OpenTelemetry infrastructure, and Verity are external de
 
 The standard archive E2E gate uses pinned ClickHouse Local for deterministic lifecycle and failure testing. The canonical-upgrade A/B command instead uses two real Server 24.8 instances and is recorded once for this upgrade: its A-side is the immutable fixture exported from CEX Broker `develop` at `7a83de5f29a08f42d81f64a75a83bc9318dce94a`; its B-side is the current candidate. Local success is not evidence for the Server transport or migration, and the fixed A/B command is intentionally absent from ordinary CI.
 
-FIET Maker drives the sidecar from its own pinned `develop` checkout. In both profiles, the collector is a separate operator client that keeps broker subscriptions active; it is never presented as Maker. `native_replay` writes externally produced strategy reports synchronously as `maker_replay` and exercises the FIET-907 direct-ClickHouse Parquet boundary. `production_compatible` admits externally produced `hb_runtime` reports with HTTP 202 to the durable strategy spool and verifies drainage into ClickHouse. The sidecar never stands in for Maker: it publishes an ephemeral producer-access file and broker endpoint, distinguishes collector subscriptions from the external Maker subscription, and accepts only the exact Maker producer identity in its result and ClickHouse queries. See [docs/archive-upgrade-and-sidecar.md](docs/archive-upgrade-and-sidecar.md).
+FIET Maker drives the sidecar from its own pinned development checkout. The collector is a separate operator client that keeps broker subscriptions active; it is never presented as Maker. The sole `production_compatible` profile admits externally produced `hb_runtime` reports with HTTP 202 to the durable strategy spool and verifies drainage into ClickHouse. The sidecar never stands in for Maker: it publishes bounded ephemeral producer access, distinguishes collector subscriptions from external Maker subscriptions, and accepts only the exact Maker producer/run identity in its v2 result and ClickHouse queries.
 
-For a continuous-capture rollout, configure and start the full broker first, verify archive health, then start exactly one collector for a subscription set. Stop the old collector before replacing it to avoid duplicate subscriptions and physical archive deliveries.
+Conformance is deliberately independent. CEX Proof A covers feed acquisition/coalescing. Maker owns policy-equivalence Proof B. The sidecar owns shared-wire Proof C only: real Layer12 current/live gRPC, collector overlap, one physical worker/archive decision, durable 202/spool admission, and exact five-table persistence. Summary-v2 reader parity is a separate versioned fixture/query gate. See [docs/archive-upgrade-and-sidecar.md](docs/archive-upgrade-and-sidecar.md).
+
+For a continuous-capture rollout, configure and start the full broker first, align ORDERBOOK archive depth with the Maker policy, verify archive health and L2 band coverage, then start the collector. Overlapping collector replacement creates additional logical subscriptions but compatible subscriptions remain on one physical broker feed; stop the old collector after the replacement is healthy to keep operational liveness and client-count evidence clear.

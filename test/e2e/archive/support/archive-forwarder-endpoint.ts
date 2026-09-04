@@ -14,6 +14,10 @@ export async function startArchiveForwarderEndpoint(options: {
 	inserter: RowInserter;
 	authToken?: string;
 	spoolPath?: string;
+	marketIdentity?: {
+		source: "broker_read" | "broker_write";
+		deploymentId: string;
+	};
 }): Promise<ArchiveForwarderEndpoint> {
 	const ownsSpoolDirectory = !options.spoolPath;
 	const spoolDirectory = ownsSpoolDirectory
@@ -27,8 +31,8 @@ export async function startArchiveForwarderEndpoint(options: {
 	let requestCount = 0;
 	const batches: ArchiveBatchRequest[] = [];
 	const telemetry = new ArchiveForwarderTelemetry({
-		recordCounter: () => {},
-		setObservableGauge: () => {},
+		recordCounter: async () => {},
+		setObservableGauge: async () => {},
 	});
 	const worker = new StrategySpoolWorker({
 		spool,
@@ -57,13 +61,22 @@ export async function startArchiveForwarderEndpoint(options: {
 				} catch {
 					// Invalid JSON remains the production handler's responsibility.
 				}
+				const requestHeaders = new Headers();
+				for (const [name, value] of Object.entries(incoming.headers)) {
+					if (Array.isArray(value)) {
+						for (const entry of value) requestHeaders.append(name, entry);
+					} else if (value !== undefined) {
+						requestHeaders.set(name, value);
+					}
+				}
 				const request = new Request("http://127.0.0.1/archive", {
 					method: "POST",
-					headers: incoming.headers as HeadersInit,
+					headers: requestHeaders,
 					body,
 				});
 				const response = await handleArchiveRequest(request, {
 					authToken: options.authToken,
+					marketIdentity: options.marketIdentity,
 					inserter: options.inserter,
 					spool,
 					telemetry,

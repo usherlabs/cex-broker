@@ -52,14 +52,13 @@ fails if the file is absent, no test is discovered, the binary cannot be
 verified, or schema initialization fails. `bun run test` selects the `test/`
 tree and therefore remains the separate unit/server-integration command.
 
-On Linux x64 and arm64, the harness downloads the official pinned static
-archive into `.cache/clickhouse-local`, verifies the committed SHA-512 digest,
-extracts only the ClickHouse binary, and verifies its reported four-part
-version. CI caches that directory using the version-and-digest cache key. To
-use a pre-provisioned binary, set `CLICKHOUSE_LOCAL_BIN` to an executable that
-reports exactly `25.8.24.21`; an absent, non-executable, or differently versioned
-override is a hard failure. `CLICKHOUSE_LOCAL_CACHE_DIR` may relocate the
-verified cache.
+The harness downloads the official pinned static archive into
+`.cache/clickhouse-local`, verifies the committed SHA-512 digest, extracts only
+the ClickHouse binary, and verifies its reported four-part version. CI caches
+that directory using the version-and-digest cache key. To use a pre-provisioned
+binary, set `CLICKHOUSE_LOCAL_BIN` to an executable that reports exactly
+`25.8.24.21`; an absent, non-executable, or differently versioned override is a
+hard failure. `CLICKHOUSE_LOCAL_CACHE_DIR` may relocate the verified cache.
 
 Each test owns a unique temporary persistent `--path` database, applies every
 file from the production archive schema manifest, and serializes Local CLI
@@ -78,6 +77,28 @@ parser, validator, router, inserter, and query-back path.
 The suite also contains a permanent source-surface regression check. It fails
 if removed write-mode, credential-policy, credential-profile, attestation, or
 smoke-secret controls return to executable code, workflows, or operator docs.
+
+## FIET-1014 CEX Proof A
+
+The ORDERBOOK gate uses the production `MarketDataCollector` and the same
+five-observation depth-100 tape for conservative and explicitly candidate-enabled
+Binance/MEXC compositions. Bid and ask quantities change materially across the
+tape. The gate compares ordered logical payloads, canonical archive outcomes,
+price-band coverage, ClickHouse-rehydrated inputs, and physical work, while a
+separate 25-level case must fail replay sufficiency. It exports CEX input facts
+only; Layer 12 policy outputs belong to FIET Maker Proof B.
+
+Generate the deterministic pack with:
+
+```sh
+bun run archive:proof-a -- /absolute/path/cex-orderbook-coalescing-evidence.json
+```
+
+The file is `canonicalSerialize` UTF-8 JSON followed by exactly one LF. SHA-256
+is computed over the complete file bytes; the document has no self-hash or
+run/host/path/time metadata. The active change includes a generated sample for
+the Maker handshake. Candidate profiles remain disabled in ordinary runtime
+configuration regardless of whether this evidence file exists.
 
 ## Canonical-upgrade baseline and A/B acceptance
 

@@ -1558,6 +1558,10 @@ describe("broker execution archiver queue", () => {
 					table: "broker_execution.order_events",
 					row: { source: "broker_read", order_id: "1" },
 				},
+				record_version: 1,
+				batch_id: null,
+				batch_row_index: 0,
+				batch_row_count: 1,
 			});
 			expect(new Date(String(loss?.timestamp)).toISOString()).toBe(
 				loss?.timestamp,
@@ -1682,6 +1686,84 @@ describe("broker execution archiver queue", () => {
 						},
 					},
 				}),
+			]);
+		} finally {
+			await server.close();
+		}
+	});
+
+	test("close preserves pinned batch identity separately from queued rows", async () => {
+		let releaseFirstPost: () => void = () => {};
+		const firstPostGate = new Promise<void>((resolve) => {
+			releaseFirstPost = resolve;
+		});
+		let requestCount = 0;
+		const server = await startForwarderServer(async () => {
+			requestCount += 1;
+			if (requestCount === 1) await firstPostGate;
+			return { status: 503 };
+		});
+		try {
+			const deadLetterPath = createDeadLetterPath();
+			const archiver = BrokerExecutionArchiver.create({
+				forwarderUrl: server.url,
+				deadLetterPath,
+				deploymentId: "test-deploy",
+				batchSize: 3,
+				flushIntervalMs: 60_000,
+			});
+			const row = (orderId: string) => ({
+				table: "broker_execution.order_events" as const,
+				row: { source: "broker_write", order_id: orderId },
+			});
+
+			archiver.enqueue(row("pinned-1"));
+			archiver.enqueue(row("pinned-2"));
+			const firstFlush = archiver.flush();
+			await waitForCondition(() => server.requests.length === 1);
+			archiver.enqueue(row("queued-1"));
+			archiver.enqueue(row("queued-2"));
+			releaseFirstPost();
+			await firstFlush;
+
+			const originalBatchId = server.requests[0]?.body.batch_id;
+			expect(typeof originalBatchId).toBe("string");
+			await archiver.close();
+
+			const losses = readDeadLetters(deadLetterPath);
+			expect(
+				losses.map((loss) => ({
+					order_id: (loss.payload as { row: { order_id: string } }).row
+						.order_id,
+					batch_id: loss.batch_id,
+					batch_row_index: loss.batch_row_index,
+					batch_row_count: loss.batch_row_count,
+				})),
+			).toEqual([
+				{
+					order_id: "pinned-1",
+					batch_id: originalBatchId,
+					batch_row_index: 0,
+					batch_row_count: 2,
+				},
+				{
+					order_id: "pinned-2",
+					batch_id: originalBatchId,
+					batch_row_index: 1,
+					batch_row_count: 2,
+				},
+				{
+					order_id: "queued-1",
+					batch_id: null,
+					batch_row_index: 0,
+					batch_row_count: 2,
+				},
+				{
+					order_id: "queued-2",
+					batch_id: null,
+					batch_row_index: 1,
+					batch_row_count: 2,
+				},
 			]);
 		} finally {
 			await server.close();

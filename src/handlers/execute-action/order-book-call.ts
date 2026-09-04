@@ -1,6 +1,7 @@
 import * as grpc from "@grpc/grpc-js";
 import { mapCcxtErrorToGrpcStatus } from "../../helpers/grpc/status";
 import { archiveOrderbookInBackground } from "../../helpers/market-data-archive/capture";
+import { getOrderbookMeasurementBandsBps } from "../../helpers/market-data-archive/orderbook-depth";
 import {
 	buildHistoricalOrderBookUnsupported,
 	buildOrderBookCapability,
@@ -74,6 +75,8 @@ export async function handleOrderBookCall(
 			return true;
 		}
 
+		// SAFETY: CCXT's base Exchange type does not expose every adapter method;
+		// the runtime property is checked as a function before it is called.
 		const fetchOrderBook = (
 			orderBookBroker as unknown as Record<string, unknown>
 		).fetchOrderBook;
@@ -120,6 +123,30 @@ export async function handleOrderBookCall(
 				accountSelector: ctx.selectedBrokerAccount?.label,
 				deploymentId: ctx.brokerArchiver?.getDeploymentId() ?? "unarchived",
 				snapshot,
+				archiveMetadata: {
+					captureProfileId: `${orderBookPayload.exchange.trim().toLowerCase()}:current-snapshot:requested:${orderBookPayload.depthLimit}`,
+					// Summary v2 uses 1ms as the positive sentinel for a one-shot
+					// acquisition; it does not claim a periodic sampling cadence.
+					effectiveCadenceMs: 1,
+					requestedUpstreamDepth: orderBookPayload.depthLimit,
+					observedBidCount: snapshot.bids.length,
+					observedAskCount: snapshot.asks.length,
+					observedFarthestBid: snapshot.bids.at(-1)?.[0] ?? Number.NaN,
+					observedFarthestAsk: snapshot.asks.at(-1)?.[0] ?? Number.NaN,
+					exhaustionEvidence: {
+						bid: {
+							exhausted: false,
+							validated: true,
+							source: "broker:current-snapshot",
+						},
+						ask: {
+							exhausted: false,
+							validated: true,
+							source: "broker:current-snapshot",
+						},
+					},
+					measurementBandsBps: getOrderbookMeasurementBandsBps(),
+				},
 			},
 			{
 				sourceMode: "broker_current_snapshot_v1",

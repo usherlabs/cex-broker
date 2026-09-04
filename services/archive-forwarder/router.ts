@@ -1,7 +1,13 @@
-import type { ArchiveBatchRequest, ArchiveBatchResult } from "./types";
+import type {
+	ArchiveBatchRequest,
+	ArchiveBatchResult,
+	SupportedTable,
+} from "./types";
 import { isSupportedTable, MALFORMED_TABLE_LABEL } from "./types";
 import { insertArchiveRows, type RowInserter } from "./insert";
 import type { ArchiveForwarderTelemetry } from "./telemetry";
+import { validateRetainedOrderBookRow } from "./order-book-row-contract";
+import { validateOrderBookRawRow } from "./order-book-raw-contract";
 
 export type ParsedArchiveBatch =
 	| {
@@ -21,6 +27,7 @@ export type ParsedArchiveBatch =
 function isValidArchiveRow(
 	entry: unknown,
 	envelopeSource?: string,
+	envelopeDeploymentId?: string,
 ): entry is ArchiveBatchRequest["rows"][number] {
 	if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
 		return false;
@@ -40,11 +47,28 @@ function isValidArchiveRow(
 		return false;
 	}
 	const rowSource = (row.row as Record<string, unknown>).source;
-	return !(
+	if (
 		envelopeSource !== undefined &&
 		typeof rowSource === "string" &&
 		rowSource !== envelopeSource
-	);
+	) {
+		return false;
+	}
+	if (envelopeSource !== undefined && envelopeDeploymentId !== undefined) {
+		return (
+			validateRetainedOrderBookRow(
+				row,
+				envelopeSource,
+				envelopeDeploymentId,
+			).ok &&
+			validateOrderBookRawRow(
+				row,
+				envelopeSource,
+				envelopeDeploymentId,
+			).ok
+		);
+	}
+	return true;
 }
 
 const ORDER_BOOK_LOGICAL_KEYS = {
@@ -133,13 +157,18 @@ export function parseArchiveBatchRequest(body: unknown): ParsedArchiveBatch {
 	}
 	const inputRowCount = record.rows.length;
 	const structurallyValidRows = record.rows.filter((entry) =>
-		isValidArchiveRow(entry, record.source as string),
+		isValidArchiveRow(
+			entry,
+			record.source as string,
+			record.deployment_id as string,
+		),
 	);
 	const conflicts = conflictingOrderBookRows(structurallyValidRows);
 	const rows = structurallyValidRows.filter((entry) => !conflicts.has(entry));
 	const rejectedRowsByTable = countRejectedRowsByTable(
 		record.rows,
 		record.source as string,
+		record.deployment_id as string,
 		conflicts,
 	);
 	return {
@@ -173,12 +202,13 @@ function countRowsByTable(
 function countRejectedRowsByTable(
 	rows: unknown[],
 	envelopeSource: string,
+	envelopeDeploymentId: string,
 	conflicts: ReadonlySet<ArchiveBatchRequest["rows"][number]>,
 ): Record<string, number> {
 	const counts = new Map<string, number>();
 	for (const entry of rows) {
 		if (
-			isValidArchiveRow(entry, envelopeSource) &&
+			isValidArchiveRow(entry, envelopeSource, envelopeDeploymentId) &&
 			!conflicts.has(entry)
 		) {
 			continue;
@@ -206,12 +236,14 @@ export async function handleArchiveBatch(
 	inserter: RowInserter,
 	request: ArchiveBatchRequest,
 	telemetry?: ArchiveForwarderTelemetry,
+	onTableFailure?: (table: SupportedTable, error: unknown) => void,
 ): Promise<ArchiveBatchResult> {
 	const result = await insertArchiveRows(
 		inserter,
 		request.rows,
 		telemetry,
 		request.batch_id,
+		onTableFailure,
 	);
 	// Requires rows to have actually landed. `failed === 0` is also true for an
 	// empty batch, and an empty POST advancing this gauge would keep a staleness

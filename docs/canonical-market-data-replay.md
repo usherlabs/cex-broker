@@ -1,124 +1,95 @@
-# Canonical CEX market-data replay archive
+# CEX live/hot market-data archive
 
-This is the deployment and operations contract for the CEX-broker portions of FIET-901 and FIET-903. FIET-903's broker RPC/capability/current-snapshot/live-stream sub-scope was completed by `cex-broker-order-book-depth-sourcing`; this change adds capture, storage, migration, and replay integrity. It does not add or gate RPCs.
+This document is the operating contract for the final CEX Broker live/hot boundary. CEX owns current/live exchange acquisition and policy-neutral ClickHouse writes. Maker/FIET-1015 owns vendor-object cold reads, historical reconstruction, and policy materialization. FIET-907 may consume resulting evidence but owns no CEX sourcing or historical write path.
 
-## Deployment identity and credential precedence
-
-TEE and non-TEE deployments run the same broker binary and register the full `ExecuteAction` and `Subscribe` service. Archive role does not reduce that service surface.
-
-Set the deployment-owned archive identity:
+## Deployment identity
 
 ```env
 CEX_BROKER_ARCHIVE_ENABLED=true
 CEX_BROKER_ARCHIVE_SOURCE=broker_read
 CEX_BROKER_DEPLOYMENT_ID=market-reader-eu-1
-CEX_BROKER_CAPTURE_BUNDLE_ID=cex-2026-08-03-eu-1
+CEX_BROKER_CAPTURE_BUNDLE_ID=cex-live-eu-1
 CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT=production
 CEX_BROKER_ARCHIVE_FORWARDER_URL=http://archive-forwarder:8090/archive
 CEX_BROKER_ARCHIVE_DEAD_LETTER_PATH=/var/lib/cex-broker/archive-loss.jsonl
+CEX_BROKER_ORDERBOOK_ARCHIVE_DEPTH_LIMIT=25
+CEX_BROKER_ORDERBOOK_MEASUREMENT_BANDS_BPS=10,25,50,100
+ARCHIVE_FORWARDER_MARKET_SOURCE=broker_read
+ARCHIVE_FORWARDER_MARKET_DEPLOYMENT_ID=market-reader-eu-1
 ```
 
-`CEX_BROKER_ARCHIVE_SOURCE` is closed to `broker_read|broker_write` and defaults to `broker_write` for existing deployments. The writer stamps this immutable value into envelopes, rows, and loss records. It is never inferred from API-key presence. FIET-901 deployment verification requires the separately deployed broker to use `broker_read`, an explicit deployment ID, and a non-empty deployment-owned capture bundle before continuous capture is declared ready; the core broker does not infer that role or gate its RPC service. If archival is absent or disabled, archive work is a no-op. If an enabled writer lacks complete production market provenance, canonical market archival is skipped with a bounded warning while broker RPCs and stream delivery continue. Development capture explicitly uses `CEX_BROKER_MARKET_CAPTURE_ENVIRONMENT=development` and generates a `development:<deployment>` bundle when none is supplied.
-
-Credential resolution uses the broker's established fixed precedence and requires no archive-specific credential configuration:
-
-1. Use a matching broker account loaded from `.env`/deployment configuration.
-2. If no matching environment broker exists, use a complete request `api-key` and `api-secret` pair.
-3. If neither source exists, construct a credentialless exchange only for operations that already support public access.
-
-When environment and request credentials are both present, the environment-loaded broker wins. The broker does not classify keys as public, read-only, or write-capable and does not introduce credential-source or permission-attestation settings. For a non-TEE reader, ensure every credential that deployment or its trusted callers may supply has exchange-side trading and withdrawal permissions disabled. Those exchange permissions—not archive source or credential location—establish effective privilege.
+`CEX_BROKER_ARCHIVE_SOURCE` is closed to `broker_read|broker_write`. The broker derives and stamps that deployment source; callers cannot introduce a market source through row data. Invalid archive-depth or measurement-band configuration fails startup rather than clamping or substituting a configured value.
 
 ## Four-feed collector
 
-The collector is an independent keep-alive client of a separately deployed full broker. Set its broker target and point its canonical configuration at a JSON document containing only feed intent:
+The independent collector keeps ORDERBOOK, TICKER, TRADES, and OHLCV subscriptions alive against a separately deployed full broker. It owns no credentials, archive identity, or ClickHouse connection. The broker resolves credentials and emits at most one archive decision for each accepted physical feed observation before subscriber fanout.
 
-```env
-CEX_BROKER_URL=cex-broker.internal:8086
-CEX_BROKER_MARKET_DATA_COLLECTOR_CONFIG=/etc/cex-broker/market-data-subscriptions.json
+Current snapshot and `Subscribe(ORDERBOOK)` retain their public response shapes. Subscriber depth projection remains independent of archive depth.
+
+## ORDERBOOK hot contract
+
+Each accepted ORDERBOOK observation produces:
+
+1. a capture-schema `1.0.0` raw row whose `raw_checksum` and `raw_capture_id` commit to the complete normalized observation;
+2. no more than configured N schema-`1.0.0` level rows per side, retained for diagnostics only; and
+3. one summary-schema `2.0.0` row calculated from the complete validated observation before slicing.
+
+The raw row uses `payload_encoding = orderbook_metadata_only_v1`. Its canonical JSON contains exactly the closed capture-profile, cadence, requested-depth, archive-depth, observed-edge/count, exhaustion, retained-count, and measurement-band fields. It never contains bids, asks, provider bodies, nested levels, or a full-body fallback. The full-observation checksum is an ingestion-time commitment; the discarded observation cannot be reconstructed from ClickHouse raw JSON alone.
+
+Summary v2 uses midpoint-relative boundaries and aligned bid/ask arrays. Each band status is:
+
+- `exact` when the complete observed edge reaches the boundary or validated provider evidence proves that side exhausted;
+- `censored` when the observation stops inside the boundary without proven exhaustion.
+
+A short count does not prove exhaustion. There is no `unknown` row. Missing, one-sided, malformed, inconsistent, or incomplete-provenance observations are rejected and therefore unavailable through the supported view. Diagnostic levels never repair, replace, or upgrade a missing or censored summary.
+
+The canonical downstream fixture is:
+
+```text
+test/fixtures/cex-order-book-depth-summary-v2-conformance/v1/fixture.json
+test/fixtures/cex-order-book-depth-summary-v2-conformance/v1/SHA256SUMS
 ```
 
-```json
-{
-  "subscriptions": [
-    { "exchange": "binance", "symbol": "BTC/USDT", "feed": "ORDERBOOK", "depthLimit": 50 },
-    { "exchange": "binance", "symbol": "BTC/USDT", "feed": "TICKER" },
-    { "exchange": "binance", "symbol": "BTC/USDT", "feed": "TRADES" },
-    { "exchange": "binance", "symbol": "BTC/USDT", "feed": "OHLCV", "timeframe": "1m", "bootstrapLimit": 100 }
-  ]
-}
-```
+A downstream repository may copy and pin these bytes without depending on a CEX checkout, package, executable, or sidecar.
 
-Run it with `bun run start-market-data-collector`. The collector starts no loopback broker, loads no CEX credentials, sends no API-key metadata, owns no archive writer, and does not connect to ClickHouse. The remote broker resolves its environment-first credentials and, when eligible archival is configured, attaches the production environment, deployment, capture bundle, source, and integrity provenance configured in the preceding section. Collector JSON containing `environment`, `captureBundleId`, or other archive identity is rejected.
+## Supported ClickHouse surfaces
 
-Each entry has an independent reconnect supervisor and health state. OHLCV retains bootstrap/catch-up and stamps `broker_bootstrap_fetch_v1` separately from live capture. ORDERBOOK, TICKER, and TRADES record unrecoverable gaps after reconnect rather than synthesize missing events.
+- `market_data.cex_order_book_levels_canonical` and `_conflicts`: broker-source schema-v1 diagnostics.
+- `market_data.cex_order_book_depth_summary_canonical` and `_conflicts`: broker-source, complete-provenance, schema-v2-only depth evidence.
+- `market_data.cex_stream_events`: metadata-only ORDERBOOK raw rows and unchanged raw behavior for other feeds.
 
-An external CCXT or Hummingbot fallback is an optional out-of-band producer of the shared capture contract, not a broker-collector implementation. It must declare its provider, versioned fallback source mode, reason, configured exchange, and configured pair. Cross-venue or cross-pair substitution is rejected.
+Physical rows remain append-only. Identical retries converge only in canonical views. A logical key with multiple normalized checksums remains visible in its conflict view and excluded from canonical output. Existing summary-v1 physical rows may age out under TTL, but no supported writer, reader, alias, decoder, view, or fallback consumes them.
 
-## Capture and integrity contract
+Both order-book tables use the uniform 90-day hot TTL. CEX Broker exposes no vendor acquisition, promotion, qualification, archive-selection, replay-qualified view, preparation package, or canonical Parquet product.
 
-All canonical rows carry source, deployment, capture bundle, exchange, trading pair/source symbol, provider, feed, source mode, source/received timestamps, raw capture ID/scope, schema version, checksum algorithm, raw checksum, normalized checksum, and provenance completeness. The current versions are:
+## Legacy migration
 
-- schema: `1.0.0`
-- checksum: `sha256-canonical-json-v1`
-- construction: sampled top-N snapshots for live/current broker order books
+`services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts` may migrate retained legacy order-book snapshots into bounded schema-v1 level rows with honest incomplete provenance. It emits no summary of either version and cannot make a historical interval visible through the supported v2 summary view.
 
-Raw payloads are redacted before identity/checksum calculation. Canonical JSON sorts object keys, uses finite plain-decimal numbers, normalizes negative zero, omits undefined object values, and excludes checksum fields from their own projections. The TypeScript fixture is `test/fixtures/canonical-market-capture-v1.json`; `research/hummingbot/canonical_capture_fixture.py` is the matching Maker-side verifier.
+## Terminal deployed-schema retirement
 
-Exact L2 is future-facing and non-blocking for this delivery. The broker reports it unsupported and never silently labels sampled evidence exact. A future exact producer must supply complete continuity proof.
+Normal forwarder startup applies non-destructive schema creation/additive columns/views only. It never deletes historical rows, changes deployed TTLs destructively, drops obsolete objects, or removes columns.
 
-## ClickHouse and replay
+After source rejection is deployed and all historical writers are stopped, an explicitly approved operator operation must:
 
-Canonical storage is:
+1. run read-only inventory and export required audit evidence;
+2. delete `external_backfill` rows and wait for ClickHouse mutations;
+3. apply unconditional 90-day TTLs;
+4. drop obsolete promotion, qualification, selection, cluster-identity, and replay-qualified objects;
+5. drop vendor-only `capture_origin`; and
+6. run the terminal absence verifier.
 
-- `market_data.cex_stream_events` for the redacted raw ledger
-- `market_data.cex_ticker_events`, `market_data.cex_trades`, and `market_data.cex_ohlcv`
-- append-only `market_data.cex_order_book_levels` and `market_data.cex_order_book_depth_summary`
+The SQL artifacts are under `schema/clickhouse/migrations/retire_cex_order_book_historical_{inventory,apply,verify}.sql`. The typed orchestration is `services/archive-forwarder/scripts/order-book-schema-retirement.ts`. Destructive execution requires a named approval and backup; it is not performed automatically by tests or startup.
 
-`cex_ohlcv` uses `ReplacingMergeTree(broker_version)`; `cex_ohlcv_closed` applies `FINAL` and closed-bar semantics. Order-book physical duplicates remain auditable. The `_canonical` views expose one checksum-consistent logical row, while `_conflicts` expose keys with multiple checksums. Same-batch conflicts are rejected by the forwarder; cross-batch conflicts remain stored and must block the affected replay bundle.
+## Conformance boundaries
 
-Use `schema/clickhouse/canonical_market_data_replay.sql` for bounded bundle/exchange/pair/source-time replay. Its conflict preflights must return no rows before consuming the canonical views.
+- **Proof A:** CEX-local acquisition-profile/feed-coalescing regression.
+- **Proof B:** Maker-owned policy-equivalence regression.
+- **Proof C:** production-compatible shared-wire sidecar proving Layer12 current/live gRPC access, feed sharing with one archive decision per physical observation, durable `hb_runtime` HTTP 202/spool admission, and exact persistence in five strategy tables.
+- **Summary parity:** independent summary-v2 fixture/query contract and real-ClickHouse typed projection.
 
-The retained FIET-907 reference exporter materializes a conflict-free order-book window directly from ClickHouse to Maker-compatible Parquet files:
+Proof C uses deterministic controlled/local venue data through production handlers. It is not public-network smoke, Maker policy proof, hot-reader parity, retention proof, or production soak. Public-network market smoke is optional and non-gating.
 
-```bash
-CEX_BROKER_REPLAY_EXPORT_DIRECTORY=/tmp/maker-capture \
-CEX_BROKER_REPLAY_CAPTURE_BUNDLE_IDS=cex-2026-08-03-eu-1 \
-CEX_BROKER_REPLAY_EXCHANGE=binance \
-CEX_BROKER_REPLAY_TRADING_PAIR=BTC-USDT \
-CEX_BROKER_REPLAY_START_TIME_MS=1785715200000 \
-CEX_BROKER_REPLAY_END_TIME_MS=1785801600000 \
-bun scripts/export-canonical-orderbook-parquet.ts
+## Cutover and failure handling
 
-uv run --project research/python --extra dev \
-  python research/hummingbot/order_book_parquet_fixture.py \
-  /tmp/maker-capture/order_book_levels.parquet \
-  /tmp/maker-capture/order_book_depth_summary.parquet
-```
-
-The exporter refuses to overwrite existing files or export a selected window with an order-book checksum conflict. The Python verifier checks capture-core field presence and recomputes every normalized-row checksum from the Parquet values. Neither tool calls the broker or an exchange. Fixture materialization, coverage reports, and replay-bundle assembly are owned by [FIET-907](https://linear.app/usherlabs/issue/FIET-907/clickhouse-backtest-fixture-materializers-and-coveragereplay-bundles), not by the live capture runtime.
-
-For complete strategy-pair validation, point `CEX_BROKER_REPLAY_VALIDATION_CONFIG` at a JSON document whose `windows` array contains `captureBundleIds`, `exchange`, `tradingPair`, `startTimeMs`, and `endTimeMs`, then run `bun scripts/validate-canonical-market-replay.ts`. Every configured window must contain raw and normalized ORDERBOOK, TICKER, TRADES, and OHLCV evidence; any missing feed or checksum conflict fails validation.
-
-## Migration, cutover, rollback, and deployment observation
-
-The upgraded broker always writes the latest canonical schema. There is no runtime legacy/dual/canonical write setting. Upgrading an existing legacy deployment therefore requires the ClickHouse table migration before the new broker version is deployed.
-
-Follow `schema/clickhouse/migrations/canonical_market_data_replay_cutover.sql` phase by phase: apply canonical DDL, quiesce legacy writers, migrate every retained bounded window, validate parity, switch consumers, and only then deploy the canonical-only broker.
-
-```bash
-CEX_BROKER_MIGRATION_START_TIME_MS=1700000000000 \
-CEX_BROKER_MIGRATION_END_TIME_MS=1700086400000 \
-bun run scripts/migrate-legacy-market-data-to-canonical.ts
-
-# Repeat after reviewing dry-run counts:
-CEX_BROKER_CANONICAL_MIGRATION_CONFIRM=true \
-CEX_BROKER_MIGRATION_START_TIME_MS=1700000000000 \
-CEX_BROKER_MIGRATION_END_TIME_MS=1700086400000 \
-bun run scripts/migrate-legacy-market-data-to-canonical.ts
-```
-
-The script reads `market_data.orderbook_snapshots` and `market_data.candles` directly from ClickHouse and writes their canonical equivalents. It never reads fixture files and never calls a broker or exchange. Legacy migration stamps `legacy_migration_v1` and `provenance_complete=0`; unavailable bundle/raw ID/raw scope/raw checksum remain `NULL`. Reruns preserve identical logical checksums: order-book canonical views collapse agreeing physical deliveries and OHLCV replacement semantics select the recorded broker version.
-
-Before cutover, run the parity and replay queries for every configured pair/window and complete the FIET-937 production observation window. Record feed health, last-frame age, reconnects, unrecoverable gaps, received/archived/invalid/sampled rows, queue saturation, journaled rows, checksum conflicts, parity mismatches, and Maker replay consumption. Any unaccounted row, conflict, parity mismatch, stale feed, or persistent journal growth blocks deployment cutover. This operational gate is not an implementation-completion requirement for the archived OpenSpec change and repository checks do not claim that it has occurred.
-
-Rollback stops the upgraded broker, restores retained legacy names if necessary, and rolls back to the previous legacy-writing application version. The runbook uses renames rather than drops; canonical and legacy base data remain recoverable throughout the retention period.
+Use a maintenance window: quiesce market archive writes, apply non-destructive v2 columns/views, deploy the v2-only writer, validate one bounded controlled live capture and supported query, then resume. If a blocking v2 defect appears, stop ORDERBOOK archival and forward-fix or roll back the application without reactivating summary v1, historical admission, preparation commands, or compatibility views.

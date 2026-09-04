@@ -14,6 +14,7 @@ import {
 	isSupportedTable,
 	SUPPORTED_TABLES,
 } from "../services/archive-forwarder/types";
+import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 
 describe("archive forwarder batch parsing", () => {
 	test("parseArchiveBatchRequest accepts broker_write payloads", () => {
@@ -93,14 +94,44 @@ describe("archive forwarder batch parsing", () => {
 	test("rejects same-batch order-book logical-key checksum conflicts", () => {
 		const common = {
 			source: "broker_read",
+			deployment_id: "deploy-a",
 			capture_bundle_id: "bundle-a",
 			exchange: "binance",
+			symbol: "BTC/USDT",
 			trading_pair: "BTC-USDT",
+			source_symbol: "BTC/USDT",
+			asset_type: "spot",
+			feed: "ORDERBOOK",
+			provider: "ccxt:binance",
+			source_mode: "broker_public_feed_v1",
+			source_time_ms: 1_000,
+			received_time_ms: 1_001,
 			raw_capture_id: "raw-a",
+			raw_capture_scope: "ccxt_normalized_object",
 			snapshot_id: "snapshot-a",
 			schema_version: "1.0.0",
+			checksum_algorithm: "sha256-canonical-json-v1",
+			raw_checksum: "d".repeat(64),
+			provenance_complete: 1,
+			construction_mode: "sampled_top_n_snapshot",
+			gap_policy: "record_gap",
+			depth_limit: 25,
+			sequence: null,
+			exact_l2_reconstruction_complete: 0,
 			side: "bid",
 			level_index: 0,
+			price: "100.000000000000000000",
+			amount: "2.000000000000000000",
+			notional: "200.000000000000000000",
+			mid_price: "100.500000000000000000",
+			spread_from_mid_bps: 49.75,
+		};
+		const firstContent = { ...common, normalized_row_checksum: "" };
+		const secondContent = {
+			...common,
+			amount: "3.000000000000000000",
+			notional: "300.000000000000000000",
+			normalized_row_checksum: "",
 		};
 		const parsed = parseArchiveBatchRequest({
 			source: "broker_read",
@@ -108,11 +139,17 @@ describe("archive forwarder batch parsing", () => {
 			rows: [
 				{
 					table: "market_data.cex_order_book_levels",
-					row: { ...common, normalized_row_checksum: "a" },
+					row: {
+						...firstContent,
+						normalized_row_checksum: sha256Canonical(firstContent),
+					},
 				},
 				{
 					table: "market_data.cex_order_book_levels",
-					row: { ...common, normalized_row_checksum: "b" },
+					row: {
+						...secondContent,
+						normalized_row_checksum: sha256Canonical(secondContent),
+					},
 				},
 			],
 		});
@@ -521,7 +558,7 @@ describe("archive forwarder retry deduplication", () => {
 });
 
 describe("archive forwarder schema init", () => {
-	test("every market_data table the forwarder writes carries the dedup window", async () => {
+	test("every token-deduplicated table the forwarder writes carries the dedup window", async () => {
 		// Without this setting on the table, the retry tokens are accepted and
 		// ignored, and a redelivered batch duplicates silently.
 		const statements: string[] = [];
@@ -533,10 +570,12 @@ describe("archive forwarder schema init", () => {
 
 		await ensureArchiveSchema(client);
 
-		const marketDataTables = SUPPORTED_TABLES.filter((table) =>
-			table.startsWith("market_data."),
+		const tokenDeduplicatedTables = SUPPORTED_TABLES.filter((table) =>
+			["market_data.", "broker_execution.", "broker_account."].some((prefix) =>
+				table.startsWith(prefix),
+			),
 		);
-		for (const table of marketDataTables) {
+		for (const table of tokenDeduplicatedTables) {
 			const applied = statements.some(
 				(query) =>
 					query.includes(table) &&
@@ -602,16 +641,16 @@ describe("archive forwarder schema init", () => {
 			"ENGINE = ReplacingMergeTree(broker_version)",
 		);
 		expect(marketSchema).toContain(
-			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_canonical",
+			"CREATE OR REPLACE VIEW market_data.cex_order_book_levels_canonical",
 		);
 		expect(marketSchema).toContain(
-			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_levels_conflicts",
+			"CREATE OR REPLACE VIEW market_data.cex_order_book_levels_conflicts",
 		);
 		expect(marketSchema).toContain(
-			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_depth_summary_canonical",
+			"CREATE OR REPLACE VIEW market_data.cex_order_book_depth_summary_canonical",
 		);
 		expect(marketSchema).toContain(
-			"CREATE VIEW IF NOT EXISTS market_data.cex_order_book_depth_summary_conflicts",
+			"CREATE OR REPLACE VIEW market_data.cex_order_book_depth_summary_conflicts",
 		);
 		expect(marketSchema).toContain(
 			"ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version, side, level_index)",

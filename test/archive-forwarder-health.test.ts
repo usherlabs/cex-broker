@@ -12,7 +12,7 @@ const spoolStats = {
 };
 
 describe("archive forwarder health contract", () => {
-	test("is degraded but available while ClickHouse is down and spool is healthy", () => {
+	test("fails the health check while ClickHouse is down, still reporting durable admission", () => {
 		expect(
 			evaluateForwarderHealth({
 				clickhouseOk: false,
@@ -20,7 +20,11 @@ describe("archive forwarder health contract", () => {
 				spool: spoolStats,
 			}),
 		).toEqual({
-			statusCode: 200,
+			// An unreachable ClickHouse is not a healthy forwarder, even though the
+			// spool keeps accepting: a 200 here let a total archive outage read as
+			// healthy on every operator surface. `status` still separates this from
+			// the harder failure where nothing is being retained at all.
+			statusCode: 503,
 			body: {
 				status: "degraded",
 				clickhouse: false,

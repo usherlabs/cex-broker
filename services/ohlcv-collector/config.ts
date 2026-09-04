@@ -104,14 +104,26 @@ export function parseCollectorBrokerUrl(input: unknown): string {
 
 	if (authority.startsWith("[")) {
 		const match = /^\[([^\]]+)\]:(\d+)$/.exec(authority);
-		if (!match || isIP(match[1]) !== 6) {
+		const matchedHost = match?.[1];
+		const matchedPort = match?.[2];
+		if (
+			matchedHost === undefined ||
+			matchedPort === undefined ||
+			isIP(matchedHost) !== 6
+		) {
 			throw invalidBrokerUrl("invalid bracketed IPv6 address");
 		}
-		[, host, portText] = match;
+		host = matchedHost;
+		portText = matchedPort;
 	} else {
 		const match = /^([^:\s]+):(\d+)$/.exec(authority);
-		if (!match) throw invalidBrokerUrl("invalid authority");
-		[, host, portText] = match;
+		const matchedHost = match?.[1];
+		const matchedPort = match?.[2];
+		if (matchedHost === undefined || matchedPort === undefined) {
+			throw invalidBrokerUrl("invalid authority");
+		}
+		host = matchedHost;
+		portText = matchedPort;
 		if (isIP(host) !== 4 && !isValidHostname(host)) {
 			throw invalidBrokerUrl("invalid hostname or IPv4 address");
 		}

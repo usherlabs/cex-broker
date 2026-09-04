@@ -116,7 +116,6 @@ describe("nextDepositCursor", () => {
 			),
 		).toBe(301);
 	});
-
 });
 
 describe("parseBinanceUnlockProgress", () => {

@@ -3,12 +3,26 @@ import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import { archiveDedupeToken } from "./dedupe-token";
 import { groupRowsByTable } from "./insert";
-import type { StrategyArchiveTable } from "./strategy-contract";
-import type { ArchiveBatchRequest } from "./types";
+import type { ArchiveBatchRequest, SupportedTable } from "./types";
 
+/** Byte budget for durably admitted strategy batches. */
 export const STRATEGY_SPOOL_MAX_BYTES = 1_073_741_824;
+/**
+ * Byte budget for market_data rows retained after a transient ClickHouse
+ * failure. Held separately from the strategy budget because market_data runs at
+ * roughly 25 GiB/day: sharing one quota would let a single archive outage
+ * consume the whole file and starve the strategy lane, whose durable admission
+ * is a contract rather than a best effort.
+ */
+export const MARKET_DATA_SPOOL_MAX_BYTES = 4 * 1_073_741_824;
 export const STRATEGY_SPOOL_RETENTION_MS = 72 * 60 * 60 * 1_000;
 export const DEFAULT_STRATEGY_SPOOL_PATH = "./archive-forwarder-spool.sqlite";
+
+/**
+ * Which budget a batch is accounted against. Stored per batch so both lanes can
+ * share one sqlite file and one drain worker without sharing a quota.
+ */
+export type ArchiveSpoolClass = "strategy" | "market_data";
 
 const WORK_METADATA_BYTES = 256;
 
@@ -39,6 +53,7 @@ function canonicalSerialize(value: unknown): string {
 
 type SpoolLimits = {
 	maxBytes: number;
+	marketDataMaxBytes: number;
 	retentionMs: number;
 };
 
@@ -56,7 +71,7 @@ export type StrategySpoolAdmission = {
 
 export type StrategySpoolWork = {
 	batchId: string;
-	table: StrategyArchiveTable;
+	table: SupportedTable;
 	rows: Record<string, unknown>[];
 	dedupeToken: string;
 	attemptCount: number;
@@ -90,7 +105,7 @@ export class StrategySpoolUnavailableError extends Error {
 
 type WorkRow = {
 	batch_id: string;
-	table_name: StrategyArchiveTable;
+	table_name: SupportedTable;
 	rows_json: string;
 	dedupe_token: string;
 	attempt_count: number;
@@ -104,7 +119,7 @@ function utf8Bytes(value: string): number {
 
 function groupedRows(batch: ArchiveBatchRequest) {
 	return [...groupRowsByTable(batch.rows)].map(([table, rows]) => ({
-		table: table as StrategyArchiveTable,
+		table,
 		rows,
 		rowsJson: canonicalSerialize(rows),
 	}));
@@ -121,6 +136,8 @@ export class StrategyArchiveSpool {
 		this.now = options.now ?? Date.now;
 		this.limits = {
 			maxBytes: options.limits?.maxBytes ?? STRATEGY_SPOOL_MAX_BYTES,
+			marketDataMaxBytes:
+				options.limits?.marketDataMaxBytes ?? MARKET_DATA_SPOOL_MAX_BYTES,
 			retentionMs:
 				options.limits?.retentionMs ?? STRATEGY_SPOOL_RETENTION_MS,
 		};
@@ -152,7 +169,8 @@ export class StrategyArchiveSpool {
 				admitted_at_ms INTEGER NOT NULL,
 				expires_at_ms INTEGER NOT NULL,
 				accounted_bytes INTEGER NOT NULL CHECK (accounted_bytes > 0),
-				envelope_json TEXT NOT NULL
+				envelope_json TEXT NOT NULL,
+				spool_class TEXT NOT NULL DEFAULT 'strategy'
 			);
 			CREATE TABLE IF NOT EXISTS strategy_spool_work (
 				batch_id TEXT NOT NULL REFERENCES strategy_spool_batches(batch_id) ON DELETE CASCADE,
@@ -179,6 +197,22 @@ export class StrategyArchiveSpool {
 			);
 			INSERT OR IGNORE INTO strategy_spool_counters(name, value) VALUES ('expired_work', 0);
 		`);
+		// A spool file written before market_data retention existed has no
+		// spool_class column. Every batch already in such a file is a strategy
+		// batch by construction, which is exactly the column default, so the
+		// upgrade is a plain ADD COLUMN with no backfill pass.
+		const columns = this.database
+			.query<{ name: string }, []>("PRAGMA table_info(strategy_spool_batches)")
+			.all();
+		if (!columns.some((column) => column.name === "spool_class")) {
+			this.database.exec(
+				"ALTER TABLE strategy_spool_batches ADD COLUMN spool_class TEXT NOT NULL DEFAULT 'strategy'",
+			);
+		}
+		this.database.exec(
+			`CREATE INDEX IF NOT EXISTS strategy_spool_batches_class
+				ON strategy_spool_batches(spool_class)`,
+		);
 	}
 
 	public accountedBytes(batch: ArchiveBatchRequest): number {
@@ -194,29 +228,39 @@ export class StrategyArchiveSpool {
 		);
 	}
 
-	public admit(batch: ArchiveBatchRequest): StrategySpoolAdmission {
+	public admit(
+		batch: ArchiveBatchRequest,
+		spoolClass: ArchiveSpoolClass = "strategy",
+	): StrategySpoolAdmission {
 		const admittedAtMs = this.now();
 		const expiresAtMs = admittedAtMs + this.limits.retentionMs;
 		const batchId = randomUUID();
 		const envelopeJson = canonicalSerialize(batch);
 		const groups = groupedRows(batch);
 		const accountedBytes = this.accountedBytes(batch);
+		const classMaxBytes =
+			spoolClass === "market_data"
+				? this.limits.marketDataMaxBytes
+				: this.limits.maxBytes;
 		try {
 			const transaction = this.database.transaction(() => {
 				this.deleteExpired(admittedAtMs);
+			// Usage is summed within the admitting class only, so a saturated
+			// market_data lane still leaves the strategy budget fully available.
 			const current = this.database
-				.query<{ used: number }, []>(
-					"SELECT COALESCE(SUM(accounted_bytes), 0) AS used FROM strategy_spool_batches",
+				.query<{ used: number }, [string]>(
+					`SELECT COALESCE(SUM(accounted_bytes), 0) AS used
+					FROM strategy_spool_batches WHERE spool_class = ?1`,
 				)
-				.get()?.used ?? 0;
-			if (current + accountedBytes > this.limits.maxBytes) {
+				.get(spoolClass)?.used ?? 0;
+			if (current + accountedBytes > classMaxBytes) {
 				throw new StrategySpoolQuotaError();
 			}
 			this.database
 				.query(
 					`INSERT INTO strategy_spool_batches
-					(batch_id, source, deployment_id, admitted_at_ms, expires_at_ms, accounted_bytes, envelope_json)
-					VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+					(batch_id, source, deployment_id, admitted_at_ms, expires_at_ms, accounted_bytes, envelope_json, spool_class)
+					VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
 				)
 				.run(
 					batchId,
@@ -226,6 +270,7 @@ export class StrategyArchiveSpool {
 					expiresAtMs,
 					accountedBytes,
 					envelopeJson,
+					spoolClass,
 				);
 			for (const group of groups) {
 				this.database
@@ -354,13 +399,21 @@ export class StrategyArchiveSpool {
 	}
 
 	public expire(): number {
-		const transaction = this.database.transaction(() =>
-			this.deleteExpired(this.now()),
-		);
-		return transaction.immediate();
+		let expired = 0;
+		const transaction = this.database.transaction(() => {
+			expired = this.deleteExpired(this.now());
+		});
+		transaction.immediate();
+		return expired;
 	}
 
-	public stats(): StrategySpoolStats {
+	/**
+	 * Scoped to one class so the long-standing strategy gauges keep meaning
+	 * exactly what they meant before market_data shared this file. `expiredWork`
+	 * is the one exception: it stays a file-wide counter, because expiry is
+	 * driven by retention rather than by lane.
+	 */
+	public stats(spoolClass: ArchiveSpoolClass = "strategy"): StrategySpoolStats {
 		const now = this.now();
 		const row = this.database
 			.query<
@@ -373,19 +426,28 @@ export class StrategyArchiveSpool {
 					oldest_admitted_at_ms: number | null;
 					last_error_class: string | null;
 				},
-				[]
+				[string]
 			>(
 				`SELECT
-					(SELECT COUNT(*) FROM strategy_spool_batches) AS queued_batches,
-					(SELECT COUNT(*) FROM strategy_spool_work) AS queued_work,
-					(SELECT COUNT(*) FROM strategy_spool_work WHERE state = 'terminal') AS terminal_work,
+					(SELECT COUNT(*) FROM strategy_spool_batches
+					 WHERE spool_class = ?1) AS queued_batches,
+					(SELECT COUNT(*) FROM strategy_spool_work w
+					 JOIN strategy_spool_batches b ON b.batch_id = w.batch_id
+					 WHERE b.spool_class = ?1) AS queued_work,
+					(SELECT COUNT(*) FROM strategy_spool_work w
+					 JOIN strategy_spool_batches b ON b.batch_id = w.batch_id
+					 WHERE b.spool_class = ?1 AND w.state = 'terminal') AS terminal_work,
 					(SELECT value FROM strategy_spool_counters WHERE name = 'expired_work') AS expired_work,
-					(SELECT COALESCE(SUM(accounted_bytes), 0) FROM strategy_spool_batches) AS accounted_bytes,
-					(SELECT MIN(admitted_at_ms) FROM strategy_spool_batches) AS oldest_admitted_at_ms,
-					(SELECT last_error_class FROM strategy_spool_work
-					 WHERE last_error_class <> '' ORDER BY last_error_at_ms DESC LIMIT 1) AS last_error_class`,
+					(SELECT COALESCE(SUM(accounted_bytes), 0) FROM strategy_spool_batches
+					 WHERE spool_class = ?1) AS accounted_bytes,
+					(SELECT MIN(admitted_at_ms) FROM strategy_spool_batches
+					 WHERE spool_class = ?1) AS oldest_admitted_at_ms,
+					(SELECT w.last_error_class FROM strategy_spool_work w
+					 JOIN strategy_spool_batches b ON b.batch_id = w.batch_id
+					 WHERE b.spool_class = ?1 AND w.last_error_class <> ''
+					 ORDER BY w.last_error_at_ms DESC LIMIT 1) AS last_error_class`,
 			)
-			.get();
+			.get(spoolClass);
 		return {
 			queuedBatches: row?.queued_batches ?? 0,
 			queuedWork: row?.queued_work ?? 0,

@@ -309,6 +309,18 @@ describe("canonical market capture contract", () => {
 		expect(left).toHaveLength(64);
 	});
 
+	test("streams the unchanged canonical checksum bytes for nested documents", () => {
+		expect(
+			sha256Canonical({
+				z: -0,
+				b: 1e-7,
+				omitted: undefined,
+				a: [2, 1.5, { checksum: "ignored", value: "ok" }],
+				nested: { raw_checksum: "ignored", keep: true },
+			}),
+		).toBe("0e62d642722dbe12a9d5b567504bc7ca4b3c3409501be85caa10496b4d056ed6");
+	});
+
 	test("raw captures redact secrets and reproduce identity", () => {
 		const first = createRawCapture(captureContext, {
 			payload: { apiSecret: "do-not-retain", bids: [[100, 1]] },
@@ -473,6 +485,26 @@ describe("canonical market capture contract", () => {
 });
 
 describe("canonical order-book normalization", () => {
+	function archiveMetadata(
+		book: NormalizedOrderBookSnapshot,
+		bands: readonly number[] = [50, 100],
+	) {
+		return {
+			captureProfileId: "binance:test:4",
+			effectiveCadenceMs: 1_000,
+			requestedUpstreamDepth: 4,
+			observedBidCount: book.bids.length,
+			observedAskCount: book.asks.length,
+			observedFarthestBid: book.bids.at(-1)?.[0] ?? Number.NaN,
+			observedFarthestAsk: book.asks.at(-1)?.[0] ?? Number.NaN,
+			exhaustionEvidence: {
+				bid: { exhausted: false, validated: true, source: "fixture" },
+				ask: { exhausted: false, validated: true, source: "fixture" },
+			},
+			measurementBandsBps: bands,
+		};
+	}
+
 	test("emits one checksummed row per retained level and one summary", () => {
 		const raw = createRawCapture(captureContext, {
 			payload: snapshot(),
@@ -480,12 +512,13 @@ describe("canonical order-book normalization", () => {
 			receivedTimeMs: 1_700_000_000_125,
 			scope: "ccxt_normalized_object",
 		});
+		const original = snapshot();
 		const result = buildCanonicalOrderBookRows({
 			context: captureContext,
-			snapshot: snapshot(),
+			snapshot: original,
 			rawCapture: raw,
 			depthLimit: 2,
-			measurementBandsBps: [100, 50, 100],
+			archiveMetadata: archiveMetadata(original, [100, 50, 100]),
 		});
 
 		expect(result.levels).toHaveLength(4);
@@ -510,16 +543,18 @@ describe("canonical order-book normalization", () => {
 			"market_data.cex_order_book_depth_summary",
 		);
 		expect(result.summary.row.measurement_bands_bps).toEqual([50, 100]);
-		expect(result.summary.row.bid_depth_by_band).toEqual([1, 3]);
-		expect(result.summary.row.ask_depth_by_band).toEqual([3, 7]);
+		expect(result.summary.row.bid_depth_by_band).toEqual([1, 1]);
+		expect(result.summary.row.ask_depth_by_band).toEqual([3, 3]);
+		expect(result.summary.row.schema_version).toBe("2.0.0");
 		expect(String(result.summary.row.normalized_row_checksum)).toHaveLength(64);
 
+		const retrySnapshot = snapshot({ receivedTimestamp: 1_700_000_009_999 });
 		const retried = buildCanonicalOrderBookRows({
 			context: captureContext,
-			snapshot: snapshot({ receivedTimestamp: 1_700_000_009_999 }),
+			snapshot: retrySnapshot,
 			rawCapture: raw,
 			depthLimit: 2,
-			measurementBandsBps: [50, 100],
+			archiveMetadata: archiveMetadata(retrySnapshot),
 		});
 		expect(retried.snapshotId).toBe(result.snapshotId);
 	});
@@ -552,6 +587,7 @@ describe("canonical order-book normalization", () => {
 				snapshot: book,
 				rawCapture: raw,
 				depthLimit: 2,
+				archiveMetadata: archiveMetadata(book),
 			}),
 		).toThrow(OrderBookValidationError);
 	});
@@ -569,6 +605,7 @@ describe("canonical order-book normalization", () => {
 				snapshot: snapshot(),
 				rawCapture: raw,
 				depthLimit: 2,
+				archiveMetadata: archiveMetadata(snapshot()),
 				constructionMode: "exact_l2_reconstruction",
 			}),
 		).toThrow("continuity proof");
@@ -595,7 +632,7 @@ describe("legacy canonical migration", () => {
 		const first = buildLegacyOrderBookMigrationRows(legacy);
 		const second = buildLegacyOrderBookMigrationRows(legacy);
 		expect(second).toEqual(first);
-		expect(first).toHaveLength(5);
+		expect(first).toHaveLength(4);
 		for (const { row } of first) {
 			expect(row).toMatchObject({
 				capture_bundle_id: null,

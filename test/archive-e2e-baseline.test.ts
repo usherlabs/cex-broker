@@ -79,7 +79,11 @@ describe("archive E2E immutable baseline", () => {
 			new URL("../schema/clickhouse/market_data.sql", import.meta.url),
 		).text();
 		for (const view of CANONICAL_VIEWS) {
-			expect(marketSchema).toContain(`CREATE VIEW IF NOT EXISTS ${view}`);
+			expect(marketSchema).toMatch(
+				new RegExp(
+					`CREATE (?:OR REPLACE )?VIEW(?: IF NOT EXISTS)? ${view.replaceAll(".", "\\.")}`,
+				),
+			);
 		}
 	});
 

@@ -33,6 +33,7 @@ import {
 	OtelLogs,
 	OtelMetrics,
 } from "./helpers/otel";
+import { PublicMarketDataFeedSupervisor } from "./helpers/public-market-data-feed";
 import {
 	StreamHealthPublisher,
 	streamHealthPublisherConfigFromEnv,
@@ -82,6 +83,7 @@ export default class CEXBroker {
 	private userAssetArchivePoller?: UserAssetArchivePoller;
 	private balanceUpdateArchiveConsumer?: BalanceUpdateArchiveConsumer;
 	private userDataStreamSupervisor?: UserDataStreamSupervisor;
+	private publicMarketDataFeedSupervisor?: PublicMarketDataFeedSupervisor;
 
 	/**
 	 * Loads environment variables prefixed with CEX_BROKER_
@@ -325,6 +327,10 @@ export default class CEXBroker {
 		if (this.server) {
 			await this.server.forceShutdown();
 		}
+		if (this.publicMarketDataFeedSupervisor) {
+			await this.publicMarketDataFeedSupervisor.close();
+			this.publicMarketDataFeedSupervisor = undefined;
+		}
 		if (this.userDataStreamSupervisor) {
 			await this.userDataStreamSupervisor.close();
 			this.userDataStreamSupervisor = undefined;
@@ -332,12 +338,7 @@ export default class CEXBroker {
 		if (this.brokerArchiver) {
 			await this.brokerArchiver.close();
 		}
-		if (this.otelMetrics) {
-			await this.otelMetrics.close();
-		}
-		if (this.otelLogs) {
-			await this.otelLogs.close();
-		}
+		await Promise.all([this.otelMetrics?.close(), this.otelLogs?.close()]);
 	}
 
 	/**
@@ -354,6 +355,10 @@ export default class CEXBroker {
 		assertMarketCaptureArchiveStartable(marketArchiveState);
 		if (this.server) {
 			await this.server.forceShutdown();
+		}
+		if (this.publicMarketDataFeedSupervisor) {
+			await this.publicMarketDataFeedSupervisor.close();
+			this.publicMarketDataFeedSupervisor = undefined;
 		}
 		// run() is re-invoked on policy hot-reload; tear down the prior reconciler and
 		// poller so they are rebuilt rather than duplicated.
@@ -400,6 +405,11 @@ export default class CEXBroker {
 			});
 			this.userDataStreamSupervisor.start();
 		}
+		this.publicMarketDataFeedSupervisor = new PublicMarketDataFeedSupervisor({
+			brokers: this.brokers,
+			brokerArchiver: this.brokerArchiver,
+			otelMetrics: this.otelMetrics,
+		});
 
 		this.server = getServer(
 			this.policy,
@@ -413,6 +423,7 @@ export default class CEXBroker {
 			this.withdrawalObservationTracker,
 			undefined,
 			this.userDataStreamSupervisor,
+			this.publicMarketDataFeedSupervisor,
 		);
 
 		this.server.bindAsync(

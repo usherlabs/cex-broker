@@ -8,7 +8,7 @@ export async function startBrokerCommand(
 	port: number,
 	whitelistIps: string[],
 	verityProverUrl: string,
-) {
+): Promise<CEXBroker> {
 	const broker = new CEXBroker({}, policyPath, {
 		port,
 		whitelistIps,
@@ -17,4 +17,5 @@ export async function startBrokerCommand(
 	});
 	broker.loadEnvConfig();
 	await broker.run();
+	return broker;
 }

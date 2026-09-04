@@ -106,6 +106,8 @@ jobs:
           context: .
           file: Dockerfile
           push: true
+          build-args: |
+            CEX_BROKER_BUILD_GIT_HEAD=${{ github.sha }}
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.IMAGE_NAME }}:latest

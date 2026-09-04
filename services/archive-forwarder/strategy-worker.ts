@@ -97,7 +97,10 @@ export class StrategySpoolWorker {
 				result.retried += 1;
 			}
 		}
+		// One drain loop serves both lanes, so both gauge sets are refreshed from
+		// the same pass; `dueWork` is class-agnostic by design.
 		this.telemetry?.recordStrategySpoolStats(this.spool.stats());
+		this.telemetry?.recordMarketDataSpoolStats(this.spool.stats("market_data"));
 		return result;
 	}
 

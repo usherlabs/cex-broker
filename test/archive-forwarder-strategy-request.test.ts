@@ -65,6 +65,124 @@ describe("strategy durable HTTP admission", () => {
 		spool.close();
 	});
 
+	test("rejects external and unknown market sources before insertion or spool admission", async () => {
+		for (const source of ["external_backfill", "unknown_market_source"]) {
+			const spool = new StrategyArchiveSpool({ path: ":memory:" });
+			let insertCalled = false;
+			const response = await handleArchiveRequest(
+				post({
+					source,
+					deployment_id: "historical-worker",
+					rows: [
+						{
+							table: "market_data.cex_order_book_depth_summary",
+							row: { source, snapshot_id: "snapshot-a" },
+						},
+					],
+				}),
+				{
+					inserter: async () => {
+						insertCalled = true;
+					},
+					spool,
+					telemetry: new ArchiveForwarderTelemetry(noopRecorder),
+				},
+			);
+			expect(response.status).toBe(400);
+			expect(insertCalled).toBe(false);
+			expect(spool.stats()).toMatchObject({
+				queuedBatches: 0,
+				queuedWork: 0,
+			});
+			spool.close();
+		}
+	});
+
+	test("rejects a relabeled historical worker against the configured market identity", async () => {
+		let insertCalled = false;
+		const response = await handleArchiveRequest(
+			post({
+				source: "broker_read",
+				deployment_id: "historical-worker",
+				rows: [
+					{
+						table: "market_data.cex_trades",
+						row: {
+							source: "broker_read",
+							deployment_id: "historical-worker",
+							trade_id: "trade-a",
+						},
+					},
+				],
+			}),
+			{
+				marketIdentity: {
+					source: "broker_read",
+					deploymentId: "market-reader-eu-1",
+				},
+				inserter: async () => {
+					insertCalled = true;
+				},
+				telemetry: new ArchiveForwarderTelemetry(noopRecorder),
+			},
+		);
+		expect(response.status).toBe(400);
+		expect(insertCalled).toBe(false);
+	});
+
+	test("rejects a broker envelope when a market row deployment is caller-overridden", async () => {
+		let insertCalled = false;
+		const response = await handleArchiveRequest(
+			post({
+				source: "broker_read",
+				deployment_id: "broker-a",
+				rows: [
+					{
+						table: "market_data.cex_ticker_events",
+						row: {
+							source: "broker_read",
+							deployment_id: "broker-b",
+							symbol: "BTC/USDT",
+						},
+					},
+				],
+			}),
+			{
+				marketIdentity: { source: "broker_read", deploymentId: "broker-a" },
+				inserter: async () => {
+					insertCalled = true;
+				},
+				telemetry: new ArchiveForwarderTelemetry(noopRecorder),
+			},
+		);
+		expect(response.status).toBe(400);
+		expect(insertCalled).toBe(false);
+	});
+
+	test("rejects a broker envelope when a market row source is caller-overridden", async () => {
+		let insertCalled = false;
+		const response = await handleArchiveRequest(
+			post({
+				source: "broker_read",
+				deployment_id: "broker-a",
+				rows: [
+					{
+						table: "market_data.cex_trades",
+						row: { source: "external_backfill", trade_id: "trade-a" },
+					},
+				],
+			}),
+			{
+				inserter: async () => {
+					insertCalled = true;
+				},
+				telemetry: new ArchiveForwarderTelemetry(noopRecorder),
+			},
+		);
+		expect(response.status).toBe(400);
+		expect(insertCalled).toBe(false);
+	});
+
 	test("keeps broker traffic on direct synchronous insertion", async () => {
 		const spool = new StrategyArchiveSpool({ path: ":memory:" });
 		let insertCalled = false;
@@ -75,11 +193,16 @@ describe("strategy durable HTTP admission", () => {
 				rows: [
 					{
 						table: "market_data.cex_trades",
-						row: { source: "broker_read", trade_id: "trade-a" },
+						row: {
+							source: "broker_read",
+							deployment_id: "broker-a",
+							trade_id: "trade-a",
+						},
 					},
 				],
 			}),
 			{
+				marketIdentity: { source: "broker_read", deploymentId: "broker-a" },
 				inserter: async () => {
 					insertCalled = true;
 				},

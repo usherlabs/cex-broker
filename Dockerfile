@@ -19,6 +19,7 @@ RUN bun install --frozen-lockfile
 COPY build.ts proto-gen.sh tsconfig.json ./
 COPY scripts ./scripts
 COPY src ./src
-RUN bun run build
+ARG CEX_BROKER_BUILD_GIT_HEAD
+RUN CEX_BROKER_BUILD_GIT_HEAD="$CEX_BROKER_BUILD_GIT_HEAD" bun run build
 
 CMD ["bun", "./dist/commands/cli.js"]

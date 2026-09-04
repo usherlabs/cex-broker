@@ -65,8 +65,13 @@ void ensureSchemaAndStartDrainage();
 const server = Bun.serve({
 	port: config.port,
 	async fetch(request) {
-		const url = new URL(request.url);
-		if (request.method === "GET" && url.pathname === "/health") {
+		let pathname: string;
+		try {
+			pathname = new URL(request.url).pathname;
+		} catch {
+			return Response.json({ error: "Invalid request URL" }, { status: 400 });
+		}
+		if (request.method === "GET" && pathname === "/health") {
 			const clickhouseOk = schemaReady && (await pingClickHouse(clickhouse));
 			if (!spool) {
 				const health = evaluateForwarderHealth({
@@ -99,9 +104,16 @@ const server = Bun.serve({
 			}
 		}
 
-		if (request.method === "POST" && url.pathname === "/archive") {
+		if (request.method === "POST" && pathname === "/archive") {
 			return handleArchiveRequest(request, {
 				authToken: config.authToken,
+				marketIdentity:
+					config.marketSource && config.marketDeploymentId
+						? {
+								source: config.marketSource,
+								deploymentId: config.marketDeploymentId,
+							}
+						: undefined,
 				inserter,
 				spool,
 				streamHealthStore,
@@ -116,9 +128,7 @@ const server = Bun.serve({
 console.log(
 	`Archive forwarder listening on http://0.0.0.0:${server.port}/archive`,
 );
-console.log(
-	`ClickHouse target: ${new URL(config.clickhouse.url).origin}/${config.clickhouse.database}`,
-);
+console.log(`ClickHouse target: ${config.clickhouse.url}/${config.clickhouse.database}`);
 console.log(`Strategy archive spool: ${config.spoolPath}`);
 
 let shuttingDown = false;

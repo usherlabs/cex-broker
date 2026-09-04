@@ -16,6 +16,7 @@ import {
 	SubscriptionType,
 	type SubscriptionType as SubscriptionTypeValue,
 } from "../src/helpers/constants";
+import { TRACE_METADATA_KEY } from "../src/helpers/trace-context";
 import { startForwarderServer } from "./archive-forwarder-server";
 
 const archiveTestDirectory = mkdtempSync(
@@ -164,16 +165,18 @@ async function expectBackpressureWaitsForDrain({
 	controlledWatch.resolvers[0]?.(firstValue);
 	await waitFor(() => state.writes.length === 1);
 
-	await nextTick();
-	expect(controlledWatch.calls).toHaveLength(1);
+	await waitFor(() => controlledWatch.calls.length === 2);
+	controlledWatch.resolvers[1]?.(secondValue);
+	await waitFor(() => controlledWatch.calls.length === 3);
+	expect(state.writes).toHaveLength(1);
 
 	call.emit("drain");
-	await waitFor(() => controlledWatch.calls.length === 2);
+	await waitFor(() => state.writes.length === 2);
 	cancelSubscribeCall(call);
-	controlledWatch.resolvers[1]?.(secondValue);
+	controlledWatch.resolvers[2]?.(secondValue);
 	await handlerPromise;
 
-	expect(state.writes).toHaveLength(1);
+	expect(state.writes).toHaveLength(2);
 }
 
 function createPool(
@@ -283,7 +286,7 @@ describe("subscribe handler", () => {
 		method: "watchOrderBook" | "watchTrades";
 		firstValue: unknown;
 		secondValue: unknown;
-	}>)("waits for drain before consuming another $method event after write backpressure", async ({
+	}>)("keeps the shared $method watch moving while one RPC waits for drain", async ({
 		type,
 		method,
 		firstValue,
@@ -413,6 +416,7 @@ describe("subscribe handler", () => {
 		process.env.CEX_BROKER_MARKET_ARCHIVE_ENABLED = "true";
 
 		try {
+			const traceId = "550e8400-e29b-41d4-a716-446655440000";
 			const controlledWatch = createControlledWatch();
 			const exchange = {
 				watchOrderBook: controlledWatch.watch,
@@ -429,6 +433,7 @@ describe("subscribe handler", () => {
 				symbol: "BTC/USDT",
 				type: SubscriptionType.ORDERBOOK,
 			});
+			call.metadata.set(TRACE_METADATA_KEY, traceId);
 			const handler = createSubscribeHandler({
 				brokers: createPool(exchange),
 				whitelistIps: ["*"],
@@ -467,6 +472,10 @@ describe("subscribe handler", () => {
 						row: Record<string, unknown>;
 					}>,
 			);
+			expect(JSON.stringify(rows)).not.toContain(traceId);
+			for (const archivedRow of rows) {
+				expect(archivedRow.row).not.toHaveProperty("trace_id");
+			}
 			expect(
 				rows.some((entry) => entry.table === "market_data.orderbook_snapshots"),
 			).toBe(false);

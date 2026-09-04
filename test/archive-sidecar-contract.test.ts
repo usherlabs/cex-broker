@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,21 +10,160 @@ import {
 	validateSidecarManifest,
 } from "../scripts/archive-sidecar";
 
-const sha = "a".repeat(40);
-const makerCheckout = {
-	branch: "develop",
-	clean: true,
-	sha: "b".repeat(40),
-	originDevelopSha: "b".repeat(40),
-	pr1067Ancestor: true,
-	fixtureSha256:
-		"784f647e048052a6c3382309b1a86abfbe08bc162363ead9fc88eaa1ba3d50c9",
-	wireContractTests: { exitCode: 0 },
+const cexSha = "a".repeat(40);
+const makerSha = "b".repeat(40);
+const fixture = {
+	schemaVersion: "fiet-maker-cex-shared-wire/v2",
+	id: "production-compatible-layer12-archive-emitter",
+	sha256: "5c9fd679a5a05ebce5f5158f4cc376360f24a34d9a07edeee43e94e564db3ee7",
 };
+const strategyTables = [
+	"strategy_data.policy_evaluation_events",
+	"strategy_data.strategy_policy_snapshots",
+	"strategy_data.market_identity",
+	"strategy_data.symbol_mapping",
+	"strategy_data.inventory_settlement_events",
+] as const;
 
-describe("archive sidecar command contract", () => {
-	test("parses the closed non-interactive operation and flag surface", () => {
+function manifest() {
+	return {
+		schemaVersion: "cex-archive-sidecar/v2",
+		runId: "run-a",
+		profile: "production_compatible",
+		candidateSha: cexSha,
+		makerSha,
+		artifactsDir: "/tmp/a/run-a",
+		manifestPath: "/tmp/a/run-a/manifest.json",
+		statePath: "/tmp/a/run-a/state.json",
+		logPath: "/tmp/a/run-a/supervisor.log",
+		verificationPath: "/tmp/a/run-a/verification.json",
+		spoolPath: "/tmp/a/run-a/strategy-spool.sqlite",
+		producerAccessPath: "/tmp/a/run-a/producer-access.json",
+		makerResultPath: "/tmp/a/run-a/maker-result.json",
+		containerName: "cex-sidecar-run-a",
+		clickhouseUrl: "http://127.0.0.1:18123",
+		forwarderUrl: "http://127.0.0.1:18090/archive",
+		forwarderHealthUrl: "http://127.0.0.1:18090/health",
+		brokerUrl: "127.0.0.1:18091",
+		deploymentId: "sidecar-run-a",
+		captureBundleId: "sidecar-bundle-run-a",
+		createdAt: "2026-08-04T00:00:00.000Z",
+		clickhouseImage: "clickhouse/clickhouse-server:24.8",
+		evidenceBounds: {
+			readyTimeoutMs: 120_000,
+			verificationTimeoutMs: 120_000,
+			maxStrategyRows: 1_000,
+		},
+		sharedWireFixture: fixture,
+		strategyExpectation: {
+			source: "hb_runtime",
+			producerId: "hb_runtime:sidecar-run-a:cex-sidecar-conformance",
+			producerRunId: "run-a",
+			tableRows: Object.fromEntries(strategyTables.map((table) => [table, 1])),
+		},
+		supervisorPid: 123,
+		commands: {
+			up: "bun run archive:sidecar -- up",
+			ready: "bun run archive:sidecar -- ready --manifest <path>",
+			verify: "bun run archive:sidecar -- verify --manifest <path>",
+			down: "bun run archive:sidecar -- down --manifest <path>",
+		},
+	};
+}
+
+function makerResult() {
+	return {
+		schemaVersion: "fiet-maker-cex-sidecar-conformance/v2",
+		status: "passed",
+		runId: "run-a",
+		profile: "production_compatible",
+		makerSha,
+		candidateSha: cexSha,
+		deploymentId: "sidecar-run-a",
+		captureBundleId: "sidecar-bundle-run-a",
+		source: "hb_runtime",
+		producerId: "hb_runtime:sidecar-run-a:cex-sidecar-conformance",
+		producerRunId: "run-a",
+		startedAt: "2026-08-04T00:00:00.000Z",
+		completedAt: "2026-08-04T00:01:00.000Z",
+		delivery: {
+			httpStatus: 202,
+			batchId: "run-a",
+			acceptedRows: 5,
+			spoolQueuedBefore: 0,
+			spoolQueuedAfter: 0,
+		},
+		tableRows: Object.fromEntries(
+			strategyTables.map((table, index) => [
+				table,
+				{ count: 1, archiveEventIds: [`run-a-event-${index + 1}`] },
+			]),
+		),
+		profileEvidence: {
+			brokerBoundaryObserved: true,
+			brokerObservation: {
+				schemaVersion: "fiet-hummingbot-external-sidecar-broker/v2",
+				status: "passed",
+				boundary: "external_sidecar_broker",
+				layer12Boundary: "layer12_live_reference_depth",
+				currentSnapshotObserved: true,
+				liveSubscriptionObserved: true,
+			},
+			makerCheckout: {
+				branch: "develop",
+				clean: true,
+				sha: makerSha,
+				originDevelopSha: makerSha,
+				sharedWireFixture: fixture,
+				wireContractTests: { exitCode: 0 },
+			},
+		},
+		artifactHashes: {
+			sharedWireTest: {
+				sha256: fixture.sha256,
+			},
+		},
+	};
+}
+
+describe("archive sidecar v2 command contract", () => {
+	test("preserves the closed lifecycle and accepts only production_compatible", () => {
 		expect(
+			parseSidecarInvocation([
+				"up",
+				"--run-id",
+				"run-a",
+				"--profile",
+				"production_compatible",
+				"--candidate-sha",
+				cexSha,
+				"--maker-sha",
+				makerSha,
+				"--artifacts-dir",
+				"/tmp/archive-sidecar-artifacts",
+			]),
+		).toMatchObject({
+			operation: "up",
+			runId: "run-a",
+			profile: "production_compatible",
+		});
+		expect(
+			parseSidecarInvocation(["ready", "--manifest", "/tmp/manifest.json"]),
+		).toMatchObject({ operation: "ready", timeoutMs: 120_000 });
+		for (const operation of ["verify", "down"] as const) {
+			expect(
+				parseSidecarInvocation([operation, "--manifest", "/tmp/manifest.json"]),
+			).toMatchObject({ operation });
+		}
+	});
+
+	test("rejects native_replay, removed command aliases, and invalid invocations", () => {
+		for (const operation of ["prepare", "execute", "cleanup"]) {
+			expect(() => parseSidecarInvocation([operation])).toThrow(
+				"Operation must be up, ready, verify, or down",
+			);
+		}
+		expect(() =>
 			parseSidecarInvocation([
 				"up",
 				"--run-id",
@@ -32,210 +171,207 @@ describe("archive sidecar command contract", () => {
 				"--profile",
 				"native_replay",
 				"--candidate-sha",
-				sha,
+				cexSha,
 				"--maker-sha",
-				"b".repeat(40),
-				"--artifacts-dir",
-				"/tmp/archive-sidecar-artifacts",
-			]),
-		).toMatchObject({
-			operation: "up",
-			runId: "run-a",
-			profile: "native_replay",
-		});
-		expect(
-			parseSidecarInvocation(["ready", "--manifest", "/tmp/manifest.json"]),
-		).toMatchObject({ operation: "ready", timeoutMs: 120_000 });
-	});
-
-	test("treats missing identity, unsupported profiles, and flags as usage errors", () => {
-		for (const args of [
-			["up", "--run-id", "run-a"],
-			[
-				"up",
-				"--run-id",
-				"run-a",
-				"--profile",
-				"unknown",
-				"--candidate-sha",
-				sha,
-				"--maker-sha",
-				sha,
+				makerSha,
 				"--artifacts-dir",
 				"/tmp/a",
-			],
-			["ready", "--manifest", "/tmp/a", "--unknown", "x"],
-		]) {
-			expect(() => parseSidecarInvocation(args)).toThrow(SidecarUsageError);
-		}
-	});
-
-	test("accepts only whitelisted secret-free manifest fields", () => {
-		const manifest = {
-			schemaVersion: "cex-archive-sidecar/v1",
-			runId: "run-a",
-			profile: "production_compatible",
-			candidateSha: sha,
-			archiveImplementationSha: "3398066ae2c396a9a9e0220f88715ac22b6d8694",
-			makerSha: "b".repeat(40),
-			baselineSha: "7a83de5f29a08f42d81f64a75a83bc9318dce94a",
-			artifactsDir: "/tmp/a/run-a",
-			manifestPath: "/tmp/a/run-a/manifest.json",
-			statePath: "/tmp/a/run-a/state.json",
-			logPath: "/tmp/a/run-a/supervisor.log",
-			verificationPath: "/tmp/a/run-a/verification.json",
-			spoolPath: "/tmp/a/run-a/strategy-spool.sqlite",
-			producerAccessPath: "/tmp/a/run-a/producer-access.json",
-			makerResultPath: "/tmp/a/run-a/maker-result.json",
-			referenceExportPath: "/tmp/a/run-a/reference-export.json",
-			containerName: "cex-sidecar-run-a",
-			clickhouseUrl: "http://127.0.0.1:18123",
-			forwarderUrl: "http://127.0.0.1:18090/archive",
-			forwarderHealthUrl: "http://127.0.0.1:18090/health",
-			brokerUrl: "127.0.0.1:18091",
-			deploymentId: "sidecar-run-a",
-			captureBundleId: "sidecar-bundle-run-a",
-			createdAt: "2026-08-04T00:00:00.000Z",
-			clickhouseImage: "clickhouse/clickhouse-server:24.8",
-			supervisorPid: 123,
-			commands: {
-				up: "bun run archive:sidecar -- up",
-				ready: "bun run archive:sidecar -- ready --manifest <path>",
-				verify: "bun run archive:sidecar -- verify --manifest <path>",
-				down: "bun run archive:sidecar -- down --manifest <path>",
-			},
-		};
-		expect(() => validateSidecarManifest(manifest)).not.toThrow();
+			]),
+		).toThrow("Unsupported sidecar profile");
+		expect(() => parseSidecarInvocation(["up", "--run-id", "run-a"])).toThrow(
+			SidecarUsageError,
+		);
 		expect(() =>
-			validateSidecarManifest({ ...manifest, apiSecret: "leaked" }),
-		).toThrow(SidecarUsageError);
-		expect(() =>
-			validateSidecarManifest({ ...manifest, spoolPath: "/tmp/not-run-owned" }),
+			parseSidecarInvocation([
+				"ready",
+				"--manifest",
+				"/tmp/a",
+				"--unknown",
+				"x",
+			]),
 		).toThrow(SidecarUsageError);
 	});
 
-	test("accepts only Maker-authored results bound to the run and exact producer", () => {
-		const result = {
-			schemaVersion: "fiet-maker-cex-sidecar-conformance/v1",
-			status: "passed",
-			runId: "run-a",
-			profile: "native_replay",
-			makerSha: "b".repeat(40),
-			candidateSha: sha,
-			deploymentId: "sidecar-run-a",
-			source: "maker_replay",
-			producerId: "maker_replay:sidecar-run-a:cex-sidecar-conformance",
-			producerRunId: "run-a",
-			delivery: {
-				httpStatus: 200,
-				acceptedRows: 5,
-				spoolQueuedBefore: 0,
-				spoolQueuedAfter: 0,
-			},
-			tableRows: {
-				"strategy_data.policy_evaluation_events": 1,
-				"strategy_data.strategy_policy_snapshots": 1,
-				"strategy_data.market_identity": 1,
-				"strategy_data.symbol_mapping": 1,
-				"strategy_data.inventory_settlement_events": 1,
-			},
-			profileEvidence: {
-				brokerBoundaryObserved: false,
-				makerCheckout,
-				consumer: {
-					path: "hb_maker_emulation.order_book_depth_sourcing.load_precomputed_order_book",
-					sourceMode: "vendor_archive_normalized",
-					levelRows: 2,
-					summaryRows: 1,
-				},
-			},
-			artifactHashes: {},
-		};
-		expect(() => validateMakerSidecarResult(result)).not.toThrow();
+	test("accepts only a closed secret-free v2 manifest", () => {
+		const value = manifest();
+		expect(() => validateSidecarManifest(value)).not.toThrow();
 		expect(() =>
-			validateMakerSidecarResult({
-				...result,
-				producerId: "fiet-maker-sidecar",
+			validateSidecarManifest({
+				...value,
+				schemaVersion: "cex-archive-sidecar/v1",
 			}),
+		).toThrow("Unsupported manifest schema");
+		expect(() =>
+			validateSidecarManifest({ ...value, profile: "native_replay" }),
+		).toThrow("Unsupported manifest profile");
+		expect(() =>
+			validateSidecarManifest({ ...value, referenceExportPath: "/tmp/export" }),
+		).toThrow("Unknown manifest field referenceExportPath");
+		expect(() =>
+			validateSidecarManifest({ ...value, apiSecret: "leaked" }),
 		).toThrow(SidecarUsageError);
 		expect(() =>
-			validateMakerSidecarResult({
-				...result,
-				profileEvidence: {
-					brokerBoundaryObserved: true,
-					makerCheckout,
-					consumer: {
-						path: "hb_maker_emulation.order_book_depth_sourcing.load_precomputed_order_book",
-						sourceMode: "vendor_archive_normalized",
-						levelRows: 2,
-						summaryRows: 1,
+			validateSidecarManifest({ ...value, spoolPath: "/tmp/not-run-owned" }),
+		).toThrow("not run-owned");
+		expect(() =>
+			validateSidecarManifest({
+				...value,
+				strategyExpectation: {
+					...value.strategyExpectation,
+					tableRows: {
+						...value.strategyExpectation.tableRows,
+						"strategy_data.symbol_mapping": 2,
 					},
 				},
 			}),
-		).toThrow(SidecarUsageError);
+		).toThrow("strategy row counts are invalid");
 	});
 
-	test("requires production results to bind the real Layer12 broker path", () => {
-		const result = {
-			schemaVersion: "fiet-maker-cex-sidecar-conformance/v1",
-			status: "passed",
-			runId: "run-production",
-			profile: "production_compatible",
-			makerSha: "b".repeat(40),
-			candidateSha: sha,
-			deploymentId: "sidecar-run-production",
-			source: "hb_runtime",
-			producerId: "hb_runtime:sidecar-run-production:cex-sidecar-conformance",
-			producerRunId: "run-production",
-			delivery: {
-				httpStatus: 202,
-				acceptedRows: 5,
-				spoolQueuedBefore: 0,
-				spoolQueuedAfter: 0,
-			},
-			tableRows: {
-				"strategy_data.policy_evaluation_events": 1,
-				"strategy_data.strategy_policy_snapshots": 1,
-				"strategy_data.market_identity": 1,
-				"strategy_data.symbol_mapping": 1,
-				"strategy_data.inventory_settlement_events": 1,
-			},
-			profileEvidence: {
-				brokerBoundaryObserved: true,
-				makerCheckout,
-				brokerObservation: {
-					schemaVersion: "fiet-hummingbot-external-sidecar-broker/v1",
-					status: "passed",
-					boundary: "external_sidecar_broker",
-					layer12Boundary: "layer12_live_reference_depth",
-				},
-			},
-			artifactHashes: {},
-		};
-		expect(() => validateMakerSidecarResult(result)).not.toThrow();
-		expect(() =>
+	test("accepts only bounded v2 hb_runtime results for the exact five tables", async () => {
+		const value = makerResult();
+		await expect(validateMakerSidecarResult(value)).resolves.toEqual(value);
+		await expect(
 			validateMakerSidecarResult({
-				...result,
+				...value,
+				schemaVersion: "fiet-maker-cex-sidecar-conformance/v1",
+			}),
+		).rejects.toThrow("supported schema");
+		await expect(
+			validateMakerSidecarResult({ ...value, profile: "native_replay" }),
+		).rejects.toThrow("profile is unsupported");
+		await expect(
+			validateMakerSidecarResult({
+				...value,
+				source: "maker_replay",
+			}),
+		).rejects.toThrow("exact external producer");
+		await expect(
+			validateMakerSidecarResult({
+				...value,
+				delivery: { ...value.delivery, httpStatus: 200 },
+			}),
+		).rejects.toThrow("delivery evidence is invalid");
+		await expect(
+			validateMakerSidecarResult({
+				...value,
+				delivery: { ...value.delivery, batchId: "different-batch" },
+			}),
+		).rejects.toThrow("delivery evidence is invalid");
+
+		const incompleteTables = { ...value.tableRows };
+		delete incompleteTables["strategy_data.symbol_mapping"];
+		await expect(
+			validateMakerSidecarResult({ ...value, tableRows: incompleteTables }),
+		).rejects.toThrow("unknown or incomplete field set");
+	});
+
+	test("requires live Layer12, durable spool, bounded row ids, and hash-bound clean commits", async () => {
+		const value = makerResult();
+		await expect(
+			validateMakerSidecarResult({
+				...value,
+				artifactHashes: {
+					sharedWireTest: { sha256: "d".repeat(64) },
+				},
+			}),
+		).rejects.toThrow("shared-wire test artifact hash is invalid");
+		await expect(
+			validateMakerSidecarResult({
+				...value,
+				artifactHashes: {
+					...value.artifactHashes,
+					policyProof: { sha256: "d".repeat(64) },
+				},
+			}),
+		).rejects.toThrow("unknown or incomplete field set");
+		await expect(
+			validateMakerSidecarResult({
+				...value,
 				profileEvidence: {
-					brokerBoundaryObserved: true,
-					makerCheckout,
+					...value.profileEvidence,
 					brokerObservation: {
-						schemaVersion: "fiet-hummingbot-external-sidecar-broker/v1",
-						status: "passed",
-						boundary: "external_sidecar_broker",
+						...value.profileEvidence.brokerObservation,
+						currentSnapshotObserved: false,
 					},
 				},
 			}),
-		).toThrow(SidecarUsageError);
+		).rejects.toThrow("current/live Layer12 broker path");
+		await expect(
+			validateMakerSidecarResult({
+				...value,
+				completedAt: "2026-08-04T01:00:00.000Z",
+			}),
+		).rejects.toThrow("timestamps exceed the bounded run");
+		await expect(
+			validateMakerSidecarResult({
+				...value,
+				profileEvidence: {
+					...value.profileEvidence,
+					makerCheckout: {
+						...value.profileEvidence.makerCheckout,
+						pr1067Ancestor: true,
+					},
+				},
+			}),
+		).rejects.toThrow("unknown or incomplete field set");
+		await expect(
+			validateMakerSidecarResult({
+				...value,
+				profileEvidence: {
+					...value.profileEvidence,
+					immediateHedgeability: { status: "passed" },
+				},
+			}),
+		).rejects.toThrow("unknown or incomplete field set");
 	});
 
-	test("supervisor never fabricates Maker strategy rows", async () => {
+	test("supervisor uses controlled production handlers and never fabricates Maker rows", async () => {
 		const source = await Bun.file(
 			new URL("../scripts/archive-sidecar-supervisor.ts", import.meta.url),
 		).text();
+		expect(source).toContain("startProductionBrokerCollectorTopology");
+		expect(source).toContain("services/archive-forwarder/index.ts");
 		expect(source).not.toContain("postStrategy");
 		expect(source).not.toContain("strategyRows");
-		expect(source).not.toContain("archive-baseline-v1.json");
+		expect(source).not.toContain("referenceExport");
+		expect(source).not.toContain("Parquet");
+	});
+
+	test("sidecar source contains no native, Parquet, FIET-907, or Proof A/B aggregation", async () => {
+		const source = await Bun.file(
+			new URL("../scripts/archive-sidecar.ts", import.meta.url),
+		).text();
+		for (const removed of [
+			"maker_replay",
+			"referenceExportPath",
+			"parquetOwnership",
+			"FIET-907",
+			"pr1067Ancestor",
+			"proofASha256",
+			"proofBSha256",
+		]) {
+			expect(source).not.toContain(removed);
+		}
+	});
+
+	test("CLI returns usage code 2 for a missing or unreadable manifest", async () => {
+		const child = Bun.spawn(
+			[
+				process.execPath,
+				"run",
+				new URL("../scripts/archive-sidecar.ts", import.meta.url).pathname,
+				"verify",
+				"--manifest",
+				join(tmpdir(), `missing-sidecar-${Date.now()}.json`),
+			],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		const [exitCode, stderr] = await Promise.all([
+			child.exited,
+			new Response(child.stderr).text(),
+		]);
+		expect(exitCode).toBe(2);
+		expect(stderr).toContain("Invalid sidecar manifest");
 	});
 
 	test("failed startup cleanup removes every ephemeral producer and spool file", async () => {
@@ -261,5 +397,6 @@ describe("archive sidecar command contract", () => {
 		]) {
 			expect(await Bun.file(path).exists()).toBe(false);
 		}
+		await rm(artifactsDir, { recursive: true, force: true });
 	});
 });

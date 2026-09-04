@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +25,12 @@ import {
 	runTerminalFailureLifecycle,
 } from "../../test/e2e/archive/support/archive-lifecycle";
 import { ClickHouseLocalHarness } from "../../test/e2e/archive/support/clickhouse-local-harness";
+import {
+	comparableReplayPolicy,
+	runAndWriteCexOrderBookCoalescingProofA,
+	runOrderBookClickHouseReplayGate,
+	runOrderBookEquivalenceGate,
+} from "../../test/e2e/archive/support/orderbook-equivalence";
 
 const harnesses: ClickHouseLocalHarness[] = [];
 const endpoints: ArchiveForwarderEndpoint[] = [];
@@ -89,7 +96,17 @@ describe("ClickHouse Local archive E2E runtime", () => {
 				JSON.stringify([row.source, row.deployment_id]),
 			);
 			for (const rows of rowsByEnvelope.values()) {
-				const response = await fetch(endpoint.url, {
+				const envelopeEndpoint = table.table.startsWith("market_data.")
+					? await startArchiveForwarderEndpoint({
+							inserter: harness.inserter,
+							marketIdentity: {
+								source: rows[0]?.source as "broker_read" | "broker_write",
+								deploymentId: String(rows[0]?.deployment_id),
+							},
+						})
+					: endpoint;
+				if (envelopeEndpoint !== endpoint) endpoints.push(envelopeEndpoint);
+				const response = await fetch(envelopeEndpoint.url, {
 					method: "POST",
 					headers: { "content-type": "application/json" },
 					body: JSON.stringify({
@@ -103,8 +120,8 @@ describe("ClickHouse Local archive E2E runtime", () => {
 					isRuntimeStrategy ? 202 : 200,
 				);
 				if (isRuntimeStrategy) {
-					await endpoint.waitForStrategyDrain();
-					expect(endpoint.strategySpoolStats()).toMatchObject({
+					await envelopeEndpoint.waitForStrategyDrain();
+					expect(envelopeEndpoint.strategySpoolStats()).toMatchObject({
 						queuedBatches: 0,
 						queuedWork: 0,
 					});
@@ -126,6 +143,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 		const harness = await initializedHarness();
 		const endpoint = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
+			marketIdentity: { source: "broker_write", deploymentId: "develop-deployment" },
 		});
 		endpoints.push(endpoint);
 		const response = await fetch(endpoint.url, {
@@ -153,6 +171,48 @@ describe("ClickHouse Local archive E2E runtime", () => {
 		).toEqual([{ count: 0 }]);
 	});
 
+	test("distinct broker execution batch tokens preserve byte-identical deliveries", async () => {
+		const fixture = await loadArchiveBaselineFixture();
+		const table = fixture.tables.find(
+			(entry) => entry.table === "broker_execution.order_events",
+		);
+		const fixtureRow = table?.expectedRows[0];
+		if (!table || !fixtureRow) {
+			throw new Error("broker execution order fixture is missing");
+		}
+		const deploymentId = "archive-e2e-identical-execution";
+		const row: Record<string, unknown> = {
+			...(fixtureRow as Record<string, unknown>),
+			deployment_id: deploymentId,
+		};
+		const harness = await initializedHarness();
+		const endpoint = await startArchiveForwarderEndpoint({
+			inserter: harness.inserter,
+		});
+		endpoints.push(endpoint);
+
+		for (const batchId of ["independent-delivery-1", "independent-delivery-2"]) {
+			const response = await fetch(endpoint.url, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					source: String(row.source),
+					deployment_id: deploymentId,
+					batch_id: batchId,
+					rows: [{ table: table.table, row }],
+				}),
+			});
+			expect(response.status).toBe(200);
+		}
+
+		const stored = await harness.query(
+			"SELECT deployment_id FROM broker_execution.order_events",
+		);
+		expect(
+			stored.filter((row) => row.deployment_id === deploymentId),
+		).toHaveLength(2);
+	});
+
 	test("maker_replay inserts synchronously and leaves the runtime spool unchanged", async () => {
 		const fixture = await loadArchiveBaselineFixture();
 		const table = fixture.tables.find(
@@ -167,6 +227,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 		const harness = await initializedHarness();
 		const endpoint = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
+			marketIdentity: { source: "broker_write", deploymentId: "develop-deployment" },
 		});
 		endpoints.push(endpoint);
 		const before = endpoint.strategySpoolStats();
@@ -227,6 +288,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 		const spoolPath = join(harness.rootDirectory, "strategy-restart.sqlite");
 		const first = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
+			marketIdentity: { source: "broker_write", deploymentId: "develop-deployment" },
 			spoolPath,
 		});
 		const firstTable = strategyTables[0];
@@ -249,6 +311,7 @@ describe("ClickHouse Local archive E2E runtime", () => {
 
 		const restarted = await startArchiveForwarderEndpoint({
 			inserter: harness.inserter,
+			marketIdentity: { source: "broker_write", deploymentId: "develop-deployment" },
 			spoolPath,
 		});
 		endpoints.push(restarted);
@@ -292,8 +355,8 @@ describe("real four-feed archive lifecycle", () => {
 	test("broker_read canonical-only writer verifies provenance, checksums, and views", async () => {
 		const result = await runArchiveLifecycle();
 		expect(result.collectorModule).toBe("services/ohlcv-collector/collector.ts");
-		expect(result.feedsObserved).toEqual(PUBLIC_FEEDS);
-		expect(result.feedLinks.map(({ feed }) => feed)).toEqual(PUBLIC_FEEDS);
+		expect(result.feedsObserved).toEqual([...PUBLIC_FEEDS]);
+		expect(result.feedLinks.map(({ feed }) => feed)).toEqual([...PUBLIC_FEEDS]);
 		expect(result.unexpectedDestinations).toEqual([]);
 		expect(result.checksumsVerified).toBe(true);
 		expect(result.conflictViewsEmpty).toBe(true);
@@ -313,11 +376,113 @@ describe("real four-feed archive lifecycle", () => {
 	});
 });
 
+describe("ORDERBOOK conservative versus coalesced verification gate", () => {
+	test("publishes deterministic Binance and MEXC CEX Proof A", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "cex-proof-a-"));
+		const path = join(directory, "cex-orderbook-coalescing-evidence.json");
+		try {
+			const artifact = await runAndWriteCexOrderBookCoalescingProofA(path);
+			const bytes = await readFile(path);
+			const evidence = JSON.parse(bytes.toString("utf8"));
+			expect(artifact).toEqual({
+				path,
+				sha256: createHash("sha256").update(bytes).digest("hex"),
+			});
+			expect(bytes.at(-1)).toBe(0x0a);
+			expect(evidence).toMatchObject({
+				schemaVersion: "cex-orderbook-coalescing-evidence/v1",
+				policyDepth: 100,
+				archiveDepth: 100,
+				bandsBps: [50],
+			});
+			expect(evidence.cases.map(({ venue }: { venue: string }) => venue)).toEqual([
+				"binance",
+				"mexc",
+			]);
+			expect(
+				evidence.cases.every(
+					({ observations }: { observations: unknown[] }) =>
+						observations.length >= 5,
+				),
+			).toBe(true);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	test.each(["binance", "mexc"] as const)(
+		"proves %s logical, archive, and immediate-hedgeability equivalence",
+		async (venue) => {
+			const result = await runOrderBookEquivalenceGate(venue);
+			const canonicalArchive = (snapshots: typeof result.conservative.uniqueArchiveSnapshots) =>
+				snapshots.map(({ bids, asks, timestamp, exchange, symbol }) => ({
+					bids,
+					asks,
+					timestamp,
+					exchange,
+					symbol,
+				}));
+
+			expect(result.conservative.logical).toEqual(result.coalesced.logical);
+			expect(canonicalArchive(result.conservative.uniqueArchiveSnapshots)).toEqual(
+				canonicalArchive(result.coalesced.uniqueArchiveSnapshots),
+			);
+			expect(result.conservative.policy).toEqual(result.coalesced.policy);
+			expect(result.coalesced.policy).toHaveLength(result.minimumFrames);
+			expect(result.minimumFrames).toBeGreaterThanOrEqual(5);
+			const policyVisiblePayloads = result.coalesced.logical.explicit as Array<{
+				bids: number[][];
+				asks: number[][];
+			}>;
+			expect(
+				new Set(policyVisiblePayloads.map(({ bids }) => JSON.stringify(bids.map((level) => level[1])))).size,
+			).toBe(result.minimumFrames);
+			expect(
+				new Set(policyVisiblePayloads.map(({ asks }) => JSON.stringify(asks.map((level) => level[1])))).size,
+			).toBe(result.minimumFrames);
+			expect(result.coalesced.policy.every(({ covered }) => covered)).toBe(true);
+			expect(
+				result.coalesced.shallowArchivePolicy.every(({ covered }) => !covered),
+			).toBe(true);
+			expect(result.coalesced.observationDurationMs).toBeGreaterThanOrEqual(
+				result.minimumDurationMs,
+			);
+			expect(result.coalesced.physicalWorkers).toBe(1);
+			expect(result.conservative.physicalWorkers).toBe(2);
+			expect(result.coalesced.physicalFrames).toBe(result.minimumFrames);
+			expect(result.conservative.physicalFrames).toBe(
+				result.minimumFrames * 2,
+			);
+			expect(result.coalesced.archiveDecisions).toBe(result.minimumFrames);
+			expect(result.conservative.archiveDecisions).toBe(
+				result.minimumFrames * 2,
+			);
+		},
+	);
+
+	test.each(["binance", "mexc"] as const)(
+		"rehydrates sufficient %s L2 policy inputs from ClickHouse and rejects depth 25",
+		async (venue) => {
+			const result = await runOrderBookClickHouseReplayGate(venue);
+			expect(result.archiveDepth).toBeGreaterThanOrEqual(result.policyDepth);
+			expect(result.rehydrated.map(comparableReplayPolicy)).toEqual(
+				result.live.map(comparableReplayPolicy),
+			);
+			expect(result.rehydrated.every(({ covered }) => covered)).toBe(true);
+			expect(result.shallowArchiveDepth).toBe(25);
+			expect(result.shallowRehydrated).toHaveLength(result.live.length);
+			expect(
+				result.shallowRehydrated.every(({ covered }) => !covered),
+			).toBe(true);
+		},
+	);
+});
+
 describe("archive failure isolation and accounting", () => {
 	test("a blocked sink does not block later collector frames or close streams", async () => {
 		const result = await runBlockedSinkLifecycle();
-		expect(result.laterFramesObservedBeforeRelease).toEqual(PUBLIC_FEEDS);
-		expect(result.streamsActiveBeforeAbort).toEqual(PUBLIC_FEEDS);
+		expect(result.laterFramesObservedBeforeRelease).toEqual([...PUBLIC_FEEDS]);
+		expect(result.streamsActiveBeforeAbort).toEqual([...PUBLIC_FEEDS]);
 	});
 
 	test("a recoverable forwarder failure retries and stores every emitted row", async () => {
@@ -356,7 +521,7 @@ describe("archive failure isolation and accounting", () => {
 		});
 		try {
 			const oldest = {
-				table: "market_data.cex_trades",
+				table: "market_data.cex_trades" as const,
 				row: { source: "broker_write", deployment_id: "archive-e2e-shed", trade_id: "oldest" },
 			};
 			archiver.enqueue(oldest);
@@ -370,9 +535,13 @@ describe("archive failure isolation and accounting", () => {
 				.map((line) => JSON.parse(line) as Record<string, unknown>);
 			expect(records).toHaveLength(1);
 			expect(Object.keys(records[0] ?? {}).sort()).toEqual([
+				"batch_id",
+				"batch_row_count",
+				"batch_row_index",
 				"deployment_id",
 				"payload",
 				"reason",
+				"record_version",
 				"source",
 				"timestamp",
 			]);

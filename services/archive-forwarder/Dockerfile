@@ -23,10 +23,12 @@ COPY package.json bun.lock ./
 COPY patches ./patches
 RUN bun install --frozen-lockfile
 
-# Forwarder source and the SQL files its schema initializer applies at startup
-# (schema.ts resolves ../../schema/clickhouse relative to this directory).
+# Forwarder source, its complete shared-helper dependency boundary, and the SQL
+# files its schema initializer applies at startup. Dockerfile.dockerignore keeps
+# service-owned operator scripts out of the production image while preserving
+# the broad runtime-source boundary.
 COPY services/archive-forwarder ./services/archive-forwarder
-COPY src/helpers/otel.ts src/helpers/logger.ts ./src/helpers/
+COPY src/helpers ./src/helpers
 COPY schema/clickhouse ./schema/clickhouse
 
 ENV ARCHIVE_FORWARDER_PORT=8090

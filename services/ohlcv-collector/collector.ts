@@ -5,7 +5,7 @@ import type { OtelMetrics } from "../../src/helpers/otel";
 import { CEX_BROKER_PACKAGE_DEFINITION } from "../../src/proto-package-definition";
 import type { MarketDataSubscription } from "./config";
 
-type SubscribeResponse = {
+export type MarketDataCollectorFrame = {
 	data: string;
 	timestamp: string;
 	symbol: string;
@@ -15,7 +15,7 @@ type SubscribeResponse = {
 type SubscribeClient = grpc.Client & {
 	Subscribe(
 		request: Record<string, unknown>,
-	): grpc.ClientReadableStream<SubscribeResponse>;
+	): grpc.ClientReadableStream<MarketDataCollectorFrame>;
 };
 
 type CollectorMetrics = Pick<OtelMetrics, "recordCounter">;
@@ -27,6 +27,11 @@ export type MarketDataCollectorOptions = {
 	retry?: Partial<RetryPolicy>;
 	/** Test override for the OHLCV message-gap deadline; production derives it from the timeframe. */
 	ohlcvStaleDeadlineMs?: number;
+	/** Verification hook for accepted logical frames; it does not affect collection. */
+	onFrame?: (
+		subscription: MarketDataSubscription,
+		frame: Readonly<MarketDataCollectorFrame>,
+	) => void;
 };
 
 type CollectorSubscription = MarketDataSubscription;
@@ -86,7 +91,13 @@ function timeframeToMs(timeframe: string): number {
 			`Unsupported OHLCV timeframe "${timeframe}"; expected <number><s|m|h|d|w|M>`,
 		);
 	}
-	return Number(match[1]) * TIMEFRAME_UNIT_MS[match[2]];
+	const amount = match[1];
+	const unit = match[2];
+	const unitMs = unit === undefined ? undefined : TIMEFRAME_UNIT_MS[unit];
+	if (amount === undefined || unitMs === undefined) {
+		throw new Error(`Unsupported OHLCV timeframe "${timeframe}"`);
+	}
+	return Number(amount) * unitMs;
 }
 
 export class OhlcvStreamStaleError extends Error {
@@ -160,6 +171,7 @@ export class MarketDataCollector {
 	readonly #retry: RetryPolicy;
 	readonly #health = new Map<string, CollectorFeedHealth>();
 	readonly #ohlcvStaleDeadlineMs?: number;
+	readonly #onFrame?: MarketDataCollectorOptions["onFrame"];
 	#started = false;
 
 	constructor(options: MarketDataCollectorOptions) {
@@ -167,6 +179,7 @@ export class MarketDataCollector {
 		this.#metrics = options.metrics;
 		this.#retry = { ...DEFAULT_RETRY_POLICY, ...options.retry };
 		this.#ohlcvStaleDeadlineMs = options.ohlcvStaleDeadlineMs;
+		this.#onFrame = options.onFrame;
 		// Fail at construction on an unparseable timeframe: a config typo must be
 		// a boot error, not a subscription that silently runs without liveness.
 		for (const subscription of options.subscriptions) {
@@ -358,7 +371,7 @@ export class MarketDataCollector {
 	): Promise<StreamResult> {
 		return new Promise((resolve) => {
 			let settled = false;
-			let stream: grpc.ClientReadableStream<SubscribeResponse>;
+			let stream: grpc.ClientReadableStream<MarketDataCollectorFrame>;
 			let staleTimer: ReturnType<typeof setTimeout> | undefined;
 			const staleDeadlineMs =
 				subscription.feed === "OHLCV"
@@ -431,6 +444,7 @@ export class MarketDataCollector {
 				if (frames === 0) {
 					return;
 				}
+				this.#onFrame?.(subscription, response);
 				this.#updateHealth(subscription, {
 					state: "healthy",
 					lastFrameAtMs: Date.now(),

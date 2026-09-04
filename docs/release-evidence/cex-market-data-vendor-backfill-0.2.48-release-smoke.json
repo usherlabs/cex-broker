@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "market-data-vendor-backfill-local-smoke/v1",
+  "status": "passed",
+  "startedAtMs": 1787301476126,
+  "completedAtMs": 1787301482220,
+  "durationMs": 6094,
+  "source": {
+    "gitCommit": "3b42f32422c587afbdfab6ed16b0969980eaaddb",
+    "gitDirty": false,
+    "packageVersion": "0.2.48"
+  },
+  "clickhouse": {
+    "image": "clickhouse/clickhouse-server:24.8",
+    "imageId": "sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b",
+    "version": "24.8.14.39"
+  },
+  "request": {
+    "requestId": "8a21cbf2-b363-75fc-4392-b2eef7f6d4a5",
+    "idempotencyKey": "e47feb28b74d24460b19084b9b76aa35478520fa59a15576cf141bc10dbd8a8d",
+    "exchange": "okx",
+    "tradingPair": "ARB-USDT",
+    "sourceSymbol": "ARB-USDT",
+    "marketType": "spot",
+    "feed": "ORDERBOOK",
+    "startTimeMs": 1787045235308,
+    "endTimeMs": 1787045295308,
+    "depth": 20,
+    "constructionMode": "sampled_top_n_snapshot"
+  },
+  "provider": {
+    "name": "cryptohftdata",
+    "adapterVersion": "cryptohftdata-orderbook/v2",
+    "objects": [
+      {
+        "identity": "okx_spot/2026-08-18/09/ARB-USDT_orderbook.parquet.zst",
+        "checksum": "4d30de59fba095b39a60a0bf51ff002870af6a646ee6a795c54fcd3588c3362f",
+        "bytes": 646843,
+        "rows": 68970
+      }
+    ],
+    "vendorSemanticDigest": "ff4e9ad85e1b1857bb6ee781d5aea95b84a12203400c3d4ff732369500787b17"
+  },
+  "promotion": {
+    "captureBundleId": "84ef9def3099545be059a96d902cc02079833318637b9b7033fb169e3d9d3f5a",
+    "receiptId": "d3da76af7e202267f6c0823a17d9a0f40330e4ea43e6f130701695b8235fc973",
+    "canonicalSemanticDigest": "e393a453dbf5f365bfc055f1f008528d24409be61e76c21feba5361cafed7298"
+  },
+  "firstResult": {
+    "status": "promoted",
+    "reasonCode": "promotion_qualified"
+  },
+  "secondResult": {
+    "status": "already_covered",
+    "reasonCode": "qualified_coverage_complete"
+  },
+  "archive": {
+    "candidateLevelRows": 40,
+    "candidateSummaryRows": 1,
+    "qualifiedLevelRows": 40,
+    "qualifiedSummaryRows": 1,
+    "promotionRows": 1,
+    "promotionReceiptIds": [
+      "d3da76af7e202267f6c0823a17d9a0f40330e4ea43e6f130701695b8235fc973"
+    ],
+    "coverageComplete": true,
+    "coverageDigest": "d1ce7e0d52f8bece8050fdb67c229d72902f718682c895e96cf39fbdb201c3d7",
+    "prefixDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "suffixDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "export": {
+    "levelRows": 40,
+    "summaryRows": 1,
+    "promotionReceiptIds": [
+      "d3da76af7e202267f6c0823a17d9a0f40330e4ea43e6f130701695b8235fc973"
+    ],
+    "levelsSha256": "004dc20c89804be7e92b7cb2c14996e70f5063098aa1a4e20439ca58a000ca36",
+    "summarySha256": "edfa01a982d365165f2c55af2aaa2145e8d44947b7e5ead85a4249d8562f9d24"
+  }
+}

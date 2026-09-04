@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.2.43",
+	"version": "0.3.0",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
 	"repository": {
 		"type": "git",
@@ -13,6 +13,12 @@
 	"license": "MIT",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.16",
 		"@types/bun": "latest",
@@ -54,6 +60,8 @@
 		"archive:baseline:verify": "bun run scripts/archive-upgrade-baseline.ts verify",
 		"test:acceptance:archive-upgrade": "bun run scripts/archive-upgrade-acceptance.ts",
 		"archive:sidecar": "bun run scripts/archive-sidecar.ts",
+		"archive:proof-a": "bun run scripts/archive-orderbook-coalescing-evidence.ts",
+		"archive:loss:replay": "bun run services/archive-forwarder/scripts/archive-loss-replay.ts",
 		"test:smoke:archive": "bun run scripts/archive-live-smoke.ts",
 		"format": "bunx biome format --write",
 		"lint": "bunx biome lint",
