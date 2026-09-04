@@ -3,9 +3,7 @@
 ## Purpose
 
 The archive E2E regression capability SHALL preserve historical storage compatibility and prove the canonical public-market-data lifecycle, integrity, failure isolation, and CI behavior against a mandatory pinned ClickHouse Local runtime, while keeping live CEX validation credentialless, public-only, and non-gating.
-
 ## Requirements
-
 ### Requirement: The archive E2E suite uses a mandatory pinned ClickHouse Local runtime
 
 The system SHALL run archive E2E storage assertions with the standard ClickHouse binary in local mode at exactly `v25.8.24.21-lts`, using checksum-pinned official artifacts and a unique persistent `--path` directory for each harness instance. The suite MUST execute the production archive schema files, serialize all commands for one path, and MUST NOT silently skip because the runtime, schema, or tests are unavailable.
@@ -458,3 +456,13 @@ The fresh-database E2E suite SHALL assert that the final DDL creates no vendor e
 - **THEN** every expected live/hot object SHALL exist
 - **AND** every removed historical object and compatibility view SHALL be absent
 - **AND** both hot order-book tables SHALL have the unconditional 90-day TTL contract
+
+### Requirement: Archive regression covers hardening boundaries
+
+The archive regression suite SHALL cover blank deployment configuration, per-row deployment mismatch, bounded measurement bands, upgraded supported-view type parity, and complete Proof C producer-run row-set behavior at their owning test layers.
+
+#### Scenario: Hardening regression runs
+
+- **WHEN** required qualification executes
+- **THEN** each accepted review boundary SHALL have a positive and negative test
+- **AND** strict OpenSpec and archive E2E gates SHALL remain passing

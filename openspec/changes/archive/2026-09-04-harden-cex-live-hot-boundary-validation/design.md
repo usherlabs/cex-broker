@@ -36,6 +36,8 @@ The live/hot cutover is implemented and archived, but PR review found cross-cutt
 
 7. **Review items closed by explanation:** capture-profile IDs remain opaque and are validated as non-empty, not trimmed into a different identity. Conservative profiles carry `exhausted=false`; therefore a validated evidence envelope cannot grant exact exhaustion by itself.
 
+8. **Superseded capability specs are deleted:** the live/hot boundary removed CEX ownership of vendor backfill and preparation executables, so their active main specifications must not continue asserting that CEX publishes those products. Preserve their history only in archived changes and delete the contradictory main spec directories before archiving this hardening change.
+
 ## Risks / Trade-offs
 
 - **Explicit view projections are verbose and can drift** → derive tests from the normative field list and compare `DESCRIBE` output on an upgraded database.

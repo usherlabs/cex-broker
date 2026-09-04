@@ -3,9 +3,7 @@
 ## Purpose
 
 Define the authoritative service, tool, dependency, and deployment boundaries for the CEX Broker repository.
-
 ## Requirements
-
 ### Requirement: Repository services have one architectural authority
 
 The repository SHALL maintain a root `SERVICES_ARCHITECTURE.md` that describes the current process boundaries and uniformly identifies each repository-owned service's purpose, entrypoint, audience, interfaces, credentials, dependencies, persistence, deployment requirement, and failure behavior.
@@ -160,3 +158,13 @@ When this repository supersedes an internal contract, it SHALL remove the obsole
 - **WHEN** an implementation proposes to keep a superseded surface
 - **THEN** the change SHALL identify the operator requirement, bounded lifetime, owner, and removal condition
 - **AND** absence of those facts SHALL require deletion
+
+### Requirement: Service image smoke is time bounded
+
+The archive-forwarder image smoke SHALL probe health from inside the container with a per-attempt timeout and SHALL retain bounded total attempts and cleanup.
+
+#### Scenario: Health endpoint accepts but does not complete
+
+- **WHEN** an in-container health request hangs
+- **THEN** that attempt SHALL abort within two seconds
+- **AND** the smoke loop SHALL continue or fail within its bounded deadline while cleanup remains active

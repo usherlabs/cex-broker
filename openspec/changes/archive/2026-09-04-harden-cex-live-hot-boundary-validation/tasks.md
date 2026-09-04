@@ -16,3 +16,4 @@
 - [x] 3.1 Run focused tests, TypeScript/Biome/LSP checks, strict OpenSpec validation, full unit tests, image smoke, real ClickHouse typed projection, and archive E2E.
 - [x] 3.2 Record explanatory dispositions for opaque capture-profile IDs and conservative non-exhaustion evidence.
 - [x] 3.3 Commit and push all accepted review fixes to Gitea and GitHub PR #158, wait for checks, reply to every review thread, and mark each resolved.
+- [x] 3.4 Delete the superseded `market-data-vendor-backfill` and `cex-market-data-preparation-executables` main specs and verify the active spec set no longer contradicts the live/hot-only ownership boundary.

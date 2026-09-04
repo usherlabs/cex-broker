@@ -11,6 +11,7 @@ PR #158 review identified fail-open and parity gaps at the live/hot archive boun
 - Make Proof C compare the complete strategy row-ID set for the expected producer/run rather than only a caller-declared subset, while binding the declared batch identity to the run contract.
 - Expose an explicit, stable summary-v2 supported-view projection whose names, order, nullability, and types are the same on fresh and upgraded ClickHouse installations.
 - Document why opaque capture-profile IDs are not trimmed and why conservative non-exhausted observations do not acquire exactness from the validation marker alone.
+- Delete the superseded `market-data-vendor-backfill` and `cex-market-data-preparation-executables` main specifications so the active spec set matches the live/hot-only ownership boundary.
 
 ## Capabilities
 
@@ -28,4 +29,4 @@ None.
 
 ## Impact
 
-Affected areas include archive-forwarder configuration/admission, canonical ORDERBOOK normalization, raw and summary validators, ClickHouse canonical views, sidecar verification, image smoke, unit/integration/E2E tests, and the corresponding main OpenSpec contracts. No new package surface or production deployment action is introduced.
+Affected areas include archive-forwarder configuration/admission, canonical ORDERBOOK normalization, raw and summary validators, ClickHouse canonical views, sidecar verification, image smoke, unit/integration/E2E tests, and the corresponding main OpenSpec contracts. The two superseded historical-preparation capability specs are removed rather than retained as contradictory active requirements. No new package surface or production deployment action is introduced.

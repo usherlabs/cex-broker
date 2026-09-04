@@ -3,9 +3,7 @@
 ## Purpose
 
 Define the CEX-owned conformance sidecar, Maker-owned orchestration boundary, truthful native and production-compatible profiles, secret-free evidence, and deterministic cross-service completion contract.
-
 ## Requirements
-
 ### Requirement: CEX Broker provides a bounded archive-conformance sidecar lifecycle
 
 CEX Broker SHALL provide a bounded, non-production sidecar lifecycle for the `production_compatible` profile only. It SHALL retain the established `up|ready|verify|down` lifecycle: `up` starts deterministic infrastructure and writes the v2 manifest, `ready` reports bounded readiness for external Maker execution, `verify` evaluates the resulting shared-wire Proof C and writes the v2 result, and `down` cleans up owned resources. It SHALL NOT expose a native replay profile or execute Maker sourcing, policy, loader, or Parquet behavior.
@@ -201,3 +199,22 @@ The sidecar SHALL use bounded deterministic evidence to catch shared-wire drift 
 - **WHEN** Proof C passes within its configured time and row limits
 - **THEN** the result SHALL attest only to the exercised live gRPC and durable strategy-write compatibility
 - **AND** release documentation SHALL not characterize it as production soak evidence
+
+### Requirement: Proof C verifies the complete producer-run row set
+
+For each of the five strategy tables, Proof C SHALL query every row matching the exact deployment, `hb_runtime` source, schema version, producer ID, producer run ID, and positive sequence contract. The complete persisted `archive_event_id` set and count SHALL equal the Maker-declared set and manifest expectation. The Maker result `delivery.batchId` SHALL equal the sidecar run/batch identity.
+
+#### Scenario: Expected rows land with no extras
+
+- **WHEN** each strategy table contains exactly its declared producer-run row IDs
+- **THEN** Proof C SHALL accept the five-table persistence evidence
+
+#### Scenario: Extra or stale producer-run row exists
+
+- **WHEN** any strategy table contains an additional row matching the producer/run predicate but absent from Maker evidence
+- **THEN** Proof C SHALL fail and report the expected and observed identity sets
+
+#### Scenario: Delivery batch identity differs
+
+- **WHEN** the Maker result declares a batch ID other than the manifest run/batch identity
+- **THEN** result validation SHALL fail before querying persistence
