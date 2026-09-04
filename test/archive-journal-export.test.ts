@@ -109,6 +109,25 @@ describe("exportDeadLetterJournal", () => {
 		);
 	});
 
+	test("fails closed when existing export bytes do not match the receipt", () => {
+		const dir = makeDir();
+		const journalPath = join(dir, "archive-dead-letter.jsonl");
+		const exportPath = join(dir, "exported.jsonl");
+		const expected = "original completed export";
+		const expectedSha256 = new Bun.CryptoHasher("sha256")
+			.update(expected)
+			.digest("hex");
+		writeFileSync(exportPath, "tampered export bytes");
+		writeFileSync(
+			`${exportPath}.sha256`,
+			`${expectedSha256}  exported.jsonl\n`,
+		);
+
+		expect(() => exportDeadLetterJournal(journalPath, exportPath)).toThrow(
+			DeadLetterJournalExportError,
+		);
+	});
+
 	test("does not silently skip after receipt publication fails", () => {
 		const dir = makeDir();
 		const journalPath = join(dir, "archive-dead-letter.jsonl");

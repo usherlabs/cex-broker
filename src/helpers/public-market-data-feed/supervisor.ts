@@ -284,7 +284,9 @@ class PublicFeedWorker {
 				1,
 				{
 					...this.#metricLabels(),
-					profile: this.options.profile.id,
+					profile_class: this.options.profile.coalescingSupported
+						? "coalesced"
+						: "conservative",
 				},
 			);
 		}
@@ -625,7 +627,7 @@ class PublicFeedWorker {
 
 	#metricLabels(): Record<string, string> {
 		return {
-			exchange: this.options.exchangeName,
+			exchange_bucket: this.options.exchangeOwned ? "dynamic" : "configured",
 			feed: this.options.feed,
 			market_type: this.options.marketType,
 		};

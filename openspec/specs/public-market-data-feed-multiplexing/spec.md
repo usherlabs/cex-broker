@@ -146,10 +146,15 @@ Each public feed subscription SHALL use an in-process O(1) ring buffer limited t
 - **THEN** that subscriber MUST fail immediately with `Public market-data subscriber fell behind`
 - **AND** the oversized frame MUST NOT be retained or affect the worker, archive path, or other subscribers
 
-#### Scenario: Overflow telemetry is emitted
+#### Scenario: Overflow telemetry is emitted with bounded labels
 - **WHEN** a subscriber is terminated for either capacity limit
-- **THEN** the broker MUST record an overflow metric using credential-free public feed dimensions
-- **AND** the metric MUST NOT contain account selectors, API keys, secrets, or credential-derived hashes
+- **THEN** the broker MUST record an overflow metric labeled only by the closed feed and market-type enums plus `exchange_bucket = configured|dynamic`
+- **AND** the metric MUST NOT contain raw exchange names, symbols, account selectors, API keys, secrets, credential-derived hashes, or other caller-controlled values
+
+#### Scenario: Acquisition-profile telemetry is bounded
+- **WHEN** the broker records acquisition-profile telemetry
+- **THEN** `profile_class` MUST be limited to `coalesced|conservative`
+- **AND** the raw profile identifier MUST NOT be used as a metric label
 
 ### Requirement: Worker retirement and failure are deterministic
 The supervisor SHALL retire a worker when its final subscriber leaves, when its upstream watcher fails, when the broker runtime is replaced, or when the broker stops. Retirement MUST remove the worker from the attachable registry before asynchronous cleanup, ignore late watch results, invoke the feed-specific `unWatch*` method when supported, and close only worker-owned exchanges.

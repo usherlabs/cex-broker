@@ -17,6 +17,22 @@ import { log } from "../logger";
 const EXPORT_CHUNK_BYTES = 8 * 1024 * 1024;
 const SHA256_RECEIPT_PATTERN = /^([0-9a-f]{64}) {2}(.+)\n$/;
 
+function sha256File(path: string): string {
+	const hash = createHash("sha256");
+	const fd = openSync(path, "r");
+	try {
+		const chunk = Buffer.alloc(EXPORT_CHUNK_BYTES);
+		for (;;) {
+			const read = readSync(fd, chunk, 0, chunk.length, null);
+			if (read === 0) break;
+			hash.update(chunk.subarray(0, read));
+		}
+	} finally {
+		closeSync(fd);
+	}
+	return hash.digest("hex");
+}
+
 export class DeadLetterJournalExportError extends Error {
 	constructor(message: string, options?: ErrorOptions) {
 		super(message, options);
@@ -80,6 +96,9 @@ export function exportDeadLetterJournal(
 			const match = SHA256_RECEIPT_PATTERN.exec(receipt);
 			if (match?.[1] === undefined || match[2] !== basename(exportPath)) {
 				throw new Error("export receipt is malformed");
+			}
+			if (sha256File(exportPath) !== match[1]) {
+				throw new Error("export digest does not match receipt");
 			}
 		} catch (error) {
 			throw new DeadLetterJournalExportError(

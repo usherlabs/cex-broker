@@ -285,9 +285,49 @@ describe("PublicMarketDataFeedSupervisor", () => {
 		);
 		expect(archive.calls.ticker).toBe(2);
 		expect(overflowLabels).toEqual([
-			{ exchange: "binance", feed: "TICKER", market_type: "spot" },
+			{
+				exchange_bucket: "configured",
+				feed: "TICKER",
+				market_type: "spot",
+			},
 		]);
 		healthy.close();
+		await supervisor.close();
+	});
+
+	test("bounds acquisition-profile metric labels", async () => {
+		const controlled = controlledExchange();
+		const profileLabels: Array<Record<string, string | number>> = [];
+		const supervisor = new PublicMarketDataFeedSupervisor({
+			brokers: pool(controlled.exchange),
+			archiveSink: recordingArchiveSink().sink,
+			metrics: {
+				recordCounter: async (name, _value, labels) => {
+					if (name === "public_feed_acquisition_profiles_total") {
+						profileLabels.push(labels);
+					}
+				},
+			},
+		});
+		const subscriber = await supervisor.subscribe({
+			exchange: "binance",
+			symbol: "BTC/USDT",
+			marketType: "spot",
+			feed: "ORDERBOOK",
+		});
+
+		expect(profileLabels).toEqual([
+			{
+				exchange_bucket: "configured",
+				feed: "ORDERBOOK",
+				market_type: "spot",
+				profile_class: "conservative",
+			},
+		]);
+		expect(profileLabels[0]).not.toHaveProperty("exchange");
+		expect(profileLabels[0]).not.toHaveProperty("symbol");
+		expect(profileLabels[0]).not.toHaveProperty("profile");
+		subscriber.close();
 		await supervisor.close();
 	});
 
