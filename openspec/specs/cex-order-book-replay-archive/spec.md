@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD - created by archiving change canonical-cex-market-data-replay-archive. Update Purpose after archive.
+Define the bounded live order-book hot-archive contract, including diagnostic level retention, schema-v2 exact-or-censored summaries, canonical conflict handling, and terminal retirement of historical vendor artifacts.
 ## Requirements
 ### Requirement: Canonical order-book levels use one row per level
 
