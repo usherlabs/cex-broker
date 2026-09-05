@@ -118,7 +118,9 @@ const descriptor = {
             "FetchFees": 12,
             "InternalTransfer": 13,
             "GetPerpConfigState": 14,
-            "SetPerpConfigState": 15
+            "SetPerpConfigState": 15,
+            "FetchMarketRules": 16,
+            "Batch": 17
           }
         }
       }

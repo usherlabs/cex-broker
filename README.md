@@ -31,17 +31,20 @@ See [SERVICES_ARCHITECTURE.md](SERVICES_ARCHITECTURE.md) for the authoritative b
 ## 🛠️ Installation
 
 1. **Clone the repository:**
+
    ```bash
    git clone <repository-url>
    cd cex-broker
    ```
 
 2. **Install dependencies:**
+
    ```bash
    bun install
    ```
 
 3. **Generate protobuf types:**
+
    ```bash
    bun run proto-gen
    ```
@@ -137,7 +140,7 @@ The broker **defaults to spot everywhere** unless a request explicitly opts into
 Pass `marketType` in action payloads (string map) or subscribe `options`:
 
 | `marketType` | Meaning |
-|--------------|---------|
+| -------------- | --------- |
 | omitted / `spot` | Spot markets and spot balances |
 | `swap` or `perp` | Perpetuals (resolves symbols like `ETH/USDC:USDC` on Hyperliquid) |
 | `future` | Dated futures where supported |
@@ -175,9 +178,11 @@ For split futures exchanges (`binanceusdm`, `krakenfutures`, `kucoinfutures`), r
 Two capability-gated actions complement `Action.Call`:
 
 | Action | Value | Requires CCXT | Purpose |
-|--------|-------|---------------|---------|
+| -------- | ------- | --------------- | --------- |
 | `GetPerpConfigState` | `14` | `fetchPositions` | Read positions and per-symbol leverage/margin mode |
 | `SetPerpConfigState` | `15` | `setLeverage` | Set leverage (and margin mode) for a symbol |
+| `FetchMarketRules` | `16` | `loadMarkets` | Read typed spot execution constraints for one pair |
+| `Batch` | `17` | Action-specific | Execute an allowlisted sequence of read-only actions |
 
 `GetPerpConfigState` payload: optional `symbol`, optional `params` (JSON).
 
@@ -302,6 +307,7 @@ The service exposes a gRPC interface with two main methods:
 Execute trading operations on supported exchanges.
 
 **Request:**
+
 ```protobuf
 message ActionRequest {
   Action action = 1;                        // The action to perform
@@ -312,13 +318,16 @@ message ActionRequest {
 ```
 
 **Response:**
+
 ```protobuf
 message ActionResponse {
-  string result = 2;                        // JSON string of the result data or ZK proof
+  string result = 1;                        // JSON string of the result data
+  string proof = 2;                         // Optional action-specific proof
 }
 ```
 
 **Available Actions:**
+
 - `NoAction` (0): No operation
 - `Deposit` (1): Confirm deposit transaction
 - `Withdraw` (2): Withdraw funds
@@ -328,8 +337,15 @@ message ActionResponse {
 - `FetchBalances` (6): Get account balances. Supports `balanceType`: "free", "used", "total" (defaults to "total").
 - `FetchDepositAddresses` (7): Get deposit addresses for a token/network
 - `FetchTicker` (8): Get ticker information
-- `FetchCurrency` (9): Get currency metadata (networks, fees, etc.) for a symbol
-- `Call` (10): Generic method invocation on the underlying broker instance. Provide `functionName`, optional `args` array, and optional `params` object.
+- `FetchCurrency` (9): Get `cex-transfer-network-evidence/v1` for one asset and required network.
+- `Call` (10): Generic method invocation on the underlying broker instance. Provide `functionName`, optional `args` array, and optional `params` object. This action is not batchable.
+- `FetchAccountId` (11): Get the selected account identifier.
+- `FetchFees` (12): Get authenticated `cex-trading-fee-evidence/v1` for one slash-delimited spot pair.
+- `InternalTransfer` (13): Transfer between configured exchange accounts.
+- `GetPerpConfigState` (14): Read positions and leverage/margin configuration.
+- `SetPerpConfigState` (15): Change leverage/margin configuration.
+- `FetchMarketRules` (16): Get `cex-market-rule-evidence/v1` for one active spot pair.
+- `Batch` (17): Execute up to 32 registry-approved read-only child actions sequentially, with a 256 KiB encoded request limit.
 
 #### Order Book Call Methods
 
@@ -451,13 +467,98 @@ const depositAddressRequest = {
   symbol: "USDT"
 };
 
-// Fetch currency metadata
+// Fetch one transfer-network fact (breaking hard-cut contract)
 const fetchCurrencyRequest = {
   action: 9, // FetchCurrency
-  payload: {},
-  cex: "binance",
-  symbol: "USDT"
+  payload: { network: "BEP20" },
+  cex: "mexc",
+  symbol: "USDC"
 };
+
+// Fetch authenticated account commission for one pair
+const fetchFeesRequest = {
+  action: 12, // FetchFees
+  payload: {},
+  cex: "mexc",
+  symbol: "ARB/USDC"
+};
+
+// Fetch typed market rules for one pair
+const fetchMarketRulesRequest = {
+  action: 16, // FetchMarketRules
+  payload: {},
+  cex: "mexc",
+  symbol: "ARB/USDC"
+};
+
+// Batch independent read-only actions. `requests` is a JSON string because
+// ActionRequest.payload remains map<string, string>.
+const batchRequest = {
+  action: 17, // Batch
+  cex: "mexc",
+  symbol: "",
+  payload: {
+    requests: JSON.stringify([
+      { id: "fees", action: 12, symbol: "ARB/USDC", payload: {} },
+      { id: "rules", action: 16, symbol: "ARB/USDC", payload: {} },
+      {
+        id: "network",
+        action: 9,
+        symbol: "USDC",
+        payload: { network: "BEP20" }
+      }
+    ])
+  }
+};
+```
+
+#### Read-only batch and venue evidence contracts
+
+`Batch` inherits the outer exchange and credential/account selection. Children
+cannot override routing. The v1 batchable set is `FetchBalances`, `FetchTicker`,
+`FetchCurrency`, `FetchAccountId`, `FetchFees`, `GetPerpConfigState`, and
+`FetchMarketRules`. `Call`, order/transfer actions, deposit discovery,
+configuration writes, nested batches, batches over 32 children, and encoded
+`payload.requests` values over 256 KiB are rejected before any child runs.
+Structurally invalid batches return gRPC `INVALID_ARGUMENT`; runtime child
+failures remain in an outer-`OK` `cex-broker-action-batch/v1` envelope with the
+same gRPC status as the corresponding unary call.
+
+`FetchFees` no longer accepts token-only symbols, `includeAllFees`, or
+`includeFundingFees`. It uses authenticated `fetchTradingFee` and never treats
+`loadMarkets`, market maker/taker defaults, or `broker.fees` as account
+commission. `FetchCurrency` requires one network and no longer returns an
+unscoped raw currency object.
+
+These facts have distinct authority:
+
+- account commission is the selected account's current maker/taker schedule;
+- realized fill commission belongs to executed trade/fill records;
+- transfer-network fees are inventory-movement costs;
+- Maker DEX venue-fee revenue is protocol liquidity-provider revenue.
+
+Each successful evidence result has its own observation timestamp and canonical
+source digest. The broker does not fabricate historical effective intervals or
+coerce observed pair values to an expected fee profile.
+
+A batch response preserves each action-specific JSON result string:
+
+```json
+{
+  "schemaVersion": "cex-broker-action-batch/v1",
+  "responses": [
+    {
+      "id": "fees",
+      "action": 12,
+      "symbol": "ARB/USDC",
+      "response": {
+        "result": "{\"schemaVersion\":\"cex-trading-fee-evidence/v1\"}",
+        "proof": ""
+      },
+      "error": null
+    }
+  ]
+}
 ```
 
 ### Subscribe (Streaming)
@@ -465,6 +566,7 @@ const fetchCurrencyRequest = {
 Real-time streaming of market data and account updates.
 
 **Request:**
+
 ```protobuf
 message SubscribeRequest {
   string cex = 1;                          // CEX identifier
@@ -475,6 +577,7 @@ message SubscribeRequest {
 ```
 
 **Response Stream:**
+
 ```protobuf
 message SubscribeResponse {
   string data = 1;                         // JSON string of the streaming data
@@ -485,6 +588,7 @@ message SubscribeResponse {
 ```
 
 **Available Subscription Types:**
+
 - `NO_ACTION` (0): Compatibility default; resolved to `ORDERBOOK`
 - `ORDERBOOK` (1): Real-time order book updates
 - `TRADES` (2): Live trade feed
@@ -832,6 +936,7 @@ cex-broker/
 The broker automatically supports all exchanges available in CCXT. To add a new exchange:
 
 1. Add your API credentials to environment variables:
+
    ```env
    CEX_BROKER_<EXCHANGE>_API_KEY=your_api_key
    CEX_BROKER_<EXCHANGE>_API_SECRET=your_api_secret
@@ -846,12 +951,14 @@ The broker automatically supports all exchanges available in CCXT. To add a new 
 Secondary brokers provide redundancy and load balancing:
 
 1. Configure secondary API keys:
+
    ```env
    CEX_BROKER_BINANCE_API_KEY_1=secondary_key_1
    CEX_BROKER_BINANCE_API_SECRET_1=secondary_secret_1
    ```
 
 2. Use secondary brokers in your gRPC calls:
+
    ```typescript
    const metadata = new grpc.Metadata();
    metadata.set('use-secondary-key', '1'); // Use secondary broker
@@ -894,6 +1001,7 @@ for (const [currency, info] of Object.entries(currencies)) {
 ```
 
 **Common Network Identifiers:**
+
 - `BEP20` / `BSC`: Binance Smart Chain
 - `ETH` / `ERC20`: Ethereum
 - `TRC20`: Tron

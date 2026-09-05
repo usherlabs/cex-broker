@@ -1,11 +1,28 @@
 import { z } from "zod";
 
-const parseJsonString = (value: unknown): unknown => {
+type JsonPreprocessResult =
+	| object
+	| string
+	| number
+	| boolean
+	| null
+	| undefined;
+
+const parseJsonString = (value: unknown): JsonPreprocessResult => {
 	if (typeof value !== "string") {
-		return value;
+		if (
+			value === null ||
+			value === undefined ||
+			typeof value === "number" ||
+			typeof value === "boolean" ||
+			typeof value === "object"
+		) {
+			return value;
+		}
+		return String(value);
 	}
 	try {
-		return JSON.parse(value);
+		return JSON.parse(value) as JsonPreprocessResult;
 	} catch {
 		return value;
 	}
@@ -15,20 +32,6 @@ const stringNumberRecordSchema = z.record(
 	z.string(),
 	z.union([z.string(), z.number()]),
 );
-
-const booleanLikeSchema = z.preprocess((value: unknown) => {
-	if (typeof value !== "string") {
-		return value;
-	}
-	const normalized = value.trim().toLowerCase();
-	if (["true", "1", "yes"].includes(normalized)) {
-		return true;
-	}
-	if (["false", "0", "no"].includes(normalized)) {
-		return false;
-	}
-	return value;
-}, z.boolean());
 
 export const DepositPayloadSchema = z.object({
 	recipientAddress: z.string().min(1),
@@ -111,10 +114,36 @@ export const CancelOrderPayloadSchema = z.object({
 	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
 });
 
-export const FetchFeesPayloadSchema = z.object({
-	includeAllFees: booleanLikeSchema.optional().default(false),
-	includeFundingFees: booleanLikeSchema.optional(),
-});
+export const EmptyActionPayloadSchema = z.object({}).strict();
+
+export const FetchFeesPayloadSchema = EmptyActionPayloadSchema;
+
+export const FetchCurrencyPayloadSchema = z
+	.object({
+		network: z.string().trim().min(1),
+	})
+	.strict();
+
+export const MAX_BATCH_CHILDREN = 32;
+export const MAX_BATCH_REQUEST_BYTES = 256 * 1024;
+
+export const BatchChildRequestSchema = z
+	.object({
+		id: z.string().trim().min(1),
+		action: z.number().int().nonnegative(),
+		symbol: z.string(),
+		payload: z.record(z.string(), z.string()),
+	})
+	.strict();
+
+export const BatchPayloadSchema = z
+	.object({
+		requests: z.preprocess(
+			parseJsonString,
+			z.array(BatchChildRequestSchema).min(1).max(MAX_BATCH_CHILDREN),
+		),
+	})
+	.strict();
 
 export type DepositPayload = z.infer<typeof DepositPayloadSchema>;
 export type CallPayload = z.infer<typeof CallPayloadSchema>;
@@ -137,3 +166,6 @@ export type GetOrderDetailsPayload = z.infer<
 >;
 export type CancelOrderPayload = z.infer<typeof CancelOrderPayloadSchema>;
 export type FetchFeesPayload = z.infer<typeof FetchFeesPayloadSchema>;
+export type FetchCurrencyPayload = z.infer<typeof FetchCurrencyPayloadSchema>;
+export type BatchChildRequest = z.infer<typeof BatchChildRequestSchema>;
+export type BatchPayload = z.infer<typeof BatchPayloadSchema>;

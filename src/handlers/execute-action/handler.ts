@@ -184,14 +184,20 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 			}
 
 			const verity = { proof: "" };
-			const applyVerityToBroker = (targetBroker: Exchange) => {
+			const applyVerityToBroker = (
+				targetBroker: Exchange,
+				proofState = verity,
+			) => {
 				if (!useVerity) return;
 				const override = buildHttpClientOverrideFromMetadata(
 					metadata,
 					verityProverUrl,
 					(proof, notaryPubKey) => {
-						verity.proof = proof;
-						log.debug(`Verity proof:`, { proof, notaryPubKey });
+						proofState.proof = proof;
+						log.debug(`Verity proof received`, {
+							has_proof: proof.length > 0,
+							has_notary_public_key: Boolean(notaryPubKey),
+						});
 					},
 				);
 				targetBroker.setHttpClientOverride(

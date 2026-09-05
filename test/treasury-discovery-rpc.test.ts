@@ -38,6 +38,7 @@ type TreasuryExchangeOptions = {
 	withdrawals?: Array<Record<string, unknown>>;
 	depositWithdrawFees?: Record<string, unknown>;
 	balances?: Record<string, number>;
+	tradingFees?: Record<string, Record<string, unknown>>;
 };
 
 function createTreasuryExchange(options: TreasuryExchangeOptions = {}) {
@@ -49,6 +50,7 @@ function createTreasuryExchange(options: TreasuryExchangeOptions = {}) {
 		fetchWithdrawals: [],
 		fetchDepositWithdrawFees: [],
 		fetchDepositAddress: [],
+		fetchTradingFee: [],
 		fetchTotalBalance: [],
 		withdraw: [],
 	};
@@ -59,8 +61,10 @@ function createTreasuryExchange(options: TreasuryExchangeOptions = {}) {
 			fetchDeposits: true,
 			fetchWithdrawals: true,
 			fetchDepositAddress: true,
+			fetchTradingFee: true,
 			...(options.has ?? {}),
 		},
+		precisionMode: 4,
 		fees: {
 			trading: {
 				maker: 0,
@@ -68,7 +72,21 @@ function createTreasuryExchange(options: TreasuryExchangeOptions = {}) {
 			},
 		},
 		markets: options.markets ?? {
-			"ARB/USDC": { symbol: "ARB/USDC", base: "ARB", quote: "USDC" },
+			"ARB/USDC": {
+				id: "ARBUSDC",
+				symbol: "ARB/USDC",
+				base: "ARB",
+				quote: "USDC",
+				type: "spot",
+				spot: true,
+				active: true,
+				precision: { price: 0.0001, amount: 0.01 },
+				limits: {
+					amount: { min: 0.1 },
+					price: {},
+					cost: { min: 1 },
+				},
+			},
 		},
 		currencies: options.currencies ?? {
 			USDC: {
@@ -113,6 +131,23 @@ function createTreasuryExchange(options: TreasuryExchangeOptions = {}) {
 			calls.fetchDepositAddress.push(args);
 			return { address: "0xdeposit" };
 		},
+		fetchTradingFee: async (...args: unknown[]) => {
+			calls.fetchTradingFee.push(args);
+			const symbol = String(args[0]);
+			return (
+				options.tradingFees?.[symbol] ?? {
+					symbol,
+					maker: "0E-18",
+					taker: "0.000500000000000000",
+					info: {
+						data: {
+							makerCommission: "0E-18",
+							takerCommission: "0.000500000000000000",
+						},
+					},
+				}
+			);
+		},
 		fetchTotalBalance: async (...args: unknown[]) => {
 			calls.fetchTotalBalance.push(args);
 			return options.balances ?? { USDC: 42 };
@@ -129,7 +164,8 @@ function createTreasuryExchange(options: TreasuryExchangeOptions = {}) {
 			return { id: "withdraw-1", txid: "0xwithdraw" };
 		},
 	};
-	return { exchange: exchange as Exchange, calls };
+	// SAFETY: the fixture implements every CCXT method exercised by these tests.
+	return { exchange: exchange as unknown as Exchange, calls };
 }
 
 function createPool(exchange: Exchange): Record<string, BrokerPoolEntry> {
@@ -179,7 +215,7 @@ describe("Treasury discovery and transfer observation RPC", () => {
 
 	test("archives evolving fetchWithdrawals venue observations without changing the RPC result", async () => {
 		const forwarder = await startForwarderServer();
-		const withdrawals = [
+		const withdrawals: Array<Record<string, unknown>> = [
 			{
 				id: "wd-1",
 				txid: "tx-1",
@@ -391,7 +427,7 @@ describe("Treasury discovery and transfer observation RPC", () => {
 			payload: { functionName: "fetchMarkets", args: "[]", params: "{}" },
 		});
 
-		expect(JSON.parse(response.result)).toEqual([
+		expect(JSON.parse(response.result)).toMatchObject([
 			{ symbol: "ARB/USDC", base: "ARB", quote: "USDC" },
 		]);
 		expect(calls.fetchMarkets).toHaveLength(0);
@@ -434,7 +470,7 @@ describe("Treasury discovery and transfer observation RPC", () => {
 		expect(calls.fetchTotalBalance).toHaveLength(0);
 	});
 
-	test("serves transfer-network metadata through FetchCurrency", async () => {
+	test("serves scoped transfer-network evidence through FetchCurrency", async () => {
 		const { exchange } = createTreasuryExchange();
 		const rpc = await start(exchange);
 
@@ -442,88 +478,50 @@ describe("Treasury discovery and transfer observation RPC", () => {
 			action: Action.FetchCurrency,
 			cex: "binance",
 			symbol: "USDC",
+			payload: { network: "BEP20" },
 		});
 
 		expect(JSON.parse(response.result)).toMatchObject({
+			schemaVersion: "cex-transfer-network-evidence/v1",
 			exchange: "binance",
 			asset: "USDC",
-			code: "USDC",
-			networks: {
-				BSC: {
-					id: "BSC",
-					network: "BSC",
-					operatorAlias: "BSC",
-					brokerNetworkId: "BNB",
-					exchangeNetworkId: "BSC",
-					deposit: true,
-					withdraw: true,
-					fee: "0",
-				},
-			},
-			networkAliases: {
-				BNB: {
-					operatorAlias: "BNB",
-					brokerNetworkId: "BNB",
-					exchangeNetworkId: "BSC",
-					networkKey: "BSC",
-				},
-				BEP20: {
-					operatorAlias: "BEP20",
-					brokerNetworkId: "BNB",
-					exchangeNetworkId: "BSC",
-					networkKey: "BSC",
-				},
-			},
+			operatorNetworkAlias: "BEP20",
+			brokerNetworkId: "BNB",
+			exchangeNetworkId: "BSC",
+			depositAvailable: true,
+			withdrawalAvailable: true,
+			withdrawalFee: "0",
+			accountSelector: "primary",
+			credentialSource: "configured_pool",
+			sourceMethod: "ccxt.fetchCurrencies",
+			digestAlgorithm: "sha256-canonical-json-v1",
 		});
 	});
 
-	test("extracts transfer fee and limit metadata for funding discovery", async () => {
-		const { exchange, calls } = createTreasuryExchange({
-			has: { fetchDepositWithdrawFees: true },
-			depositWithdrawFees: {
-				USDC: {
-					withdraw: { fee: 0, percentage: false },
-					networks: {
-						BSC: {
-							id: "BSC",
-							network: "BSC",
-							fee: 0,
-							limits: { withdraw: { min: 1, max: 50000 } },
-							withdraw: true,
-							deposit: true,
-						},
-					},
-				},
-			},
-		});
+	test("returns authenticated pair commission through FetchFees", async () => {
+		const { exchange, calls } = createTreasuryExchange();
 		const rpc = await start(exchange);
 
 		const response = await executeAction(rpc, {
 			action: Action.FetchFees,
 			cex: "binance",
-			symbol: "USDC",
-			payload: { includeAllFees: true },
+			symbol: "ARB/USDC",
+			payload: {},
 		});
 
 		expect(JSON.parse(response.result)).toMatchObject({
-			feeScope: "token",
-			symbol: "USDC",
-			fundingFeeSource: "fetchDepositWithdrawFees",
-			fundingFeesByCurrency: {
-				USDC: {
-					withdraw: { fee: 0, percentage: false },
-					networks: {
-						BSC: {
-							fee: 0,
-							limits: { withdraw: { min: 1, max: 50000 } },
-							withdraw: true,
-							deposit: true,
-						},
-					},
-				},
-			},
+			schemaVersion: "cex-trading-fee-evidence/v1",
+			canonicalPair: "ARB-USDC",
+			unifiedSymbol: "ARB/USDC",
+			sourceSymbol: "ARBUSDC",
+			makerRate: "0",
+			takerRate: "0.0005",
+			makerBasisPoints: "0",
+			takerBasisPoints: "5",
+			accountSelector: "primary",
+			credentialSource: "configured_pool",
 		});
-		expect(calls.fetchDepositWithdrawFees[0]).toEqual([["USDC"]]);
+		expect(calls.fetchTradingFee).toEqual([["ARB/USDC"]]);
 	});
 
 	test("fails closed when a requested transfer-network alias is unsupported", async () => {

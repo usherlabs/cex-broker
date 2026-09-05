@@ -37,10 +37,19 @@ export function redactSecretLiterals(
 		.replace(SECRET_JSON_PATTERN, "$1[redacted]$2");
 }
 
+type RedactedValue =
+	| null
+	| undefined
+	| string
+	| number
+	| boolean
+	| RedactedValue[]
+	| { [key: string]: RedactedValue };
+
 function redactUnknownValue(
 	value: unknown,
 	secretLiterals: readonly string[],
-): unknown {
+): RedactedValue {
 	if (value === null || value === undefined) {
 		return value;
 	}
@@ -55,7 +64,7 @@ function redactUnknownValue(
 	}
 	if (typeof value === "object") {
 		const record = value as Record<string, unknown>;
-		const redacted: Record<string, unknown> = {};
+		const redacted: Record<string, RedactedValue> = {};
 		for (const [key, entry] of Object.entries(record)) {
 			if (SECRET_KEY_PATTERN.test(key)) {
 				redacted[key] = "[redacted]";
@@ -64,6 +73,36 @@ function redactUnknownValue(
 			redacted[key] = redactUnknownValue(entry, secretLiterals);
 		}
 		return redacted;
+	}
+	return String(value);
+}
+
+export function removeSecretMaterial(
+	value: unknown,
+	secretLiterals: readonly string[] = [],
+): RedactedValue {
+	if (value === null || value === undefined) {
+		return value;
+	}
+	if (typeof value === "string") {
+		return redactSecretLiterals(value, secretLiterals);
+	}
+	if (typeof value === "number" || typeof value === "boolean") {
+		return value;
+	}
+	if (Array.isArray(value)) {
+		return value.map((entry) => removeSecretMaterial(entry, secretLiterals));
+	}
+	if (typeof value === "object") {
+		const clean: Record<string, RedactedValue> = {};
+		for (const [key, entry] of Object.entries(
+			value as Record<string, unknown>,
+		)) {
+			if (!SECRET_KEY_PATTERN.test(key)) {
+				clean[key] = removeSecretMaterial(entry, secretLiterals);
+			}
+		}
+		return clean;
 	}
 	return String(value);
 }

@@ -60,4 +60,6 @@ enum Action {
   InternalTransfer= 13;
   GetPerpConfigState = 14;
   SetPerpConfigState = 15;
+  FetchMarketRules = 16;
+  Batch = 17;
 }
