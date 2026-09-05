@@ -24,6 +24,25 @@ import type { ActionRequest, ActionResponse } from "../types";
 
 export type ActionHandler = (ctx: ExecuteActionContext) => Promise<void>;
 
+export type ActionAccess = "read" | "write";
+
+export type ActionRequestValidation =
+	| { valid: true }
+	| { valid: false; message: string };
+
+export type ActionDescriptor =
+	| {
+			handler: ActionHandler;
+			access: "read";
+			batchable: true;
+			validateBatchRequest: (request: ActionRequest) => ActionRequestValidation;
+	  }
+	| {
+			handler: ActionHandler;
+			access: ActionAccess;
+			batchable: false;
+	  };
+
 export type ExecuteActionContext = {
 	call: grpc.ServerUnaryCall<ActionRequest, ActionResponse>;
 	wrappedCallback: grpc.sendUnaryData<ActionResponse>;
@@ -37,7 +56,10 @@ export type ExecuteActionContext = {
 	selectedBrokerAccount?: BrokerAccount;
 	broker: Exchange;
 	verity: { proof: string };
-	applyVerityToBroker: (target: Exchange) => void;
+	applyVerityToBroker: (
+		target: Exchange,
+		proofState?: { proof: string },
+	) => void;
 	useVerity: boolean;
 	verityProverUrl: string;
 	otelMetrics?: OtelMetrics;

@@ -30,6 +30,8 @@ export const Action = {
 	InternalTransfer: 13,
 	GetPerpConfigState: 14,
 	SetPerpConfigState: 15,
+	FetchMarketRules: 16,
+	Batch: 17,
 } as const;
 
 export const SubscriptionType = {
@@ -50,7 +52,7 @@ export type SubscriptionTypeName = keyof typeof SubscriptionType;
 
 function resolveEnumValue<T extends Record<string, number>>(
 	enumValues: T,
-	value: T[keyof T] | keyof T | undefined,
+	value: unknown,
 ): T[keyof T] | undefined {
 	if (typeof value === "number") {
 		return Object.values(enumValues).includes(value)
@@ -95,9 +97,7 @@ export function getSubscriptionTypeName(subscriptionType: unknown): string {
 		: `unknown_${subscriptionType ?? "undefined"}`;
 }
 
-export function resolveAction(
-	action: Action | ActionName | undefined,
-): Action | undefined {
+export function resolveAction(action: unknown): Action | undefined {
 	return resolveEnumValue(Action, action);
 }
 
