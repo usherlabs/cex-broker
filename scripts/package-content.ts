@@ -8,6 +8,31 @@ import {
 	TASK_5_PROTO_SHA256,
 } from "./package-contract";
 
+// npm 12 keys pack --json output by package name (not the former array shape).
+export function npmPackFilename(output: string, packageName: string): string {
+	const packages: unknown = JSON.parse(output);
+	assert(
+		packages && typeof packages === "object" && !Array.isArray(packages),
+		"Expected npm 12 package-keyed pack output",
+	);
+	assert.deepEqual(
+		Object.keys(packages),
+		[packageName],
+		"Expected exactly one packed package",
+	);
+	const entry = (packages as Record<string, unknown>)[packageName];
+	assert(
+		entry && typeof entry === "object" && "filename" in entry,
+		"Missing packed filename",
+	);
+	assert(
+		typeof entry.filename === "string" &&
+			/^[^/\\\\]+\.tgz$/.test(entry.filename),
+		"Invalid packed filename",
+	);
+	return entry.filename;
+}
+
 export function advertisedPackagePaths(
 	manifest: Record<string, unknown>,
 ): string[] {

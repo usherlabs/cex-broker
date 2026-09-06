@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
 	advertisedPackagePaths,
+	npmPackFilename,
 	verifyPackageContents,
 } from "../scripts/package-content";
 import {
@@ -66,6 +67,28 @@ afterEach(() => {
 });
 
 describe("package content gate", () => {
+	test("reads npm 12 package-keyed pack output", () => {
+		const filename = "usherlabs-cex-broker-0.3.2.tgz";
+		expect(
+			npmPackFilename(
+				JSON.stringify({ [manifest.name]: { filename } }),
+				manifest.name,
+			),
+		).toBe(filename);
+		for (const invalid of [
+			[],
+			{},
+			{ other: { filename } },
+			{ [manifest.name]: {} },
+			{ [manifest.name]: { filename: "../outside.tgz" } },
+			{ [manifest.name]: { filename: "/outside.tgz" } },
+		]) {
+			expect(() =>
+				npmPackFilename(JSON.stringify(invalid), manifest.name),
+			).toThrow();
+		}
+	});
+
 	test("accepts a complete package inventory", () => {
 		expect(() => verifyPackageContents(fixture(), expected)).not.toThrow();
 	});

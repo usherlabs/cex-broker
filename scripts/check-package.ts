@@ -15,6 +15,7 @@ import { parseArgs } from "node:util";
 import { verifyReleaseRevision } from "./build-provenance";
 import {
 	advertisedPackagePaths,
+	npmPackFilename,
 	verifyPackageContents,
 } from "./package-content";
 import {
@@ -112,7 +113,7 @@ const manifest = JSON.parse(readFileSync("package.json", "utf8"));
 let tarball: string;
 if (values.tarball) tarball = resolve(values.tarball);
 else {
-	const packed = JSON.parse(
+	const filename = npmPackFilename(
 		run([
 			"npm",
 			"pack",
@@ -121,8 +122,9 @@ else {
 			"--pack-destination",
 			output,
 		]),
+		manifest.name,
 	);
-	tarball = join(output, packed[0].filename);
+	tarball = join(output, filename);
 }
 const consumer = mkdtempSync(join(output, "consumer-"));
 writeFileSync(
@@ -176,24 +178,14 @@ const config = {
 	include: ["consumer.mts", ...publicDeclarations],
 };
 // Every public type export is checked, including future exports not imported by the fixture.
-writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify(config));
-run(["node", compiler, "-p", "tsconfig.json"], consumer);
-writeFileSync(
-	join(consumer, "tsconfig.json"),
-	JSON.stringify({
-		...config,
-		include: [
-			"consumer.mts",
-			"node_modules/@usherlabs/cex-broker/dist/**/*.d.ts",
-		],
-	}),
-);
+writeFileSync(join(consumer, "tsconfig.public.json"), JSON.stringify(config));
+run(["node", compiler, "-p", "tsconfig.public.json"], consumer);
 run(
 	[
 		"node",
 		compiler,
 		"-p",
-		"tsconfig.json",
+		"tsconfig.public.json",
 		"--module",
 		"ESNext",
 		"--moduleResolution",
@@ -202,6 +194,23 @@ run(
 	],
 	consumer,
 );
+writeFileSync(
+	join(consumer, "tsconfig.internal-bundler.json"),
+	JSON.stringify({
+		...config,
+		compilerOptions: {
+			...config.compilerOptions,
+			module: "ESNext",
+			moduleResolution: "bundler",
+			noEmit: true,
+		},
+		include: [
+			"consumer.mts",
+			"node_modules/@usherlabs/cex-broker/dist/**/*.d.ts",
+		],
+	}),
+);
+run(["node", compiler, "-p", "tsconfig.internal-bundler.json"], consumer);
 const wire = join(consumer, "evidence.json");
 console.log(run(["node", "runtime.mjs", wire], consumer));
 console.log(run(["node", "compiled/consumer.mjs", wire], consumer));
@@ -236,8 +245,9 @@ const evidence = {
 		"package-paths",
 		"promotion-ancestry-and-original-source-equivalence",
 		"approved-ticker-logging-difference",
-		"strict-nodenext",
-		"strict-bundler",
+		"strict-public-nodenext",
+		"strict-public-bundler",
+		"strict-internal-bundler",
 		"packed-rpc",
 		"typed-evidence-decoding",
 	],
