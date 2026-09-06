@@ -21,6 +21,10 @@ import CEXBroker, {
 } from "@usherlabs/cex-broker";
 import descriptor from "@usherlabs/cex-broker/proto/node.descriptor";
 
+assert.deepEqual(Object.keys(process.env).filter(
+	(key) => key.startsWith("CEX_BROKER_") || key.startsWith("OTEL_"),
+), [], "Typed consumer must not inherit operator configuration");
+
 const policy: PolicyConfig = {
 	withdraw: { rule: [] }, deposit: {}, order: { rule: { markets: [], limits: [] } },
 };

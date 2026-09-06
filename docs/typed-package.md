@@ -4,8 +4,10 @@
 
 Version 0.3.2 is a candidate until separately approved and published. Do not
 replace immutable 0.3.1. The package is ESM, with `types` conditions before
-`import` conditions. Consumers need Node (validated on Node 24), not Bun,
-repository source, patches, or install-time development scripts.
+`import` conditions. ESM library consumers need Node (validated on Node 24), not
+Bun, repository source, patches, or install-time development scripts. The advertised
+`cex-broker` CLI retains its existing `#!/usr/bin/env bun` shebang and requires Bun
+when invoked through that executable.
 
 The root preserves default `CEXBroker` and `PolicyConfig` and exposes the existing
 canonical `Action`, `BatchChildRequestSchema`, `BatchPayloadSchema`,
@@ -41,10 +43,11 @@ import {
 const request: ActionRequest = {
   action: Action.Batch,
   cex: "mexc",
-  payload: BatchPayloadSchema.parse({ requests: JSON.stringify([
+  payload: { requests: JSON.stringify([
     { id: "fees", action: Action.FetchFees, symbol: "ARB/USDC", payload: {} },
-  ]) }),
+  ]) },
 };
+BatchPayloadSchema.parse(request.payload); // Validate without replacing the wire payload.
 // Given a successful ExecuteAction response:
 // const batch = BatchResponseEnvelopeSchema.parse(JSON.parse(response.result));
 // Check each id/action and error before decoding its action-specific result:
@@ -75,7 +78,11 @@ Without `--tarball`, `check:package` packs the existing build with
 `--ignore-scripts`, never recursively rebuilding. It installs outside the repo
 using npm with scripts disabled, validates every advertised target and required
 physical declaration, canonical proto/descriptor, exact expected revision and
-source hashes, then compiles and runs an external typed ESM consumer. The packed
+source hashes, then compiles the documentation example and runs an external typed
+ESM consumer. Each verifier consumer receives an environment without inherited
+`CEX_BROKER_` or `OTEL_` settings before package imports, so configured operator
+journals, exports, credentials and telemetry cannot initialize during checks. The
+build's Node import smoke applies the same cleanup before import. The packed
 loopback RPC harness starts with an empty broker map and mutates that same map
 only after startup. It uses no real exchange or credentials. It verifies selected
 account/pair isolation, three evidence kinds, count/byte boundaries, rejection

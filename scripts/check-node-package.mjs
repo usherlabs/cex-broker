@@ -1,4 +1,6 @@
-delete process.env.CEX_BROKER_ARCHIVE_ENABLED;
+import { packageConsumerEnvironment } from "./package-consumer-environment.mjs";
+
+process.env = packageConsumerEnvironment(process.env);
 
 const { default: CEXBroker } = await import("../dist/index.js");
 const broker = new CEXBroker(

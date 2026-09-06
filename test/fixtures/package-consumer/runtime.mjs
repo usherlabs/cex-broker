@@ -6,10 +6,10 @@ import * as grpc from "@grpc/grpc-js";
 import * as loader from "@grpc/proto-loader";
 import protobuf from "protobufjs";
 
-// Tests never inherit operator credentials, archive endpoints or telemetry.
-for (const key of Object.keys(process.env)) {
-	if (key.startsWith("CEX_BROKER_") || key.startsWith("OTEL_")) delete process.env[key];
-}
+// The verifier must scrub configuration before starting either consumer.
+assert.deepEqual(Object.keys(process.env).filter(
+	(key) => key.startsWith("CEX_BROKER_") || key.startsWith("OTEL_"),
+), [], "Packed runtime must not inherit operator configuration");
 const output = [];
 const originalConsole = {};
 for (const method of ["log", "info", "warn", "error", "debug"]) {

@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { verifyReleaseRevision } from "./build-provenance";
+import { packageConsumerEnvironment } from "./package-consumer-environment.mjs";
 import {
 	advertisedPackagePaths,
 	npmPackFilename,
@@ -37,6 +38,7 @@ const root = process.cwd();
 function run(command: [string, ...string[]], cwd = root): string {
 	const result = spawnSync(command[0], command.slice(1), {
 		cwd,
+		env: packageConsumerEnvironment(process.env),
 		encoding: "utf8",
 		timeout: 180_000,
 		maxBuffer: 10 * 1024 * 1024,
@@ -161,6 +163,20 @@ for (const file of ["consumer.mts", "runtime.mjs"]) {
 		join(consumer, file),
 	);
 }
+const documentationExamples = Array.from(
+	readFileSync(join(root, "docs/typed-package.md"), "utf8").matchAll(
+		/```ts\n([\s\S]*?)\n```/g,
+	),
+	(match) => match[1],
+);
+assert(
+	documentationExamples.length > 0,
+	"Typed package documentation example is required",
+);
+writeFileSync(
+	join(consumer, "documentation.mts"),
+	documentationExamples.join("\n"),
+);
 const compiler = join(consumer, "node_modules/typescript/bin/tsc");
 const publicDeclarations = advertisedPackagePaths(manifest)
 	.filter((path) => path.endsWith(".d.ts"))
@@ -175,7 +191,7 @@ const config = {
 		outDir: "compiled",
 		types: ["node"],
 	},
-	include: ["consumer.mts", ...publicDeclarations],
+	include: ["consumer.mts", "documentation.mts", ...publicDeclarations],
 };
 // Every public type export is checked, including future exports not imported by the fixture.
 writeFileSync(join(consumer, "tsconfig.public.json"), JSON.stringify(config));
@@ -206,6 +222,7 @@ writeFileSync(
 		},
 		include: [
 			"consumer.mts",
+			"documentation.mts",
 			"node_modules/@usherlabs/cex-broker/dist/**/*.d.ts",
 		],
 	}),
@@ -250,6 +267,7 @@ const evidence = {
 		"strict-internal-bundler",
 		"packed-rpc",
 		"typed-evidence-decoding",
+		"typed-documentation-example",
 	],
 	consumer,
 	installedPackage: installed,
