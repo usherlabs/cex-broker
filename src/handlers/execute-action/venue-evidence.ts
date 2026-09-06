@@ -18,6 +18,7 @@ import {
 	resolveEvidenceAccountScope,
 	resolveSpotMarketIdentity,
 	sanitizeVenueError,
+	withdrawalPrecision,
 } from "../../helpers/venue-evidence";
 import {
 	MarketRuleEvidenceSchema,
@@ -347,6 +348,7 @@ export async function handleFetchCurrencyEvidence(
 			withdrawalAvailable: network.withdraw,
 			withdrawalFee:
 				canonicalOptionalDecimal(network.fee, "withdrawal fee") ?? null,
+			withdrawalPrecision: withdrawalPrecision(network.precision),
 			withdrawalLimits: {
 				minimum:
 					canonicalOptionalDecimal(
