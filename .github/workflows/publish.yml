@@ -7,10 +7,18 @@ on:
     tags:
       - 'v[0-9]*.[0-9]*.[0-9]*' # Matches semver tags in the format of v1.2.3
       - 'v[0-9]*.[0-9]*.[0-9]*-*' # Matches semver tags in the format of v1.2.3-beta
-  # Recovery path: republish from a branch when a tag's run failed for
-  # workflow-only reasons (a rerun executes the workflow file at the tag's
-  # commit, so a fixed workflow can never rerun under the original tag).
+  # Manual releases default to npm only and require the approved revision.
   workflow_dispatch:
+    inputs:
+      expected_git_head:
+        description: Approved full Git commit to publish
+        required: true
+        type: string
+      publish_docker:
+        description: Also publish the broker Docker image (including latest)
+        required: false
+        type: boolean
+        default: false
 
 env:
   IMAGE_NAME: ghcr.io/usherlabs/cex-broker
@@ -31,6 +39,17 @@ jobs:
           # Full history: the archive baseline test resolves BASELINE_COMMIT^ and
           # diffs it against its parent, which a shallow clone cannot satisfy.
           fetch-depth: 0
+
+      - name: Verify requested release revision
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EXPECTED_GIT_HEAD: ${{ inputs.expected_git_head }}
+          ACTUAL_GIT_HEAD: ${{ github.sha }}
+        run: |
+          if [[ ! "$EXPECTED_GIT_HEAD" =~ ^[0-9a-f]{40}$ ]] || [[ "$EXPECTED_GIT_HEAD" != "$ACTUAL_GIT_HEAD" ]]; then
+            echo "Release revision does not match the approved full commit" >&2
+            exit 1
+          fi
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
@@ -94,6 +113,7 @@ jobs:
         run: npm publish "${{ steps.package.outputs.tarball }}" --ignore-scripts --provenance --access public
 
   publish-docker:
+    if: github.event_name == 'push' || inputs.publish_docker
     runs-on: ubuntu-latest
     needs: publish-npm
     steps:
