@@ -11,7 +11,7 @@ import { redactSecretLiterals } from "./broker-execution-archive/redact";
 import type {
 	StreamHealthFailureKind,
 	StreamHealthPublisher,
-	StreamHealthSnapshot,
+	UserDataStreamHealthSnapshot,
 } from "./stream-health-publisher";
 
 const MAX_SUBSCRIBER_EVENTS = 16;
@@ -125,7 +125,7 @@ class Subscriber implements UserDataSubscription {
 
 class AccountWorker {
 	readonly #subscribers = new Set<Subscriber>();
-	#snapshot: StreamHealthSnapshot;
+	#snapshot: UserDataStreamHealthSnapshot;
 	#stopping = false;
 	#stream: BinanceSpotUserDataStream | null = null;
 	#retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -186,7 +186,7 @@ class AccountWorker {
 		return subscriber;
 	}
 
-	snapshot(): StreamHealthSnapshot {
+	snapshot(): UserDataStreamHealthSnapshot {
 		return { ...this.#snapshot };
 	}
 
@@ -203,7 +203,7 @@ class AccountWorker {
 	}
 
 	#transition(
-		state: StreamHealthSnapshot["state"],
+		state: UserDataStreamHealthSnapshot["state"],
 		failureKind?: StreamHealthFailureKind,
 		failureReason?: string,
 	): void {
@@ -355,7 +355,7 @@ export class UserDataStreamSupervisor {
 		await this.options.publisher.close(this.#snapshots());
 	}
 
-	#snapshots(): StreamHealthSnapshot[] {
+	#snapshots(): UserDataStreamHealthSnapshot[] {
 		return [...this.#workers.values()].map((worker) => worker.snapshot());
 	}
 

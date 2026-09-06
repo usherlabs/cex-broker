@@ -7,10 +7,19 @@ import {
 	normalizeTimestamp,
 	rethrowArchiveDurabilityError,
 } from "./broker-execution-archive";
+import { redactSecretLiterals } from "./broker-execution-archive/redact";
 import { depositField, normalizeDepositStatus } from "./deposit";
 import { log } from "./logger";
 import type { OtelMetrics } from "./otel";
 import { asRecord } from "./shared/guards";
+import type {
+	DepositPollDisposition,
+	DepositPollerStreamHealthSnapshot,
+	DepositPollObservation,
+	DepositPollObservedDeposit,
+	DepositPollObservedProgress,
+	StreamHealthPublisher,
+} from "./stream-health-publisher";
 
 // ccxt method surface used by the poller (typed defensively — not every exchange
 // build exposes fetchDeposits).
@@ -22,6 +31,8 @@ type ExchangeWithDeposits = {
 		params?: Record<string, unknown>,
 	) => Promise<unknown[]>;
 	has?: Record<string, unknown>;
+	apiKey?: unknown;
+	secret?: unknown;
 };
 
 export type DepositArchivePollerConfig = {
@@ -74,6 +85,44 @@ type DepositPollTarget = {
 };
 
 type PollOutcome = "ok" | "error" | "unsupported";
+
+/** Per-target coverage counters that outlive one poll. */
+type TargetCoverage = {
+	snapshot: DepositPollerStreamHealthSnapshot;
+	lastOutcome: PollOutcome | null;
+};
+
+const MAX_FAILURE_REASON_CHARS = 256;
+const DEFAULT_FAILURE_REASON = "fetchDeposits failed";
+
+function decimal(value: number | null | undefined): string | null {
+	return value === null || value === undefined ? null : String(value);
+}
+
+// A failed poll always carries a non-empty reason: the forwarder rejects an
+// error observation without one, and a rejected body would be retried forever
+// ahead of every later observation. An empty or whitespace message therefore
+// falls back to the generic reason here, at the producer, never downstream.
+// The reason is persisted to the durable state file and transmitted, so the
+// configured credential literals of the target exchange are removed FIRST,
+// like the sibling user-data producer does; forwarder pattern redaction is too
+// late for the local spool and does not know bare literals.
+function failureReason(error: unknown, exchange: ExchangeWithDeposits): string {
+	const text =
+		error instanceof Error
+			? error.message
+			: typeof error === "string"
+				? error
+				: "";
+	const secrets = [exchange.apiKey, exchange.secret].filter(
+		(value): value is string => typeof value === "string" && value.length > 0,
+	);
+	const trimmed = redactSecretLiterals(text, secrets)
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, MAX_FAILURE_REASON_CHARS);
+	return trimmed.length > 0 ? trimmed : DEFAULT_FAILURE_REASON;
+}
 
 type BinanceUnlockProgressState =
 	| "pending"
@@ -129,6 +178,27 @@ type DepositClassification = {
 	progressKey?: string;
 	highWatermark?: UnlockProgressWatermark;
 };
+
+/**
+ * The fingerprint components the consumer matches against the archived
+ * `unlock_progress`: everything `unlockProgressKey` hashes except the
+ * producer's own observation clock. Integers travel as decimal strings.
+ */
+function observedProgress(
+	progress: BinanceUnlockProgress | undefined,
+): DepositPollObservedProgress | null {
+	if (progress === undefined) return null;
+	return {
+		state: progress.state,
+		progress_state: progress.progress_state,
+		reason: progress.reason,
+		native_status: decimal(progress.native_status),
+		current: decimal(progress.current),
+		credit_required: decimal(progress.credit_required),
+		unlock_required: decimal(progress.unlock_required),
+		complete_time: decimal(progress.complete_time),
+	};
+}
 
 function depositTimestamp(record: Record<string, unknown>): number | undefined {
 	const observedAt = depositField(record, [
@@ -468,6 +538,7 @@ export class DepositArchivePoller {
 		Map<string, LastArchivedDeposit>
 	>();
 	readonly #unsupportedLogged = new Set<string>();
+	readonly #coverage = new Map<string, TargetCoverage>();
 	readonly #config: DepositArchivePollerConfig;
 
 	constructor(
@@ -476,6 +547,10 @@ export class DepositArchivePoller {
 			archiver: BrokerExecutionArchiver;
 			metrics?: OtelMetrics;
 			config?: Partial<DepositArchivePollerConfig>;
+			// Durable publication of exact per-poll coverage. Without it the poller
+			// still archives deposits, but nothing downstream can tell a stalled
+			// deposit from one this poller never checked.
+			coveragePublisher?: StreamHealthPublisher;
 		},
 	) {
 		this.#config = { ...DEFAULT_CONFIG, ...params.config };
@@ -486,6 +561,7 @@ export class DepositArchivePoller {
 			return;
 		}
 		log.info("📥 Deposit archive poller started");
+		this.params.coveragePublisher?.start();
 		this.#schedule(0);
 	}
 
@@ -496,6 +572,7 @@ export class DepositArchivePoller {
 			this.#timer = null;
 		}
 		await this.#running;
+		await this.params.coveragePublisher?.close(this.#coverageSnapshots());
 	}
 
 	async pollAllOnce(): Promise<boolean> {
@@ -539,19 +616,165 @@ export class DepositArchivePoller {
 	// It therefore records on every exit, including an unexpected throw, which is
 	// why the outcome starts pessimistic and is only narrowed by a completed poll.
 	async #pollOne(target: DepositPollTarget): Promise<void> {
+		const attemptedAt = new Date().toISOString();
 		let outcome: PollOutcome = "error";
+		let observation: DepositPollObservation | undefined;
 		try {
-			outcome = await this.#pollTarget(target);
+			const result = await this.#pollTarget(target, attemptedAt);
+			outcome = result.outcome;
+			observation = result.observation;
+		} catch (error) {
+			observation = this.#observation("error", attemptedAt, {
+				errorReason: failureReason(
+					error,
+					target.account.exchange as unknown as ExchangeWithDeposits,
+				),
+			});
+			throw error;
 		} finally {
 			void this.params.metrics?.recordCounter(
 				"cex_deposit_poller_polls_total",
 				1,
 				{ exchange: target.exchangeId, outcome },
 			);
+			this.#recordCoverage(
+				target,
+				outcome,
+				observation ??
+					this.#observation("error", attemptedAt, {
+						errorReason: "poll aborted before completion",
+					}),
+			);
 		}
 	}
 
-	async #pollTarget(target: DepositPollTarget): Promise<PollOutcome> {
+	#observation(
+		disposition: DepositPollDisposition,
+		attemptedAt: string,
+		detail: {
+			errorReason?: string;
+			completedAt?: string;
+			requestSinceMs?: number;
+			nextCursorMs?: number;
+			responseTruncated?: boolean;
+			malformedCount?: number;
+			observedDeposits?: DepositPollObservedDeposit[];
+		} = {},
+	): DepositPollObservation {
+		// A completion stamp earlier than the attempt (a backward host-clock
+		// step between the two reads) cannot be a success: the forwarder
+		// rejects it and the body would be retried unchanged forever. It is
+		// represented as an explicit error observation here, at the owning
+		// boundary; the clock is never clamped and no coverage is claimed.
+		if (
+			disposition === "success" &&
+			detail.completedAt !== undefined &&
+			detail.completedAt < attemptedAt
+		) {
+			return this.#observation("error", attemptedAt, {
+				requestSinceMs: detail.requestSinceMs,
+				errorReason: `source clock invalid: completed ${detail.completedAt} before attempted ${attemptedAt}`,
+			});
+		}
+		return {
+			version: "1",
+			disposition,
+			attempted_at: attemptedAt,
+			completed_at:
+				disposition === "success" ? (detail.completedAt ?? null) : null,
+			poll_interval_ms: String(this.#config.pollIntervalMs),
+			fetch_timeout_ms: String(this.#config.fetchTimeoutMs),
+			deposits_limit: String(this.#config.depositsLimit),
+			request_since_ms: decimal(detail.requestSinceMs),
+			next_cursor_ms:
+				disposition === "success" ? decimal(detail.nextCursorMs) : null,
+			response_truncated:
+				disposition === "success" ? (detail.responseTruncated ?? null) : null,
+			malformed_count: String(detail.malformedCount ?? 0),
+			error_reason:
+				disposition === "error"
+					? detail.errorReason?.trim() || DEFAULT_FAILURE_REASON
+					: "",
+			observed_deposits:
+				disposition === "success" ? (detail.observedDeposits ?? []) : [],
+		};
+	}
+
+	// Coverage state is per configured account and survives its own failures:
+	// an erroring account keeps its row, so it can never hide behind a healthy
+	// sibling in the published batch. Only a successful, fully parsed response
+	// moves the source clocks; the heartbeat re-posts them unchanged.
+	#recordCoverage(
+		target: DepositPollTarget,
+		outcome: PollOutcome,
+		observation: DepositPollObservation,
+	): void {
+		const publisher = this.params.coveragePublisher;
+		if (!publisher) return;
+		const key = this.#targetKey(target);
+		const previous = this.#coverage.get(key);
+		const now = observation.completed_at ?? new Date().toISOString();
+		const state: DepositPollerStreamHealthSnapshot["state"] =
+			outcome === "ok" ? "connected" : "error";
+		const base = previous?.snapshot;
+		const stateChangedAt =
+			base && base.state === state ? base.stateChangedAt : now;
+		const attempts = BigInt(base?.connectAttemptCount ?? "0") + 1n;
+		const errors =
+			BigInt(base?.errorCount ?? "0") + (outcome === "error" ? 1n : 0n);
+		const reconnects =
+			BigInt(base?.reconnectCount ?? "0") +
+			(outcome === "ok" && previous?.lastOutcome === "error" ? 1n : 0n);
+		const snapshot: DepositPollerStreamHealthSnapshot = {
+			exchange: target.exchangeId,
+			accountSelector: target.account.label,
+			accountRole: target.account.role,
+			streamKind: "deposit_poller",
+			accountScope: "spot",
+			registryStatus: "active",
+			retiredAt: null,
+			state,
+			stateChangedAt,
+			lastConnectedAt:
+				outcome === "ok"
+					? observation.completed_at
+					: (base?.lastConnectedAt ?? null),
+			lastAuthenticatedAt: null,
+			lastReceivedAt:
+				outcome === "ok"
+					? observation.completed_at
+					: (base?.lastReceivedAt ?? null),
+			connectAttemptCount: attempts.toString(),
+			reconnectCount: reconnects.toString(),
+			errorCount: errors.toString(),
+			lastFailureKind:
+				outcome === "ok"
+					? "none"
+					: outcome === "unsupported"
+						? "unsupported_connector"
+						: "transport_error",
+			lastFailureReason:
+				outcome === "ok"
+					? ""
+					: outcome === "unsupported"
+						? "fetchDeposits unsupported"
+						: observation.error_reason,
+			trafficMode: "continuous",
+			sourceWatermark: null,
+			pollObservation: observation,
+		};
+		this.#coverage.set(key, { snapshot, lastOutcome: outcome });
+		publisher.publish(this.#coverageSnapshots());
+	}
+
+	#coverageSnapshots(): DepositPollerStreamHealthSnapshot[] {
+		return [...this.#coverage.values()].map((entry) => entry.snapshot);
+	}
+
+	async #pollTarget(
+		target: DepositPollTarget,
+		attemptedAt: string,
+	): Promise<{ outcome: PollOutcome; observation: DepositPollObservation }> {
 		const exchange = target.account.exchange as unknown as ExchangeWithDeposits;
 		const key = this.#targetKey(target);
 		if (
@@ -565,7 +788,10 @@ export class DepositArchivePoller {
 					account: target.account.label,
 				});
 			}
-			return "unsupported";
+			return {
+				outcome: "unsupported",
+				observation: this.#observation("unsupported", attemptedAt),
+			};
 		}
 
 		const since =
@@ -588,16 +814,56 @@ export class DepositArchivePoller {
 				account: target.account.label,
 				error,
 			});
-			return "error";
+			return {
+				outcome: "error",
+				observation: this.#observation("error", attemptedAt, {
+					requestSinceMs: since,
+					errorReason: failureReason(error, exchange),
+				}),
+			};
 		}
-		if (!Array.isArray(deposits) || deposits.length === 0) {
-			return "ok";
+		if (!Array.isArray(deposits)) {
+			return {
+				outcome: "error",
+				observation: this.#observation("error", attemptedAt, {
+					requestSinceMs: since,
+					errorReason: "fetchDeposits returned a non-array response",
+				}),
+			};
+		}
+		if (deposits.length > this.#config.depositsLimit) {
+			// The coverage list is bounded by the requested limit and is never
+			// silently cut; a venue answering past its own limit is graded as an
+			// unusable response rather than a partially proven one.
+			return {
+				outcome: "error",
+				observation: this.#observation("error", attemptedAt, {
+					requestSinceMs: since,
+					errorReason: `fetchDeposits returned ${deposits.length} rows for a limit of ${this.#config.depositsLimit}`,
+				}),
+			};
+		}
+		if (deposits.length === 0) {
+			// An empty answer leaves the cursor untouched: an account with no
+			// retained cursor keeps its sliding lookback window.
+			return this.#completed(
+				this.#observation("success", attemptedAt, {
+					completedAt: new Date().toISOString(),
+					requestSinceMs: since,
+					nextCursorMs: this.#cursors.get(key),
+					responseTruncated: false,
+					observedDeposits: [],
+				}),
+			);
 		}
 
 		let archived = 0;
+		let malformed = 0;
+		const observed: DepositPollObservedDeposit[] = [];
 		for (const deposit of deposits) {
 			const record = asRecord(deposit);
 			if (!record) {
+				malformed += 1;
 				continue;
 			}
 			const info = asRecord(record.info);
@@ -631,6 +897,18 @@ export class DepositArchivePoller {
 				record,
 				lastArchived,
 			);
+			// Coverage lists every deposit the venue answered with, including the
+			// ones whose business row is deduplicated below as unchanged.
+			const depositTimestampMs = depositTimestamp(record);
+			observed.push({
+				coin: assetSymbol === undefined ? "" : String(assetSymbol),
+				network: network === undefined ? "" : String(network),
+				external_id: depositTxid ?? "",
+				txid: depositTxid ?? "",
+				deposit_timestamp_ms: decimal(depositTimestampMs),
+				status: classification.archiveStatus,
+				progress: observedProgress(classification.unlockProgress),
+			});
 			if (
 				lastArchived &&
 				lastArchived.status === classification.archiveStatus &&
@@ -681,7 +959,7 @@ export class DepositArchivePoller {
 				}
 				targetDeposits.set(identity, {
 					status: classification.archiveStatus,
-					timestamp: depositTimestamp(record),
+					timestamp: depositTimestampMs,
 					progressKey: classification.progressKey,
 					highWatermark: classification.highWatermark,
 				});
@@ -717,7 +995,29 @@ export class DepositArchivePoller {
 				this.#lastArchivedByTarget.delete(key);
 			}
 		}
-		return "ok";
+		return this.#completed(
+			this.#observation("success", attemptedAt, {
+				completedAt: new Date().toISOString(),
+				requestSinceMs: since,
+				nextCursorMs: nextCursor,
+				responseTruncated: deposits.length >= this.#config.depositsLimit,
+				malformedCount: malformed,
+				observedDeposits: observed,
+			}),
+		);
+	}
+
+	// Both completion paths derive the poll outcome from the observation the
+	// builder actually produced, so a completion the builder had to downgrade
+	// (invalid source clock) is reported as the error it is.
+	#completed(observation: DepositPollObservation): {
+		outcome: PollOutcome;
+		observation: DepositPollObservation;
+	} {
+		return {
+			outcome: observation.disposition === "success" ? "ok" : "error",
+			observation,
+		};
 	}
 
 	#targetKey(target: DepositPollTarget): string {
