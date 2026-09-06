@@ -397,6 +397,7 @@ describe("Binance Subscribe user-data streams", () => {
 		supervisor = new UserDataStreamSupervisor({
 			brokers,
 			publisher: new StreamHealthPublisher({
+				producerId: "cex-broker-user-data",
 				deploymentId: "test-deployment",
 				statePath: join(supervisorStateDirectory, "state.json"),
 				forwarderUrl: "http://127.0.0.1:1/archive",

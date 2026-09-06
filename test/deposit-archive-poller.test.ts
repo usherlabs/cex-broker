@@ -11,6 +11,40 @@ import {
 } from "../src/helpers/deposit-archive-poller";
 
 import { log } from "../src/helpers/logger";
+import {
+	type DepositPollObservation,
+	type StreamHealthPublisher,
+	type StreamHealthSnapshot,
+} from "../src/helpers/stream-health-publisher";
+
+// Records every publication in order; the real publisher is exercised by its
+// own tests, this one only needs the snapshots the poller hands it.
+function fakeCoveragePublisher(published: StreamHealthSnapshot[][]) {
+	const publisher = {
+		start: () => {},
+		publish: (snapshots: readonly StreamHealthSnapshot[]) => {
+			published.push(snapshots.map((snapshot) => ({ ...snapshot })));
+		},
+		close: async (snapshots: readonly StreamHealthSnapshot[]) => {
+			published.push(snapshots.map((snapshot) => ({ ...snapshot })));
+		},
+	};
+	return publisher as unknown as StreamHealthPublisher;
+}
+
+function lastObservation(
+	published: StreamHealthSnapshot[][],
+	accountSelector = "primary",
+): { snapshot: StreamHealthSnapshot; observation: DepositPollObservation } {
+	const batch = published.at(-1);
+	const snapshot = batch?.find(
+		(entry) => entry.accountSelector === accountSelector,
+	);
+	if (!snapshot || snapshot.streamKind !== "deposit_poller") {
+		throw new Error(`Expected a deposit_poller snapshot for ${accountSelector}`);
+	}
+	return { snapshot, observation: snapshot.pollObservation };
+}
 
 function account(
 	exchange: unknown,
@@ -987,5 +1021,356 @@ describe("DepositArchivePoller liveness signal", () => {
 		} finally {
 			warn.mockRestore();
 		}
+	});
+});
+
+describe("deposit poll coverage", () => {
+	const credited = {
+		txid: "0xcovered",
+		currency: "USDT",
+		amount: "5",
+		network: "ARBITRUM",
+		status: "pending",
+		timestamp: 1_784_000_000_000,
+		info: { status: "6", confirmTimes: "3/12", unlockConfirm: 12 },
+	};
+
+	test("publishes exact coverage on success and keeps publishing it when the business row dedupes", async () => {
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [credited],
+		};
+		const sink: BrokerArchiveRow[] = [];
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver(sink),
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+
+		await poller.pollAllOnce();
+		await poller.pollAllOnce();
+
+		// One archived business row, two published observations: the second
+		// poll proved the same deposit again without re-archiving it.
+		expect(sink).toHaveLength(1);
+		expect(published).toHaveLength(2);
+		const { snapshot, observation } = lastObservation(published);
+		expect(snapshot).toMatchObject({
+			exchange: "binance",
+			accountSelector: "primary",
+			streamKind: "deposit_poller",
+			state: "connected",
+			lastFailureKind: "none",
+			connectAttemptCount: "2",
+			errorCount: "0",
+			trafficMode: "continuous",
+		});
+		expect(snapshot.lastReceivedAt).toBe(observation.completed_at);
+		expect(observation).toMatchObject({
+			version: "1",
+			disposition: "success",
+			poll_interval_ms: "60000",
+			deposits_limit: "50",
+			response_truncated: false,
+			malformed_count: "0",
+			error_reason: "",
+		});
+		expect(observation.completed_at).not.toBeNull();
+		expect(observation.attempted_at <= String(observation.completed_at)).toBe(
+			true,
+		);
+		expect(observation.observed_deposits).toEqual([
+			{
+				coin: "USDT",
+				network: "ARBITRUM",
+				external_id: "0xcovered",
+				txid: "0xcovered",
+				deposit_timestamp_ms: "1784000000000",
+				status: "credited_not_withdrawable",
+				progress: {
+					state: "credited_not_withdrawable",
+					progress_state: "valid",
+					reason: null,
+					native_status: "6",
+					current: "3",
+					credit_required: "12",
+					unlock_required: "12",
+					complete_time: null,
+				},
+			},
+		]);
+		expect(observation.request_since_ms).not.toBeNull();
+	});
+
+	test("marks a full page as truncated so omitted deposits are never proven absent", async () => {
+		const page = Array.from({ length: 2 }, (_, index) => ({
+			...credited,
+			txid: `0xpage-${index}`,
+			timestamp: credited.timestamp + index,
+		}));
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => page,
+		};
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver([]),
+			config: { depositsLimit: 2 },
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+
+		await poller.pollAllOnce();
+
+		const { observation } = lastObservation(published);
+		expect(observation.disposition).toBe("success");
+		expect(observation.response_truncated).toBe(true);
+		expect(observation.observed_deposits).toHaveLength(2);
+
+		// A venue answering past the requested limit is not partially trusted.
+		const overflowing = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [...page, { ...credited, txid: "0xextra" }],
+		};
+		const overflowPublished: StreamHealthSnapshot[][] = [];
+		const overflowPoller = new DepositArchivePoller({
+			brokers: poolWith(overflowing),
+			archiver: fakeArchiver([]),
+			config: { depositsLimit: 2 },
+			coveragePublisher: fakeCoveragePublisher(overflowPublished),
+		});
+		await overflowPoller.pollAllOnce();
+		const overflow = lastObservation(overflowPublished).observation;
+		expect(overflow.disposition).toBe("error");
+		expect(overflow.observed_deposits).toEqual([]);
+		expect(overflow.error_reason).toContain("limit of 2");
+	});
+
+	test("reports an empty answer as a completed poll that covers nothing", async () => {
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [],
+		};
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver([]),
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+
+		await poller.pollAllOnce();
+
+		const { observation } = lastObservation(published);
+		expect(observation.disposition).toBe("success");
+		expect(observation.completed_at).not.toBeNull();
+		expect(observation.response_truncated).toBe(false);
+		expect(observation.observed_deposits).toEqual([]);
+		expect(observation.next_cursor_ms).toBeNull();
+	});
+
+	test("keeps a failing account in the batch beside a healthy sibling without a success clock", async () => {
+		const healthy = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [credited],
+		};
+		const broken = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => {
+				throw new Error("venue unavailable apiKey=secret");
+			},
+		};
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: {
+				binance: {
+					primary: account(healthy),
+					secondaryBrokers: [account(broken, "secondary:1", 1)],
+				},
+			},
+			archiver: fakeArchiver([]),
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+
+		await poller.pollAllOnce();
+		await poller.pollAllOnce();
+
+		const batch = published.at(-1);
+		expect(batch).toHaveLength(2);
+		const failing = lastObservation(published, "secondary:1");
+		expect(failing.snapshot).toMatchObject({
+			state: "error",
+			lastFailureKind: "transport_error",
+			connectAttemptCount: "2",
+			errorCount: "2",
+			lastConnectedAt: null,
+			lastReceivedAt: null,
+		});
+		expect(failing.observation).toMatchObject({
+			disposition: "error",
+			completed_at: null,
+			next_cursor_ms: null,
+			response_truncated: null,
+			observed_deposits: [],
+		});
+		expect(failing.observation.error_reason).toContain("venue unavailable");
+		expect(lastObservation(published).snapshot.state).toBe("connected");
+	});
+
+	test("an empty venue error message still yields a valid explicit error observation", async () => {
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => {
+				throw new Error("   ");
+			},
+		};
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver([]),
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+
+		await poller.pollAllOnce();
+
+		const { snapshot, observation } = lastObservation(published);
+		expect(observation.disposition).toBe("error");
+		expect(observation.error_reason).toBe("fetchDeposits failed");
+		expect(snapshot.lastFailureReason).toBe("fetchDeposits failed");
+	});
+
+	test("redacts the target exchange's credential literals from a persisted failure reason", async () => {
+		const exchange = {
+			has: { fetchDeposits: true },
+			apiKey: "live-api-key-literal",
+			secret: "live-secret-literal",
+			fetchDeposits: async () => {
+				throw new Error("signature live-secret-literal rejected for live-api-key-literal");
+			},
+		};
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver([]),
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+
+		await poller.pollAllOnce();
+
+		const { snapshot, observation } = lastObservation(published);
+		expect(observation.error_reason).not.toContain("live-secret-literal");
+		expect(observation.error_reason).not.toContain("live-api-key-literal");
+		expect(observation.error_reason).toContain("[redacted]");
+		expect(snapshot.lastFailureReason).toBe(observation.error_reason);
+	});
+
+	test("a completion stamped before its attempt is an explicit error, never a success body", async () => {
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [],
+		};
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver([]),
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+		// The host clock steps backwards between the attempt and the completion
+		// read.
+		const realNow = Date.prototype.toISOString;
+		let calls = 0;
+		const stamps = ["2026-08-03T20:00:10.000Z", "2026-08-03T20:00:00.000Z"];
+		const spy = spyOn(Date.prototype, "toISOString").mockImplementation(function (this: Date) {
+			const stamp = stamps[calls];
+			calls += 1;
+			return stamp ?? realNow.call(this);
+		});
+		try {
+			await poller.pollAllOnce();
+		} finally {
+			spy.mockRestore();
+		}
+
+		const { snapshot, observation } = lastObservation(published);
+		expect(observation.disposition).toBe("error");
+		expect(observation.completed_at).toBeNull();
+		expect(observation.error_reason).toContain("source clock invalid");
+		expect(snapshot.state).toBe("error");
+	});
+
+	test("recovering from an error counts a reconnect and clears the failure", async () => {
+		let fail = true;
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => {
+				if (fail) throw new Error("transient");
+				return [];
+			},
+		};
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver([]),
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+
+		await poller.pollAllOnce();
+		fail = false;
+		await poller.pollAllOnce();
+
+		const { snapshot, observation } = lastObservation(published);
+		expect(snapshot).toMatchObject({
+			state: "connected",
+			lastFailureKind: "none",
+			lastFailureReason: "",
+			reconnectCount: "1",
+			errorCount: "1",
+			connectAttemptCount: "2",
+		});
+		expect(observation.disposition).toBe("success");
+	});
+
+	test("reports an unsupported connector as an unsupported observation every poll", async () => {
+		const exchange = { has: { fetchDeposits: false } };
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver([]),
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+
+		await poller.pollAllOnce();
+		await poller.pollAllOnce();
+
+		expect(published).toHaveLength(2);
+		const { snapshot, observation } = lastObservation(published);
+		expect(snapshot).toMatchObject({
+			state: "error",
+			lastFailureKind: "unsupported_connector",
+		});
+		expect(observation).toMatchObject({
+			disposition: "unsupported",
+			completed_at: null,
+			request_since_ms: null,
+			error_reason: "",
+			observed_deposits: [],
+		});
+	});
+
+	test("stop hands the publisher the complete coverage set for its final post", async () => {
+		const exchange = {
+			has: { fetchDeposits: true },
+			fetchDeposits: async () => [],
+		};
+		const published: StreamHealthSnapshot[][] = [];
+		const poller = new DepositArchivePoller({
+			brokers: poolWith(exchange),
+			archiver: fakeArchiver([]),
+			coveragePublisher: fakeCoveragePublisher(published),
+		});
+		await poller.pollAllOnce();
+		await poller.stop();
+		expect(published).toHaveLength(2);
+		expect(published[1]).toEqual(published[0]);
 	});
 });

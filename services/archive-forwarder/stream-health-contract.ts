@@ -29,6 +29,11 @@ const FAILURE_KINDS = new Set([
 ]);
 const TRAFFIC_MODES = new Set(["event_driven", "continuous", "unknown"]);
 const REGISTRY_STATUSES = new Set(["active", "retired"]);
+const DEPOSIT_POLLER_STREAM_KIND = "deposit_poller";
+const POLL_OBSERVATION_VERSION = "1";
+const POLL_DISPOSITIONS = new Set(["success", "error", "unsupported"]);
+const MAX_POLL_INTERVAL_MS = 86_400_000n;
+const MAX_DEPOSITS_LIMIT = 1_000n;
 
 const REQUIRED_FIELDS = [
 	"producer_id",
@@ -100,10 +105,51 @@ type CanonicalStreamHealthRow = {
 	payload_json: string;
 };
 
+/** Unlock-progress fingerprint components as the producer observed them. */
+export type CanonicalPollObservedProgress = {
+	state: string;
+	progress_state: string;
+	reason: string | null;
+	native_status: string | null;
+	current: string | null;
+	credit_required: string | null;
+	unlock_required: string | null;
+	complete_time: string | null;
+};
+export type CanonicalPollObservedDeposit = {
+	coin: string;
+	network: string;
+	external_id: string;
+	txid: string;
+	deposit_timestamp_ms: string | null;
+	status: string;
+	progress: CanonicalPollObservedProgress | null;
+};
+/**
+ * Exact coverage of one deposit-history poll. It is part of the canonical
+ * payload (and so of `payload_sha256`) but is stored only inside
+ * `payload_json`: the snapshots table keeps its column set.
+ */
+export type CanonicalPollObservation = {
+	version: typeof POLL_OBSERVATION_VERSION;
+	disposition: "success" | "error" | "unsupported";
+	attempted_at: string;
+	completed_at: string | null;
+	poll_interval_ms: string;
+	fetch_timeout_ms: string;
+	deposits_limit: string;
+	request_since_ms: string | null;
+	next_cursor_ms: string | null;
+	response_truncated: boolean | null;
+	malformed_count: string;
+	error_reason: string;
+	observed_deposits: CanonicalPollObservedDeposit[];
+};
+
 type CanonicalPayload = Omit<
 	CanonicalStreamHealthRow,
 	"snapshot_id" | "batch_id" | "payload_sha256" | "payload_json"
->;
+> & { poll_observation?: CanonicalPollObservation };
 
 export type StreamHealthBatchClassification =
 	| "stream_health"
@@ -347,6 +393,207 @@ export function deriveStreamHealthBatchId(fields: {
 	]);
 }
 
+function normalizeText(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	return value.trim().slice(0, 512);
+}
+
+function normalizeNullableUnsigned(
+	value: unknown,
+	maximum?: bigint,
+): string | null | undefined {
+	if (value === null) return null;
+	return normalizeUnsigned(value, maximum);
+}
+
+function normalizePollObservedProgress(
+	value: unknown,
+): CanonicalPollObservedProgress | null | { error: string } {
+	if (value === null) return null;
+	const record = requireRecord(value);
+	if (!record) return { error: "Malformed poll observation progress" };
+	const state = normalizeIdentifier(record.state);
+	const progressState = normalizeIdentifier(record.progress_state);
+	const reason = normalizeNullableText(record.reason);
+	const nativeStatus = normalizeNullableUnsigned(record.native_status);
+	const current = normalizeNullableUnsigned(record.current);
+	const creditRequired = normalizeNullableUnsigned(record.credit_required);
+	const unlockRequired = normalizeNullableUnsigned(record.unlock_required);
+	const completeTime = normalizeNullableUnsigned(record.complete_time);
+	if (
+		!state ||
+		!progressState ||
+		reason === undefined ||
+		nativeStatus === undefined ||
+		current === undefined ||
+		creditRequired === undefined ||
+		unlockRequired === undefined ||
+		completeTime === undefined
+	) {
+		return { error: "Invalid poll observation progress field" };
+	}
+	return {
+		state,
+		progress_state: progressState,
+		reason,
+		native_status: nativeStatus,
+		current,
+		credit_required: creditRequired,
+		unlock_required: unlockRequired,
+		complete_time: completeTime,
+	};
+}
+
+function normalizePollObservedDeposit(
+	value: unknown,
+): CanonicalPollObservedDeposit | { error: string } {
+	const record = requireRecord(value);
+	if (!record) return { error: "Malformed poll observation deposit" };
+	const coin = normalizeText(record.coin);
+	const network = normalizeText(record.network);
+	const externalId = normalizeText(record.external_id);
+	const txid = normalizeText(record.txid);
+	const depositTimestampMs = normalizeNullableUnsigned(
+		record.deposit_timestamp_ms,
+	);
+	// The archive status is the venue's own normalized word and may be empty
+	// for a venue without a status field; it is carried, not interpreted.
+	const status = normalizeText(record.status);
+	const progress = normalizePollObservedProgress(record.progress);
+	if (
+		coin === undefined ||
+		network === undefined ||
+		externalId === undefined ||
+		txid === undefined ||
+		depositTimestampMs === undefined ||
+		status === undefined
+	) {
+		return { error: "Invalid poll observation deposit field" };
+	}
+	if (progress !== null && "error" in progress) return progress;
+	return {
+		coin,
+		network,
+		external_id: externalId,
+		txid,
+		deposit_timestamp_ms: depositTimestampMs,
+		status,
+		progress,
+	};
+}
+
+// A poll observation is exact evidence: success proves the listed deposits and
+// only them, so the list is bounded by the request limit and every
+// non-success disposition proves nothing about any deposit.
+function normalizePollObservation(
+	value: unknown,
+): CanonicalPollObservation | { error: string } {
+	const record = requireRecord(value);
+	if (!record) return { error: "Malformed poll observation" };
+	if (
+		record.version !== POLL_OBSERVATION_VERSION &&
+		record.version !== Number(POLL_OBSERVATION_VERSION)
+	) {
+		return { error: "Unsupported poll observation version" };
+	}
+	const disposition =
+		typeof record.disposition === "string" &&
+		POLL_DISPOSITIONS.has(record.disposition)
+			? (record.disposition as CanonicalPollObservation["disposition"])
+			: undefined;
+	const attemptedAt = normalizeTimestamp(record.attempted_at);
+	const completedAt = normalizeNullableTimestamp(record.completed_at);
+	const pollIntervalMs = normalizeUnsigned(
+		record.poll_interval_ms,
+		MAX_POLL_INTERVAL_MS,
+	);
+	const fetchTimeoutMs = normalizeUnsigned(
+		record.fetch_timeout_ms,
+		MAX_POLL_INTERVAL_MS,
+	);
+	const depositsLimit = normalizeUnsigned(
+		record.deposits_limit,
+		MAX_DEPOSITS_LIMIT,
+	);
+	const requestSinceMs = normalizeNullableUnsigned(record.request_since_ms);
+	const nextCursorMs = normalizeNullableUnsigned(record.next_cursor_ms);
+	const responseTruncated =
+		record.response_truncated === null ||
+		typeof record.response_truncated === "boolean"
+			? record.response_truncated
+			: undefined;
+	const malformedCount = normalizeUnsigned(record.malformed_count, MAX_UINT32);
+	const errorReason = normalizeDiagnostic(record.error_reason);
+	if (
+		!disposition ||
+		!attemptedAt ||
+		completedAt === undefined ||
+		pollIntervalMs === undefined ||
+		pollIntervalMs === "0" ||
+		fetchTimeoutMs === undefined ||
+		depositsLimit === undefined ||
+		depositsLimit === "0" ||
+		requestSinceMs === undefined ||
+		nextCursorMs === undefined ||
+		responseTruncated === undefined ||
+		malformedCount === undefined ||
+		errorReason === undefined ||
+		!Array.isArray(record.observed_deposits)
+	) {
+		return { error: "Invalid poll observation field" };
+	}
+	const observedDeposits: CanonicalPollObservedDeposit[] = [];
+	for (const deposit of record.observed_deposits) {
+		const normalized = normalizePollObservedDeposit(deposit);
+		if ("error" in normalized) return normalized;
+		observedDeposits.push(normalized);
+	}
+	if (disposition === "success") {
+		if (completedAt === null || responseTruncated === null) {
+			return { error: "Successful poll observation requires completion evidence" };
+		}
+		if (completedAt < attemptedAt) {
+			return { error: "Poll observation completed before it was attempted" };
+		}
+		if (errorReason.length > 0) {
+			return { error: "Successful poll observation cannot carry an error" };
+		}
+		if (BigInt(observedDeposits.length) > BigInt(depositsLimit)) {
+			return { error: "Poll observation lists more deposits than its limit" };
+		}
+	} else {
+		if (
+			completedAt !== null ||
+			nextCursorMs !== null ||
+			responseTruncated !== null ||
+			observedDeposits.length > 0
+		) {
+			return { error: "Unsuccessful poll observation cannot carry coverage" };
+		}
+		if (disposition === "error" && errorReason.length === 0) {
+			return { error: "Failed poll observation requires an error reason" };
+		}
+		if (disposition === "unsupported" && errorReason.length > 0) {
+			return { error: "Unsupported poll observation cannot carry an error" };
+		}
+	}
+	return {
+		version: POLL_OBSERVATION_VERSION,
+		disposition,
+		attempted_at: attemptedAt,
+		completed_at: completedAt,
+		poll_interval_ms: pollIntervalMs,
+		fetch_timeout_ms: fetchTimeoutMs,
+		deposits_limit: depositsLimit,
+		request_since_ms: requestSinceMs,
+		next_cursor_ms: nextCursorMs,
+		response_truncated: responseTruncated,
+		malformed_count: malformedCount,
+		error_reason: errorReason,
+		observed_deposits: observedDeposits,
+	};
+}
+
 function normalizeStreamHealthRow(
 	entry: ArchiveRow,
 	envelope: ArchiveBatchRequest,
@@ -460,6 +707,21 @@ function normalizeStreamHealthRow(
 	if (lastFailureKind === "none" && lastFailureReason.length > 0) {
 		return { error: "last_failure_reason requires a failure kind" };
 	}
+	let pollObservation: CanonicalPollObservation | undefined;
+	if (streamKind === DEPOSIT_POLLER_STREAM_KIND) {
+		const normalized = normalizePollObservation(row.poll_observation);
+		if ("error" in normalized) return normalized;
+		pollObservation = normalized;
+		if (
+			(normalized.disposition === "success") !== (state === "connected") ||
+			(normalized.disposition === "success" &&
+				lastReceivedAt !== normalized.completed_at)
+		) {
+			return { error: "Poll observation disagrees with stream state" };
+		}
+	} else if (row.poll_observation !== undefined) {
+		return { error: "poll_observation is only valid for deposit_poller streams" };
+	}
 
 	const deploymentId = normalizeIdentifier(envelope.deployment_id);
 	if (!deploymentId) return { error: "Invalid stream health deployment id" };
@@ -526,6 +788,9 @@ function normalizeStreamHealthRow(
 		last_failure_reason: lastFailureReason,
 		traffic_mode: trafficMode,
 		source_watermark: sourceWatermark,
+		// Appended last so every pre-existing user-data payload keeps its exact
+		// bytes and hash.
+		...(pollObservation ? { poll_observation: pollObservation } : {}),
 	};
 	const payloadJson = JSON.stringify(payload);
 	const payloadSha256 = hash(payloadJson);
@@ -536,8 +801,9 @@ function normalizeStreamHealthRow(
 		return { error: "payload_sha256 does not match canonical stream health payload" };
 	}
 
+	const { poll_observation: _pollObservation, ...columns } = payload;
 	return {
-		...payload,
+		...columns,
 		batch_id: batchId,
 		snapshot_id: snapshotId,
 		payload_sha256: payloadSha256,

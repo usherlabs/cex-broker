@@ -35,8 +35,10 @@ import {
 } from "./helpers/otel";
 import { PublicMarketDataFeedSupervisor } from "./helpers/public-market-data-feed";
 import {
+	depositPollerStreamHealthPublisherConfigFromEnv,
 	StreamHealthPublisher,
 	streamHealthPublisherConfigFromEnv,
+	USER_DATA_STREAM_HEALTH_PRODUCER_ID,
 } from "./helpers/stream-health-publisher";
 import { UserAssetArchivePoller } from "./helpers/user-asset-archive-poller";
 import { UserDataStreamSupervisor } from "./helpers/user-data-stream-supervisor";
@@ -396,9 +398,10 @@ export default class CEXBroker {
 			!this.userDataStreamSupervisor &&
 			Object.keys(this.brokers).length > 0
 		) {
-			const publisher = new StreamHealthPublisher(
-				streamHealthPublisherConfigFromEnv(),
-			);
+			const publisher = new StreamHealthPublisher({
+				...streamHealthPublisherConfigFromEnv(),
+				producerId: USER_DATA_STREAM_HEALTH_PRODUCER_ID,
+			});
 			this.userDataStreamSupervisor = new UserDataStreamSupervisor({
 				brokers: this.brokers,
 				publisher,
@@ -460,10 +463,16 @@ export default class CEXBroker {
 			});
 			this.fillArchivePoller.start();
 
+			// Poll coverage rides the same durable stream-health path as the user
+			// streams, under its own producer identity and state file, so a stalled
+			// deposit is distinguishable from a poller that never checked it.
 			this.depositArchivePoller = new DepositArchivePoller({
 				brokers: this.brokers,
 				archiver: this.brokerArchiver,
 				metrics: this.otelMetrics,
+				coveragePublisher: new StreamHealthPublisher(
+					depositPollerStreamHealthPublisherConfigFromEnv(),
+				),
 			});
 			this.depositArchivePoller.start();
 

@@ -105,6 +105,67 @@ function healthBatch(
 	return { source: "broker_write", deployment_id: "deploy-a", rows };
 }
 
+function pollObservation(
+	overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+	return {
+		version: "1",
+		disposition: "success",
+		attempted_at: "2026-08-03T18:52:20.181Z",
+		completed_at: "2026-08-03T18:52:21.181Z",
+		poll_interval_ms: "60000",
+		fetch_timeout_ms: "30000",
+		deposits_limit: "50",
+		request_since_ms: "1754160000000",
+		next_cursor_ms: "1754160000000",
+		response_truncated: false,
+		malformed_count: "0",
+		error_reason: "",
+		observed_deposits: [
+			{
+				coin: "USDT",
+				network: "ARBITRUM",
+				external_id: "0xabc",
+				txid: "0xabc",
+				deposit_timestamp_ms: "1754160010000",
+				status: "credited_not_withdrawable",
+				progress: {
+					state: "credited_not_withdrawable",
+					progress_state: "valid",
+					reason: null,
+					native_status: "6",
+					current: "3",
+					credit_required: "1",
+					unlock_required: "12",
+					complete_time: null,
+				},
+			},
+		],
+		...overrides,
+	};
+}
+
+// A deposit-poller batch under its own producer identity; the row shape is the
+// user-data row plus the discriminant and the exact coverage object.
+function depositPollerBatch(
+	observation: Record<string, unknown> = pollObservation(),
+	rowOverrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+	const body = healthBatch(["primary"]);
+	const row = firstRawRow(body);
+	row.stream_kind = "deposit_poller";
+	row.traffic_mode = "continuous";
+	row.last_connected_at = observation.completed_at;
+	row.last_received_at = observation.completed_at;
+	row.poll_observation = observation;
+	Object.assign(row, rowOverrides);
+	// Identity fields were derived for the user_data stream key; drop them so the
+	// validator re-derives them for the deposit_poller key.
+	delete row.stream_key;
+	delete row.snapshot_id;
+	return body;
+}
+
 function post(body: unknown): Request {
 	return new Request("http://localhost/archive", {
 		method: "POST",
@@ -236,6 +297,183 @@ describe("broker stream health archive contract", () => {
 			ok: false,
 			error: "payload_sha256 does not match canonical stream health payload",
 		});
+	});
+
+	test("hashes a deposit poll observation into the canonical payload without adding a column", () => {
+		const row = firstValidatedRow(depositPollerBatch());
+		expect(row.stream_key).toBe(
+			"exchange:binance|account:primary|stream:deposit_poller|scope:spot",
+		);
+		expect(row).not.toHaveProperty("poll_observation");
+		const payload = JSON.parse(row.payload_json) as {
+			poll_observation: {
+				disposition: string;
+				observed_deposits: Array<{ progress: { current: string } }>;
+			};
+		};
+		expect(payload.poll_observation.disposition).toBe("success");
+		expect(payload.poll_observation.observed_deposits[0]?.progress.current).toBe(
+			"3",
+		);
+
+		// Coverage is identity: the same poll with one fewer listed deposit is a
+		// different snapshot payload, so a replay of it would be a conflict.
+		const narrower = firstValidatedRow(
+			depositPollerBatch(pollObservation({ observed_deposits: [] })),
+		);
+		expect(narrower.payload_sha256).not.toBe(row.payload_sha256);
+
+		// A user-data row never carries the key and its payload bytes are unchanged.
+		const userData = firstValidatedRow(healthBatch(["primary"]));
+		expect(userData.payload_json).not.toContain("poll_observation");
+		const withStrayObservation = healthBatch(["primary"]);
+		firstRawRow(withStrayObservation).poll_observation = pollObservation();
+		expect(validateStreamHealthArchiveBatch(withStrayObservation)).toMatchObject({
+			ok: false,
+			error: "poll_observation is only valid for deposit_poller streams",
+		});
+	});
+
+	test("rejects poll observations whose coverage claims exceed their evidence", () => {
+		const cases: Array<[Record<string, unknown>, Record<string, unknown>, string]> = [
+			[{}, { poll_observation: undefined }, "Malformed poll observation"],
+			[{ version: "2" }, {}, "Unsupported poll observation version"],
+			[
+				{ completed_at: null },
+				{ last_received_at: null, last_connected_at: null },
+				"Successful poll observation requires completion evidence",
+			],
+			[
+				{ completed_at: "2026-08-03T18:52:19.181Z" },
+				{
+					last_received_at: "2026-08-03T18:52:19.181Z",
+					last_connected_at: "2026-08-03T18:52:19.181Z",
+				},
+				"Poll observation completed before it was attempted",
+			],
+			[
+				{ deposits_limit: "0" },
+				{},
+				"Invalid poll observation field",
+			],
+			[
+				{
+					deposits_limit: "1",
+					observed_deposits: [
+						(pollObservation().observed_deposits as unknown[])[0],
+						(pollObservation().observed_deposits as unknown[])[0],
+					],
+				},
+				{},
+				"Poll observation lists more deposits than its limit",
+			],
+			[
+				{
+					disposition: "error",
+					completed_at: null,
+					next_cursor_ms: null,
+					response_truncated: null,
+					observed_deposits: [],
+					error_reason: "",
+				},
+				{ state: "error", last_failure_kind: "transport_error", last_failure_reason: "x" },
+				"Failed poll observation requires an error reason",
+			],
+			[
+				{
+					disposition: "error",
+					error_reason: "fetchDeposits timed out after 30000ms",
+				},
+				{ state: "error", last_failure_kind: "transport_error", last_failure_reason: "x" },
+				"Unsuccessful poll observation cannot carry coverage",
+			],
+			[
+				{
+					observed_deposits: [
+						{
+							...(pollObservation().observed_deposits as Array<Record<string, unknown>>)[0],
+							progress: { state: "ok" },
+						},
+					],
+				},
+				{},
+				"Invalid poll observation progress field",
+			],
+		];
+		for (const [observationOverrides, rowOverrides, error] of cases) {
+			expect(
+				validateStreamHealthArchiveBatch(
+					depositPollerBatch(pollObservation(observationOverrides), rowOverrides),
+				),
+			).toMatchObject({ ok: false, error });
+		}
+
+		// The row's transport state must agree with the observation it carries:
+		// a heartbeat cannot claim success the poll never completed.
+		expect(
+			validateStreamHealthArchiveBatch(
+				depositPollerBatch(pollObservation(), {
+					last_received_at: "2026-08-03T18:52:21.999Z",
+				}),
+			),
+		).toMatchObject({ ok: false, error: "Poll observation disagrees with stream state" });
+		expect(
+			validateStreamHealthArchiveBatch(
+				depositPollerBatch(pollObservation(), {
+					state: "error",
+					last_failure_kind: "transport_error",
+					last_failure_reason: "x",
+				}),
+			),
+		).toMatchObject({ ok: false, error: "Poll observation disagrees with stream state" });
+	});
+
+	test("accepts error and unsupported poll observations that claim no coverage", () => {
+		const failed = firstValidatedRow(
+			depositPollerBatch(
+				pollObservation({
+					disposition: "error",
+					completed_at: null,
+					next_cursor_ms: null,
+					response_truncated: null,
+					observed_deposits: [],
+					error_reason: "fetchDeposits timed out after 30000ms apiKey=secret",
+				}),
+				{
+					state: "error",
+					last_connected_at: null,
+					last_received_at: null,
+					last_failure_kind: "transport_error",
+					last_failure_reason: "fetchDeposits timed out after 30000ms",
+				},
+			),
+		);
+		const failedPayload = JSON.parse(failed.payload_json) as {
+			poll_observation: { error_reason: string; completed_at: null };
+		};
+		expect(failedPayload.poll_observation.completed_at).toBeNull();
+		expect(failedPayload.poll_observation.error_reason).toContain("[redacted]");
+
+		const unsupported = firstValidatedRow(
+			depositPollerBatch(
+				pollObservation({
+					disposition: "unsupported",
+					completed_at: null,
+					request_since_ms: null,
+					next_cursor_ms: null,
+					response_truncated: null,
+					observed_deposits: [],
+				}),
+				{
+					state: "error",
+					last_connected_at: null,
+					last_received_at: null,
+					last_failure_kind: "unsupported_connector",
+					last_failure_reason: "fetchDeposits unsupported",
+				},
+			),
+		);
+		expect(unsupported.state).toBe("error");
 	});
 
 	test("redacts and bounds failure diagnostics before they reach ClickHouse", () => {

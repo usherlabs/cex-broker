@@ -15,7 +15,9 @@ import { dirname } from "node:path";
 
 const SOURCE = "broker_write";
 const TABLE = "broker_stream_health.snapshots";
-const PRODUCER_ID = "cex-broker-user-data";
+export const USER_DATA_STREAM_HEALTH_PRODUCER_ID = "cex-broker-user-data";
+export const DEPOSIT_POLLER_STREAM_HEALTH_PRODUCER_ID =
+	"cex-broker-deposit-poller";
 const STATE_VERSION = 1;
 const HEARTBEAT_MS = 30_000;
 const FORWARDER_TIMEOUT_MS = 3_000;
@@ -35,11 +37,10 @@ export type StreamHealthFailureKind =
 	| "backpressure"
 	| "unsupported_connector"
 	| "shutdown";
-export type StreamHealthSnapshot = {
+type StreamHealthSnapshotBase = {
 	exchange: string;
 	accountSelector: string;
 	accountRole?: string;
-	streamKind: "user_data";
 	accountScope: "spot";
 	registryStatus: "active" | "retired";
 	retiredAt: string | null;
@@ -56,9 +57,67 @@ export type StreamHealthSnapshot = {
 	trafficMode: "event_driven" | "continuous" | "unknown";
 	sourceWatermark: string | null;
 };
+/** A live venue user-data socket. */
+export type UserDataStreamHealthSnapshot = StreamHealthSnapshotBase & {
+	streamKind: "user_data";
+	pollObservation?: never;
+};
+/**
+ * One periodic deposit-history poll target. The observation is the exact
+ * coverage evidence of the latest attempt: which deposits the venue answered
+ * with, and whether that answer was complete. The transport heartbeat re-posts
+ * it unchanged, so a stale `completed_at` is visible as stale.
+ */
+export type DepositPollerStreamHealthSnapshot = StreamHealthSnapshotBase & {
+	streamKind: "deposit_poller";
+	pollObservation: DepositPollObservation;
+};
+export type StreamHealthSnapshot =
+	| UserDataStreamHealthSnapshot
+	| DepositPollerStreamHealthSnapshot;
+
+/** Unlock-progress fingerprint components; every integer is a decimal string. */
+export type DepositPollObservedProgress = {
+	state: string;
+	progress_state: string;
+	reason: string | null;
+	native_status: string | null;
+	current: string | null;
+	credit_required: string | null;
+	unlock_required: string | null;
+	complete_time: string | null;
+};
+export type DepositPollObservedDeposit = {
+	coin: string;
+	network: string;
+	external_id: string;
+	txid: string;
+	deposit_timestamp_ms: string | null;
+	status: string;
+	progress: DepositPollObservedProgress | null;
+};
+export type DepositPollDisposition = "success" | "error" | "unsupported";
+export type DepositPollObservation = {
+	version: "1";
+	disposition: DepositPollDisposition;
+	attempted_at: string;
+	/** Set only when the venue response was fully parsed; never by the heartbeat. */
+	completed_at: string | null;
+	poll_interval_ms: string;
+	fetch_timeout_ms: string;
+	deposits_limit: string;
+	request_since_ms: string | null;
+	next_cursor_ms: string | null;
+	/** A full page proves only its members; the omitted side is unobserved. */
+	response_truncated: boolean | null;
+	malformed_count: string;
+	error_reason: string;
+	observed_deposits: DepositPollObservedDeposit[];
+};
+
 type StateFile = {
 	version: typeof STATE_VERSION;
-	producerId: typeof PRODUCER_ID;
+	producerId: string;
 	producerEpoch: string;
 	runId: string;
 	nextBatchSequence: string;
@@ -66,6 +125,8 @@ type StateFile = {
 	pendingBody?: string;
 };
 export type StreamHealthPublisherOptions = {
+	/** Durable producer identity; each producer owns its own state file. */
+	producerId: string;
 	deploymentId: string;
 	statePath: string;
 	forwarderUrl: string;
@@ -110,12 +171,12 @@ function registryRevision(snapshots: readonly StreamHealthSnapshot[]): string {
 		);
 	return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
 }
-function validState(value: unknown): value is StateFile {
+function validState(value: unknown, producerId: string): value is StateFile {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
 	const state = value as Partial<StateFile>;
 	return (
 		state.version === STATE_VERSION &&
-		state.producerId === PRODUCER_ID &&
+		state.producerId === producerId &&
 		typeof state.producerEpoch === "string" &&
 		typeof state.runId === "string" &&
 		typeof state.nextBatchSequence === "string" &&
@@ -163,6 +224,7 @@ function forwarderPost(
 
 /** A whole health batch is persisted before POST so retries are exact replays. */
 export class StreamHealthPublisher {
+	readonly #producerId: string;
 	readonly #deploymentId: string;
 	readonly #statePath: string;
 	readonly #heartbeatMs: number;
@@ -178,6 +240,7 @@ export class StreamHealthPublisher {
 	#retryAttempt = 0;
 
 	constructor(options: StreamHealthPublisherOptions) {
+		this.#producerId = identifier(options.producerId, "producer_id");
 		this.#deploymentId = identifier(options.deploymentId, "deployment_id");
 		this.#statePath = options.statePath.trim();
 		if (!this.#statePath) {
@@ -216,7 +279,7 @@ export class StreamHealthPublisher {
 		const loaded = this.#read();
 		this.#state = loaded ?? {
 			version: STATE_VERSION,
-			producerId: PRODUCER_ID,
+			producerId: this.#producerId,
 			producerEpoch: "1",
 			runId: randomUUID(),
 			nextBatchSequence: "1",
@@ -334,7 +397,7 @@ export class StreamHealthPublisher {
 			return {
 				table: TABLE,
 				row: {
-					producer_id: PRODUCER_ID,
+					producer_id: this.#producerId,
 					producer_epoch: this.#state.producerEpoch,
 					run_id: this.#state.runId,
 					batch_sequence: batchSequence,
@@ -362,6 +425,11 @@ export class StreamHealthPublisher {
 					last_failure_reason: snapshot.lastFailureReason,
 					traffic_mode: snapshot.trafficMode,
 					source_watermark: snapshot.sourceWatermark,
+					// Only the deposit poller carries coverage evidence; a user-data
+					// row keeps its exact pre-existing shape and canonical hash.
+					...(snapshot.streamKind === "deposit_poller"
+						? { poll_observation: snapshot.pollObservation }
+						: {}),
 				},
 			};
 		});
@@ -389,7 +457,7 @@ export class StreamHealthPublisher {
 			const parsed = JSON.parse(
 				readFileSync(this.#statePath, "utf8"),
 			) as unknown;
-			if (!validState(parsed)) throw new Error("invalid state shape");
+			if (!validState(parsed, this.#producerId)) throw new Error("invalid state shape");
 			return parsed;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -435,7 +503,7 @@ export class StreamHealthPublisher {
 
 export function streamHealthPublisherConfigFromEnv(
 	env: NodeJS.ProcessEnv = process.env,
-): StreamHealthPublisherOptions {
+): Omit<StreamHealthPublisherOptions, "producerId"> {
 	if (env.CEX_BROKER_ARCHIVE_ENABLED !== "true") {
 		throw new Error(
 			"Configured account user streams require CEX_BROKER_ARCHIVE_ENABLED=true",
@@ -455,5 +523,22 @@ export function streamHealthPublisherConfigFromEnv(
 		statePath,
 		forwarderAuthToken:
 			env.CEX_BROKER_ARCHIVE_FORWARDER_TOKEN?.trim() || undefined,
+	};
+}
+
+/**
+ * The deposit poller's durable epoch/sequence state lives beside the user-data
+ * state file rather than behind a new environment variable: every broker env
+ * var must be allowlisted in the Gramine manifest, and the two producers must
+ * never share a pending body or sequence space.
+ */
+export function depositPollerStreamHealthPublisherConfigFromEnv(
+	env: NodeJS.ProcessEnv = process.env,
+): StreamHealthPublisherOptions {
+	const base = streamHealthPublisherConfigFromEnv(env);
+	return {
+		...base,
+		producerId: DEPOSIT_POLLER_STREAM_HEALTH_PRODUCER_ID,
+		statePath: `${base.statePath}.deposit-poller`,
 	};
 }
