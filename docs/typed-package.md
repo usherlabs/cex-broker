@@ -149,6 +149,24 @@ and release actions. Existing tag workflows also publish broker,
 archive-forwarder, and market-data-collector Docker images; authorization must
 account for those side effects. No auto-merge is enabled by this change.
 
+For an approved **npm-only** release, manually dispatch `publish.yml` without
+creating a version tag. Set `RELEASE_REF` to the approved branch and
+`RELEASE_GIT_HEAD` to its approved full commit:
+
+```sh
+: "${RELEASE_REF:?Set the approved release branch}"
+: "${RELEASE_GIT_HEAD:?Set the approved full Git commit}"
+gh workflow run publish.yml --repo usherlabs/cex-broker --ref "$RELEASE_REF" \
+  --field expected_git_head="$RELEASE_GIT_HEAD" --field publish_docker=false
+```
+
+The workflow rejects a missing, malformed, or mismatched revision before building.
+Manual runs default `publish_docker` to `false`; setting it to `true` additionally
+publishes the broker image and its `latest` tag, requiring separate approval.
+Tag-triggered releases retain their existing image-publication behavior. The
+archive-forwarder and market-data-collector workflows are separate and are not
+triggered by this manual npm-only dispatch.
+
 After approval/publication, independently retrieve the registry artifact, verify
 its exact version, gitHead or attested provenance, integrity, inventory and proto
 hash against approved evidence, and rerun the installed-package/consumer checks
