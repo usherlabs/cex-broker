@@ -466,13 +466,18 @@ export default class CEXBroker {
 			// Poll coverage rides the same durable stream-health path as the user
 			// streams, under its own producer identity and state file, so a stalled
 			// deposit is distinguishable from a poller that never checked it.
+			// No accounts means no poll targets, so skip the publisher rather than
+			// requiring stream-health state for an empty broker map.
 			this.depositArchivePoller = new DepositArchivePoller({
 				brokers: this.brokers,
 				archiver: this.brokerArchiver,
 				metrics: this.otelMetrics,
-				coveragePublisher: new StreamHealthPublisher(
-					depositPollerStreamHealthPublisherConfigFromEnv(),
-				),
+				coveragePublisher:
+					Object.keys(this.brokers).length > 0
+						? new StreamHealthPublisher(
+								depositPollerStreamHealthPublisherConfigFromEnv(),
+							)
+						: undefined,
 			});
 			this.depositArchivePoller.start();
 
