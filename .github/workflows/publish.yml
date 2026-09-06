@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Full history: the archive baseline test resolves BASELINE_COMMIT^ and
           # diffs it against its parent, which a shallow clone cannot satisfy.
@@ -59,7 +59,7 @@ jobs:
         run: npm install -g npm@12
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Generate protobuf types
         run: bun run proto-gen
@@ -67,14 +67,31 @@ jobs:
       - name: Run tests
         run: bun test
 
-      - name: Run Biome lint
-        run: bunx @biomejs/biome lint .
+      - name: Run Biome check
+        run: bun run check
 
-      - name: Build project
-        run: bun run build
+      - name: Pack through ordinary prepack
+        id: package
+        run: |
+          mkdir -p "$RUNNER_TEMP/package-candidate"
+          npm pack --pack-destination "$RUNNER_TEMP/package-candidate"
+          echo "tarball=$RUNNER_TEMP/package-candidate/usherlabs-cex-broker-$(node -p "require('./package.json').version").tgz" >> "$GITHUB_OUTPUT"
 
-      - name: Publish to npm
-        run: npm publish --provenance --access public
+      - name: Verify the immutable tarball
+        run: bun run check:package --tarball "${{ steps.package.outputs.tarball }}" --expected-git-head "${{ github.sha }}" --output "$RUNNER_TEMP/package-check"
+
+      - name: Retain release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: typed-package-release
+          path: |
+            ${{ runner.temp }}/package-candidate/*.tgz
+            ${{ runner.temp }}/package-check/package-evidence.json
+
+      # Publish exactly the verified bytes; do not rerun prepack or rebuild.
+      # Trusted publishing still uses OIDC (id-token: write), never a token.
+      - name: Publish verified tarball to npm
+        run: npm publish "${{ steps.package.outputs.tarball }}" --ignore-scripts --provenance --access public
 
   publish-docker:
     runs-on: ubuntu-latest

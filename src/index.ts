@@ -50,6 +50,29 @@ import {
 	type PolicyConfig,
 } from "./types";
 
+export { Action } from "./helpers/constants";
+export type { ActionRequest } from "./proto/cex_broker/ActionRequest";
+export type { ActionResponse } from "./proto/cex_broker/ActionResponse";
+export {
+	type BatchResponseEntry,
+	BatchResponseEntrySchema,
+	type BatchResponseEnvelope,
+	BatchResponseEnvelopeSchema,
+	type MarketRuleEvidence,
+	MarketRuleEvidenceSchema,
+	type TradingFeeEvidence,
+	TradingFeeEvidenceSchema,
+	type TransferNetworkEvidence,
+	TransferNetworkEvidenceSchema,
+} from "./schemas/action-evidence";
+export {
+	type BatchChildRequest,
+	BatchChildRequestSchema,
+	type BatchPayload,
+	BatchPayloadSchema,
+	MAX_BATCH_CHILDREN,
+	MAX_BATCH_REQUEST_BYTES,
+} from "./schemas/action-payloads";
 export type { PolicyConfig } from "./types";
 
 log.info("CCXT Version:", ccxt.version);

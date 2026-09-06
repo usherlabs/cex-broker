@@ -1,11 +1,38 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { resolveBuildGitHead } from "../scripts/build-provenance";
+import {
+	resolveBuildGitHead,
+	verifyReleaseRevision,
+} from "../scripts/build-provenance";
 
 const REPOSITORY_HEAD = "f1d81afe22d3e750317f55b04fb4dcdf712dca36";
 const RELEASE_HEAD = "0123456789abcdef0123456789abcdef01234567";
 
 describe("build provenance", () => {
+	test("release evidence requires the exact clean committed candidate, not SHA syntax", () => {
+		const candidate = {
+			expectedGitHead: RELEASE_HEAD,
+			repositoryGitHead: RELEASE_HEAD,
+			repositoryStatus: "",
+		};
+		expect(() => verifyReleaseRevision(candidate)).not.toThrow();
+		expect(() =>
+			verifyReleaseRevision({ ...candidate, expectedGitHead: REPOSITORY_HEAD }),
+		).toThrow("expected release revision");
+		for (const repositoryStatus of [
+			" M src/index.ts",
+			"M  package.json",
+			"?? untracked.ts",
+		]) {
+			expect(() =>
+				verifyReleaseRevision({ ...candidate, repositoryStatus }),
+			).toThrow("clean committed source");
+		}
+		expect(() =>
+			verifyReleaseRevision({ ...candidate, expectedGitHead: "" }),
+		).toThrow("Expected release commit");
+	});
+
 	test("uses an explicit release commit without invoking Git", () => {
 		let gitInvocations = 0;
 		expect(

@@ -1,6 +1,6 @@
 {
 	"name": "@usherlabs/cex-broker",
-	"version": "0.3.1",
+	"version": "0.3.2",
 	"description": "Unified gRPC API to CEXs by Usher Labs.",
 	"repository": {
 		"type": "git",
@@ -15,18 +15,23 @@
 	"types": "dist/index.d.ts",
 	"exports": {
 		".": {
-			"import": "./dist/index.js",
-			"types": "./dist/index.d.ts"
-		}
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./proto/node.proto": "./dist/proto/node.proto",
+		"./proto/node.descriptor": {
+			"types": "./dist/proto/node.descriptor.d.ts",
+			"import": "./dist/proto/node.descriptor.js"
+		},
+		"./build-metadata.json": "./dist/build-metadata.json"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.16",
 		"@types/bun": "latest",
 		"@types/ws": "^8.18.1",
-		"bun-plugin-dts": "latest",
 		"bun-types": "latest",
-		"cpx": "^1.5.0",
 		"dotenv": "^17.2.0",
+		"dts-bundle-generator": "9.5.1",
 		"husky": "^9.1.7"
 	},
 	"files": [
@@ -38,7 +43,8 @@
 	"scripts": {
 		"proto-gen": "./proto-gen.sh",
 		"start": "bun run ./src/index.ts",
-		"build": "bun run proto-gen && bun run ./build.ts && bun run build:ts && bun run copy:dts && bun run copy:proto && node scripts/check-node-package.mjs",
+		"build": "bun run proto-gen && bun run build:ts && bun run ./build.ts && node scripts/check-node-package.mjs",
+		"check:package": "bun run scripts/check-package.ts",
 		"prepack": "bun run build",
 		"start-broker": "bun run ./src/cli.ts",
 		"start-archive-forwarder": "bun run services/archive-forwarder/index.ts",
@@ -69,8 +75,6 @@
 		"check": "bunx biome check",
 		"check:fix": "bunx biome check --write",
 		"check:server-lines": "bash scripts/check-server-line-budget.sh",
-		"copy:dts": "cpx \"build/**/*.d.ts\" ./dist/",
-		"copy:proto": "cpx \"src/proto/*.proto\" ./dist/proto",
 		"prepare": "bunx husky"
 	},
 	"peerDependencies": {
