@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const TASK_5_GIT_HEAD = "7387e9c2881a27db8787b446146e14f494c1ee0d";
+export const CONTRACT_SOURCE_GIT_HEAD =
+	"7387e9c2881a27db8787b446146e14f494c1ee0d";
 // The GitHub promotion contains the same contract source and is in CI history.
-export const TASK_5_GITHUB_HEAD = "34ce9cc6612a93d6095a51dd12b7ed43e7ef35a0";
-export const TASK_5_PROTO_SHA256 =
+export const CONTRACT_PROMOTION_GIT_HEAD =
+	"34ce9cc6612a93d6095a51dd12b7ed43e7ef35a0";
+export const CONTRACT_PROTO_SHA256 =
 	"7dea012e0fb26e9f742219ace6d102d4eb126d4770ed2a8ca7cee6a41a40eff7";
 export const EVIDENCE_SCHEMA_IDS = [
 	"cex-trading-fee-evidence/v1",

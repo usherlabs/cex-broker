@@ -15,10 +15,10 @@ import {
 	verifyPackageContents,
 } from "../scripts/package-content";
 import {
+	CONTRACT_PROTO_SHA256,
 	contractSourceHashes,
 	EVIDENCE_SCHEMA_IDS,
 	REQUIRED_PACKAGE_PATHS,
-	TASK_5_PROTO_SHA256,
 } from "../scripts/package-contract";
 
 const temporary: string[] = [];
@@ -54,7 +54,7 @@ function fixture(): string {
 		JSON.stringify({
 			version: expected.version,
 			gitHead,
-			protoSha256: TASK_5_PROTO_SHA256,
+			protoSha256: CONTRACT_PROTO_SHA256,
 			evidenceSchemas: EVIDENCE_SCHEMA_IDS,
 			sourceSha256: expected.sourceSha256,
 		}),

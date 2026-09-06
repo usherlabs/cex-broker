@@ -1,6 +1,4 @@
-## Agent Orchestrator (ao) Session
-
-You are running inside an Agent Orchestrator managed workspace.
+# Repository guidance
 
 ## Source layout (cex-broker)
 
@@ -10,11 +8,10 @@ You are running inside an Agent Orchestrator managed workspace.
 - Dependency direction: `server` → `handlers` → `helpers`. Helpers must not import from `server` or `handlers`.
 - Import concrete helper modules (e.g. `helpers/deposit`); avoid growing `helpers/index.ts` with server utilities.
 - Hard cutover rule: when an internal contract is superseded, delete its obsolete implementation, writer, reader, schema alias, compatibility view, adapter, package surface, and active documentation. A compatibility exception requires an explicit operator decision naming the owner, bounded lifetime, and removal condition.
-Session metadata is updated automatically via shell wrappers.
 
-If automatic updates fail, you can manually update metadata:
+## Portable documentation and comments
 
-```bash
-~/.ao/bin/ao-metadata-helper.sh  # sourced automatically
-# Then call: update_ao_metadata <key> <value>
-```
+- Keep repository documentation and code comments independent of any contributor's machine, operating-system account, agent harness, or private work-tracking setup.
+- Use repository-relative paths, explicitly documented placeholders, and portable commands instead of personal absolute paths, local orchestration scripts, or agent-session instructions.
+- Describe work by its feature or contract. Do not include private task-tracker names or task identifiers in documentation or code comments; use public pull requests, commit revisions, or release references when traceability is needed.
+- Keep machine-specific setup, session metadata, and private work records outside the repository. Preserve technical requirements and verification evidence without making their use depend on those local records.

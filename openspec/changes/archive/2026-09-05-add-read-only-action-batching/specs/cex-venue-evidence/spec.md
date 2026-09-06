@@ -142,10 +142,10 @@ Each evidence action SHALL compute its digest from the canonical, secret-redacte
 
 ### Requirement: Delivery hands downstream adoption to FIET Maker
 
-The completed CEX Broker delivery SHALL record implementation and verification evidence in Backlog TASK-5 and SHALL create a secret-free `$handoff` document under the FIET Maker project key describing downstream contract and materializer adoption. The repository MUST NOT add a Maker-specific handoff document under its own `docs/` tree.
+The completed CEX Broker delivery SHALL retain implementation and verification evidence in the pull request or release record and SHALL provide the downstream FIET Maker maintainers with a secret-free adoption handoff describing contract and materializer changes. The repository MUST NOT add a Maker-specific handoff document under its own `docs/` tree.
 
 #### Scenario: Broker delivery is ready for downstream adoption
 
 - **WHEN** the CEX Broker implementation and verification are complete
-- **THEN** TASK-5 MUST identify the delivered action contracts, verification commands and outcomes, live evidence status, PR or revision, and Maker handoff path
+- **THEN** the pull request or release record MUST identify the delivered action contracts, verification commands and outcomes, live evidence status, broker revision, and essential Maker adoption summary
 - **AND** the Maker handoff MUST describe batch decoding, action-specific evidence decoders, contract-generation updates, fixture materialization, release sequencing, and unresolved blockers without containing credentials

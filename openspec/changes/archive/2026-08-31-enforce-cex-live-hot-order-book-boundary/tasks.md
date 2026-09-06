@@ -3,7 +3,7 @@
 - [x] 1.1 Re-read this change against the current CEX and Maker boundary records and record any newly discovered named consumer or operator compatibility requirement before changing code.
 - [x] 1.2 Record `complete-maker-preparation-output-contract` as superseded by this change and remove it from the active change set without synchronizing its delta specs, using a reviewed `openspec archive --skip-specs` operation or an approved equivalent; verify none of its remaining tasks, release actions, or unmerged requirements entered the main specs.
 - [x] 1.3 Verify that the implementation base still contains merge `c81f60a`, first parent `41dbe7c`, second-parent tip `10f0811`, inclusive preparation series `ae16314^..10f0811`, and retained intermediate tree `7db5916`; stop for specification review if the topology differs.
-- [x] 1.4 Correct the CEX-relevant TASK-60 and handoff records to state that the preparation series was merged, Maker/FIET-1015 owns cold sourcing, FIET-907 is only a consumer, and this OpenSpec is the CEX implementation authority.
+- [x] 1.4 Correct the CEX-relevant delivery and handoff records to state that the preparation series was merged, Maker/FIET-1015 owns cold sourcing, FIET-907 is only a consumer, and this OpenSpec is the CEX implementation authority.
 - [x] 1.5 Add the repository instruction that superseded internal implementations, schemas, aliases, adapters, and readers are deleted unless an operator explicitly requires a bounded compatibility period.
 - [x] 1.6 Inventory package consumers, deployed historical writers, canonical-Parquet consumers, sidecar callers, ClickHouse objects, and v1 summary readers; block removal only for a named current CEX consumer that requires specification review.
 

@@ -20,11 +20,11 @@ import {
 	verifyPackageContents,
 } from "./package-content";
 import {
+	CONTRACT_PROMOTION_GIT_HEAD,
+	CONTRACT_SOURCE_GIT_HEAD,
 	CONTRACT_SOURCE_PATHS,
 	contractSourceHashes,
 	sha256,
-	TASK_5_GIT_HEAD,
-	TASK_5_GITHUB_HEAD,
 } from "./package-contract";
 
 const { values } = parseArgs({
@@ -57,31 +57,39 @@ verifyReleaseRevision({
 	repositoryGitHead: gitHead,
 	repositoryStatus: run(["git", "status", "--porcelain"]),
 });
-// Gitea's original commit was promoted (not merged) into GitHub history.
-run(["git", "merge-base", "--is-ancestor", TASK_5_GITHUB_HEAD, gitHead]);
+// The original source commit was promoted (not merged) into GitHub history.
+run([
+	"git",
+	"merge-base",
+	"--is-ancestor",
+	CONTRACT_PROMOTION_GIT_HEAD,
+	gitHead,
+]);
 const originalSourceHashes = JSON.parse(
 	readFileSync(
-		"test/fixtures/package-consumer/task-5-source-hashes.json",
+		"test/fixtures/package-consumer/contract-source-hashes.json",
 		"utf8",
 	),
 );
 const promotionSourceHashes = Object.fromEntries(
 	CONTRACT_SOURCE_PATHS.map((path) => [
 		path,
-		sha256(execFileSync("git", ["show", `${TASK_5_GITHUB_HEAD}:${path}`])),
+		sha256(
+			execFileSync("git", ["show", `${CONTRACT_PROMOTION_GIT_HEAD}:${path}`]),
+		),
 	]),
 );
 assert.deepEqual(
 	promotionSourceHashes,
 	originalSourceHashes,
-	"GitHub promotion differs from original TASK-5 source",
+	"GitHub promotion differs from original contract source",
 );
 const loggingPath = "src/handlers/execute-action/pass-through.ts";
 run([
 	"git",
 	"diff",
 	"--exit-code",
-	TASK_5_GITHUB_HEAD,
+	CONTRACT_PROMOTION_GIT_HEAD,
 	"--",
 	...CONTRACT_SOURCE_PATHS.filter((path) => path !== loggingPath),
 ]);
@@ -91,7 +99,7 @@ const loggingDiff = run([
 	"--no-ext-diff",
 	"--no-color",
 	"--full-index",
-	TASK_5_GITHUB_HEAD,
+	CONTRACT_PROMOTION_GIT_HEAD,
 	"--",
 	loggingPath,
 ]);
@@ -242,8 +250,8 @@ const evidence = {
 	status: "candidate_verified_not_published",
 	version: manifest.version,
 	gitHead: expectedGitHead,
-	task5GitHead: TASK_5_GIT_HEAD,
-	equivalentGithubHead: TASK_5_GITHUB_HEAD,
+	originalGitHead: CONTRACT_SOURCE_GIT_HEAD,
+	equivalentGithubHead: CONTRACT_PROMOTION_GIT_HEAD,
 	tarball,
 	integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
 	tarballSha256: createHash("sha256").update(bytes).digest("hex"),

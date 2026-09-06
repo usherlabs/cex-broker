@@ -94,12 +94,12 @@ inventory and its SHA-256, version/revision, installed package path, metadata, a
 source proof. Keep this evidence and tarball outside the repository. A candidate
 artifact is not registry evidence and does not authorize deployment.
 
-## TASK-5 source proof and narrow logging exception
+## Contract source proof and narrow logging exception
 
 GitHub promotion `34ce9cc6612a93d6095a51dd12b7ed43e7ef35a0` is in the candidate's
-ancestry. Original Gitea commit `7387e9c2881a27db8787b446146e14f494c1ee0d` is **not**
+ancestry. Original source commit `7387e9c2881a27db8787b446146e14f494c1ee0d` is **not**
 a literal Git ancestor: its relevant source bytes match the promotion.
-`test/fixtures/package-consumer/task-5-source-hashes.json` records hashes read from
+`test/fixtures/package-consumer/contract-source-hashes.json` records hashes read from
 that original commit. The verifier checks the promotion against those hashes,
 then byte-equivalence of the candidate's scoped source with exactly one exception.
 
@@ -135,6 +135,6 @@ its exact version, gitHead or attested provenance, integrity, inventory and prot
 hash against approved evidence, and rerun the installed-package/consumer checks
 against that tarball at the approved checkout. A registry package version query
 must show 0.3.2 is unused before release; never overwrite it. Only then can
-publication-dependent Backlog criteria and the downstream adoption handoff be
+publication-dependent release criteria and the downstream adoption handoff be
 finalized. Downstream contract/decoder adoption precedes coordinated deployment;
 observed fees do not authorize historical schedules.

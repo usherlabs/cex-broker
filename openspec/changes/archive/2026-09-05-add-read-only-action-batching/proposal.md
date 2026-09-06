@@ -12,7 +12,7 @@ CEX Broker currently requires consumers to make separate gRPC calls for related 
 - Add a typed market-rule evidence action for one spot pair, including canonical/source identity, active status, price and amount increments, minimum amount/notional, observation time, source method, and deterministic source digest.
 - Keep source facts independently versioned, timestamped, and hashed even when transported in one batch; batching does not imply an atomic exchange snapshot or one aggregate authority.
 - Preserve pair-specific MEXC values such as ARB-USDC and ARB-USDT independently and do not coerce observations to an expected fee profile or fabricate historical applicability windows.
-- Produce the downstream FIET Maker adoption handoff with the `$handoff` workflow under the Maker project key, and record implementation/verification evidence plus the handoff path in Backlog TASK-5. No Maker-specific handoff document is added to this repository.
+- Provide the downstream FIET Maker maintainers with a secret-free adoption handoff, and retain implementation/verification evidence and the essential adoption summary in the pull request or release record. No Maker-specific handoff document is added to this repository.
 
 ## Capabilities
 
@@ -32,4 +32,4 @@ CEX Broker currently requires consumers to make separate gRPC calls for related 
 - Existing consumers of legacy `FetchFees` and `FetchCurrency` result JSON require an explicit hard-cut migration decision during implementation; compatibility aliases are not retained without an operator-owned exception, lifetime, and removal condition.
 - MEXC account commission acquisition uses the existing `@usherlabs/ccxt` `fetchTradingFee` capability, which maps to the signed spot `GET /api/v3/tradeFee` operation.
 - The batch reduces consumer-to-broker gRPC round trips but does not eliminate provider calls: MEXC still requires one signed commission request per symbol, while market and currency discovery can be shared within the selected broker instance.
-- FIET Maker source changes are out of scope. Its required contract, generated-client, materializer, and qualification updates are delivered as a project-scoped handoff and Backlog evidence for subsequent work.
+- FIET Maker source changes are out of scope. Its required contract, generated-client, materializer, and qualification updates are delivered as a downstream adoption handoff and durable delivery evidence for subsequent work.

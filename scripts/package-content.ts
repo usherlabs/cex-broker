@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import {
+	CONTRACT_PROTO_SHA256,
 	EVIDENCE_SCHEMA_IDS,
 	REQUIRED_PACKAGE_PATHS,
 	sha256,
-	TASK_5_PROTO_SHA256,
 } from "./package-contract";
 
 // npm 12 keys pack --json output by package name (not the former array shape).
@@ -87,8 +87,8 @@ export function verifyPackageContents(
 		expected.gitHead,
 		"Package release commit mismatch",
 	);
-	assert.equal(metadata.protoSha256, TASK_5_PROTO_SHA256);
-	assert.equal(sha256(read("dist/proto/node.proto")), TASK_5_PROTO_SHA256);
+	assert.equal(metadata.protoSha256, CONTRACT_PROTO_SHA256);
+	assert.equal(sha256(read("dist/proto/node.proto")), CONTRACT_PROTO_SHA256);
 	assert.equal(
 		sha256(read("dist/proto/node.descriptor.ts")),
 		expected.sourceSha256["src/proto/node.descriptor.ts"],
