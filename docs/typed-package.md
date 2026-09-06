@@ -54,6 +54,25 @@ BatchPayloadSchema.parse(request.payload); // Validate without replacing the wir
 // const fee = TradingFeeEvidenceSchema.parse(JSON.parse(child.response.result));
 ```
 
+## Tooling layout
+
+`build.ts` builds the package. `scripts/check-node-package.mjs` performs the
+Node import smoke test, and `scripts/check-package.ts` orchestrates installed
+package verification. These remain executable entry points; their commands are
+unchanged.
+
+Reusable support modules live under `scripts/lib/package/`:
+
+- `provenance.ts`: build revision resolution and clean-release revision checks.
+- `contract.ts`: required package paths, schema identities, reference source pins,
+  and hashing helpers.
+- `content.ts`: npm pack-output parsing and installed-package content validation.
+- `consumer-environment.mjs`: environment isolation shared by the Node smoke test
+  and external package verification.
+
+The build, checks, and tests import these modules directly. They are development
+tooling, not public package exports or broker runtime helpers.
+
 ## Build and isolated verification
 
 Use Bun 1.3.14, Node 24, npm 12, and the committed lockfile. `build:ts` is a

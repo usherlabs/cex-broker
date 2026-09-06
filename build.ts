@@ -1,12 +1,12 @@
 import { generateDtsBundle } from "dts-bundle-generator";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { resolveBuildGitHead } from "./scripts/build-provenance";
+import { resolveBuildGitHead } from "./scripts/lib/package/provenance";
 import {
 	contractSourceHashes,
 	EVIDENCE_SCHEMA_IDS,
 	sha256,
-} from "./scripts/package-contract";
+} from "./scripts/lib/package/contract";
 
 const gitHead = resolveBuildGitHead({
 	environmentGitHead: process.env.CEX_BROKER_BUILD_GIT_HEAD,

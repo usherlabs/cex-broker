@@ -1,4 +1,4 @@
-import { packageConsumerEnvironment } from "./package-consumer-environment.mjs";
+import { packageConsumerEnvironment } from "./lib/package/consumer-environment.mjs";
 
 process.env = packageConsumerEnvironment(process.env);
 

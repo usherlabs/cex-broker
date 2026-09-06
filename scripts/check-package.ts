@@ -12,20 +12,20 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { verifyReleaseRevision } from "./build-provenance";
-import { packageConsumerEnvironment } from "./package-consumer-environment.mjs";
+import { packageConsumerEnvironment } from "./lib/package/consumer-environment.mjs";
 import {
 	advertisedPackagePaths,
 	npmPackFilename,
 	verifyPackageContents,
-} from "./package-content";
+} from "./lib/package/content";
 import {
 	CONTRACT_PROMOTION_GIT_HEAD,
 	CONTRACT_SOURCE_GIT_HEAD,
 	CONTRACT_SOURCE_PATHS,
 	contractSourceHashes,
 	sha256,
-} from "./package-contract";
+} from "./lib/package/contract";
+import { verifyReleaseRevision } from "./lib/package/provenance";
 
 const { values } = parseArgs({
 	options: {

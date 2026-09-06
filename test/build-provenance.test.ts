@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import {
 	resolveBuildGitHead,
 	verifyReleaseRevision,
-} from "../scripts/build-provenance";
+} from "../scripts/lib/package/provenance";
 
 const REPOSITORY_HEAD = "f1d81afe22d3e750317f55b04fb4dcdf712dca36";
 const RELEASE_HEAD = "0123456789abcdef0123456789abcdef01234567";

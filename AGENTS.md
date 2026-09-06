@@ -9,6 +9,12 @@
 - Import concrete helper modules (e.g. `helpers/deposit`); avoid growing `helpers/index.ts` with server utilities.
 - Hard cutover rule: when an internal contract is superseded, delete its obsolete implementation, writer, reader, schema alias, compatibility view, adapter, package surface, and active documentation. A compatibility exception requires an explicit operator decision naming the owner, bounded lifetime, and removal condition.
 
+## Development tooling
+
+- Keep executable package checks in `scripts/` and reusable packaging support in `scripts/lib/package/`.
+- `build.ts`, command entry points, and tests may import concrete support modules directly. Do not add compatibility forwarding modules or mix build tooling into runtime `src/helpers/`.
+- Support modules must not execute command entry points or start build/verification processes when imported.
+
 ## Portable documentation and comments
 
 - Keep repository documentation and code comments independent of any contributor's machine, operating-system account, agent harness, or private work-tracking setup.

@@ -13,13 +13,13 @@ import {
 	advertisedPackagePaths,
 	npmPackFilename,
 	verifyPackageContents,
-} from "../scripts/package-content";
+} from "../scripts/lib/package/content";
 import {
 	CONTRACT_PROTO_SHA256,
 	contractSourceHashes,
 	EVIDENCE_SCHEMA_IDS,
 	REQUIRED_PACKAGE_PATHS,
-} from "../scripts/package-contract";
+} from "../scripts/lib/package/contract";
 
 const temporary: string[] = [];
 const gitHead = "0123456789abcdef0123456789abcdef01234567";

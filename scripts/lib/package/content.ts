@@ -6,7 +6,7 @@ import {
 	EVIDENCE_SCHEMA_IDS,
 	REQUIRED_PACKAGE_PATHS,
 	sha256,
-} from "./package-contract";
+} from "./contract";
 
 // npm 12 keys pack --json output by package name (not the former array shape).
 export function npmPackFilename(output: string, packageName: string): string {

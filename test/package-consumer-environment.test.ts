@@ -9,7 +9,7 @@ import {
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { packageConsumerEnvironment } from "../scripts/package-consumer-environment.mjs";
+import { packageConsumerEnvironment } from "../scripts/lib/package/consumer-environment.mjs";
 
 test("package consumer environment removes operator settings without mutating its input", () => {
 	const environment = {
