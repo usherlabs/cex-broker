@@ -457,7 +457,8 @@ export class StreamHealthPublisher {
 			const parsed = JSON.parse(
 				readFileSync(this.#statePath, "utf8"),
 			) as unknown;
-			if (!validState(parsed, this.#producerId)) throw new Error("invalid state shape");
+			if (!validState(parsed, this.#producerId))
+				throw new Error("invalid state shape");
 			return parsed;
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;

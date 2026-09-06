@@ -312,9 +312,9 @@ describe("broker stream health archive contract", () => {
 			};
 		};
 		expect(payload.poll_observation.disposition).toBe("success");
-		expect(payload.poll_observation.observed_deposits[0]?.progress.current).toBe(
-			"3",
-		);
+		expect(
+			payload.poll_observation.observed_deposits[0]?.progress.current,
+		).toBe("3");
 
 		// Coverage is identity: the same poll with one fewer listed deposit is a
 		// different snapshot payload, so a replay of it would be a conflict.
@@ -328,14 +328,18 @@ describe("broker stream health archive contract", () => {
 		expect(userData.payload_json).not.toContain("poll_observation");
 		const withStrayObservation = healthBatch(["primary"]);
 		firstRawRow(withStrayObservation).poll_observation = pollObservation();
-		expect(validateStreamHealthArchiveBatch(withStrayObservation)).toMatchObject({
+		expect(
+			validateStreamHealthArchiveBatch(withStrayObservation),
+		).toMatchObject({
 			ok: false,
 			error: "poll_observation is only valid for deposit_poller streams",
 		});
 	});
 
 	test("rejects poll observations whose coverage claims exceed their evidence", () => {
-		const cases: Array<[Record<string, unknown>, Record<string, unknown>, string]> = [
+		const cases: Array<
+			[Record<string, unknown>, Record<string, unknown>, string]
+		> = [
 			[{}, { poll_observation: undefined }, "Malformed poll observation"],
 			[{ version: "2" }, {}, "Unsupported poll observation version"],
 			[
@@ -351,11 +355,7 @@ describe("broker stream health archive contract", () => {
 				},
 				"Poll observation completed before it was attempted",
 			],
-			[
-				{ deposits_limit: "0" },
-				{},
-				"Invalid poll observation field",
-			],
+			[{ deposits_limit: "0" }, {}, "Invalid poll observation field"],
 			[
 				{
 					deposits_limit: "1",
@@ -376,7 +376,11 @@ describe("broker stream health archive contract", () => {
 					observed_deposits: [],
 					error_reason: "",
 				},
-				{ state: "error", last_failure_kind: "transport_error", last_failure_reason: "x" },
+				{
+					state: "error",
+					last_failure_kind: "transport_error",
+					last_failure_reason: "x",
+				},
 				"Failed poll observation requires an error reason",
 			],
 			[
@@ -384,14 +388,22 @@ describe("broker stream health archive contract", () => {
 					disposition: "error",
 					error_reason: "fetchDeposits timed out after 30000ms",
 				},
-				{ state: "error", last_failure_kind: "transport_error", last_failure_reason: "x" },
+				{
+					state: "error",
+					last_failure_kind: "transport_error",
+					last_failure_reason: "x",
+				},
 				"Unsuccessful poll observation cannot carry coverage",
 			],
 			[
 				{
 					observed_deposits: [
 						{
-							...(pollObservation().observed_deposits as Array<Record<string, unknown>>)[0],
+							...(
+								pollObservation().observed_deposits as Array<
+									Record<string, unknown>
+								>
+							)[0],
 							progress: { state: "ok" },
 						},
 					],
@@ -403,7 +415,10 @@ describe("broker stream health archive contract", () => {
 		for (const [observationOverrides, rowOverrides, error] of cases) {
 			expect(
 				validateStreamHealthArchiveBatch(
-					depositPollerBatch(pollObservation(observationOverrides), rowOverrides),
+					depositPollerBatch(
+						pollObservation(observationOverrides),
+						rowOverrides,
+					),
 				),
 			).toMatchObject({ ok: false, error });
 		}
@@ -416,7 +431,10 @@ describe("broker stream health archive contract", () => {
 					last_received_at: "2026-08-03T18:52:21.999Z",
 				}),
 			),
-		).toMatchObject({ ok: false, error: "Poll observation disagrees with stream state" });
+		).toMatchObject({
+			ok: false,
+			error: "Poll observation disagrees with stream state",
+		});
 		expect(
 			validateStreamHealthArchiveBatch(
 				depositPollerBatch(pollObservation(), {
@@ -425,7 +443,10 @@ describe("broker stream health archive contract", () => {
 					last_failure_reason: "x",
 				}),
 			),
-		).toMatchObject({ ok: false, error: "Poll observation disagrees with stream state" });
+		).toMatchObject({
+			ok: false,
+			error: "Poll observation disagrees with stream state",
+		});
 	});
 
 	test("accepts error and unsupported poll observations that claim no coverage", () => {

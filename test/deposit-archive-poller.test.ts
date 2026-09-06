@@ -11,10 +11,10 @@ import {
 } from "../src/helpers/deposit-archive-poller";
 
 import { log } from "../src/helpers/logger";
-import {
-	type DepositPollObservation,
-	type StreamHealthPublisher,
-	type StreamHealthSnapshot,
+import type {
+	DepositPollObservation,
+	StreamHealthPublisher,
+	StreamHealthSnapshot,
 } from "../src/helpers/stream-health-publisher";
 
 // Records every publication in order; the real publisher is exercised by its
@@ -41,7 +41,9 @@ function lastObservation(
 		(entry) => entry.accountSelector === accountSelector,
 	);
 	if (!snapshot || snapshot.streamKind !== "deposit_poller") {
-		throw new Error(`Expected a deposit_poller snapshot for ${accountSelector}`);
+		throw new Error(
+			`Expected a deposit_poller snapshot for ${accountSelector}`,
+		);
 	}
 	return { snapshot, observation: snapshot.pollObservation };
 }
@@ -1025,13 +1027,17 @@ describe("DepositArchivePoller liveness signal", () => {
 });
 
 describe("deposit poll coverage", () => {
+	// A deposit inside the default one-day lookback and before the poll
+	// attempt: the poller's first since-watermark then precedes it, as the
+	// venue contract requires, so the held cursor keeps its dedupe memory.
+	const creditedTimestamp = Date.now() - 60_000;
 	const credited = {
 		txid: "0xcovered",
 		currency: "USDT",
 		amount: "5",
 		network: "ARBITRUM",
 		status: "pending",
-		timestamp: 1_784_000_000_000,
+		timestamp: creditedTimestamp,
 		info: { status: "6", confirmTimes: "3/12", unlockConfirm: 12 },
 	};
 
@@ -1086,7 +1092,7 @@ describe("deposit poll coverage", () => {
 				network: "ARBITRUM",
 				external_id: "0xcovered",
 				txid: "0xcovered",
-				deposit_timestamp_ms: "1784000000000",
+				deposit_timestamp_ms: String(creditedTimestamp),
 				status: "credited_not_withdrawable",
 				progress: {
 					state: "credited_not_withdrawable",
@@ -1245,7 +1251,9 @@ describe("deposit poll coverage", () => {
 			apiKey: "live-api-key-literal",
 			secret: "live-secret-literal",
 			fetchDeposits: async () => {
-				throw new Error("signature live-secret-literal rejected for live-api-key-literal");
+				throw new Error(
+					"signature live-secret-literal rejected for live-api-key-literal",
+				);
 			},
 		};
 		const published: StreamHealthSnapshot[][] = [];
@@ -1280,11 +1288,13 @@ describe("deposit poll coverage", () => {
 		const realNow = Date.prototype.toISOString;
 		let calls = 0;
 		const stamps = ["2026-08-03T20:00:10.000Z", "2026-08-03T20:00:00.000Z"];
-		const spy = spyOn(Date.prototype, "toISOString").mockImplementation(function (this: Date) {
-			const stamp = stamps[calls];
-			calls += 1;
-			return stamp ?? realNow.call(this);
-		});
+		const spy = spyOn(Date.prototype, "toISOString").mockImplementation(
+			function (this: Date) {
+				const stamp = stamps[calls];
+				calls += 1;
+				return stamp ?? realNow.call(this);
+			},
+		);
 		try {
 			await poller.pollAllOnce();
 		} finally {

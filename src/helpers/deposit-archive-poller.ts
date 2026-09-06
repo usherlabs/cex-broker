@@ -680,7 +680,8 @@ export class DepositArchivePoller {
 			version: "1",
 			disposition,
 			attempted_at: attemptedAt,
-			completed_at: disposition === "success" ? (detail.completedAt ?? null) : null,
+			completed_at:
+				disposition === "success" ? (detail.completedAt ?? null) : null,
 			poll_interval_ms: String(this.#config.pollIntervalMs),
 			fetch_timeout_ms: String(this.#config.fetchTimeoutMs),
 			deposits_limit: String(this.#config.depositsLimit),
@@ -735,10 +736,14 @@ export class DepositArchivePoller {
 			state,
 			stateChangedAt,
 			lastConnectedAt:
-				outcome === "ok" ? observation.completed_at : (base?.lastConnectedAt ?? null),
+				outcome === "ok"
+					? observation.completed_at
+					: (base?.lastConnectedAt ?? null),
 			lastAuthenticatedAt: null,
 			lastReceivedAt:
-				outcome === "ok" ? observation.completed_at : (base?.lastReceivedAt ?? null),
+				outcome === "ok"
+					? observation.completed_at
+					: (base?.lastReceivedAt ?? null),
 			connectAttemptCount: attempts.toString(),
 			reconnectCount: reconnects.toString(),
 			errorCount: errors.toString(),
