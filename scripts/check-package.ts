@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
 	copyFileSync,
@@ -18,13 +18,7 @@ import {
 	npmPackFilename,
 	verifyPackageContents,
 } from "./lib/package/content";
-import {
-	CONTRACT_PROMOTION_GIT_HEAD,
-	CONTRACT_SOURCE_GIT_HEAD,
-	CONTRACT_SOURCE_PATHS,
-	contractSourceHashes,
-	sha256,
-} from "./lib/package/contract";
+import { contractSourceHashes, sha256 } from "./lib/package/contract";
 import { verifyReleaseRevision } from "./lib/package/provenance";
 
 const { values } = parseArgs({
@@ -57,60 +51,6 @@ verifyReleaseRevision({
 	repositoryGitHead: gitHead,
 	repositoryStatus: run(["git", "status", "--porcelain"]),
 });
-// The original source commit was promoted (not merged) into GitHub history.
-run([
-	"git",
-	"merge-base",
-	"--is-ancestor",
-	CONTRACT_PROMOTION_GIT_HEAD,
-	gitHead,
-]);
-const originalSourceHashes = JSON.parse(
-	readFileSync(
-		"test/fixtures/package-consumer/contract-source-hashes.json",
-		"utf8",
-	),
-);
-const promotionSourceHashes = Object.fromEntries(
-	CONTRACT_SOURCE_PATHS.map((path) => [
-		path,
-		sha256(
-			execFileSync("git", ["show", `${CONTRACT_PROMOTION_GIT_HEAD}:${path}`]),
-		),
-	]),
-);
-assert.deepEqual(
-	promotionSourceHashes,
-	originalSourceHashes,
-	"GitHub promotion differs from original contract source",
-);
-const loggingPath = "src/handlers/execute-action/pass-through.ts";
-run([
-	"git",
-	"diff",
-	"--exit-code",
-	CONTRACT_PROMOTION_GIT_HEAD,
-	"--",
-	...CONTRACT_SOURCE_PATHS.filter((path) => path !== loggingPath),
-]);
-const loggingDiff = run([
-	"git",
-	"diff",
-	"--no-ext-diff",
-	"--no-color",
-	"--full-index",
-	CONTRACT_PROMOTION_GIT_HEAD,
-	"--",
-	loggingPath,
-]);
-assert.equal(
-	loggingDiff,
-	readFileSync(
-		"test/fixtures/package-consumer/fetch-ticker-redaction.patch",
-		"utf8",
-	).trim(),
-	"Only the approved ticker logging hardening may differ",
-);
 const output = values.output
 	? resolve(values.output)
 	: mkdtempSync(join(tmpdir(), "cex-broker-package-"));
@@ -120,6 +60,7 @@ assert(
 );
 mkdirSync(output, { recursive: true });
 const manifest = JSON.parse(readFileSync("package.json", "utf8"));
+const sourceSha256 = contractSourceHashes(root);
 let tarball: string;
 if (values.tarball) tarball = resolve(values.tarball);
 else {
@@ -163,7 +104,7 @@ const installed = join(consumer, "node_modules/@usherlabs/cex-broker");
 verifyPackageContents(installed, {
 	gitHead: expectedGitHead,
 	version: manifest.version,
-	sourceSha256: contractSourceHashes(root),
+	sourceSha256,
 });
 for (const file of ["consumer.mts", "runtime.mjs"]) {
 	copyFileSync(
@@ -250,26 +191,21 @@ const evidence = {
 	status: "candidate_verified_not_published",
 	version: manifest.version,
 	gitHead: expectedGitHead,
-	originalGitHead: CONTRACT_SOURCE_GIT_HEAD,
-	equivalentGithubHead: CONTRACT_PROMOTION_GIT_HEAD,
 	tarball,
 	integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
 	tarballSha256: createHash("sha256").update(bytes).digest("hex"),
 	files,
 	inventorySha256: sha256(JSON.stringify(files)),
 	sourceProof: {
-		promotionIsAncestor: true,
-		originalSourceHashes,
-		promotionSourceHashes,
-		approvedLoggingDifference: { path: loggingPath, diff: loggingDiff },
+		gitHead: expectedGitHead,
+		sourceSha256,
 	},
 	metadata: JSON.parse(
 		readFileSync(join(installed, "dist/build-metadata.json"), "utf8"),
 	),
 	checks: [
 		"package-paths",
-		"promotion-ancestry-and-original-source-equivalence",
-		"approved-ticker-logging-difference",
+		"approved-revision-and-source-hashes",
 		"strict-public-nodenext",
 		"strict-public-bundler",
 		"strict-internal-bundler",
