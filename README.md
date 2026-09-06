@@ -49,6 +49,15 @@ See [SERVICES_ARCHITECTURE.md](SERVICES_ARCHITECTURE.md) for the authoritative b
    bun run proto-gen
    ```
 
+### Typed npm package
+
+The 0.3.2 candidate repairs the missing declarations in 0.3.1; it is not a
+publication claim. ESM consumers can import the default `CEXBroker`,
+`PolicyConfig`, canonical `Action`, batch request/response schemas and types,
+batch limits, venue-evidence schemas/types, and protobuf request/response types
+from `@usherlabs/cex-broker`. See [typed package verification](docs/typed-package.md)
+for the public assets, strict consumer checks, provenance, and release procedure.
+
 ## ⚙️ Configuration
 
 ### Environment Variables
@@ -248,8 +257,8 @@ bun run start-broker --policy policy/policy.json --port 8086 --whitelist 127.0.0
 bun run start
 
 # Production build
-bun run build:ts
-bun run ./build/index.js
+bun run build
+node ./dist/commands/cli.js
 ```
 
 ### CLI Options
@@ -1073,7 +1082,7 @@ bun run check
 
 - `@biomejs/biome`: Code formatting and linting
 - `@types/bun`: Bun type definitions
-- `bun-plugin-dts`: TypeScript declaration generation
+- `dts-bundle-generator`: Explicit, source-relative TypeScript declaration bundles
 - `bun-types`: Additional Bun types
 - `husky`: Git hooks
 

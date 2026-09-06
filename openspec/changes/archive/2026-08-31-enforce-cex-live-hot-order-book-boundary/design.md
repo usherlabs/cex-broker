@@ -157,7 +157,7 @@ The production writer cutover uses a maintenance window: quiesce market archive 
 
 ## Migration Plan
 
-1. Merge the governance/specification change, record `complete-maker-preparation-output-contract` as superseded, remove it from the active set without synchronizing its specs, and correct CEX-relevant TASK-60 records.
+1. Merge the governance/specification change, record `complete-maker-preparation-output-contract` as superseded, remove it from the active set without synchronizing its specs, and correct the CEX-relevant delivery records.
 2. Reverse the inclusive preparation commit series and prove the `7db5916` intermediate tree plus image health.
 3. Deploy explicit historical-source rejection and remove forwarder historical admission.
 4. Delete the preparation product, exporters, native sidecar profile, active docs/specs, and package assets.

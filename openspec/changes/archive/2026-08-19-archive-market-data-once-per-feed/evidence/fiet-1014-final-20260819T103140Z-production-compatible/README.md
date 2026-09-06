@@ -43,15 +43,19 @@ Outcomes:
 
 ## Same-run proof command
 
-From the clean Maker `develop` checkout:
+From the clean Maker `develop` checkout, set `CEX_REPO` to the clean CEX
+candidate checkout. The historical command is shown with a portable checkout
+variable instead of a workstation-specific path; retained proof bytes and
+candidate identities are unchanged.
 
 ```sh
+: "${CEX_REPO:?Set CEX_REPO to the clean CEX candidate checkout}"
 bash scripts/sandbox/run-cex-sidecar-conformance.sh \
-  --cex-repo /home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52 \
+  --cex-repo "$CEX_REPO" \
   --candidate-sha da1dd5282e899448b82bca858bbe2d6d824f167e \
   --profile production_compatible \
   --run-id fiet-1014-final-20260819T103140Z \
-  --artifacts-dir /home/azureuser/.config/superpowers/worktrees/cex-broker/fiet-1014-candidate-da1dd52/openspec/changes/archive-market-data-once-per-feed/evidence
+  --artifacts-dir "$CEX_REPO/openspec/changes/archive-market-data-once-per-feed/evidence"
 ```
 
 `verification.json` reports `status: passed` and binds both repository SHAs.

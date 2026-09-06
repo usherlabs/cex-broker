@@ -1,6 +1,6 @@
-## 1. Align Task And Contract Scope
+## 1. Align Implementation And Contract Scope
 
-- [x] 1.1 Update Backlog TASK-5 through the Backlog interface with the approved generic-batch design, hard-cut action boundaries, broker-only implementation scope, and Maker `$handoff` deliverable before changing code.
+- [x] 1.1 Record the approved generic-batch design, hard-cut action boundaries, broker-only implementation scope, and downstream Maker adoption handoff in the delivery plan before changing code.
 - [x] 1.2 Add `FetchMarketRules = 16` and `Batch = 17` to the canonical action enum, regenerate descriptors, and prove `ActionRequest` and `ActionResponse` protobuf fields are unchanged.
 - [x] 1.3 Define strict Zod/TypeScript schemas for `payload.requests` JSON-string encoding, child integer actions/string-valued payload maps, batch envelopes, and the three versioned evidence result documents, including canonical/unified/source symbols, canonical decimal strings, timestamps, source methods, digest metadata, and secret-free account scope.
 
@@ -29,12 +29,12 @@
 - [x] 4.3 Add batch RPC tests for exact `payload.requests` encoding, successful mixed reads, direct unary parity, unchanged `GetPerpConfigState` payload semantics, secondary and request-credential routing, response ordering, child-local callback isolation, exactly one outer completion, outer `OK` on runtime child errors, outer `INVALID_ARGUMENT` on structural errors, per-child status preservation, Verity proof isolation, malformed payloads, duplicate ids, oversized batches, nested batches, exact per-pair commission source invocation counts, and rejection of every non-batchable action before side effects.
 - [x] 4.4 Add adversarial secret tests proving responses, digests, errors, logs, telemetry, and retained fixtures exclude credential keys and configured secret values.
 - [x] 4.5 Update CEX Broker action documentation with the breaking `FetchFees`/`FetchCurrency` contracts, `FetchMarketRules`, generic batch request/response examples, read-only registry policy, and the distinction among account commission, realized fill commission, transfer fees, and Maker DEX venue-fee revenue.
-- [x] 4.6 Update current `FetchFees`/`FetchCurrency` RPC fixtures and known consumer-contract tests for the approved hard cut, then run focused tests, `bun test test`, `bun run build:ts`, `bun run check`, `bun run build`, and OpenSpec strict validation; record commands and outcomes in TASK-5.
+- [x] 4.6 Update current `FetchFees`/`FetchCurrency` RPC fixtures and known consumer-contract tests for the approved hard cut, then run focused tests, `bun test test`, `bun run build:ts`, `bun run check`, `bun run build`, and OpenSpec strict validation; retain commands and outcomes in the pull request or release record.
 
 ## 5. Validate Live Evidence And Hand Off Maker Adoption
 
-- [x] 5.1 Load the required FIET environment workflow before credential-backed validation, then run a secret-safe MEXC smoke against an authorized read-only account for ARB-USDC and ARB-USDT through one batch.
+- [x] 5.1 Follow the approved credential-handling procedure before credential-backed validation, then run a secret-safe MEXC smoke against an authorized read-only account for ARB-USDC and ARB-USDT through one batch.
 - [x] 5.2 Verify the live batch preserves observed pair-specific commission values, source symbols, account selector, independent timestamps/digests, market rules, and requested transfer-network facts without asserting an expected `0/5` profile or retaining raw signed traffic.
-- [x] 5.3 Self-review the diff for dependency direction, obsolete compatibility paths, security leakage, regression risk, and one-task/one-PR scope; keep TASK-5 In Progress if any required verification is blocked.
-- [x] 5.4 After the broker revision is final, use `$handoff` with `/home/azureuser/ao-repos/fiet-maker-develop` as the target workdir to create the Maker adoption handoff covering batch decoding, action-specific evidence models, canonical contract/proto updates, generated clients, fee-fixture materialization, release sequencing, and blockers.
-- [x] 5.5 Append the final schema summary, verification evidence, live-smoke status, broker revision/PR, and Maker handoff path to TASK-5; complete its approved criteria and final summary only when all broker-owned evidence is verified.
+- [x] 5.3 Self-review the diff for dependency direction, obsolete compatibility paths, security leakage, regression risk, and focused PR scope; do not mark the delivery complete if any required verification is blocked.
+- [x] 5.4 After the broker revision is final, provide the downstream Maker maintainers with an adoption handoff covering batch decoding, action-specific evidence models, canonical contract/proto updates, generated clients, fee-fixture materialization, release sequencing, and blockers.
+- [x] 5.5 Retain the final schema summary, verification evidence, live-smoke status, broker revision, and essential Maker adoption summary in the pull request or release record; finalize the delivery only when all broker-owned evidence is verified.

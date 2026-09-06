@@ -30,13 +30,13 @@ policy-neutral OKX input tape.
 
 ## Exact Maker inputs
 
-The earlier statement that the clock sidecars were absent is superseded. The
-exact files remain in Maker's gitignored thesis workspace:
+The earlier statement that the clock sidecars were absent is superseded. At
+this checkpoint, the exact files were retained in Maker's external thesis
+evidence. Paths below are relative to the `reference-depth-clock-qualification-20260825-v2`
+bundle, not a particular workstation; the hashes identify the required bytes:
 
-- ARB-USDC:
-  `/home/azureuser/ao-repos/fiet-maker-develop/.emdash/worktrees/fiet-maker-ao/ed/fiet-990-7boz6/.backtest/hb-runs/fiet-990-fiet-1043-okx-reference-arb-dual-20260824/qualification/reference-depth-clock-qualification-20260825-v2/arb-usdc/required-clock.json`
-- ARB-USDT:
-  `/home/azureuser/ao-repos/fiet-maker-develop/.emdash/worktrees/fiet-maker-ao/ed/fiet-990-7boz6/.backtest/hb-runs/fiet-990-fiet-1043-okx-reference-arb-dual-20260824/qualification/reference-depth-clock-qualification-20260825-v2/arb-usdt/required-clock.json`
+- ARB-USDC: `arb-usdc/required-clock.json`
+- ARB-USDT: `arb-usdt/required-clock.json`
 
 Their raw file SHA-256 values were rechecked on 2026-08-26 as
 `9c7adeaac45d7f0292f0692ffe3d93342d820955a726fecfa1431809a44b6e0f`

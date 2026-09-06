@@ -50,3 +50,5 @@ src/assets/proto/**
 # Worktrees, Agents
 .codex
 .emdash
+# CocoIndex Code (ccc)
+/.cocoindex_code/
