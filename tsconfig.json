@@ -18,5 +18,5 @@
 		"noPropertyAccessFromIndexSignature": false
 	},
 	"exclude": ["**/*.test.ts", "**/*.spec.ts", "test", "e2e", "node_modules", "dist", "build"],
-	"include": ["src/index.ts", "services/archive-forwarder/**/*.ts", "scripts/archive-sidecar.ts", "scripts/archive-sidecar-supervisor.ts", "scripts/generate-orderbook-summary-v2-conformance.ts", "build.ts"]
+	"include": ["src/index.ts", "services/archive-forwarder/**/*.ts", "scripts/archive-sidecar.ts", "scripts/generate-orderbook-summary-v2-conformance.ts", "build.ts"]
 }
