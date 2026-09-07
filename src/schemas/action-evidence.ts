@@ -73,6 +73,13 @@ export const TransferNetworkEvidenceSchema = z
 		depositAvailable: z.boolean(),
 		withdrawalAvailable: z.boolean(),
 		withdrawalFee: CanonicalDecimalStringSchema.nullable(),
+		// Selected-network precision in decimal places; null means unobserved.
+		withdrawalPrecision: z
+			.number()
+			.int()
+			.nonnegative()
+			.max(Number.MAX_SAFE_INTEGER)
+			.nullable(),
 		withdrawalLimits: z
 			.object({
 				minimum: CanonicalDecimalStringSchema.nullable(),

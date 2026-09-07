@@ -113,31 +113,18 @@ inventory and its SHA-256, version/revision, installed package path, metadata, a
 source proof. Keep this evidence and tarball outside the repository. A candidate
 artifact is not registry evidence and does not authorize deployment.
 
-## Contract source proof and narrow logging exception
+## Release source proof
 
-GitHub promotion `34ce9cc6612a93d6095a51dd12b7ed43e7ef35a0` is in the candidate's
-ancestry. Original source commit `7387e9c2881a27db8787b446146e14f494c1ee0d` is **not**
-a literal Git ancestor: its relevant source bytes match the promotion.
-`test/fixtures/package-consumer/contract-source-hashes.json` records hashes read from
-that original commit. The verifier checks the promotion against those hashes,
-then byte-equivalence of the candidate's scoped source with exactly one exception.
+The verifier requires a clean checkout at the expected full Git revision.
+The packed build metadata must identify that revision and match the current
+source hashes produced by `contractSourceHashes`. Candidate evidence records
+the same revision and hashes alongside the immutable tarball's integrity.
+This binds each package to its approved source without freezing later releases
+to a historical implementation or maintaining source-patch exceptions.
 
-The operator approved fixing pre-existing FetchTicker raw-error logging in this
-PR. `test/fixtures/package-consumer/fetch-ticker-redaction.patch` records the exact
-allowed difference in `src/handlers/execute-action/pass-through.ts`: import
-`safeLogRedactedError` and `sanitizeVenueError`, and replace only the ticker error
-log call with redacted logging of a sanitized primitive. Both structured logging
-and console fallback receive no raw Error, attachments, sensitive keys, or
-configured credential values. The callback, status and response are unchanged.
-The verifier rejects any different source patch and records the exact diff in
-candidate evidence. Other handlers and trading behavior are untouched.
-
-The proto SHA-256 remains
-`7dea012e0fb26e9f742219ace6d102d4eb126d4770ed2a8ca7cee6a41a40eff7`.
-`FetchMarketRules=16`, `Batch=17`, ActionRequest/ActionResponse fields, four v1
-schema identities, 32-child/256-KiB bounds, authenticated per-pair fees and
-child-local proof/error semantics remain unchanged. No compatibility aliases,
-Call batching, historical fee applicability, or configured-fee behavior is added.
+The proto SHA-256 and evidence schema identities remain independently checked.
+Packed consumer and RPC checks verify the public behavior, including
+credential redaction; source hash equality is not a substitute for those checks.
 
 ## Publication boundary
 

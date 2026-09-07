@@ -538,6 +538,11 @@ same gRPC status as the corresponding unary call.
 `loadMarkets`, market maker/taker defaults, or `broker.fees` as account
 commission. `FetchCurrency` requires one network and no longer returns an
 unscoped raw currency object.
+Its `withdrawalPrecision` is the selected network's observed precision in
+decimal places, or `null` when unavailable or unsupported. The broker normalizes
+non-negative integer counts and exact power-of-ten increments; it never substitutes
+currency-level precision. This observation supports precision-change warnings,
+not automatic changes to an operator's configured withdrawal precision.
 
 These facts have distinct authority:
 

@@ -470,8 +470,29 @@ describe("Treasury discovery and transfer observation RPC", () => {
 		expect(calls.fetchTotalBalance).toHaveLength(0);
 	});
 
-	test("serves scoped transfer-network evidence through FetchCurrency", async () => {
-		const { exchange } = createTreasuryExchange();
+	test.each([
+		["selected network step", 0.00001, 5],
+		["unobserved network precision", undefined, null],
+	] as const)("serves scoped transfer-network evidence: %s", async (_name, precision, expectedPrecision) => {
+		const { exchange } = createTreasuryExchange({
+			currencies: {
+				USDC: {
+					code: "USDC",
+					id: "USDC",
+					precision: 6,
+					networks: {
+						BSC: {
+							id: "BSC",
+							network: "BSC",
+							deposit: true,
+							withdraw: true,
+							fee: "0",
+							precision,
+						},
+					},
+				},
+			},
+		});
 		const rpc = await start(exchange);
 
 		const response = await executeAction(rpc, {
@@ -491,6 +512,7 @@ describe("Treasury discovery and transfer observation RPC", () => {
 			depositAvailable: true,
 			withdrawalAvailable: true,
 			withdrawalFee: "0",
+			withdrawalPrecision: expectedPrecision,
 			accountSelector: "primary",
 			credentialSource: "configured_pool",
 			sourceMethod: "ccxt.fetchCurrencies",

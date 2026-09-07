@@ -8,6 +8,7 @@ import {
 	evidenceSourceDigest,
 	extractTradingFeeRates,
 	resolveEvidenceAccountScope,
+	withdrawalPrecision,
 } from "../src/helpers/venue-evidence";
 import { CanonicalDecimalStringSchema } from "../src/schemas/action-evidence";
 
@@ -33,6 +34,29 @@ describe("venue evidence primitives", () => {
 		}
 		for (const value of ["-0", "-1", "1.0", "0.0005000", "1e-3"]) {
 			expect(CanonicalDecimalStringSchema.safeParse(value).success).toBe(false);
+		}
+	});
+
+	test("distinguishes decimal-place counts from exact venue increments", () => {
+		expect(withdrawalPrecision(8)).toBe(8);
+		expect(withdrawalPrecision(0)).toBe(0);
+		expect(withdrawalPrecision(0.00001)).toBe(5);
+		expect(withdrawalPrecision("1e-8")).toBe(8);
+		expect(withdrawalPrecision("1.0")).toBe(0);
+	});
+
+	test("does not invent precision from unavailable or unsupported values", () => {
+		for (const value of [
+			undefined,
+			null,
+			true,
+			-1,
+			"0",
+			"0.03",
+			"invalid",
+			"1e-99999999999999999999",
+		]) {
+			expect(withdrawalPrecision(value)).toBeNull();
 		}
 	});
 

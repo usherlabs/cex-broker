@@ -125,6 +125,35 @@ export function canonicalOptionalDecimal(
 		: canonicalNonnegativeDecimal(value, field);
 }
 
+/** Observed decimal places only; unsupported venue values stay unobserved. */
+export function withdrawalPrecision(value: unknown): number | null {
+	if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+		return value;
+	}
+	if (typeof value !== "number" && typeof value !== "string") {
+		return null;
+	}
+	const match = String(value)
+		.trim()
+		.replace(/^\+?\./, "0.")
+		.match(DECIMAL_PATTERN);
+	if (!match) {
+		return null;
+	}
+	const fraction = match[2] ?? "";
+	const digits = `${match[1]}${fraction}`.replace(/^0+/, "");
+	if (!/^10*$/.test(digits)) {
+		return null;
+	}
+	const exponent = Number(match[3] ?? "0");
+	const places = fraction.length - exponent - (digits.length - 1);
+	return Number.isSafeInteger(exponent) &&
+		Number.isSafeInteger(places) &&
+		places >= 0
+		? places
+		: null;
+}
+
 export function precisionIncrement(
 	value: unknown,
 	precisionMode: unknown,
