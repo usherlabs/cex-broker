@@ -31,8 +31,8 @@ function stubWithdrawHistory(
 	exchange: InstanceType<typeof ccxt.binance>,
 	response: unknown,
 ) {
-	(exchange as unknown as Stubbable).sapiGetCapitalWithdrawHistory =
-		async () => response;
+	(exchange as unknown as Stubbable).sapiGetCapitalWithdrawHistory = async () =>
+		response;
 }
 
 describe("binance fetchWithdrawals response guard (ccxt patch)", () => {
@@ -77,7 +77,9 @@ describe("binance fetchWithdrawals response guard (ccxt patch)", () => {
 		);
 		// Bounded context: the summary carries at most a 64-character head of
 		// the body, never the whole thing.
-		expect(message).toContain(JSON.stringify(RAW_ARRAY_SHAPED_BODY.slice(0, 64)));
+		expect(message).toContain(
+			JSON.stringify(RAW_ARRAY_SHAPED_BODY.slice(0, 64)),
+		);
 		expect(message).not.toContain(RAW_ARRAY_SHAPED_BODY);
 		expect(message.length).toBeLessThan(320);
 	});
