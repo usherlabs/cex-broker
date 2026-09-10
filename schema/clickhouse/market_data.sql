@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS market_data.orderbook_snapshots
     exchange LowCardinality(String),
     asset_type LowCardinality(String),
     symbol LowCardinality(String),
+    broker_observed_timestamp String DEFAULT '',
 
     event_time_ms UInt64,
     received_time_ms UInt64,
@@ -60,10 +61,6 @@ ORDER BY (exchange, asset_type, symbol, event_time_ms)
 TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY
 SETTINGS non_replicated_deduplication_window = 1000000;
 
--- Every legacy market-data producer has emitted this common archive tag since
--- the pre-canonical baseline. Add it idempotently so fresh and upgraded schemas
--- preserve the producer value instead of rejecting or dropping it.
-ALTER TABLE market_data.orderbook_snapshots ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
 -- Backward-compatible views (query only; inserts use orderbook_snapshots).
 CREATE VIEW IF NOT EXISTS market_data.orderbook_tob AS
@@ -115,6 +112,7 @@ CREATE TABLE IF NOT EXISTS market_data.candles
     exchange LowCardinality(String),
     asset_type LowCardinality(String),
     symbol LowCardinality(String),
+    broker_observed_timestamp String DEFAULT '',
     timeframe LowCardinality(String),
 
     open_time_ms UInt64,
@@ -134,7 +132,6 @@ PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(open_time_ms))
 ORDER BY (exchange, asset_type, symbol, timeframe, open_time_ms)
 SETTINGS non_replicated_deduplication_window = 1000000;
 
-ALTER TABLE market_data.candles ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
 -- Deduped closed candles for research/backtest queries (ReplacingMergeTree FINAL).
 CREATE VIEW IF NOT EXISTS market_data.candles_closed AS
@@ -147,18 +144,34 @@ CREATE TABLE IF NOT EXISTS market_data.cex_stream_events
 (
     source LowCardinality(String),
     deployment_id LowCardinality(String),
+    capture_bundle_id Nullable(String),
     account_selector LowCardinality(String),
 
     exchange LowCardinality(String),
     asset_type LowCardinality(String),
     symbol LowCardinality(String),
+    trading_pair LowCardinality(String),
+    source_symbol String,
+    broker_observed_timestamp String DEFAULT '',
 
     stream_type LowCardinality(String),
+    feed LowCardinality(String),
+    provider LowCardinality(String),
+    source_mode LowCardinality(String),
+    source_time_ms UInt64,
 
     event_time_ms UInt64,
     received_time_ms UInt64,
+    raw_capture_id Nullable(String),
+    raw_capture_scope LowCardinality(Nullable(String)),
+    schema_version LowCardinality(String),
+    checksum_algorithm LowCardinality(String),
+    raw_checksum Nullable(String),
+    provenance_complete UInt8 DEFAULT 0,
+    payload_encoding LowCardinality(String) DEFAULT 'legacy_json',
 
-    payload_json String
+    payload_json String,
+    normalized_row_checksum String DEFAULT ''
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
@@ -166,21 +179,34 @@ ORDER BY (exchange, asset_type, symbol, stream_type, event_time_ms)
 TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY
 SETTINGS non_replicated_deduplication_window = 1000000;
 
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
 -- Ticker snapshots from watchTicker.
 CREATE TABLE IF NOT EXISTS market_data.cex_ticker_events
 (
     source LowCardinality(String),
     deployment_id LowCardinality(String),
+    capture_bundle_id Nullable(String),
     account_selector LowCardinality(String),
 
     exchange LowCardinality(String),
     asset_type LowCardinality(String),
     symbol LowCardinality(String),
+    trading_pair LowCardinality(String),
+    source_symbol String,
+    feed LowCardinality(String) DEFAULT 'TICKER',
+    provider LowCardinality(String),
+    source_mode LowCardinality(String),
+    source_time_ms UInt64,
+    broker_observed_timestamp String DEFAULT '',
 
     event_time_ms UInt64,
     received_time_ms UInt64,
+    raw_capture_id Nullable(String),
+    raw_capture_scope LowCardinality(Nullable(String)),
+    schema_version LowCardinality(String),
+    checksum_algorithm LowCardinality(String),
+    raw_checksum Nullable(String),
+    provenance_complete UInt8 DEFAULT 0,
 
     last Nullable(Decimal(18, 8)),
     bid Nullable(Decimal(18, 8)),
@@ -194,7 +220,8 @@ CREATE TABLE IF NOT EXISTS market_data.cex_ticker_events
     change Nullable(Decimal(18, 8)),
     percentage Nullable(Decimal(18, 8)),
 
-    payload_json Nullable(String)
+    payload_json Nullable(String),
+    normalized_row_checksum String DEFAULT ''
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
@@ -202,84 +229,48 @@ ORDER BY (exchange, asset_type, symbol, event_time_ms)
 TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY
 SETTINGS non_replicated_deduplication_window = 1000000;
 
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
 
 -- Public trade prints from watchTrades.
 CREATE TABLE IF NOT EXISTS market_data.cex_trades
 (
     source LowCardinality(String),
     deployment_id LowCardinality(String),
+    capture_bundle_id Nullable(String),
     account_selector LowCardinality(String),
 
     exchange LowCardinality(String),
     asset_type LowCardinality(String),
     symbol LowCardinality(String),
+    trading_pair LowCardinality(String),
+    source_symbol String,
+    feed LowCardinality(String) DEFAULT 'TRADES',
+    provider LowCardinality(String),
+    source_mode LowCardinality(String),
+    source_time_ms UInt64,
+    broker_observed_timestamp String DEFAULT '',
 
     trade_id String,
     event_time_ms UInt64,
     received_time_ms UInt64,
+    raw_capture_id Nullable(String),
+    raw_capture_scope LowCardinality(Nullable(String)),
+    schema_version LowCardinality(String),
+    checksum_algorithm LowCardinality(String),
+    raw_checksum Nullable(String),
+    provenance_complete UInt8 DEFAULT 0,
 
     side LowCardinality(String),
     price Decimal(18, 8),
     amount Decimal(18, 8),
     cost Nullable(Decimal(18, 8)),
-    taker_or_maker LowCardinality(Nullable(String))
+    taker_or_maker LowCardinality(Nullable(String)),
+    normalized_row_checksum String DEFAULT ''
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(event_time_ms))
 ORDER BY (exchange, asset_type, symbol, event_time_ms, trade_id)
 TTL toDateTime(fromUnixTimestamp64Milli(event_time_ms)) + INTERVAL 90 DAY
 SETTINGS non_replicated_deduplication_window = 1000000;
-
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS broker_observed_timestamp String DEFAULT '' AFTER symbol;
-
--- Replay capture-core columns are added idempotently so this schema upgrades
--- installations created before canonical replay capture was introduced.
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS capture_bundle_id Nullable(String) AFTER deployment_id;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS trading_pair LowCardinality(String) AFTER symbol;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS source_symbol String AFTER trading_pair;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS feed LowCardinality(String) AFTER stream_type;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS provider LowCardinality(String) AFTER feed;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS source_mode LowCardinality(String) AFTER provider;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS source_time_ms UInt64 AFTER source_mode;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS raw_capture_id Nullable(String) AFTER received_time_ms;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS raw_capture_scope LowCardinality(Nullable(String)) AFTER raw_capture_id;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS schema_version LowCardinality(String) AFTER raw_capture_scope;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS checksum_algorithm LowCardinality(String) AFTER schema_version;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS raw_checksum Nullable(String) AFTER checksum_algorithm;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS provenance_complete UInt8 DEFAULT 0 AFTER raw_checksum;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS payload_encoding LowCardinality(String) DEFAULT 'legacy_json' AFTER provenance_complete;
-ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS normalized_row_checksum String DEFAULT '' AFTER payload_json;
-
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS capture_bundle_id Nullable(String) AFTER deployment_id;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS trading_pair LowCardinality(String) AFTER symbol;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS source_symbol String AFTER trading_pair;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS feed LowCardinality(String) DEFAULT 'TICKER' AFTER source_symbol;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS provider LowCardinality(String) AFTER feed;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS source_mode LowCardinality(String) AFTER provider;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS source_time_ms UInt64 AFTER source_mode;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS raw_capture_id Nullable(String) AFTER received_time_ms;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS raw_capture_scope LowCardinality(Nullable(String)) AFTER raw_capture_id;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS schema_version LowCardinality(String) AFTER raw_capture_scope;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS checksum_algorithm LowCardinality(String) AFTER schema_version;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS raw_checksum Nullable(String) AFTER checksum_algorithm;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS provenance_complete UInt8 DEFAULT 0 AFTER raw_checksum;
-ALTER TABLE market_data.cex_ticker_events ADD COLUMN IF NOT EXISTS normalized_row_checksum String DEFAULT '' AFTER payload_json;
-
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS capture_bundle_id Nullable(String) AFTER deployment_id;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS trading_pair LowCardinality(String) AFTER symbol;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS source_symbol String AFTER trading_pair;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS feed LowCardinality(String) DEFAULT 'TRADES' AFTER source_symbol;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS provider LowCardinality(String) AFTER feed;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS source_mode LowCardinality(String) AFTER provider;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS source_time_ms UInt64 AFTER source_mode;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS raw_capture_id Nullable(String) AFTER received_time_ms;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS raw_capture_scope LowCardinality(Nullable(String)) AFTER raw_capture_id;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS schema_version LowCardinality(String) AFTER raw_capture_scope;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS checksum_algorithm LowCardinality(String) AFTER schema_version;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS raw_checksum Nullable(String) AFTER checksum_algorithm;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS provenance_complete UInt8 DEFAULT 0 AFTER raw_checksum;
-ALTER TABLE market_data.cex_trades ADD COLUMN IF NOT EXISTS normalized_row_checksum String DEFAULT '' AFTER taker_or_maker;
 
 -- Append-only physical evidence for the retained live/hot boundary.
 -- Levels remain bounded schema-v1 diagnostics. Summary v2 is the only
@@ -388,25 +379,6 @@ PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(source_time_ms))
 ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version)
 TTL toDateTime(fromUnixTimestamp64Milli(source_time_ms)) + INTERVAL 90 DAY
 SETTINGS non_replicated_deduplication_window = 1000000;
-
--- Existing live installations receive only additive v2 columns during normal
--- startup. Historical row deletion, TTL replacement, and obsolete-object
--- retirement belong exclusively to the separately invoked operator migration.
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS capture_profile_id String DEFAULT '' AFTER exact_l2_reconstruction_complete;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS effective_cadence_ms UInt32 DEFAULT 0 AFTER capture_profile_id;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS requested_upstream_depth Nullable(UInt16) AFTER effective_cadence_ms;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS observed_bid_count UInt32 DEFAULT 0 AFTER requested_upstream_depth;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS observed_ask_count UInt32 DEFAULT 0 AFTER observed_bid_count;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS observed_farthest_bid Decimal(38, 18) DEFAULT 0 AFTER observed_ask_count;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS observed_farthest_ask Decimal(38, 18) DEFAULT 0 AFTER observed_farthest_bid;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS retained_farthest_bid Decimal(38, 18) DEFAULT 0 AFTER observed_farthest_ask;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS retained_farthest_ask Decimal(38, 18) DEFAULT 0 AFTER retained_farthest_bid;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS bid_exhausted UInt8 DEFAULT 0 AFTER retained_farthest_ask;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS ask_exhausted UInt8 DEFAULT 0 AFTER bid_exhausted;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS bid_boundary_price_by_band Array(Decimal(38, 18)) DEFAULT [] AFTER measurement_bands_bps;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS ask_boundary_price_by_band Array(Decimal(38, 18)) DEFAULT [] AFTER bid_boundary_price_by_band;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS bid_status_by_band Array(Enum8('exact' = 1, 'censored' = 2)) DEFAULT [] AFTER ask_depth_by_band;
-ALTER TABLE market_data.cex_order_book_depth_summary ADD COLUMN IF NOT EXISTS ask_status_by_band Array(Enum8('exact' = 1, 'censored' = 2)) DEFAULT [] AFTER bid_status_by_band;
 
 CREATE OR REPLACE VIEW market_data.cex_order_book_levels_conflicts AS
 SELECT
@@ -632,25 +604,3 @@ SELECT *
 FROM market_data.cex_ohlcv FINAL
 WHERE is_closed = 1;
 
--- Insert deduplication for the forwarder's retry path. A batch the forwarder
--- could not fully commit is re-posted verbatim under its original id, so the
--- tables that already landed are inserted again; each insert carries a token
--- derived from that id, and this window is what makes ClickHouse recognise the
--- token and skip the repeat. Existing deployments pick it up here, since the
--- CREATE statements above are no-ops once the tables exist.
-ALTER TABLE market_data.orderbook_snapshots
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE market_data.candles
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE market_data.cex_stream_events
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE market_data.cex_ticker_events
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE market_data.cex_trades
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE market_data.cex_order_book_levels
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE market_data.cex_order_book_depth_summary
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE market_data.cex_ohlcv
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;

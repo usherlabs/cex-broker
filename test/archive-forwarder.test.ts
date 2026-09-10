@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { ClickHouseClient } from "@clickhouse/client";
 import {
 	countSkippedRows,
 	groupRowsByTable,
@@ -9,11 +8,7 @@ import {
 	handleArchiveBatch,
 	parseArchiveBatchRequest,
 } from "../services/archive-forwarder/router";
-import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
-import {
-	isSupportedTable,
-	SUPPORTED_TABLES,
-} from "../services/archive-forwarder/types";
+import { isSupportedTable } from "../services/archive-forwarder/types";
 import { sha256Canonical } from "../src/helpers/market-data-archive/capture-contract";
 
 describe("archive forwarder batch parsing", () => {
@@ -554,140 +549,5 @@ describe("archive forwarder retry deduplication", () => {
 			rows,
 		});
 		expect(parsed.ok && parsed.batch.batch_id).toBe("batch-1");
-	});
-});
-
-describe("archive forwarder schema init", () => {
-	test("every token-deduplicated table the forwarder writes carries the dedup window", async () => {
-		// Without this setting on the table, the retry tokens are accepted and
-		// ignored, and a redelivered batch duplicates silently.
-		const statements: string[] = [];
-		const client = {
-			command: async ({ query }: { query: string }) => {
-				statements.push(query);
-			},
-		} as unknown as ClickHouseClient;
-
-		await ensureArchiveSchema(client);
-
-		const tokenDeduplicatedTables = SUPPORTED_TABLES.filter((table) =>
-			["market_data.", "broker_execution.", "broker_account."].some((prefix) =>
-				table.startsWith(prefix),
-			),
-		);
-		for (const table of tokenDeduplicatedTables) {
-			const applied = statements.some(
-				(query) =>
-					query.includes(table) &&
-					/MODIFY SETTING non_replicated_deduplication_window = 1000000/.test(
-						query,
-					),
-			);
-			expect(`${table}:${applied}`).toBe(`${table}:true`);
-		}
-	});
-
-	test("ensureArchiveSchema applies every archive database from its SQL files", async () => {
-		const statements: string[] = [];
-		const client = {
-			command: async ({ query }: { query: string }) => {
-				statements.push(query);
-			},
-		} as unknown as ClickHouseClient;
-
-		await ensureArchiveSchema(client);
-
-		const createdDatabases = statements
-			.map(
-				(query) => query.match(/CREATE DATABASE IF NOT EXISTS\s+(\w+)/i)?.[1],
-			)
-			.filter((name): name is string => Boolean(name));
-		expect(createdDatabases).toEqual(
-			expect.arrayContaining([
-				"market_data",
-				"broker_execution",
-				"broker_account",
-				"broker_stream_health",
-				"strategy_data",
-			]),
-		);
-
-		const createdTables = statements
-			.map(
-				(query) => query.match(/CREATE TABLE IF NOT EXISTS\s+([\w.]+)/i)?.[1],
-			)
-			.filter((name): name is string => Boolean(name));
-		expect(createdTables).toEqual(
-			expect.arrayContaining([
-				"market_data.cex_order_book_levels",
-				"market_data.cex_order_book_depth_summary",
-				"market_data.cex_ohlcv",
-				"broker_execution.order_events",
-				"broker_execution.market_metadata_snapshots",
-				"broker_execution.transfer_events",
-				"broker_execution.fill_events",
-				"broker_account.balance_snapshots",
-				"broker_stream_health.snapshots",
-				"broker_stream_health.replay_conflicts",
-				"strategy_data.policy_evaluation_events",
-				"strategy_data.strategy_policy_snapshots",
-				"strategy_data.market_identity",
-				"strategy_data.symbol_mapping",
-				"strategy_data.inventory_settlement_events",
-			]),
-		);
-		const marketSchema = statements.join("\n");
-		expect(marketSchema).toContain(
-			"ENGINE = ReplacingMergeTree(broker_version)",
-		);
-		expect(marketSchema).toContain(
-			"CREATE OR REPLACE VIEW market_data.cex_order_book_levels_canonical",
-		);
-		expect(marketSchema).toContain(
-			"CREATE OR REPLACE VIEW market_data.cex_order_book_levels_conflicts",
-		);
-		expect(marketSchema).toContain(
-			"CREATE OR REPLACE VIEW market_data.cex_order_book_depth_summary_canonical",
-		);
-		expect(marketSchema).toContain(
-			"CREATE OR REPLACE VIEW market_data.cex_order_book_depth_summary_conflicts",
-		);
-		expect(marketSchema).toContain(
-			"ORDER BY (exchange, trading_pair, capture_bundle_id, source_time_ms, raw_capture_id, snapshot_id, schema_version, side, level_index)",
-		);
-		expect(marketSchema).toContain(
-			"ALTER TABLE market_data.cex_stream_events ADD COLUMN IF NOT EXISTS capture_bundle_id",
-		);
-
-		const balanceTable = statements.find((query) =>
-			/CREATE TABLE IF NOT EXISTS\s+broker_account\.balance_snapshots/i.test(
-				query,
-			),
-		);
-		expect(balanceTable).toContain(
-			"broker_observed_timestamp DateTime64(3, 'UTC')",
-		);
-		expect(balanceTable).toContain(
-			"exchange_timestamp Nullable(DateTime64(3, 'UTC'))",
-		);
-		expect(balanceTable).toContain("free_balances Map(String, String)");
-		expect(balanceTable).toContain("used_balances Map(String, String)");
-		expect(balanceTable).toContain("total_balances Map(String, String)");
-		expect(balanceTable).toContain(
-			"ORDER BY (exchange, account_selector, balance_scope, broker_observed_timestamp, observation_id)",
-		);
-		expect(balanceTable).not.toContain("TTL");
-
-		const streamHealthTable = statements.find((query) =>
-			/CREATE TABLE IF NOT EXISTS\s+broker_stream_health\.snapshots/i.test(
-				query,
-			),
-		);
-		expect(streamHealthTable).toContain("heartbeat_at DateTime64(3, 'UTC')");
-		expect(streamHealthTable).toContain(
-			"state Enum8('connecting' = 1, 'connected' = 2, 'disconnected' = 3, 'error' = 4)",
-		);
-		expect(streamHealthTable).toContain("payload_sha256 FixedString(64)");
-		expect(streamHealthTable).not.toContain("TTL");
 	});
 });

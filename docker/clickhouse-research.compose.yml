@@ -1,6 +1,6 @@
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8
+    image: clickhouse/clickhouse-server:25.12
     container_name: cex-broker-clickhouse
     ports:
       - "8123:8123"
@@ -10,7 +10,6 @@ services:
       - CLICKHOUSE_PASSWORD
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ../schema/clickhouse/market_data.sql:/docker-entrypoint-initdb.d/01_market_data.sql:ro
     ulimits:
       nofile:
         soft: 262144
@@ -34,7 +33,7 @@ services:
       - CLICKHOUSE_URL=http://clickhouse:8123
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD
-      - CLICKHOUSE_DATABASE=market_data
+      - CLICKHOUSE_DATABASE=default
       - ARCHIVE_FORWARDER_SPOOL_PATH=/var/lib/archive-forwarder/spool.sqlite
     volumes:
       - ..:/app
