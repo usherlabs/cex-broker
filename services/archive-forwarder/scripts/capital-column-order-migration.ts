@@ -6,7 +6,7 @@ import {
 } from "../schema";
 import { clickHouseRequestDeadline } from "../clickhouse-deadline";
 
-// Owner-approved explicit migration for the two settlement-capital tables.
+// Explicit migration for the two settlement-capital tables.
 //
 // The deployed source created these tables before queue_class / reason_code /
 // conflict_detail / open_state_version reached their canonical positions, so
