@@ -1,7 +1,7 @@
-# Archive forwarder: receives cex-broker archive batches over HTTP (POST /archive)
-# and writes them to ClickHouse (market_data, broker_execution, strategy_data).
-# It self-initializes the durable spool before listening and retries ClickHouse
-# schema initialization without giving up durable Maker admission.
+# Archive forwarder: receives archive batches and writes them to ClickHouse.
+# Its source applier owns market_data, broker_execution, broker_account,
+# broker_stream_health, strategy_data, fiet_metrics and fiet_telemetry.
+# Durable admission remains available while source-schema application is refused.
 #
 # Build from the repository ROOT so the schema/ directory is in the build context:
 #   docker build -f services/archive-forwarder/Dockerfile -t cex-broker-archive-forwarder .

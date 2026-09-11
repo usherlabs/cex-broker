@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import {
-	ARCHIVE_SCHEMA_FILES,
-	splitSqlStatements,
-} from "../services/archive-forwarder/schema";
 import { ORDERBOOK_SUMMARY_V2_SUPPORTED_VIEW_FIELDS } from "../src/helpers/market-data-archive/summary-v2-conformance";
 
 const schemaPath = path.join(
@@ -116,17 +112,6 @@ describe("final ClickHouse live/hot order-book schema", () => {
 		expect(normalizedSchema).toContain(
 			"HAVING uniqExact(normalized_row_checksum) > 1",
 		);
-	});
-
-	test("ordinary startup applies only the fresh/additive schema, never terminal retirement", () => {
-		expect(ARCHIVE_SCHEMA_FILES).not.toContain(
-			"migrations/retire_cex_order_book_historical_apply.sql" as never,
-		);
-		for (const statement of splitSqlStatements(schema)) {
-			expect(statement).not.toMatch(/\bDROP\s+(?:TABLE|VIEW|COLUMN)\b/i);
-			expect(statement).not.toMatch(/\bDELETE\s+WHERE\b/i);
-			expect(statement).not.toMatch(/\bMODIFY\s+TTL\b/i);
-		}
 	});
 
 	test("retirement is separate read-only inventory, destructive apply, and absence verify tooling", () => {

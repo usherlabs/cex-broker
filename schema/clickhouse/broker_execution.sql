@@ -74,9 +74,6 @@ PARTITION BY toYYYYMM(parseDateTimeBestEffortOrZero(broker_observed_timestamp))
 ORDER BY (exchange, symbol, broker_observed_timestamp)
 SETTINGS non_replicated_deduplication_window = 1000000;
 
-ALTER TABLE broker_execution.order_events
-ADD COLUMN IF NOT EXISTS order_author LowCardinality(String) DEFAULT '' AFTER account_selector;
-
 -- CEX value movements: withdrawals, deposits, and sub<->master internal transfers.
 --
 -- Column names/types/ORDER BY match the fiet-maker consumer contract
@@ -128,15 +125,8 @@ PARTITION BY toDate(broker_observed_timestamp)
 ORDER BY (account_selector, broker_observed_timestamp, exchange, symbol, event_kind, lifecycle_action)
 SETTINGS non_replicated_deduplication_window = 1000000;
 
--- CREATE TABLE IF NOT EXISTS is a no-op on an already-populated table, so an
--- added column reaches fresh deployments only. Inserts name every column, so a
--- broker emitting client_withdrawal_id against a table that lacks it fails the
--- insert and the batch is dropped with a counter — silent loss in the ledger
--- that proves where money went. This runs on forwarder startup ahead of serving
--- and fail-closes (services/archive-forwarder/index.ts), so the column cannot
--- be missing while rows are accepted.
-ALTER TABLE broker_execution.transfer_events
-ADD COLUMN IF NOT EXISTS client_withdrawal_id String DEFAULT '' AFTER external_id;
+-- The applier verifies this complete shape before any DDL. A missing receipt
+-- column refuses adoption rather than mutating historical financial evidence.
 
 -- Per-fill execution facts from the venue trade-history endpoint (fetchMyTrades),
 -- captured by the broker-internal fill poller. GetOrderDetails/createOrder payloads
@@ -210,17 +200,3 @@ PARTITION BY toYYYYMM(parseDateTimeBestEffortOrZero(broker_observed_timestamp))
 ORDER BY (exchange, symbol, broker_observed_timestamp)
 SETTINGS non_replicated_deduplication_window = 1000000;
 
--- Insert deduplication for the forwarder's retry path. A batch the forwarder
--- could not fully commit is re-posted verbatim under its original id, so the
--- tables that already landed are inserted again; each insert carries a token
--- derived from that id, and this window is what makes ClickHouse recognise the
--- token and skip the repeat. Existing deployments pick it up here, since the
--- CREATE statements above are no-ops once the tables exist.
-ALTER TABLE broker_execution.order_events
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE broker_execution.transfer_events
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE broker_execution.fill_events
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;
-ALTER TABLE broker_execution.market_metadata_snapshots
-    MODIFY SETTING non_replicated_deduplication_window = 1000000;

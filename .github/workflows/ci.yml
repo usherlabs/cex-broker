@@ -14,7 +14,7 @@ jobs:
 
     services:
       clickhouse:
-        image: clickhouse/clickhouse-server:24.8
+        image: clickhouse/clickhouse-server:25.12
         env:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: integration-test
@@ -77,6 +77,12 @@ jobs:
           done
           echo "ClickHouse integration service is unreachable" >&2
           exit 1
+
+      - name: Verify source schema ownership on the empty fixture
+        run: SOURCE_SCHEMA_TEST_URL="$CLICKHOUSE_TEST_URL" bun test test/clickhouse-source-schema.integration.test.ts
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: integration-test
 
       - name: Run normal tests
         run: bun run test

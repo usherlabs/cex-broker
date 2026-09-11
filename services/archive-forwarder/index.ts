@@ -25,6 +25,14 @@ const clickhouse = createClient({
 	// timestamp columns on the other archive tables.
 	clickhouse_settings: { date_time_input_format: "best_effort" },
 });
+// The configured data database may not exist on first boot. Metadata preflight
+// must connect through default; source DDL names every database explicitly.
+const schemaClient = createClient({
+	url: config.clickhouse.url,
+	username: config.clickhouse.username,
+	password: config.clickhouse.password,
+	database: "default",
+});
 const inserter = createClickHouseInserter(clickhouse);
 const streamHealthStore = createClickHouseStreamHealthReplayStore(clickhouse);
 const telemetry = createArchiveForwarderTelemetry();
@@ -44,11 +52,11 @@ let schemaRetryTimer: ReturnType<typeof setTimeout> | undefined;
 
 async function ensureSchemaAndStartDrainage(): Promise<void> {
 	try {
-		await ensureArchiveSchema(clickhouse);
+		await ensureArchiveSchema(schemaClient);
 		schemaReady = true;
 		worker?.start();
 		console.log(
-			"ClickHouse archive schema ensured (market_data, broker_execution, broker_account, broker_stream_health, strategy_data)",
+			"ClickHouse source schema ensured (market_data, broker_execution, broker_account, broker_stream_health, strategy_data, fiet_metrics, fiet_telemetry)",
 		);
 	} catch (error) {
 		schemaReady = false;
@@ -138,7 +146,7 @@ async function shutdown(): Promise<void> {
 	if (schemaRetryTimer) clearTimeout(schemaRetryTimer);
 	worker?.stop();
 	server.stop(true);
-	await clickhouse.close();
+	await Promise.all([clickhouse.close(), schemaClient.close()]);
 	spool?.close();
 }
 
