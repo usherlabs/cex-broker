@@ -133,7 +133,10 @@ function comparableDefinition(query: string): string {
 	return text;
 }
 
-async function formatted(client: ClickHouseClient, query: string): Promise<string> {
+// Exported for the owner-approved column-order migration preflight, which must
+// compare live definitions with exactly the applier's equivalence semantics.
+// Startup stays strict: ensureArchiveSchema itself is untouched.
+export async function formatted(client: ClickHouseClient, query: string): Promise<string> {
 	const result = await client.query({
 		query: "SELECT formatQuerySingleLine({definition:String}) AS definition",
 		query_params: { definition: query }, format: "JSONEachRow",
