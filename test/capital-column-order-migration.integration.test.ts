@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { type ClickHouseClient, createClient } from "@clickhouse/client";
 import { ensureArchiveSchema } from "../services/archive-forwarder/schema";
 import {
-	CAPITAL_TABLES,
 	applyCapitalColumnOrderMigration,
 	buildReorderAlter,
+	CAPITAL_TABLES,
+	type CapitalCanonicalSet,
 	loadCapitalCanonical,
 	planColumnMoves,
-	type CapitalCanonicalSet,
 } from "../services/archive-forwarder/scripts/capital-column-order-migration";
 
 const url = process.env.SOURCE_SCHEMA_TEST_URL;
@@ -111,7 +111,9 @@ async function liveColumnOrder(table: string): Promise<string[]> {
 		query: `SELECT name FROM system.columns WHERE database = 'fiet_telemetry' AND table = '${table}' ORDER BY position`,
 		format: "JSONEachRow",
 	});
-	return ((await result.json()) as Array<{ name: string }>).map((row) => row.name);
+	return ((await result.json()) as Array<{ name: string }>).map(
+		(row) => row.name,
+	);
 }
 
 async function snapshotRows(
@@ -140,8 +142,13 @@ async function reshapeTableToOld(
 ): Promise<void> {
 	const parsed = canonical.get(table)!;
 	const liveOrder = parsed.parsed.columns.map((c) => c.name);
-	const definitions = new Map(parsed.parsed.columns.map((c) => [c.name, c.definition]));
-	const reverse = buildReorderAlter(table, planColumnMoves(liveOrder, oldOrder, definitions));
+	const definitions = new Map(
+		parsed.parsed.columns.map((c) => [c.name, c.definition]),
+	);
+	const reverse = buildReorderAlter(
+		table,
+		planColumnMoves(liveOrder, oldOrder, definitions),
+	);
 	expect(reverse).not.toBeNull();
 	await client.command({ query: reverse! });
 	expect(await liveColumnOrder(table)).toEqual(oldOrder);
@@ -149,117 +156,202 @@ async function reshapeTableToOld(
 
 // This suite owns entire source databases. The integrator must give it a fresh,
 // exclusive ClickHouse instance, not the shared archive integration endpoint.
-describe.skipIf(!url)("capital column-order migration on an isolated instance", () => {
-	beforeAll(async () => {
-		if (!url) throw new Error("An exclusive source-schema fixture URL is required");
-		client = createClient({
-			url,
-			username: process.env.CLICKHOUSE_USER ?? "default",
-			password: process.env.CLICKHOUSE_PASSWORD ?? "",
-		});
-		const existing = await client.query({
-			query: "SELECT name FROM system.databases WHERE name IN {names:Array(String)}",
-			query_params: { names: databases },
-			format: "JSONEachRow",
-		});
-		if ((await existing.json()).length !== 0) {
-			throw new Error("Capital migration proof requires empty owned namespaces on an exclusive fixture");
-		}
-		ownsFixture = true;
-	});
-
-	afterAll(async () => {
-		try {
-			if (ownsFixture) {
-				for (const database of databases) {
-					await client.command({ query: `DROP DATABASE IF EXISTS ${database} SYNC` });
-				}
+describe.skipIf(!url)(
+	"capital column-order migration on an isolated instance",
+	() => {
+		beforeAll(async () => {
+			if (!url)
+				throw new Error("An exclusive source-schema fixture URL is required");
+			client = createClient({
+				url,
+				username: process.env.CLICKHOUSE_USER ?? "default",
+				password: process.env.CLICKHOUSE_PASSWORD ?? "",
+			});
+			const existing = await client.query({
+				query:
+					"SELECT name FROM system.databases WHERE name IN {names:Array(String)}",
+				query_params: { names: databases },
+				format: "JSONEachRow",
+			});
+			if ((await existing.json()).length !== 0) {
+				throw new Error(
+					"Capital migration proof requires empty owned namespaces on an exclusive fixture",
+				);
 			}
-		} finally {
-			await client?.close();
-		}
-	});
-
-	test("fresh no-op, captured-shape migration with parity, reapply, mixed resume and refusal", async () => {
-		await ensureArchiveSchema(client);
-		const canonical = await loadCapitalCanonical();
-		const journalOrder = canonical.get("obligation_journal")!.parsed.columns.map((c) => c.name);
-		const postingsOrder = canonical.get("custody_ledger_postings")!.parsed.columns.map((c) => c.name);
-
-		// Already canonical: nothing to do, and the call must succeed.
-		await expect(applyCapitalColumnOrderMigration(client)).resolves.toEqual({
-			applied: [],
-			skipped: ["obligation_journal", "custody_ledger_postings"],
+			ownsFixture = true;
 		});
 
-		await client.command({
-			query: `INSERT INTO fiet_telemetry.obligation_journal (${journalOrder.join(", ")}) VALUES (${journalOrder.map((c) => literal(JOURNAL_ROW[c]!)).join(", ")})`,
-		});
-		await client.command({
-			query: `INSERT INTO fiet_telemetry.custody_ledger_postings (${postingsOrder.join(", ")}) VALUES (${postingsOrder.map((c) => literal(POSTINGS_ROW[c]!)).join(", ")})`,
-		});
-		const journalBefore = await snapshotRows("obligation_journal", journalOrder, "record_id", JOURNAL_ROW.record_id as string);
-		const postingsBefore = await snapshotRows("custody_ledger_postings", postingsOrder, "posting_id", POSTINGS_ROW.posting_id as string);
-		expect(journalBefore.count).toBe(1);
-		expect(postingsBefore.count).toBe(1);
-
-		// Reshape to the captured old orders using only canonical definitions.
-		for (const { table, oldOrder } of CAPITAL_TABLES) {
-			await reshapeTableToOld(table, oldOrder, canonical);
-		}
-		// Reordering alone preserves rows.
-		expect((await snapshotRows("obligation_journal", journalOrder, "record_id", JOURNAL_ROW.record_id as string)).hash).toBe(journalBefore.hash);
-		expect((await snapshotRows("custody_ledger_postings", postingsOrder, "posting_id", POSTINGS_ROW.posting_id as string)).hash).toBe(postingsBefore.hash);
-
-		// The migration restores canonical order with identical rows and hashes.
-		await expect(applyCapitalColumnOrderMigration(client)).resolves.toEqual({
-			applied: ["obligation_journal", "custody_ledger_postings"],
-			skipped: [],
-		});
-		expect(await liveColumnOrder("obligation_journal")).toEqual(journalOrder);
-		expect(await liveColumnOrder("custody_ledger_postings")).toEqual(postingsOrder);
-		const journalAfter = await snapshotRows("obligation_journal", journalOrder, "record_id", JOURNAL_ROW.record_id as string);
-		const postingsAfter = await snapshotRows("custody_ledger_postings", postingsOrder, "posting_id", POSTINGS_ROW.posting_id as string);
-		expect(journalAfter.rows).toEqual(journalBefore.rows);
-		expect(journalAfter.hash).toBe(journalBefore.hash);
-		expect(postingsAfter.rows).toEqual(postingsBefore.rows);
-		expect(postingsAfter.hash).toBe(postingsBefore.hash);
-
-		// Reapply converges without touching anything.
-		await expect(applyCapitalColumnOrderMigration(client)).resolves.toEqual({
-			applied: [],
-			skipped: ["obligation_journal", "custody_ledger_postings"],
+		afterAll(async () => {
+			try {
+				if (ownsFixture) {
+					for (const database of databases) {
+						await client.command({
+							query: `DROP DATABASE IF EXISTS ${database} SYNC`,
+						});
+					}
+				}
+			} finally {
+				await client?.close();
+			}
 		});
 
-		// Mixed current/old resumes per table: only the stale journal migrates
-		// while the current postings table is left alone.
-		await reshapeTableToOld("obligation_journal", CAPITAL_TABLES[0]!.oldOrder, canonical);
-		await expect(applyCapitalColumnOrderMigration(client)).resolves.toEqual({
-			applied: ["obligation_journal"],
-			skipped: ["custody_ledger_postings"],
-		});
-		expect(await liveColumnOrder("obligation_journal")).toEqual(journalOrder);
-		expect(await liveColumnOrder("custody_ledger_postings")).toEqual(postingsOrder);
-		const journalResumed = await snapshotRows("obligation_journal", journalOrder, "record_id", JOURNAL_ROW.record_id as string);
-		expect(journalResumed.rows).toEqual(journalBefore.rows);
-		expect(journalResumed.hash).toBe(journalBefore.hash);
+		test("fresh no-op, captured-shape migration with parity, reapply, mixed resume and refusal", async () => {
+			await ensureArchiveSchema(client);
+			const canonical = await loadCapitalCanonical();
+			const journalOrder = canonical
+				.get("obligation_journal")!
+				.parsed.columns.map((c) => c.name);
+			const postingsOrder = canonical
+				.get("custody_ledger_postings")!
+				.parsed.columns.map((c) => c.name);
 
-		// Refusal oracle with teeth: the FIRST table is pending-old (an unsafe
-		// sequential applier would migrate it) while the SECOND carries genuine
-		// property drift. The full preflight must refuse both, leaving the
-		// pending journal still old and every row unchanged.
-		await reshapeTableToOld("obligation_journal", CAPITAL_TABLES[0]!.oldOrder, canonical);
-		await client.command({
-			query: "ALTER TABLE fiet_telemetry.custody_ledger_postings MODIFY COLUMN delta_amount Int64 CODEC(ZSTD(1))",
-		});
-		await expect(applyCapitalColumnOrderMigration(client)).rejects.toThrow(/no DDL applied/);
-		expect(await liveColumnOrder("obligation_journal")).toEqual(CAPITAL_TABLES[0]!.oldOrder);
-		expect(await liveColumnOrder("custody_ledger_postings")).toEqual(postingsOrder);
-		const journalKept = await snapshotRows("obligation_journal", journalOrder, "record_id", JOURNAL_ROW.record_id as string);
-		expect(journalKept.rows).toEqual(journalBefore.rows);
-		expect(journalKept.hash).toBe(journalBefore.hash);
-		const postingsKept = await snapshotRows("custody_ledger_postings", postingsOrder, "posting_id", POSTINGS_ROW.posting_id as string);
-		expect(postingsKept.rows).toEqual(postingsBefore.rows);
-		expect(postingsKept.hash).toBe(postingsBefore.hash);
-	}, 240_000);
-});
+			// Already canonical: nothing to do, and the call must succeed.
+			await expect(applyCapitalColumnOrderMigration(client)).resolves.toEqual({
+				applied: [],
+				skipped: ["obligation_journal", "custody_ledger_postings"],
+			});
+
+			await client.command({
+				query: `INSERT INTO fiet_telemetry.obligation_journal (${journalOrder.join(", ")}) VALUES (${journalOrder.map((c) => literal(JOURNAL_ROW[c]!)).join(", ")})`,
+			});
+			await client.command({
+				query: `INSERT INTO fiet_telemetry.custody_ledger_postings (${postingsOrder.join(", ")}) VALUES (${postingsOrder.map((c) => literal(POSTINGS_ROW[c]!)).join(", ")})`,
+			});
+			const journalBefore = await snapshotRows(
+				"obligation_journal",
+				journalOrder,
+				"record_id",
+				JOURNAL_ROW.record_id as string,
+			);
+			const postingsBefore = await snapshotRows(
+				"custody_ledger_postings",
+				postingsOrder,
+				"posting_id",
+				POSTINGS_ROW.posting_id as string,
+			);
+			expect(journalBefore.count).toBe(1);
+			expect(postingsBefore.count).toBe(1);
+
+			// Reshape to the captured old orders using only canonical definitions.
+			for (const { table, oldOrder } of CAPITAL_TABLES) {
+				await reshapeTableToOld(table, oldOrder, canonical);
+			}
+			// Reordering alone preserves rows.
+			expect(
+				(
+					await snapshotRows(
+						"obligation_journal",
+						journalOrder,
+						"record_id",
+						JOURNAL_ROW.record_id as string,
+					)
+				).hash,
+			).toBe(journalBefore.hash);
+			expect(
+				(
+					await snapshotRows(
+						"custody_ledger_postings",
+						postingsOrder,
+						"posting_id",
+						POSTINGS_ROW.posting_id as string,
+					)
+				).hash,
+			).toBe(postingsBefore.hash);
+
+			// The migration restores canonical order with identical rows and hashes.
+			await expect(applyCapitalColumnOrderMigration(client)).resolves.toEqual({
+				applied: ["obligation_journal", "custody_ledger_postings"],
+				skipped: [],
+			});
+			expect(await liveColumnOrder("obligation_journal")).toEqual(journalOrder);
+			expect(await liveColumnOrder("custody_ledger_postings")).toEqual(
+				postingsOrder,
+			);
+			const journalAfter = await snapshotRows(
+				"obligation_journal",
+				journalOrder,
+				"record_id",
+				JOURNAL_ROW.record_id as string,
+			);
+			const postingsAfter = await snapshotRows(
+				"custody_ledger_postings",
+				postingsOrder,
+				"posting_id",
+				POSTINGS_ROW.posting_id as string,
+			);
+			expect(journalAfter.rows).toEqual(journalBefore.rows);
+			expect(journalAfter.hash).toBe(journalBefore.hash);
+			expect(postingsAfter.rows).toEqual(postingsBefore.rows);
+			expect(postingsAfter.hash).toBe(postingsBefore.hash);
+
+			// Reapply converges without touching anything.
+			await expect(applyCapitalColumnOrderMigration(client)).resolves.toEqual({
+				applied: [],
+				skipped: ["obligation_journal", "custody_ledger_postings"],
+			});
+
+			// Mixed current/old resumes per table: only the stale journal migrates
+			// while the current postings table is left alone.
+			await reshapeTableToOld(
+				"obligation_journal",
+				CAPITAL_TABLES[0]!.oldOrder,
+				canonical,
+			);
+			await expect(applyCapitalColumnOrderMigration(client)).resolves.toEqual({
+				applied: ["obligation_journal"],
+				skipped: ["custody_ledger_postings"],
+			});
+			expect(await liveColumnOrder("obligation_journal")).toEqual(journalOrder);
+			expect(await liveColumnOrder("custody_ledger_postings")).toEqual(
+				postingsOrder,
+			);
+			const journalResumed = await snapshotRows(
+				"obligation_journal",
+				journalOrder,
+				"record_id",
+				JOURNAL_ROW.record_id as string,
+			);
+			expect(journalResumed.rows).toEqual(journalBefore.rows);
+			expect(journalResumed.hash).toBe(journalBefore.hash);
+
+			// Refusal oracle with teeth: the FIRST table is pending-old (an unsafe
+			// sequential applier would migrate it) while the SECOND carries genuine
+			// property drift. The full preflight must refuse both, leaving the
+			// pending journal still old and every row unchanged.
+			await reshapeTableToOld(
+				"obligation_journal",
+				CAPITAL_TABLES[0]!.oldOrder,
+				canonical,
+			);
+			await client.command({
+				query:
+					"ALTER TABLE fiet_telemetry.custody_ledger_postings MODIFY COLUMN delta_amount Int64 CODEC(ZSTD(1))",
+			});
+			await expect(applyCapitalColumnOrderMigration(client)).rejects.toThrow(
+				/no DDL applied/,
+			);
+			expect(await liveColumnOrder("obligation_journal")).toEqual(
+				CAPITAL_TABLES[0]!.oldOrder,
+			);
+			expect(await liveColumnOrder("custody_ledger_postings")).toEqual(
+				postingsOrder,
+			);
+			const journalKept = await snapshotRows(
+				"obligation_journal",
+				journalOrder,
+				"record_id",
+				JOURNAL_ROW.record_id as string,
+			);
+			expect(journalKept.rows).toEqual(journalBefore.rows);
+			expect(journalKept.hash).toBe(journalBefore.hash);
+			const postingsKept = await snapshotRows(
+				"custody_ledger_postings",
+				postingsOrder,
+				"posting_id",
+				POSTINGS_ROW.posting_id as string,
+			);
+			expect(postingsKept.rows).toEqual(postingsBefore.rows);
+			expect(postingsKept.hash).toBe(postingsBefore.hash);
+		}, 240_000);
+	},
+);
