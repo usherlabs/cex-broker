@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
-	CAPITAL_TABLES,
-	buildReorderAlter,
-	classifyCapitalOrder,
-	loadCapitalCanonical,
 	parseCreateTable,
-	planColumnMoves,
 	splitTopLevelCommas,
 } from "../services/archive-forwarder/scripts/capital-column-order-migration";
 
+// The integration fixture proves canonical order, migration, reapply and
+// refusal against a live server. These two stay because they pin the only
+// server-independent failure mode: silently misreading fiet.sql. A naive
+// comma split or a broken paren/quote scan would corrupt column definitions
+// and build wrong ALTERs (or false refusals) long before any server round.
 describe("capital column-order migration pure helpers", () => {
 	test("splits top-level commas without touching nested lists and literals", () => {
 		expect(
@@ -35,77 +35,5 @@ describe("capital column-order migration pure helpers", () => {
 			"CONSTRAINT z CHECK b > 0",
 		]);
 		expect(parsed.tail).toBe("ENGINE = MergeTree ORDER BY b");
-	});
-
-	test("canonical capital tables load from the owning fiet.sql", async () => {
-		const canonical = await loadCapitalCanonical();
-		expect(canonical.size).toBe(2);
-		const journal = canonical.get("obligation_journal")!;
-		const postings = canonical.get("custody_ledger_postings")!;
-		expect(journal.parsed.columns.map((column) => column.name).length).toBe(43);
-		expect(postings.parsed.columns.map((column) => column.name).length).toBe(25);
-		expect(journal.parsed.columns.map((column) => column.name).slice(0, 11)).toEqual([
-			"record_id", "payload_hash", "schema_revision", "obligation_id", "intent_id",
-			"lifecycle_state", "queue_class", "reason_code", "conflict_detail",
-			"state_version", "open_state_version",
-		]);
-		const definitions = new Map(
-			journal.parsed.columns.map((column) => [column.name, column.definition]),
-		);
-		expect(definitions.get("queue_class")).toBe(
-			"`queue_class` LowCardinality(String) DEFAULT 'INDETERMINATE' CODEC(ZSTD(1))",
-		);
-		expect(definitions.get("reason_code")).toBe(
-			"`reason_code` LowCardinality(String) DEFAULT '' CODEC(ZSTD(1))",
-		);
-		expect(definitions.get("open_state_version")).toBe(
-			"`open_state_version` Nullable(UInt64) CODEC(Delta(8), ZSTD(1))",
-		);
-	});
-
-	test("known old orders differ from canonical in exactly the approved positions", async () => {
-		const canonical = await loadCapitalCanonical();
-		for (const { table, oldOrder } of CAPITAL_TABLES) {
-			const canonicalOrder = canonical.get(table)!.parsed.columns.map((column) => column.name);
-			expect(classifyCapitalOrder(canonicalOrder, canonicalOrder, oldOrder)).toBe("current");
-			expect(classifyCapitalOrder(oldOrder, canonicalOrder, oldOrder)).toBe("migrate");
-			expect(classifyCapitalOrder([...oldOrder].reverse(), canonicalOrder, oldOrder)).toBe("refuse");
-		}
-		expect(CAPITAL_TABLES[0]!.oldOrder.length).toBe(43);
-		expect(CAPITAL_TABLES[1]!.oldOrder.length).toBe(25);
-	});
-
-	test("old postings order plans a single move after obligation_id", async () => {
-		const canonical = await loadCapitalCanonical();
-		const postings = canonical.get("custody_ledger_postings")!;
-		const canonicalOrder = postings.parsed.columns.map((column) => column.name);
-		const definitions = new Map(
-			postings.parsed.columns.map((column) => [column.name, column.definition]),
-		);
-		const actions = planColumnMoves(CAPITAL_TABLES[1]!.oldOrder, canonicalOrder, definitions);
-		expect(actions).toEqual([
-			{
-				column: "open_state_version",
-				definition: "`open_state_version` Nullable(UInt64) CODEC(Delta(8), ZSTD(1))",
-				after: "obligation_id",
-			},
-		]);
-		expect(buildReorderAlter("custody_ledger_postings", actions)).toBe(
-			"ALTER TABLE fiet_telemetry.custody_ledger_postings " +
-				"MODIFY COLUMN `open_state_version` Nullable(UInt64) CODEC(Delta(8), ZSTD(1)) AFTER `obligation_id`",
-		);
-	});
-
-	test("canonical order plans no ALTER", async () => {
-		const canonical = await loadCapitalCanonical();
-		for (const { table } of CAPITAL_TABLES) {
-			const parsed = canonical.get(table)!;
-			const order = parsed.parsed.columns.map((column) => column.name);
-			const definitions = new Map(
-				parsed.parsed.columns.map((column) => [column.name, column.definition]),
-			);
-			expect(planColumnMoves(order, order, definitions)).toEqual([]);
-			expect(buildReorderAlter(table, [])).toBeNull();
-		}
 	});
 });
