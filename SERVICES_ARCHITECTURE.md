@@ -78,10 +78,31 @@ The following repository components are not production services. Service-owned o
 - `examples/archive-watch-subscribe.ts` is an interactive/local subscription example, not the managed continuous collector.
 - `services/archive-forwarder/scripts/migrate-legacy-market-data-to-canonical.ts` is a bounded direct-ClickHouse operator migration. Its ORDERBOOK path emits incomplete-provenance diagnostic levels only and never a summary.
 - `services/archive-forwarder/scripts/order-book-schema-retirement.ts` and the matching SQL artifacts implement the separately approved terminal historical-schema retirement. Normal startup never invokes them.
+- `services/archive-forwarder/scripts/capital-column-order-migration.ts` is the operator-run column-order migration for the two settlement-capital tables below. Normal startup never invokes it.
 - `scripts/archive-upgrade-acceptance.ts` is the one-time Server 24.8 A/B acceptance harness for the canonical upgrade. It is not a recurring service.
 - `scripts/archive-sidecar.ts` and its supervisor form a bounded cross-repository test composition for the `production_compatible` shared-wire Proof C profile only; they add no production broker startup mode.
 - `research/python/` and `research/hummingbot/` are research libraries and reference integrations, not broker-side daemons.
 - `schema/`, handlers, helpers, generated protobuf modules, and test fixtures are libraries or assets embedded in the services above.
+
+### Settlement-capital column-order migration
+
+Deployments created before the late capital columns reached their canonical positions carry `fiet_telemetry.obligation_journal` and `fiet_telemetry.custody_ledger_postings` in the old column order. The startup applier refuses those tables as incompatible and never reorders them itself.
+
+The operator migration is `services/archive-forwarder/scripts/capital-column-order-migration.ts`:
+
+```sh
+bun run services/archive-forwarder/scripts/capital-column-order-migration.ts inventory
+bun run services/archive-forwarder/scripts/capital-column-order-migration.ts apply
+bun run services/archive-forwarder/scripts/capital-column-order-migration.ts verify
+```
+
+Connection comes from `CLICKHOUSE_URL`, or `CLICKHOUSE_HOST`/`CLICKHOUSE_PORT` with `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`. Review `inventory` output before `apply`; `apply` re-verifies convergence before reporting success.
+
+Preconditions are order-only and checked for both tables before either mutates: identical column names with identical per-column type, default, and codec; identical constraint set; identical engine, partition, and sort key (Cloud shared-engine spelling normalized); and a live order exactly matching the known old or canonical shape. Each table migrates with a single atomic ALTER of same-type moves. Any other drift refuses with no DDL applied.
+
+Run in a maintenance window with no concurrent DDL on the two tables, and quiesce writers to them so verification reads are stable. Re-running is safe: already-canonical tables are skipped and still-old tables migrate, so an interrupted run resumes by re-running `apply`. Rollback, if ever needed, is the same metadata-only operation in reverse (same-type `MODIFY COLUMN ... AFTER` reordering, no copy and no table exchange); rows are preserved either way.
+
+Scope holds: unrelated legacy-object retirement and dead-view disposition are separately held. This migration touches only the two capital tables and refuses everything else.
 
 CEX venues, ClickHouse, OpenTelemetry infrastructure, and Verity are external dependencies. FIET Maker/Hummingbot runtimes, `fiet-observer`, and other archive or metrics producers are owned by their respective repositories. CEX Broker publishes no vendor acquisition, historical reconstruction, preparation-package, promotion, or canonical-Parquet product. Maker/FIET-1015 owns cold sourcing and reconstruction; FIET-907 may consume evidence but owns no CEX historical write path.
 
