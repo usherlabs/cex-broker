@@ -7,6 +7,7 @@ import {
 	buildReorderAlter,
 	loadCapitalCanonical,
 	planColumnMoves,
+	type CapitalCanonicalSet,
 } from "../services/archive-forwarder/scripts/capital-column-order-migration";
 
 const url = process.env.SOURCE_SCHEMA_TEST_URL;
@@ -132,6 +133,20 @@ async function snapshotRows(
 	return { rows, hash: Bun.hash(JSON.stringify(rows)), count };
 }
 
+async function reshapeTableToOld(
+	table: string,
+	oldOrder: readonly string[],
+	canonical: CapitalCanonicalSet,
+): Promise<void> {
+	const parsed = canonical.get(table)!;
+	const liveOrder = parsed.parsed.columns.map((c) => c.name);
+	const definitions = new Map(parsed.parsed.columns.map((c) => [c.name, c.definition]));
+	const reverse = buildReorderAlter(table, planColumnMoves(liveOrder, oldOrder, definitions));
+	expect(reverse).not.toBeNull();
+	await client.command({ query: reverse! });
+	expect(await liveColumnOrder(table)).toEqual(oldOrder);
+}
+
 // This suite owns entire source databases. The integrator must give it a fresh,
 // exclusive ClickHouse instance, not the shared archive integration endpoint.
 describe.skipIf(!url)("capital column-order migration on an isolated instance", () => {
@@ -165,7 +180,7 @@ describe.skipIf(!url)("capital column-order migration on an isolated instance", 
 		}
 	});
 
-	test("fresh no-op, captured-shape migration with parity, reapply and refusal", async () => {
+	test("fresh no-op, captured-shape migration with parity, reapply, mixed resume and refusal", async () => {
 		await ensureArchiveSchema(client);
 		const canonical = await loadCapitalCanonical();
 		const journalOrder = canonical.get("obligation_journal")!.parsed.columns.map((c) => c.name);
@@ -190,13 +205,7 @@ describe.skipIf(!url)("capital column-order migration on an isolated instance", 
 
 		// Reshape to the captured old orders using only canonical definitions.
 		for (const { table, oldOrder } of CAPITAL_TABLES) {
-			const parsed = canonical.get(table)!;
-			const liveOrder = parsed.parsed.columns.map((c) => c.name);
-			const definitions = new Map(parsed.parsed.columns.map((c) => [c.name, c.definition]));
-			const reverse = buildReorderAlter(table, planColumnMoves(liveOrder, oldOrder, definitions));
-			expect(reverse).not.toBeNull();
-			await client.command({ query: reverse! });
-			expect(await liveColumnOrder(table)).toEqual(oldOrder);
+			await reshapeTableToOld(table, oldOrder, canonical);
 		}
 		// Reordering alone preserves rows.
 		expect((await snapshotRows("obligation_journal", journalOrder, "record_id", JOURNAL_ROW.record_id as string)).hash).toBe(journalBefore.hash);
@@ -222,18 +231,35 @@ describe.skipIf(!url)("capital column-order migration on an isolated instance", 
 			skipped: ["obligation_journal", "custody_ledger_postings"],
 		});
 
-		// Unknown drift refuses BEFORE any ALTER runs anywhere: the untouched
-		// postings table keeps its order, rows and hash.
+		// Mixed current/old resumes per table: only the stale journal migrates
+		// while the current postings table is left alone.
+		await reshapeTableToOld("obligation_journal", CAPITAL_TABLES[0]!.oldOrder, canonical);
+		await expect(applyCapitalColumnOrderMigration(client)).resolves.toEqual({
+			applied: ["obligation_journal"],
+			skipped: ["custody_ledger_postings"],
+		});
+		expect(await liveColumnOrder("obligation_journal")).toEqual(journalOrder);
+		expect(await liveColumnOrder("custody_ledger_postings")).toEqual(postingsOrder);
+		const journalResumed = await snapshotRows("obligation_journal", journalOrder, "record_id", JOURNAL_ROW.record_id as string);
+		expect(journalResumed.rows).toEqual(journalBefore.rows);
+		expect(journalResumed.hash).toBe(journalBefore.hash);
+
+		// Refusal oracle with teeth: the FIRST table is pending-old (an unsafe
+		// sequential applier would migrate it) while the SECOND carries genuine
+		// property drift. The full preflight must refuse both, leaving the
+		// pending journal still old and every row unchanged.
+		await reshapeTableToOld("obligation_journal", CAPITAL_TABLES[0]!.oldOrder, canonical);
 		await client.command({
-			query: "ALTER TABLE fiet_telemetry.obligation_journal DROP COLUMN conflict_detail",
+			query: "ALTER TABLE fiet_telemetry.custody_ledger_postings MODIFY COLUMN delta_amount Int64 CODEC(ZSTD(1))",
 		});
 		await expect(applyCapitalColumnOrderMigration(client)).rejects.toThrow(/no DDL applied/);
+		expect(await liveColumnOrder("obligation_journal")).toEqual(CAPITAL_TABLES[0]!.oldOrder);
 		expect(await liveColumnOrder("custody_ledger_postings")).toEqual(postingsOrder);
+		const journalKept = await snapshotRows("obligation_journal", journalOrder, "record_id", JOURNAL_ROW.record_id as string);
+		expect(journalKept.rows).toEqual(journalBefore.rows);
+		expect(journalKept.hash).toBe(journalBefore.hash);
 		const postingsKept = await snapshotRows("custody_ledger_postings", postingsOrder, "posting_id", POSTINGS_ROW.posting_id as string);
 		expect(postingsKept.rows).toEqual(postingsBefore.rows);
 		expect(postingsKept.hash).toBe(postingsBefore.hash);
-		const journalDrifted = await liveColumnOrder("obligation_journal");
-		expect(journalDrifted).not.toContain("conflict_detail");
-		expect(journalDrifted.length).toBe(journalOrder.length - 1);
 	}, 240_000);
 });

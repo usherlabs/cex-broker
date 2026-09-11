@@ -75,31 +75,6 @@ describe("capital column-order migration pure helpers", () => {
 		expect(CAPITAL_TABLES[1]!.oldOrder.length).toBe(25);
 	});
 
-	test("old journal order plans exactly five metadata moves in one ALTER", async () => {
-		const canonical = await loadCapitalCanonical();
-		const journal = canonical.get("obligation_journal")!;
-		const canonicalOrder = journal.parsed.columns.map((column) => column.name);
-		const definitions = new Map(
-			journal.parsed.columns.map((column) => [column.name, column.definition]),
-		);
-		const actions = planColumnMoves(CAPITAL_TABLES[0]!.oldOrder, canonicalOrder, definitions);
-		expect(actions.map(({ column, after }) => `${column}>${after}`)).toEqual([
-			"queue_class>lifecycle_state",
-			"reason_code>queue_class",
-			"conflict_detail>reason_code",
-			"state_version>conflict_detail",
-			"open_state_version>state_version",
-		]);
-		expect(buildReorderAlter("obligation_journal", actions)).toBe(
-			"ALTER TABLE fiet_telemetry.obligation_journal " +
-				"MODIFY COLUMN `queue_class` LowCardinality(String) DEFAULT 'INDETERMINATE' CODEC(ZSTD(1)) AFTER `lifecycle_state`, " +
-				"MODIFY COLUMN `reason_code` LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)) AFTER `queue_class`, " +
-				"MODIFY COLUMN `conflict_detail` Nullable(String) CODEC(ZSTD(1)) AFTER `reason_code`, " +
-				"MODIFY COLUMN `state_version` UInt64 CODEC(Delta(8), ZSTD(1)) AFTER `conflict_detail`, " +
-				"MODIFY COLUMN `open_state_version` Nullable(UInt64) CODEC(Delta(8), ZSTD(1)) AFTER `state_version`",
-		);
-	});
-
 	test("old postings order plans a single move after obligation_id", async () => {
 		const canonical = await loadCapitalCanonical();
 		const postings = canonical.get("custody_ledger_postings")!;

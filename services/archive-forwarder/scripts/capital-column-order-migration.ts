@@ -45,7 +45,6 @@ const POSTINGS_OLD_ORDER = [
 	"delta_amount", "tx_hash", "log_index", "block_number", "block_timestamp",
 	"producer_id", "producer_epoch", "sequence", "recorded_at", "open_state_version",
 ] as const;
-
 export const CAPITAL_TABLES = [
 	{ table: JOURNAL_TABLE, oldOrder: [...JOURNAL_OLD_ORDER] },
 	{ table: POSTINGS_TABLE, oldOrder: [...POSTINGS_OLD_ORDER] },
@@ -137,12 +136,13 @@ export function parseCreateTable(statement: string): ParsedCreateTable {
 }
 
 export type CapitalCanonical = { statement: string; parsed: ParsedCreateTable };
+export type CapitalCanonicalSet = Map<string, CapitalCanonical>;
 
 // Loads the two canonical CREATE TABLE statements from the owning fiet.sql.
 // Column definitions always come from this file; never from a second copy.
-export async function loadCapitalCanonical(): Promise<Map<string, CapitalCanonical>> {
+export async function loadCapitalCanonical(): Promise<CapitalCanonicalSet> {
 	const text = await Bun.file(archiveSchemaFilePath("fiet.sql")).text();
-	const canonical = new Map<string, CapitalCanonical>();
+	const canonical: CapitalCanonicalSet = new Map();
 	for (const statement of splitSqlStatements(text)) {
 		const match = /^CREATE TABLE IF NOT EXISTS fiet_telemetry\.(obligation_journal|custody_ledger_postings)\b/i.exec(statement);
 		if (match) canonical.set(match[1]!, { statement, parsed: parseCreateTable(statement) });
