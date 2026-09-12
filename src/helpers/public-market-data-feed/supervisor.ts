@@ -823,7 +823,11 @@ export class PublicMarketDataFeedSupervisor {
 					this.#retirementBarriers.delete(key);
 				}
 			},
-			() => {},
+			() => {
+				if (this.#retirementBarriers.get(key) === cleanup) {
+					this.#retirementBarriers.delete(key);
+				}
+			},
 		);
 		this.#trackRetirement(cleanup);
 	}

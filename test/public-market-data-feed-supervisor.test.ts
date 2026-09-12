@@ -545,7 +545,7 @@ describe("PublicMarketDataFeedSupervisor", () => {
 		await supervisor.close();
 	});
 
-	test("fails replacement rather than overlapping a configured primary without unwatch", async () => {
+	test("serializes behind a failed retirement then permits a fresh worker", async () => {
 		const controlled = controlledExchange({ unwatch: false });
 		const supervisor = new PublicMarketDataFeedSupervisor({
 			brokers: pool(controlled.exchange),
@@ -569,7 +569,23 @@ describe("PublicMarketDataFeedSupervisor", () => {
 			}),
 		).rejects.toThrow("Public feed retirement timed out");
 		expect(controlled.calls.ticker).toHaveLength(1);
-		controlled.tickers[0]?.resolve({ last: 100 });
+
+		const fresh = await supervisor.subscribe({
+			exchange: "binance",
+			symbol: "BTC/USDT",
+			marketType: "spot",
+			feed: "TICKER",
+		});
+		await waitFor(() => controlled.calls.ticker.length === 2);
+		controlled.tickers[1]?.resolve({ last: 101 });
+		expect(
+			JSON.parse(
+				(await fresh[Symbol.asyncIterator]().next()).value?.data ?? "{}",
+			),
+		).toEqual({ last: 101 });
+		fresh.close();
+		await waitFor(() => controlled.calls.ticker.length === 3);
+		controlled.tickers[2]?.resolve({ last: 102 });
 		await expect(supervisor.close()).rejects.toThrow(/public feed worker/);
 	});
 
