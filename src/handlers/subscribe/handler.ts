@@ -247,6 +247,7 @@ async function streamBinanceUserData(
 						streamType: archiveSubscriptionType,
 						payload: event,
 						receivedTimestamp,
+						traceId: archiveContext.traceId,
 					},
 				);
 			}
@@ -328,6 +329,7 @@ async function runCcxtSubscribeLoop(
 					streamType: archiveContext.archiveSubscriptionType,
 					payload: data,
 					receivedTimestamp,
+					traceId: archiveContext.traceId,
 				},
 			);
 		}
@@ -370,14 +372,6 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 		const closeOwnedBrokerOnCallEnd = () => {
 			void closeOwnedBroker();
 		};
-		const withTraceLabels = (
-			labels: Record<string, string | number>,
-		): Record<string, string | number> => {
-			if (traceId) {
-				return { ...labels, trace_id: traceId };
-			}
-			return labels;
-		};
 
 		call.once("cancelled", markStreamClosed);
 		call.once("cancelled", closeOwnedBrokerOnCallEnd);
@@ -386,35 +380,23 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			markStreamClosed();
 			log.info("Subscribe stream ended", { traceId });
 			const duration = Date.now() - subscribeStartTime;
-			otelMetrics?.recordHistogram(
-				"subscribe_duration_ms",
-				duration,
-				withTraceLabels({
-					cex: call.request?.cex || "unknown",
-					symbol: call.request?.symbol || "unknown",
-				}),
-			);
+			otelMetrics?.recordHistogram("subscribe_duration_ms", duration, {
+				cex: call.request?.cex || "unknown",
+				symbol: call.request?.symbol || "unknown",
+			});
 		});
 		call.once("error", (error) => {
 			markStreamClosed();
 			log.error("Subscribe stream error:", error);
-			otelMetrics?.recordCounter(
-				"subscribe_errors_total",
-				1,
-				withTraceLabels({
-					error_type: error instanceof Error ? error.message : "unknown",
-				}),
-			);
+			otelMetrics?.recordCounter("subscribe_errors_total", 1, {
+				error_type: error instanceof Error ? error.message : "unknown",
+			});
 		});
 
 		if (!authenticateRequest(call, whitelistIps)) {
-			otelMetrics?.recordCounter(
-				"subscribe_errors_total",
-				1,
-				withTraceLabels({
-					error_type: "permission_denied",
-				}),
-			);
+			otelMetrics?.recordCounter("subscribe_errors_total", 1, {
+				error_type: "permission_denied",
+			});
 			call.emit(
 				"error",
 				{
@@ -445,15 +427,11 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 			});
 
 			const subscriptionTypeName = getSubscriptionTypeName(subscriptionType);
-			otelMetrics?.recordCounter(
-				"subscribe_requests_total",
-				1,
-				withTraceLabels({
-					cex: cex || "unknown",
-					symbol: symbol || "unknown",
-					type: subscriptionTypeName,
-				}),
-			);
+			otelMetrics?.recordCounter("subscribe_requests_total", 1, {
+				cex: cex || "unknown",
+				symbol: symbol || "unknown",
+				type: subscriptionTypeName,
+			});
 
 			if (!cex || !symbol) {
 				await writeSubscribeError(call, isStreamClosed, {

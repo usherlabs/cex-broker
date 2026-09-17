@@ -84,9 +84,6 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 					action: actionName,
 					cex: cex || "unknown",
 				};
-				if (traceId) {
-					baseLabels.trace_id = traceId;
-				}
 				otelMetrics?.recordHistogram(
 					"execute_action_duration_ms",
 					latency,
@@ -112,18 +109,10 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 
 		try {
 			log.info(`Request - ExecuteAction:`, { action, cex, symbol, traceId });
-			const requestLabels: Record<string, string | number> = {
+			otelMetrics?.recordCounter("execute_action_requests_total", 1, {
 				action: getActionName(action),
 				cex: cex || "unknown",
-			};
-			if (traceId) {
-				requestLabels.trace_id = traceId;
-			}
-			otelMetrics?.recordCounter(
-				"execute_action_requests_total",
-				1,
-				requestLabels,
-			);
+			});
 
 			if (!authenticateRequest(call, whitelistIps)) {
 				return wrappedCallback(

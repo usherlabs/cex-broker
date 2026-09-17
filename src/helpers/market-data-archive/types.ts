@@ -116,6 +116,7 @@ export type CexStreamArchiveInput = MarketArchiveContext & {
 	payload: unknown;
 	receivedTimestamp: number;
 	eventTimeMs?: number;
+	traceId?: string;
 };
 
 const MARKET_ARCHIVE_TABLES = new Set<string>([

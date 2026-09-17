@@ -59,7 +59,7 @@ describe("ExecuteAction x-trace-id propagation", () => {
 		}
 	});
 
-	test("attaches x-trace-id to request metrics", async () => {
+	test("keeps x-trace-id out of metric labels", async () => {
 		const metrics = new CapturingOtelMetrics();
 		const exchange = {
 			has: { fetchTicker: true },
@@ -97,12 +97,16 @@ describe("ExecuteAction x-trace-id propagation", () => {
 		const requestMetric = metrics.counters.find(
 			(entry) => entry.name === "execute_action_requests_total",
 		);
-		expect(requestMetric?.labels.trace_id).toBe("prover-trace-abc");
+		expect(requestMetric?.labels).toMatchObject({
+			action: "FetchTicker",
+			cex: "binance",
+		});
+		expect(Object.hasOwn(requestMetric?.labels ?? {}, "trace_id")).toBe(false);
 
 		const successMetric = metrics.counters.find(
 			(entry) => entry.name === "execute_action_success_total",
 		);
-		expect(successMetric?.labels.trace_id).toBe("prover-trace-abc");
+		expect(Object.hasOwn(successMetric?.labels ?? {}, "trace_id")).toBe(false);
 	});
 
 	test("omits trace_id metric label when metadata is absent", async () => {
@@ -136,6 +140,6 @@ describe("ExecuteAction x-trace-id propagation", () => {
 		const requestMetric = metrics.counters.find(
 			(entry) => entry.name === "execute_action_requests_total",
 		);
-		expect(requestMetric?.labels.trace_id).toBeUndefined();
+		expect(Object.hasOwn(requestMetric?.labels ?? {}, "trace_id")).toBe(false);
 	});
 });

@@ -424,7 +424,7 @@ export function buildCommonArchiveTags(input: {
 		symbol: input.symbol?.trim() || "unknown",
 		broker_observed_timestamp:
 			input.brokerObservedTimestamp ?? new Date().toISOString(),
-		trace_id: input.traceId,
+		...(input.traceId ? { trace_id: input.traceId } : {}),
 	};
 }
 

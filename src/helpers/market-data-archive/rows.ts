@@ -159,6 +159,7 @@ export function buildCexStreamEventRow(
 		exchange: input.exchange,
 		symbol: input.symbol,
 		brokerObservedTimestamp: new Date(receivedTimeMs).toISOString(),
+		traceId: input.traceId,
 	});
 
 	return {

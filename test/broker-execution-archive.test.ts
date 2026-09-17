@@ -335,7 +335,7 @@ describe("broker execution archive rows", () => {
 			accountSelector: "primary",
 			exchange: "binance",
 		});
-		expect(withoutTrace.trace_id).toBeUndefined();
+		expect(Object.hasOwn(withoutTrace, "trace_id")).toBe(false);
 	});
 
 	test("builds one coherent spot balance row without reducing venue total for locked capital", () => {
