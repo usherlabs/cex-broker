@@ -182,6 +182,54 @@ Policy markets support optional suffixes:
 
 For split futures exchanges (`binanceusdm`, `krakenfutures`, `kucoinfutures`), register the futures `cex` id separately. Fund movement between spot and futures wallets uses `Action.Call` or exchange-specific transfer actions.
 
+#### Exact order quantity and passive submission outcomes
+
+`CreateOrder` still requires `amount`, `fromToken`, `toToken`, and `price`.
+Send optional `amountBase` to place an exact base quantity on either side:
+
+```json
+{
+  "orderType": "limit",
+  "fromToken": "USDT",
+  "toToken": "BTC",
+  "amount": "1",
+  "amountBase": "0.000100000000000001",
+  "price": "25000.000000000001",
+  "clientOrderId": "order123",
+  "orderIntent": "passive_only"
+}
+```
+
+With `amountBase`, the broker passes its decimal string to CCXT unchanged and
+preserves a decimal-string `price`. Both strings must be positive plain decimals
+(digits, optionally a decimal point followed by digits); signs, whitespace,
+exponents, and zero are invalid. CCXT still applies the venue's precision and
+order rules. The required legacy `amount` must pass schema validation but is
+ignored for execution and policy limits. Market and direction allow-lists still
+apply. Directional limits compare exact base quantity on a sell, or exact
+`amountBase × price` on a buy, against the decimal text of numeric policy bounds.
+See [order policy](POLICY.md#order-rulelimits).
+
+Without `amountBase`, the existing numeric behavior is unchanged: a sell uses
+`amount`, a buy uses `amount / price`, and limits compare `amount`. Request
+quantity/notional telemetry remains numeric and approximate; it is not an exact
+accounting record.
+
+For `orderIntent: "passive_only"`, successful placement adds
+`passivePlacementOutcome: "accepted_passive"` to the JSON result. Errors carry
+stable message prefixes:
+
+| Prefix | Meaning |
+| --- | --- |
+| `passive_order_would_cross` | Explicit venue refusal because the order would take liquidity |
+| `passive_order_rejected` | Explicit post-only rejection |
+| `passive_order_unsupported` | Post-only is unsupported |
+| `passive_order_unknown` | Timeout, network failure, or unrecognized submission error; acceptance is unknown |
+
+On `passive_order_unknown`, look up the order before considering another create.
+Do not treat a missing response as rejection or automatically re-place the order.
+Authentication and insufficient-funds errors retain their own stable prefixes.
+
 #### Perp configuration actions
 
 Two capability-gated actions complement `Action.Call`:

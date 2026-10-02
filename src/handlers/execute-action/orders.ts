@@ -1,4 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
+import { Precise } from "@usherlabs/ccxt";
 import { resolveOrderExecution } from "../../helpers";
 import {
 	archiveOrderExecutionInBackground,
@@ -69,7 +70,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 	let resolvedOrderTelemetry: {
 		symbol?: string;
 		side?: string;
-		requestedQuantity?: number;
+		requestedQuantity?: number | string;
 	} = {};
 	let marketMetadataHash: string | undefined;
 	// A passive error code is a statement about what the VENUE did with our
@@ -97,6 +98,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			orderValue.amount,
 			orderValue.price,
 			orderValue.marketType,
+			orderValue.amountBase,
 		);
 		if (!resolution.valid || !resolution.symbol || !resolution.side) {
 			return ctx.wrappedCallback(
@@ -137,12 +139,14 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			},
 		);
 		submission = "in_flight";
+		// CCXT accepts decimal strings at runtime; its declarations only name
+		// numbers here. Type assertions preserve the supplied bytes, not floats.
 		const order = await broker.createOrder(
 			resolution.symbol,
 			orderValue.orderType,
 			resolution.side,
-			resolution.amountBase ?? orderValue.amount,
-			orderValue.price,
+			(resolution.amountBase ?? orderValue.amount) as number,
+			orderValue.price as number,
 			createOrderParams,
 		);
 		submission = "placed";
@@ -153,8 +157,16 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			symbol: resolvedOrderTelemetry.symbol,
 			side: resolvedOrderTelemetry.side,
 			orderType: orderValue.orderType,
-			requestedQuantity: resolvedOrderTelemetry.requestedQuantity,
-			requestedNotional: orderValue.amount * orderValue.price,
+			requestedQuantity: Number(resolvedOrderTelemetry.requestedQuantity),
+			requestedNotional:
+				orderValue.amountBase === undefined
+					? orderValue.amount * Number(orderValue.price)
+					: Number(
+							Precise.stringMul(
+								orderValue.amountBase,
+								String(orderValue.price),
+							),
+						),
 			orderAuthor: orderValue.orderAuthor,
 			brokerObservedTimestamp: submissionTimestamp,
 			...telemetryIds,
@@ -189,9 +201,20 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			symbol: resolvedOrderTelemetry.symbol ?? symbol,
 			side: resolvedOrderTelemetry.side,
 			orderType: orderValue.orderType,
-			requestedQuantity:
-				resolvedOrderTelemetry.requestedQuantity ?? orderValue.amount,
-			requestedNotional: orderValue.amount * orderValue.price,
+			requestedQuantity: Number(
+				resolvedOrderTelemetry.requestedQuantity ??
+					orderValue.amountBase ??
+					orderValue.amount,
+			),
+			requestedNotional:
+				orderValue.amountBase === undefined
+					? orderValue.amount * Number(orderValue.price)
+					: Number(
+							Precise.stringMul(
+								orderValue.amountBase,
+								String(orderValue.price),
+							),
+						),
 			orderAuthor: orderValue.orderAuthor,
 			...extractOrderTelemetryIds(createOrderParams),
 		};

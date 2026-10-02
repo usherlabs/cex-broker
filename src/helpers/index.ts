@@ -1,4 +1,4 @@
-import type { Exchange } from "@usherlabs/ccxt";
+import { type Exchange, Precise } from "@usherlabs/ccxt";
 import fs from "fs";
 import Joi from "joi";
 import type {
@@ -521,7 +521,7 @@ type OrderExecutionResolution = {
 	error?: string;
 	symbol?: string;
 	side?: "buy" | "sell";
-	amountBase?: number;
+	amountBase?: number | string;
 	limitsApplied?: boolean;
 	matchedPatterns?: string[];
 };
@@ -558,8 +558,9 @@ export async function resolveOrderExecution(
 	fromToken: string,
 	toToken: string,
 	amount: number,
-	price: number,
+	price: number | string,
 	marketTypeInput?: unknown,
+	amountBase?: string,
 ): Promise<OrderExecutionResolution> {
 	const brokerUpper = cex.trim().toUpperCase();
 	const fromUpper = fromToken.trim().toUpperCase();
@@ -594,6 +595,14 @@ export async function resolveOrderExecution(
 		};
 	}
 
+	// Directional limits bound fromToken, not the legacy amount when an exact
+	// base quantity is supplied. Compare decimal values without float rounding.
+	const fromAmount =
+		amountBase === undefined
+			? undefined
+			: tradable.side === "sell"
+				? amountBase
+				: Precise.stringMul(amountBase, String(price));
 	const limits = policy.order.rule.limits ?? [];
 	if (limits.length > 0) {
 		const limit = limits.find(
@@ -609,22 +618,41 @@ export async function resolveOrderExecution(
 			};
 		}
 
-		if (amount < limit.min) {
+		if (
+			fromAmount === undefined
+				? amount < limit.min
+				: Precise.stringLt(fromAmount, String(limit.min))
+		) {
 			return {
 				valid: false,
-				error: `Amount ${amount} is below minimum ${limit.min} for ${fromUpper} to ${toUpper} conversion`,
+				error: `Amount ${fromAmount ?? amount} is below minimum ${limit.min} for ${fromUpper} to ${toUpper} conversion`,
 				matchedPatterns,
 				limitsApplied: true,
 			};
 		}
-		if (amount > limit.max) {
+		if (
+			fromAmount === undefined
+				? amount > limit.max
+				: Precise.stringGt(fromAmount, String(limit.max))
+		) {
 			return {
 				valid: false,
-				error: `Amount ${amount} exceeds maximum ${limit.max} for ${fromUpper} to ${toUpper} conversion`,
+				error: `Amount ${fromAmount ?? amount} exceeds maximum ${limit.max} for ${fromUpper} to ${toUpper} conversion`,
 				matchedPatterns,
 				limitsApplied: true,
 			};
 		}
+	}
+
+	if (amountBase !== undefined) {
+		return {
+			valid: true,
+			symbol: tradable.symbol,
+			side: tradable.side,
+			amountBase,
+			limitsApplied: limits.length > 0,
+			matchedPatterns,
+		};
 	}
 
 	if (tradable.side === "sell") {
@@ -638,7 +666,8 @@ export async function resolveOrderExecution(
 		};
 	}
 
-	if (!Number.isFinite(price) || price <= 0) {
+	const legacyPrice = Number(price);
+	if (!Number.isFinite(legacyPrice) || legacyPrice <= 0) {
 		return {
 			valid: false,
 			error:
@@ -652,7 +681,7 @@ export async function resolveOrderExecution(
 		valid: true,
 		symbol: tradable.symbol,
 		side: "buy",
-		amountBase: amount / price,
+		amountBase: amount / legacyPrice,
 		limitsApplied: limits.length > 0,
 		matchedPatterns,
 	};

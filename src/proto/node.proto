@@ -3,6 +3,12 @@ package cex_broker;
 
 message ActionRequest {
   Action action = 1;                        // The CCXT method to call (e.g., "fetchBalance", "createOrder")
+  // CreateOrder: amount remains required. Optional amountBase is a positive
+  // plain decimal string passed as base quantity for either side; price can be
+  // a decimal string too. Without amountBase, amount/price keep legacy semantics.
+  // With amountBase, directional policy limits use base for sells, base*price
+  // for buys. Passive timeout/network/unrecognized submission failures return
+  // passive_order_unknown; look the order up before considering another create.
   map<string, string> payload = 2;          // Parameters to pass to the CCXT method
   string cex = 3;     // CEX identifier (e.g., "binance", "bybit")
   string symbol = 4;  // Optional: trading pair symbol if needed
