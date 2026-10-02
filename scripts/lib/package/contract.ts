@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const CONTRACT_PROTO_SHA256 =
-	"7dea012e0fb26e9f742219ace6d102d4eb126d4770ed2a8ca7cee6a41a40eff7";
+	"cf4b5ea2a35777f2c59ba3543078379bdc412a9a81668cb5b159bb723a62e666";
 export const EVIDENCE_SCHEMA_IDS = [
 	"cex-trading-fee-evidence/v1",
 	"cex-market-rule-evidence/v1",

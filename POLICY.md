@@ -316,7 +316,8 @@ Key behaviour:
 - **If non-empty**, each order must match a `from`/`to` entry for the requested direction. Unmatched directions are rejected.
 - **Limits are directional**: `USDT→ETH` and `ETH→USDT` are separate entries. You must add both if you want to allow both directions.
 - Limits apply to the request's **from amount** (the amount of `fromToken` the caller is converting), even if the broker flips the symbol direction for execution.
-- If the exchange only supports the reverse symbol, the broker computes a base amount via `amount / price`; this requires `price > 0`.
+- With `amountBase`, that from amount is the exact base quantity for a sell, or exact `amountBase × price` for a buy. The broker compares these decimals against the decimal text of the numeric policy bounds, with no floating-point conversion. The required legacy `amount` is ignored for execution and limit comparisons.
+- Without `amountBase`, behavior is unchanged: limits compare the numeric `amount`; if the exchange only supports the reverse symbol, the broker computes a base amount via `amount / price`, requiring `price > 0`.
 
 Example:
 

@@ -5,6 +5,7 @@ export const PASSIVE_ORDER_ERROR_CODES = {
 	unsupported: "passive_order_unsupported",
 	rejected: "passive_order_rejected",
 	wouldCross: "passive_order_would_cross",
+	unknown: "passive_order_unknown",
 } as const;
 
 export type PassiveOrderErrorCode =
@@ -43,15 +44,22 @@ function identifiesUnsupported(message: string): boolean {
 	);
 }
 
+function identifiesPostOnlyRejection(message: string): boolean {
+	return /post[\s-]?only\b(?: order)?(?: was)? (?:rejected|refused|rejection)\b/i.test(
+		message,
+	);
+}
+
 export function classifyPassiveOrderError(
 	error: unknown,
 ): PassiveOrderSubmissionErrorCode {
-	// A passive_* code tells the client the venue refused to REST the order for a
-	// post-only reason, so the rung may be re-placed at a new price. Balance and
-	// credential faults fail that promise: re-placing repeats them verbatim, and
-	// labelling them passive turns a shortfall into an unbounded repost loop.
-	// Both carry a typed ccxt class, so classify them before the post-only checks
-	// and report their own stable code — never the passive catch-all below.
+	// Transport failures can occur after acceptance, even when their detail
+	// mentions post-only. Only an explicit venue refusal permits re-placement.
+	if (error instanceof ccxt.NetworkError) {
+		return PASSIVE_ORDER_ERROR_CODES.unknown;
+	}
+	// Balance and credential failures are not post-only refusals; retrying at a
+	// new price does not fix them. Preserve their existing stable codes.
 	if (error instanceof ccxt.InsufficientFunds) {
 		return "InsufficientFunds";
 	}
@@ -69,5 +77,8 @@ export function classifyPassiveOrderError(
 	if (error instanceof ccxt.NotSupported || identifiesUnsupported(message)) {
 		return PASSIVE_ORDER_ERROR_CODES.unsupported;
 	}
-	return PASSIVE_ORDER_ERROR_CODES.rejected;
+	if (identifiesPostOnlyRejection(message)) {
+		return PASSIVE_ORDER_ERROR_CODES.rejected;
+	}
+	return PASSIVE_ORDER_ERROR_CODES.unknown;
 }

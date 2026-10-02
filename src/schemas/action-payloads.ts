@@ -79,18 +79,48 @@ const unknownParamsSchema = z.preprocess(
 	z.record(z.string(), z.unknown()),
 );
 
-export const CreateOrderPayloadSchema = z.object({
-	orderType: z.enum(["market", "limit"]).default("limit"),
-	orderIntent: z.enum(["passive_only"]).optional(),
-	amount: z.coerce.number().positive(),
-	fromToken: z.string().min(1),
-	toToken: z.string().min(1),
-	price: z.coerce.number().positive(),
-	marketType: marketTypeSchema,
-	clientOrderId: z.string().min(1).optional(),
-	orderAuthor: z.string().min(1).optional(),
-	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
-});
+const positiveDecimalStringSchema = z
+	.string()
+	.regex(/^[0-9]+(?:\.[0-9]+)?$(?![\s\S])/)
+	.refine((value) => /[1-9]/.test(value), "Must be greater than zero");
+const legacyOrderPriceSchema = z.coerce.number().positive();
+const exactOrderPriceSchema = z.union([
+	positiveDecimalStringSchema,
+	z.number().positive(),
+]);
+
+export const CreateOrderPayloadSchema = z
+	.object({
+		orderType: z.enum(["market", "limit"]).default("limit"),
+		orderIntent: z.enum(["passive_only"]).optional(),
+		amount: z.coerce.number().positive(),
+		amountBase: positiveDecimalStringSchema.optional(),
+		fromToken: z.string().min(1),
+		toToken: z.string().min(1),
+		price: z.union([z.string(), z.number()]),
+		marketType: marketTypeSchema,
+		clientOrderId: z.string().min(1).optional(),
+		orderAuthor: z.string().min(1).optional(),
+		params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
+	})
+	.superRefine((value, ctx) => {
+		const schema =
+			value.amountBase === undefined
+				? legacyOrderPriceSchema
+				: exactOrderPriceSchema;
+		const parsed = schema.safeParse(value.price);
+		if (!parsed.success) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["price"],
+				message: "Price must be a positive decimal",
+			});
+		}
+	})
+	.transform((value) => ({
+		...value,
+		price: value.amountBase === undefined ? Number(value.price) : value.price,
+	}));
 
 export const GetPerpConfigStatePayloadSchema = z.object({
 	symbol: z.string().min(1).optional(),

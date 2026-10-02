@@ -77,6 +77,200 @@ function createOrderPayload(
 }
 
 describe("passive CreateOrder", () => {
+	test.each([
+		["sell", "USDC", "USDT"],
+		["buy", "USDT", "USDC"],
+	])("uses exact amountBase and price verbatim on %s", async (side, fromToken, toToken) => {
+		const fixture = createFixture();
+		fixture.ctx.call.request.payload = createOrderPayload({
+			fromToken,
+			toToken,
+			amount: "999",
+			amountBase: "1.000000000000000001",
+			price: "2.000000000000000003",
+		});
+
+		await handleOrders(fixture.ctx);
+
+		expect(fixture.getError()).toBeNull();
+		expect(fixture.createOrderCalls).toEqual([
+			[
+				"USDC/USDT",
+				"limit",
+				side,
+				"1.000000000000000001",
+				"2.000000000000000003",
+				{},
+			],
+		]);
+	});
+
+	test("keeps legacy buy quote-to-base division when amountBase is absent", async () => {
+		const fixture = createFixture();
+		fixture.ctx.call.request.payload = createOrderPayload({
+			fromToken: "USDT",
+			toToken: "USDC",
+			amount: "10",
+			price: "2",
+		});
+		await handleOrders(fixture.ctx);
+		expect(fixture.createOrderCalls).toEqual([
+			["USDC/USDT", "limit", "buy", 5, 2, {}],
+		]);
+	});
+
+	test.each([
+		"",
+		"0",
+		"0.000",
+		"-1",
+		"+1",
+		"1e-3",
+		"NaN",
+		"Infinity",
+		"0x10",
+		" 1",
+		"1 ",
+		"1.",
+		".1",
+		"1.2.3",
+		"1\n",
+	])("refuses invalid amountBase %j without submitting", async (amountBase) => {
+		const fixture = createFixture();
+		fixture.ctx.call.request.payload = createOrderPayload({ amountBase });
+		await handleOrders(fixture.ctx);
+		expect(fixture.getError()?.code).toBe(grpc.status.INVALID_ARGUMENT);
+		expect(fixture.createOrderCalls).toEqual([]);
+	});
+
+	test.each([
+		"",
+		"0",
+		"-1",
+		"1e-3",
+		"NaN",
+		"Infinity",
+		" 1",
+		"1.2.3",
+	])("refuses invalid exact price %j without submitting", async (price) => {
+		const fixture = createFixture();
+		fixture.ctx.call.request.payload = createOrderPayload({
+			amountBase: "1",
+			price,
+		});
+		await handleOrders(fixture.ctx);
+		expect(fixture.getError()?.code).toBe(grpc.status.INVALID_ARGUMENT);
+		expect(fixture.createOrderCalls).toEqual([]);
+	});
+
+	test.each([
+		["sell", "USDC", "USDT", "1.000000000000000001", "2", 0, 1, false],
+		["sell", "USDC", "USDT", "0.999999999999999999", "2", 1, 2, false],
+		["sell", "USDC", "USDT", "1.000000000000000000", "2", 1, 1, true],
+		["buy", "USDT", "USDC", "0.500000000000000001", "2", 0, 1, false],
+		["buy", "USDT", "USDC", "0.499999999999999999", "2", 1, 2, false],
+		["buy", "USDT", "USDC", "0.500000000000000000", "2", 1, 1, true],
+		["buy", "USDT", "USDC", "0.00000001", "1", 1e-8, 1e-8, true],
+	])("checks exact fromToken limits on %s (%s → %s, base %s)", async (_, fromToken, toToken, amountBase, price, min, max, allowed) => {
+		const fixture = createFixture();
+		fixture.ctx.policy.order.rule.limits = [
+			{ from: fromToken, to: toToken, min, max },
+		];
+		fixture.ctx.call.request.payload = createOrderPayload({
+			fromToken,
+			toToken,
+			amountBase,
+			price,
+			amount: allowed ? "999" : min === 0 ? "0.5" : "1.5",
+		});
+		await handleOrders(fixture.ctx);
+		expect(fixture.createOrderCalls).toHaveLength(allowed ? 1 : 0);
+		expect(fixture.getError()?.code ?? null).toBe(
+			allowed ? null : grpc.status.INVALID_ARGUMENT,
+		);
+	});
+
+	test("amountBase does not bypass market or direction allow-lists", async () => {
+		for (const rule of [
+			{ markets: ["binance:BTC/USDT"], limits: [] },
+			{
+				markets: ["*"],
+				limits: [{ from: "USDT", to: "USDC", min: 0, max: 100 }],
+			},
+		]) {
+			const fixture = createFixture();
+			fixture.ctx.policy.order.rule = rule;
+			fixture.ctx.call.request.payload = createOrderPayload({
+				amountBase: "1",
+			});
+			await handleOrders(fixture.ctx);
+			expect(fixture.getError()?.code).toBe(grpc.status.INVALID_ARGUMENT);
+			expect(fixture.createOrderCalls).toEqual([]);
+		}
+	});
+
+	test.each([
+		[
+			"post-only rejection",
+			new ccxt.InvalidOrder("Post-only order rejected"),
+			"passive_order_rejected",
+		],
+		[
+			"would-cross refusal",
+			new ccxt.OrderImmediatelyFillable("order would cross"),
+			"passive_order_would_cross",
+		],
+		[
+			"immediate execution refusal",
+			new ccxt.InvalidOrder("Post only order would immediately execute"),
+			"passive_order_would_cross",
+		],
+		[
+			"timeout",
+			new ccxt.RequestTimeout("request timed out"),
+			"passive_order_unknown",
+		],
+		[
+			"network loss",
+			new ccxt.NetworkError("connection reset"),
+			"passive_order_unknown",
+		],
+		[
+			"network message mentions post-only",
+			new ccxt.NetworkError("post-only rejected response could not be read"),
+			"passive_order_unknown",
+		],
+		[
+			"negated post-only rejection",
+			new Error("Post-only order was not rejected"),
+			"passive_order_unknown",
+		],
+		[
+			"unknown invalid order",
+			new ccxt.InvalidOrder("invalid price"),
+			"passive_order_unknown",
+		],
+		[
+			"unknown error",
+			new Error("unexpected response"),
+			"passive_order_unknown",
+		],
+		[
+			"ambiguous post-only timeout",
+			new Error("post-only order timed out"),
+			"passive_order_unknown",
+		],
+	])("classifies %s without claiming a lost submission was rejected", async (_, error, expected) => {
+		const fixture = createFixture(error);
+		fixture.ctx.call.request.payload = createOrderPayload({
+			orderIntent: "passive_only",
+		});
+		await handleOrders(fixture.ctx);
+		expect(fixture.createOrderCalls).toHaveLength(1);
+		expect(fixture.getResponse()).toBeNull();
+		expect(fixture.getError()?.message).toStartWith(`${expected}:`);
+	});
+
 	test("keeps the existing ccxt request and response byte-for-byte when intent is absent", async () => {
 		const order = { id: "ordinary-1", status: "open" };
 		const fixture = createFixture(order);
@@ -240,9 +434,9 @@ describe("passive CreateOrder", () => {
 		expect(fixture.getError()?.message).not.toStartWith("passive_");
 	});
 
-	test("maps any other passive venue rejection to rejected", async () => {
+	test("maps an explicit post-only venue rejection to rejected", async () => {
 		const fixture = createFixture(
-			new ccxt.InvalidOrder("binance passive order rejected: invalid price"),
+			new ccxt.InvalidOrder("binance post-only order rejected: invalid price"),
 		);
 		fixture.ctx.call.request.payload = createOrderPayload({
 			orderIntent: "passive_only",
