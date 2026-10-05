@@ -176,7 +176,38 @@ writeFileSync(
 		],
 	}),
 );
-run(["node", compiler, "-p", "tsconfig.internal-bundler.json"], consumer);
+// ccxt 4.5.x ships an invalid declaration: js/src/base/functions/throttle.d.ts
+// uses `Num` without importing it (TS2304). The internal declarations import
+// ccxt's types, so diagnostics inside node_modules/ccxt/ are recorded in the
+// evidence instead of failing this step; any other diagnostic still fails.
+// Remove this exception once the pinned ccxt version type-checks with
+// skipLibCheck: false (the public checks above stay fully strict).
+const internalCheck = spawnSync(
+	"node",
+	[compiler, "-p", "tsconfig.internal-bundler.json"],
+	{
+		cwd: consumer,
+		env: packageConsumerEnvironment(process.env),
+		encoding: "utf8",
+		timeout: 180_000,
+		maxBuffer: 10 * 1024 * 1024,
+	},
+);
+if (internalCheck.error) throw internalCheck.error;
+const internalDiagnostics = `${internalCheck.stdout}${internalCheck.stderr}`
+	.split("\n")
+	.filter((line) => /error TS\d+/.test(line));
+const toleratedUpstreamDiagnostics = internalDiagnostics.filter((line) =>
+	line.startsWith("node_modules/ccxt/"),
+);
+if (
+	internalCheck.status !== 0 &&
+	(internalDiagnostics.length === 0 ||
+		toleratedUpstreamDiagnostics.length !== internalDiagnostics.length)
+)
+	throw new Error(
+		`internal declaration check failed (${internalCheck.status}):\n${internalCheck.stdout}\n${internalCheck.stderr}`,
+	);
 const wire = join(consumer, "evidence.json");
 console.log(run(["node", "runtime.mjs", wire], consumer));
 console.log(run(["node", "compiled/consumer.mjs", wire], consumer));
@@ -213,6 +244,7 @@ const evidence = {
 		"typed-evidence-decoding",
 		"typed-documentation-example",
 	],
+	toleratedUpstreamDiagnostics,
 	consumer,
 	installedPackage: installed,
 };

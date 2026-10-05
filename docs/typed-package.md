@@ -29,10 +29,12 @@ Physical declarations also include `dist/helpers/constants.d.ts`,
 generated protobuf modules. These parity/internal files are not public subpath
 exports. Every public declaration and its entire dependency closure compiles with
 strict NodeNext and `skipLibCheck: false`. Strict bundler resolution additionally
-checks **all** physical declarations. Upstream `@usherlabs/ccxt` uses extensionless
-imports in its own declarations; consequently the unexported server/types files
-are not NodeNext-compatible. This is not a public API limitation, and is not hidden
-by `skipLibCheck` or an upstream patch.
+checks **all** physical declarations, with one recorded exception: ccxt 4.5.x
+ships an invalid declaration (`js/src/base/functions/throttle.d.ts` uses `Num`
+without importing it). Diagnostics inside `node_modules/ccxt/` are therefore listed
+as `toleratedUpstreamDiagnostics` in the package evidence instead of failing that
+step; any other diagnostic still fails. The public checks have no such exception.
+Remove it once the pinned ccxt version type-checks with `skipLibCheck: false`.
 
 ```ts
 import {

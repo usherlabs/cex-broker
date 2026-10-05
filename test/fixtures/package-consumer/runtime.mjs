@@ -42,6 +42,23 @@ const prover = createServer((request, response) => {
 await new Promise((resolve) => prover.listen(0, "127.0.0.1", resolve));
 const fakeKey = "fixture-not-a-real-api-key";
 const fakeSecret = "fixture-not-a-real-api-secret";
+// The broker must install its REST transport when it creates an exchange: on
+// Node, ccxt otherwise loads its own undici client on the first request and never
+// consults a transport assigned later, so Verity routing would be bypassed.
+{
+	const venue = new CEXBroker({ mexc: { apiKey: fakeKey, apiSecret: fakeSecret } }, {
+		withdraw: { rule: [] }, deposit: {}, order: { rule: { markets: [], limits: [] } },
+	}).brokers.mexc.primary.exchange;
+	const platformFetch = globalThis.fetch;
+	const fetched = [];
+	globalThis.fetch = async (url) => { fetched.push(String(url)); return Response.json({ serverTime: 1 }); };
+	try {
+		assert.equal(await venue.fetchTime(), 1);
+	} finally {
+		globalThis.fetch = platformFetch;
+	}
+	assert.deepEqual(fetched, ["https://api.mexc.com/api/v3/time"], "first exchange request must use the broker transport");
+}
 const calls = [];
 function exchange(account) {
 	const markets = Object.fromEntries(["USDC", "USDT"].map((quote) => [
