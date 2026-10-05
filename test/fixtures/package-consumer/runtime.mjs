@@ -44,7 +44,6 @@ const fakeKey = "fixture-not-a-real-api-key";
 const fakeSecret = "fixture-not-a-real-api-secret";
 const calls = [];
 function exchange(account) {
-	let override;
 	const markets = Object.fromEntries(["USDC", "USDT"].map((quote) => [
 		`ARB/${quote}`, {
 			id: `ARB${quote}`, symbol: `ARB/${quote}`, base: "ARB", quote,
@@ -52,7 +51,7 @@ function exchange(account) {
 			limits: { amount: { min: 0.1 }, price: {}, cost: { min: 1 } },
 		},
 	]));
-	return {
+	const venue = {
 		id: "mexc", apiKey: fakeKey, secret: fakeSecret, precisionMode: 4,
 		has: { fetchTradingFee: true }, markets,
 		loadMarkets: async () => markets,
@@ -69,16 +68,16 @@ function exchange(account) {
 				limits: { withdraw: { min: "1", max: "50000" } },
 			} } } };
 		},
-		setHttpClientOverride: (value) => { override = value; },
 		fetchTicker: async (symbol) => {
 			calls.push(`${account}:ticker:${symbol}`);
 			if (symbol === "fail") throw new Error(`AuthenticationError: ${fakeKey} ${fakeSecret}`);
-			if (symbol === "proof") await override({
-				url: "https://fixture.invalid/ticker", config: {}, method: "get", methodCalled: "fetchTicker",
-			});
+			// The broker installs its REST transport as the ccxt fetch implementation;
+			// this URL belongs to a Verity-proved method, so it goes through the prover.
+			if (symbol === "proof") await venue.fetchImplementation("https://api.mexc.com/api/v3/account", { method: "GET" });
 			return { symbol, last: 1 };
 		},
 	};
+	return venue;
 }
 const broker = new CEXBroker({}, {
 	withdraw: { rule: [] }, deposit: {}, order: { rule: { markets: [], limits: [] } },

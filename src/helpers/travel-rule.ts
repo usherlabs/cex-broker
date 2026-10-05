@@ -1,4 +1,4 @@
-import type { Dict, Exchange } from "@usherlabs/ccxt";
+import type { Dict, Exchange } from "ccxt";
 import Joi from "joi";
 import type {
 	PolicyConfig,
@@ -127,12 +127,53 @@ export function registerBinanceTravelRuleWithdrawEndpoint(
 	if (exchange.id !== "binance") {
 		return;
 	}
-	// Same rate-limit weight as capital/withdraw/apply; the signing path is shared
-	// by all sapi private POSTs, so no ccxt fork change is needed.
+	// Same rate-limit weight as capital/withdraw/apply. Signing needs the raw
+	// query; see signBinanceTravelRuleRequestsRaw.
 	exchange.defineRestApi(
 		{ sapi: { post: { "localentity/withdraw/apply": 4.0002 } } },
 		"request",
 	);
+}
+
+const RAW_SIGNED_TRAVEL_RULE_PATHS = new Set([
+	"localentity/withdraw/apply",
+	"localentity/deposit/provide-info",
+]);
+
+/**
+ * Makes the exchange sign Binance's travel-rule writes over the raw
+ * (unencoded) query. Binance verifies these signatures over the raw
+ * questionnaire JSON and rejects a url-encoded one with -1022. ccxt's
+ * `binance.sign` raw-encodes only its own path list (capital/withdraw/apply
+ * among them), so these two paths are routed through the same encoding.
+ * No-op for non-Binance exchanges.
+ */
+export function signBinanceTravelRuleRequestsRaw(exchange: Exchange): void {
+	if (exchange.id !== "binance") {
+		return;
+	}
+	const sign = exchange.sign.bind(exchange);
+	exchange.sign = (
+		path,
+		api = "public",
+		method = "GET",
+		params = {},
+		headers = undefined,
+		body = undefined,
+	) => {
+		if (api !== "sapi" || !RAW_SIGNED_TRAVEL_RULE_PATHS.has(path)) {
+			return sign(path, api, method, params, headers, body);
+		}
+		// binance.sign builds the signed query with urlencode. sign is
+		// synchronous, so the swap cannot reach any other request.
+		const urlencode = exchange.urlencode;
+		exchange.urlencode = exchange.rawencode;
+		try {
+			return sign(path, api, method, params, headers, body);
+		} finally {
+			exchange.urlencode = urlencode;
+		}
+	};
 }
 
 // -----------------------------------------------------------------------------
@@ -207,8 +248,8 @@ export function resolveDepositOriginatorQuestionnaire(
  * provide-info write. No-op for non-Binance exchanges. Idempotent.
  *
  * `localentity/deposit/provide-info` must be signed with the questionnaire JSON
- * RAW (unencoded) — see the @usherlabs/ccxt patch (`binance.sign` rawencode
- * branch). Signing it url-encoded yields Binance error -1022. The two GETs carry
+ * RAW (unencoded) — see signBinanceTravelRuleRequestsRaw. Signing it
+ * url-encoded yields Binance error -1022. The two GETs carry
  * only simple params and sign fine either way.
  *
  * provide-info is a 600-weight UID-limited write (same class as
@@ -256,9 +297,9 @@ type BinanceLocalEntityWithdraw = {
 
 /**
  * Mirrors ccxt's `binance.withdraw` currency/network/precision handling, but
- * targets the travel-rule endpoint and attaches the questionnaire. ccxt's
- * `urlencode` applies `encodeURIComponent` to the value, satisfying Binance's
- * requirement that the questionnaire JSON be URL-encoded in the request body.
+ * targets the travel-rule endpoint and attaches the questionnaire. The request
+ * is signed over the raw questionnaire JSON; see
+ * signBinanceTravelRuleRequestsRaw.
  */
 export async function withdrawViaLocalEntity(
 	broker: Exchange,

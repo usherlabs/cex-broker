@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { BrokerExecutionArchiver } from "../src/helpers/broker-execution-archive/writer";
 import { Action } from "../src/helpers/constants";
 import type { BrokerPoolEntry } from "../src/helpers/index";

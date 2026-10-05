@@ -1,13 +1,16 @@
 import type { Metadata } from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
-import ccxt from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
+import ccxt from "ccxt";
 import type { BrokerAccountRole, BrokerCredentials } from "../types";
+import { guardBinanceWithdrawalHistory } from "./binance-withdrawal-history";
 import { buildCcxtConfig } from "./exchange-credentials";
 import { log } from "./logger";
 import {
 	registerBinanceTravelRuleDepositEndpoints,
 	registerBinanceTravelRuleWithdrawEndpoint,
+	signBinanceTravelRuleRequestsRaw,
 } from "./travel-rule";
+import { setExchangeTransport } from "./verity";
 
 export type BrokerAccount = {
 	exchange: Exchange;
@@ -61,6 +64,10 @@ export function applyCommonExchangeConfig(exchange: Exchange) {
 	// reconciler's first tick.
 	registerBinanceTravelRuleWithdrawEndpoint(exchange);
 	registerBinanceTravelRuleDepositEndpoints(exchange);
+	signBinanceTravelRuleRequestsRaw(exchange);
+	guardBinanceWithdrawalHistory(exchange);
+	// Must run before the instance's first request; see setExchangeTransport.
+	setExchangeTransport(exchange);
 }
 
 export function createBroker(

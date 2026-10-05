@@ -1,5 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
-import ccxt from "@usherlabs/ccxt";
+import ccxt from "ccxt";
 import { unwatchFile, watchFile } from "fs";
 import Joi from "joi";
 import {

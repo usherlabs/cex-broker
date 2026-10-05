@@ -1,5 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
-import ccxt from "@usherlabs/ccxt";
+import ccxt from "ccxt";
 import { getErrorMessage } from "../shared/errors";
 
 export function stableGrpcErrorCode(message: string): grpc.status | undefined {

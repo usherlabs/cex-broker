@@ -1,6 +1,6 @@
 import type { Metadata } from "@grpc/grpc-js";
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { authenticateRequest } from "../../helpers/auth";
 import {
 	type BrokerPoolEntry,
@@ -20,8 +20,8 @@ import type { OtelMetrics } from "../../helpers/otel";
 import { safeLogError } from "../../helpers/shared/errors";
 import { extractTraceId } from "../../helpers/trace-context";
 import {
-	buildHttpClientOverrideFromMetadata,
-	verityHttpClientOverridePredicate,
+	buildVerityTransportFromMetadata,
+	setExchangeTransport,
 } from "../../helpers/verity";
 import type { PolicyConfig } from "../../types";
 import type { ActionRequest, ActionResponse } from "../types";
@@ -189,7 +189,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 				proofState = verity,
 			) => {
 				if (!useVerity) return;
-				const override = buildHttpClientOverrideFromMetadata(
+				const verityTransport = buildVerityTransportFromMetadata(
 					metadata,
 					verityProverUrl,
 					(proof, notaryPubKey) => {
@@ -200,10 +200,7 @@ export function createExecuteActionHandler(deps: ExecuteActionDeps) {
 						});
 					},
 				);
-				targetBroker.setHttpClientOverride(
-					override,
-					verityHttpClientOverridePredicate,
-				);
+				setExchangeTransport(targetBroker, verityTransport);
 			};
 
 			const preludeCtx: ExecuteActionContext = {

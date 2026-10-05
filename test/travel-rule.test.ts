@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import ccxt, { type Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -10,6 +10,7 @@ import {
 	resolveTravelRuleDecision,
 	withdrawViaLocalEntity,
 } from "../src/helpers";
+import { createBroker } from "../src/helpers/broker";
 import type { PolicyConfig } from "../src/types";
 
 const SELF_OWNED = { isAddressOwner: 1, sendTo: 1, declaration: true };
@@ -323,15 +324,16 @@ describe("loadPolicy travel-rule validation", () => {
 	});
 });
 
-describe("binance localentity withdraw signing (ccxt patch)", () => {
-	// Guards the @usherlabs/ccxt patch: the localentity withdraw endpoint must be
-	// signed with rawencode (raw questionnaire JSON), exactly like
+describe("binance localentity withdraw signing", () => {
+	// Guards signBinanceTravelRuleRequestsRaw: the localentity withdraw endpoint
+	// must be signed with rawencode (raw questionnaire JSON), exactly like
 	// capital/withdraw/apply. Signing with urlencode percent-encodes the JSON and
 	// Binance rejects it with -1022 "Signature for this request is not valid" —
-	// which is what a live withdrawal actually hit before the patch. Uses the real
-	// ccxt so this fails if the patch is ever dropped (e.g. on a version bump).
+	// which is what a live withdrawal actually hit. Uses a broker-configured real
+	// ccxt exchange, so this fails if the override is not installed.
 	test("signs the questionnaire raw, not percent-encoded", () => {
-		const exchange = new ccxt.binance({ apiKey: "k", secret: "s" });
+		const exchange = createBroker("binance", { apiKey: "k", apiSecret: "s" });
+		if (!exchange) throw new Error("binance broker was not created");
 		const params = {
 			coin: "ARB",
 			address: "0x0000000000000000000000000000000000000000",

@@ -1,5 +1,6 @@
 import * as grpc from "@grpc/grpc-js";
 import { validateDeposit } from "../../helpers";
+import { fetchAccountId } from "../../helpers/account-id";
 import { Action } from "../../helpers/constants";
 import { stableGrpcErrorCode } from "../../helpers/grpc/status";
 import {
@@ -29,7 +30,7 @@ async function handleFetchAccountId(ctx: ExecuteActionContext): Promise<void> {
 	const { cex, broker } = ctx;
 
 	try {
-		const accountId = await broker.fetchAccountId();
+		const accountId = await fetchAccountId(broker);
 		// Return normalized response
 		return ctx.wrappedCallback(null, {
 			proof: ctx.verity.proof,
@@ -107,10 +108,12 @@ async function handleFetchDepositAddresses(
 							...(fetchDepositAddresses.params ?? {}),
 						}),
 					]
-				: await broker.fetchDepositAddressesByNetwork(symbol, {
-						network: depositNetwork.exchangeNetworkId,
-						...(fetchDepositAddresses.params ?? {}),
-					});
+				: Object.values(
+						await broker.fetchDepositAddressesByNetwork(symbol, {
+							network: depositNetwork.exchangeNetworkId,
+							...(fetchDepositAddresses.params ?? {}),
+						}),
+					);
 		if (depositAddresses.length > 0) {
 			return ctx.wrappedCallback(null, {
 				proof: ctx.verity.proof,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import ccxt, { type Exchange } from "@usherlabs/ccxt";
+import ccxt, { type Exchange } from "ccxt";
 import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
 import { handleOrders } from "../src/handlers/execute-action/orders";
 import { Action } from "../src/helpers/constants";

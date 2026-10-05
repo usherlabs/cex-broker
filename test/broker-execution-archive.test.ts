@@ -12,7 +12,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LogRecord } from "@opentelemetry/api-logs";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { MAX_ARCHIVE_BODY_BYTES } from "../services/archive-forwarder/limits";
 import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
 import { handleDeposit } from "../src/handlers/execute-action/deposit";

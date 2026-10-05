@@ -1,6 +1,6 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import type { BrokerPoolEntry } from "../src/helpers/index";
 import type { OtelMetrics } from "../src/helpers/otel";
 import { PROTO_LOADER_OPTIONS } from "../src/proto-loader-options";

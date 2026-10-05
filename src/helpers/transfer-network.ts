@@ -1,4 +1,4 @@
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { normalizeBrokerNetworkId } from "./index";
 import { safeLogError } from "./shared/errors";
 import { isRecord } from "./shared/guards";

@@ -1,4 +1,4 @@
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { asRecord } from "./shared/guards";
 
 function requireQuantity(

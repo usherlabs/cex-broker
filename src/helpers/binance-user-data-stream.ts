@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHmac } from "node:crypto";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import WebSocket from "ws";
 
 export const BINANCE_SPOT_WS_API_URL = "wss://ws-api.binance.com:443/ws-api/v3";

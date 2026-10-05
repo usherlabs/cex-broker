@@ -1,4 +1,4 @@
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 
 export type ExchangeWithDiscovery = Exchange & {
 	has?: Record<string, unknown>;

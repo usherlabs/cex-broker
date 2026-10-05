@@ -1,6 +1,6 @@
 import type * as grpc from "@grpc/grpc-js";
 import type { Metadata } from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import type { z } from "zod";
 import type { BrokerAccount, BrokerPoolEntry } from "../../helpers";
 import type {

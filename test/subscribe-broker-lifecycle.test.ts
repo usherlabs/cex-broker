@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { SubscribeBrokerLifecycle } from "../src/handlers/subscribe";
 
 type Deferred = {
