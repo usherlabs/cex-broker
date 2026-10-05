@@ -51,10 +51,12 @@ export function isVerityRequest(
  * requests sent by Verity-proved methods go through it; every other request
  * uses the platform fetch.
  *
- * ccxt resolves its fetch implementation once per instance, and on Node it
- * bypasses a fetchImplementation assigned after its native client loaded.
- * Call this before the instance's first request (see applyCommonExchangeConfig)
- * and again whenever the Verity transport changes.
+ * ccxt resolves its fetch implementation on the instance's first request. If
+ * none is installed by then, on Node it loads its own undici client and never
+ * consults a fetchImplementation assigned later. Once one is installed at
+ * creation (applyCommonExchangeConfig does this), ccxt calls whichever
+ * function the instance holds at request time, so later calls only change the
+ * routing.
  */
 export function setExchangeTransport(
 	exchange: Exchange,
