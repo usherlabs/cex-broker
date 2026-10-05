@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import fs from "fs";
 import os from "os";
 import path from "path";

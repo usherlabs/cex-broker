@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { removeSecretMaterial } from "../src/helpers/broker-execution-archive/redact";
 import {
 	canonicalNonnegativeDecimal,

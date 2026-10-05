@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import ccxt from "@usherlabs/ccxt";
+import ccxt from "ccxt";
 import {
 	mapCcxtErrorToGrpcStatus,
 	resolveGrpcError,

@@ -1,5 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { redactSecretLiterals } from "../../helpers/broker-execution-archive/redact";
 import {
 	type Action as ActionType,

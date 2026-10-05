@@ -1,4 +1,4 @@
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { isRecord } from "./shared/guards";
 
 export const ORDER_BOOK_CALL_METHODS = {

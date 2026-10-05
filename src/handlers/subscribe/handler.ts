@@ -1,5 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { authenticateRequest } from "../../helpers/auth";
 import {
 	normalizeBinanceExecutionReport,

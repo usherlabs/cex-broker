@@ -23,12 +23,14 @@ const protoPath = fileURLToPath(import.meta.resolve("@usherlabs/cex-broker/proto
 assert.deepEqual((await protobuf.load(protoPath)).toJSON(), descriptor);
 
 const streams = new Map();
+const proxiedUrls = [];
 const prover = createServer((request, response) => {
 	if (request.url.startsWith("/proof/")) {
 		response.writeHead(200, { "Content-Type": "text/event-stream" });
 		response.flushHeaders();
 		streams.set(request.url.slice("/proof/".length), response);
 	} else if (request.url === "/proxy") {
+		proxiedUrls.push(request.headers["t-proxy-url"]);
 		const stream = streams.get(request.headers["t-request-id"]);
 		assert(stream, "proof subscription must precede proxy request");
 		stream.end("data: fixture-notary|fixture-child-proof\n\n");
@@ -42,9 +44,26 @@ const prover = createServer((request, response) => {
 await new Promise((resolve) => prover.listen(0, "127.0.0.1", resolve));
 const fakeKey = "fixture-not-a-real-api-key";
 const fakeSecret = "fixture-not-a-real-api-secret";
+// The broker must install its REST transport when it creates an exchange: on
+// Node, ccxt otherwise loads its own undici client on the first request and never
+// consults a transport assigned later, so Verity routing would be bypassed. The
+// Verity step below applies the transport to this venue after its first request.
+const realVenue = new CEXBroker({ mexc: { apiKey: fakeKey, apiSecret: fakeSecret } }, {
+	withdraw: { rule: [] }, deposit: {}, order: { rule: { markets: [], limits: [] } },
+}).brokers.mexc.primary.exchange;
+const platformFetch = globalThis.fetch;
+const fetched = [];
+globalThis.fetch = async (url) => { fetched.push(String(url)); return Response.json({ serverTime: 1 }); };
+try {
+	assert.equal(await realVenue.fetchTime(), 1);
+} finally {
+	globalThis.fetch = platformFetch;
+}
+assert.deepEqual(fetched, ["https://api.mexc.com/api/v3/time"], "first exchange request must use the broker transport");
+// Markets are not needed for the balance request; keep the venue offline.
+realVenue.markets = {};
 const calls = [];
 function exchange(account) {
-	let override;
 	const markets = Object.fromEntries(["USDC", "USDT"].map((quote) => [
 		`ARB/${quote}`, {
 			id: `ARB${quote}`, symbol: `ARB/${quote}`, base: "ARB", quote,
@@ -52,7 +71,7 @@ function exchange(account) {
 			limits: { amount: { min: 0.1 }, price: {}, cost: { min: 1 } },
 		},
 	]));
-	return {
+	const venue = {
 		id: "mexc", apiKey: fakeKey, secret: fakeSecret, precisionMode: 4,
 		has: { fetchTradingFee: true }, markets,
 		loadMarkets: async () => markets,
@@ -69,23 +88,26 @@ function exchange(account) {
 				limits: { withdraw: { min: "1", max: "50000" } },
 			} } } };
 		},
-		setHttpClientOverride: (value) => { override = value; },
 		fetchTicker: async (symbol) => {
 			calls.push(`${account}:ticker:${symbol}`);
 			if (symbol === "fail") throw new Error(`AuthenticationError: ${fakeKey} ${fakeSecret}`);
-			if (symbol === "proof") await override({
-				url: "https://fixture.invalid/ticker", config: {}, method: "get", methodCalled: "fetchTicker",
-			});
+			// The broker installs its REST transport as the ccxt fetch implementation;
+			// this URL belongs to a Verity-proved method, so it goes through the prover.
+			if (symbol === "proof") await venue.fetchImplementation("https://api.mexc.com/api/v3/account", { method: "GET" });
 			return { symbol, last: 1 };
 		},
 	};
+	return venue;
 }
 const broker = new CEXBroker({}, {
 	withdraw: { rule: [] }, deposit: {}, order: { rule: { markets: [], limits: [] } },
 }, { useVerity: true, verityProverUrl: `http://127.0.0.1:${prover.address().port}` });
 // Existing runtime property only: no package export or production test seam.
 const pool = { primary: { exchange: exchange("primary"), label: "primary" },
-	secondaryBrokers: [{ exchange: exchange("secondary:1"), label: "secondary:1", index: 1 }] };
+	secondaryBrokers: [
+		{ exchange: exchange("secondary:1"), label: "secondary:1", index: 1 },
+		{ exchange: realVenue, label: "secondary:2", index: 2 },
+	] };
 const brokers = broker.brokers;
 const originalBind = grpc.Server.prototype.bindAsync;
 let bound;
@@ -140,6 +162,24 @@ try {
 	assert(entries[1].error); assert.equal(entries[1].response, null);
 	assert.equal(entries[2].response.proof, "");
 	assert.deepEqual(entries.map((entry) => entry.id), ["proved", "failed", "plain"]);
+	// Verity applied per action to a real ccxt venue after its first request.
+	const verityMetadata = new grpc.Metadata();
+	verityMetadata.set("use-secondary-key", "2");
+	verityMetadata.set("verity-proof-timeout", "2000");
+	const proxiedBefore = proxiedUrls.length;
+	globalThis.fetch = async (url) => { throw new Error(`unproved request ${url}`); };
+	try {
+		const balances = await new Promise((resolve, reject) => client.ExecuteAction(
+			{ action: Action.FetchBalances, cex: "mexc", payload: {} }, verityMetadata, { deadline: Date.now() + 5000 },
+			(error, response) => error ? reject(error) : resolve(response),
+		));
+		assert.equal(balances.proof, "fixture-child-proof");
+	} finally {
+		globalThis.fetch = platformFetch;
+	}
+	const proxiedBalance = proxiedUrls.slice(proxiedBefore);
+	assert.equal(proxiedBalance.length, 1);
+	assert(proxiedBalance[0].startsWith("https://api.mexc.com/api/v3/account?"));
 	await execute(request(Array.from({ length: 32 }, (_, n) => child(String(n), Action.FetchTicker, "plain"))));
 	const boundaryChild = child("boundary", Action.FetchTicker, "");
 	const overhead = Buffer.byteLength(JSON.stringify([boundaryChild]));

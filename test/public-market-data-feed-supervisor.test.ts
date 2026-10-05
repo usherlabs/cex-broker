@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import type { BrokerPoolEntry } from "../src/helpers/broker";
 import {
 	type PublicMarketDataArchiveSink,

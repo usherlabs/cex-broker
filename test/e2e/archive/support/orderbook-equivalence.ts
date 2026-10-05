@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Server } from "@grpc/grpc-js";
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import {
 	MarketDataCollector,
 	type MarketDataCollectorFrame,

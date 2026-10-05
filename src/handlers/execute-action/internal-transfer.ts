@@ -1,11 +1,11 @@
 import * as grpc from "@grpc/grpc-js";
 import {
 	BrokerAccountPreconditionError,
-	buildHttpClientOverrideFromMetadata,
+	buildVerityTransportFromMetadata,
 	getCurrentBrokerSelector,
 	resolveBrokerAccount,
+	setExchangeTransport,
 	transferBinanceInternal,
-	verityHttpClientOverridePredicate,
 } from "../../helpers";
 import {
 	archiveTransferEventInBackground,
@@ -94,8 +94,9 @@ export async function handleInternalTransfer(
 	}
 	try {
 		if (useVerity) {
-			sourceAccount.exchange.setHttpClientOverride(
-				buildHttpClientOverrideFromMetadata(
+			setExchangeTransport(
+				sourceAccount.exchange,
+				buildVerityTransportFromMetadata(
 					metadata,
 					verityProverUrl,
 					(proof, notaryPubKey) => {
@@ -103,7 +104,6 @@ export async function handleInternalTransfer(
 						log.debug(`Verity proof:`, { proof, notaryPubKey });
 					},
 				),
-				verityHttpClientOverridePredicate,
 			);
 		}
 		const result = await transferBinanceInternal(

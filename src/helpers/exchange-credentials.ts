@@ -1,5 +1,5 @@
-import type { Exchange } from "@usherlabs/ccxt";
-import ccxt from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
+import ccxt from "ccxt";
 
 export type BrokerKeyPair = {
 	apiKey: string;

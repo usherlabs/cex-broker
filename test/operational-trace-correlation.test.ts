@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { createExecuteActionHandler } from "../src/handlers/execute-action/handler";
 import { createSubscribeHandler } from "../src/handlers/subscribe/handler";
 import type {

@@ -1,4 +1,4 @@
-import ccxt from "@usherlabs/ccxt";
+import ccxt from "ccxt";
 import { getErrorMessage } from "./shared/errors";
 
 export const PASSIVE_ORDER_ERROR_CODES = {

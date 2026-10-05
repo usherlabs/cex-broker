@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import http from "node:http";
-import ccxt, { type Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -11,6 +11,7 @@ import {
 	registerBinanceTravelRuleDepositEndpoints,
 	resolveDepositOriginatorQuestionnaire,
 } from "../src/helpers";
+import { createBroker } from "../src/helpers/broker";
 import {
 	createAccountState,
 	loadTravelRuleDepositReconcilerConfigFromEnv,
@@ -249,13 +250,14 @@ describe("loadPolicy deposit travel-rule validation", () => {
 	});
 });
 
-describe("binance localentity deposit provide-info signing (ccxt patch)", () => {
-	// Guards the @usherlabs/ccxt patch: provide-info must sign the questionnaire
-	// with rawencode (raw JSON). urlencode percent-encodes the JSON and Binance
-	// rejects it with -1022. This uses the real ccxt so it fails if the patch is
-	// ever dropped on a version bump (edge case 11).
+describe("binance localentity deposit provide-info signing", () => {
+	// Guards signBinanceTravelRuleRequestsRaw: provide-info must sign the
+	// questionnaire with rawencode (raw JSON). urlencode percent-encodes the JSON
+	// and Binance rejects it with -1022. Uses a broker-configured real ccxt
+	// exchange, so this fails if the override is not installed (edge case 11).
 	test("signs the questionnaire raw, not percent-encoded, on the PUT", () => {
-		const exchange = new ccxt.binance({ apiKey: "k", secret: "s" });
+		const exchange = createBroker("binance", { apiKey: "k", apiSecret: "s" });
+		if (!exchange) throw new Error("binance broker was not created");
 		const params = {
 			tranId: "387083631169",
 			questionnaire: JSON.stringify(SELF_OWNED_DEPOSIT),

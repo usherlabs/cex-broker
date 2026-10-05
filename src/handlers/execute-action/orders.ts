@@ -1,5 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
-import { Precise } from "@usherlabs/ccxt";
+import { Precise } from "ccxt";
 import { resolveOrderExecution } from "../../helpers";
 import {
 	archiveOrderExecutionInBackground,

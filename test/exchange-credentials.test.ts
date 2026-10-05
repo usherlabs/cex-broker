@@ -13,7 +13,6 @@ describe("exchange-credentials", () => {
 	describe("isWalletBasedExchange", () => {
 		test("returns true for wallet-authenticated exchanges", () => {
 			expect(isWalletBasedExchange("hyperliquid")).toBe(true);
-			expect(isWalletBasedExchange("vertex")).toBe(true);
 			expect(isWalletBasedExchange("paradex")).toBe(true);
 			expect(isWalletBasedExchange("derive")).toBe(true);
 		});

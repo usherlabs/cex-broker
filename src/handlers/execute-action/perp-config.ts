@@ -1,5 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { Action } from "../../helpers/constants";
 import { safeLogError, sanitizeErrorDetail } from "../../helpers/shared/errors";
 import {

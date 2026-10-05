@@ -1,4 +1,4 @@
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import type { BrokerExecutionArchiver } from "../broker-execution-archive/writer";
 import { log } from "../logger";
 import type { OtelMetrics } from "../otel";

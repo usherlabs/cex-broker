@@ -1,4 +1,4 @@
-import { type Exchange, Precise } from "@usherlabs/ccxt";
+import { type Exchange, Precise } from "ccxt";
 import fs from "fs";
 import Joi from "joi";
 import type {
@@ -50,9 +50,8 @@ export {
 	TravelRuleDepositReconciler,
 } from "./travel-rule-deposit-reconciler";
 export {
-	buildHttpClientOverrideFromMetadata,
-	createVerityHttpClientOverride,
-	verityHttpClientOverridePredicate,
+	buildVerityTransportFromMetadata,
+	setExchangeTransport,
 } from "./verity";
 
 /**

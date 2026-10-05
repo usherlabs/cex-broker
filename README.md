@@ -1126,7 +1126,7 @@ bun run check
 - `@opentelemetry/*`: OpenTelemetry API, SDK metrics, OTLP HTTP exporter for metrics
 - `@grpc/grpc-js`: gRPC server implementation
 - `@grpc/proto-loader`: Protocol buffer loading
-- `@usherlabs/ccxt`: Enhanced CCXT library with Verity support
+- `ccxt`: Exchange connectivity (REST and WebSocket); Verity proofs are routed through its fetch hook
 - `commander`: CLI framework
 - `joi`: Configuration validation
 - `tslog`: TypeScript logging

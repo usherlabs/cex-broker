@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server } from "@grpc/grpc-js";
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import type { RowInserter } from "../../../../services/archive-forwarder/insert";
 import { MarketDataCollector } from "../../../../services/ohlcv-collector/collector";
 import type { MarketDataSubscription } from "../../../../services/ohlcv-collector/config";

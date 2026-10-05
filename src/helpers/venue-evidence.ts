@@ -1,5 +1,5 @@
 import type { Metadata } from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import type { BrokerAccount } from "./broker";
 import { getCurrentBrokerSelector } from "./broker";
 import {

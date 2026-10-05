@@ -25,8 +25,8 @@ import type { OtelMetrics } from "./otel";
  */
 
 // ccxt generates this implicit method from binance's sapiV3 POST map; it is
-// already in the vendored @usherlabs/ccxt api definition, so unlike the
-// localentity endpoints it needs no defineRestApi registration.
+// already in ccxt's api definition, so unlike the localentity endpoints it
+// needs no defineRestApi registration.
 type ExchangeWithUserAsset = {
 	id?: string;
 	sapiV3PostAssetGetUserAsset?: (

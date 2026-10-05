@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "@usherlabs/ccxt";
+import type { Exchange } from "ccxt";
 import { handleBatch } from "../src/handlers/execute-action/batch";
 import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
 import { getActionDescriptor } from "../src/handlers/execute-action/registry";
@@ -113,6 +113,7 @@ function createEvidenceExchange(options: EvidenceExchangeOptions = {}): {
 		},
 	};
 	const record: Record<string, unknown> = {
+		id: "mexc",
 		has: {
 			fetchTradingFee: options.supportsTradingFee ?? true,
 			fetchPositions: true,
@@ -155,15 +156,14 @@ function createEvidenceExchange(options: EvidenceExchangeOptions = {}): {
 			}
 			return { symbol, last: symbol === "ARB/USDC" ? 1 : 2 };
 		},
-		fetchAccountId: async (...args: unknown[]) => {
+		spotPrivateGetUid: async (...args: unknown[]) => {
 			calls.fetchAccountId.push(args);
-			return options.accountId ?? "primary-account";
+			return { uid: options.accountId ?? "primary-account" };
 		},
 		fetchPositions: async (...args: unknown[]) => {
 			calls.fetchPositions.push(args);
 			return [{ symbol: "ARB/USDT", leverage: 2, marginMode: "cross" }];
 		},
-		setHttpClientOverride: () => {},
 	};
 	return {
 		// SAFETY: the fixture implements every CCXT method exercised by these tests.
