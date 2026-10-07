@@ -255,3 +255,50 @@ test("standalone CLI exports correlated ExecuteAction logs without adding trace_
 		collector.stop();
 	}
 }, 20_000);
+
+test("standalone CLI opts into credentialed unary-market-only startup", async () => {
+	const port = await reservePort();
+	const environment = Object.fromEntries(
+		Object.entries(process.env).filter(
+			([key]) => !key.startsWith("CEX_BROKER_") && !key.startsWith("OTEL_"),
+		),
+	) as Record<string, string>;
+	const child = Bun.spawn({
+		cmd: [
+			process.execPath,
+			path.resolve("src/cli.ts"),
+			"--policy",
+			path.resolve("policy/policy.json"),
+			"--port",
+			String(port),
+			"--whitelistAll",
+			"--unary-market-only",
+		],
+		env: {
+			...environment,
+			CEX_BROKER_MEXC_API_KEY: "fixture-key",
+			CEX_BROKER_MEXC_API_SECRET: "fixture-secret",
+		},
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	const client = new grpcObject.cex_broker.cex_service(
+		`127.0.0.1:${port}`,
+		grpc.credentials.createInsecure(),
+	);
+	try {
+		await waitForReady(client);
+		const error = await new Promise<grpc.ServiceError | null>((resolve) =>
+			client.ExecuteAction({}, (error) => resolve(error)),
+		);
+		expect(error?.code).toBe(grpc.status.INVALID_ARGUMENT);
+		child.kill("SIGTERM");
+		expect(await child.exited).toBe(0);
+	} finally {
+		client.close();
+		if (child.exitCode === null) {
+			child.kill("SIGKILL");
+			await child.exited;
+		}
+	}
+});

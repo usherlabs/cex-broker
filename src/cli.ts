@@ -17,6 +17,10 @@ program
 	)
 	.option("--whitelistAll", "Allow all IPv4 addresses (development mode)")
 	.option("--verityProverUrl <url>", "Verity Prover Url")
+	.option(
+		"--unary-market-only",
+		"Serve unary RPC and public market streams without account supervision or archival",
+	)
 	.action(async (options) => {
 		try {
 			const whitelist: string[] = options.whitelistAll
@@ -43,6 +47,7 @@ program
 				parseInt(options.port, 10),
 				whitelist, // Pass whitelist to your command,
 				options.verityProverUrl,
+				options.unaryMarketOnly,
 			);
 			let shutdownPromise: Promise<void> | undefined;
 			const onSignal = (signal: NodeJS.Signals): void => {

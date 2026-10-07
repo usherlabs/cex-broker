@@ -58,6 +58,7 @@ export type SubscribeDeps = {
 	brokerLifecycle?: SubscribeBrokerLifecycle;
 	userDataStreamSupervisor?: UserDataStreamSupervisor;
 	publicMarketDataFeedSupervisor?: PublicMarketDataFeedSupervisor;
+	accountStreamsEnabled?: boolean;
 };
 
 type SubscribeCall = grpc.ServerWritableStream<
@@ -505,6 +506,18 @@ export function createSubscribeHandler(deps: SubscribeDeps) {
 					},
 					grpc.status.INVALID_ARGUMENT,
 				);
+				return;
+			}
+
+			if (
+				deps.accountStreamsEnabled === false &&
+				(subscriptionType === SubscriptionType.BALANCE ||
+					subscriptionType === SubscriptionType.ORDERS)
+			) {
+				call.emit("error", {
+					code: grpc.status.UNIMPLEMENTED,
+					message: "Account streams are disabled in unary-market-only mode",
+				});
 				return;
 			}
 

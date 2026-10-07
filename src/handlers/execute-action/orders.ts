@@ -7,6 +7,7 @@ import {
 	rethrowArchiveDurabilityError,
 } from "../../helpers/broker-execution-archive";
 import { Action } from "../../helpers/constants";
+import { isOrderNotFound } from "../../helpers/order-not-found";
 import {
 	emitOrderExecutionTelemetryInBackground,
 	extractOrderTelemetryIds,
@@ -346,7 +347,9 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 		);
 		ctx.wrappedCallback(
 			{
-				code: grpc.status.INTERNAL,
+				code: isOrderNotFound(normalizedCex, error)
+					? grpc.status.NOT_FOUND
+					: grpc.status.INTERNAL,
 				message: `Failed to fetch order details from ${cex}: ${sanitizeErrorDetail(error)}`,
 			},
 			null,

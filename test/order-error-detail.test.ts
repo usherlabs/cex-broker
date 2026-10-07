@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import type { Exchange } from "ccxt";
+import ccxt, { type Exchange } from "ccxt";
 import type { ExecuteActionContext } from "../src/handlers/execute-action/context";
 import { handleOrders } from "../src/handlers/execute-action/orders";
 import { Action } from "../src/helpers/constants";
 import type { PolicyConfig } from "../src/types";
+import missingOrder from "./fixtures/mexc-unknown-order.json";
 
 /** Stand-in for a ccxt venue error: a named subclass carrying the venue message,
  * the exact shape the enclave logs today but the caller never sees. */
@@ -116,5 +117,61 @@ describe("orders handler surfaces underlying error detail", () => {
 		const prefix = "Failed to fetch order details from binance: ";
 		const detail = error?.message?.slice(prefix.length) ?? "";
 		expect(detail.length).toBe(512);
+	});
+	test("MEXC recorded missing-order reply becomes GetOrderDetails NOT_FOUND", async () => {
+		const venue = new ccxt.mexc();
+		const broker = {
+			fetchOrder: async () =>
+				venue.handleErrors(
+					missingOrder.http_status,
+					"Bad Request",
+					"https://api.mexc.com/api/v3/order",
+					"GET",
+					{},
+					JSON.stringify(missingOrder.body),
+					missingOrder.body,
+					{},
+					undefined,
+				),
+		} as unknown as Exchange;
+		const { ctx, getError } = createContext(broker, Action.GetOrderDetails, {
+			orderId: "fixture-order",
+		});
+		ctx.cex = "mexc";
+		ctx.normalizedCex = "mexc";
+		await handleOrders(ctx);
+		expect(getError()?.code).toBe(grpc.status.NOT_FOUND);
+	});
+
+	test.each([
+		{ exchange: "mexc", body: { code: -2015, msg: "Order does not exist." } },
+		{ exchange: "mexc", body: { code: -2013, msg: "Request failed" } },
+		{ exchange: "binance", body: missingOrder.body },
+	])("other lookup errors stay INTERNAL: %j", async ({ exchange, body }) => {
+		const broker = {
+			fetchOrder: async () => {
+				throw new ccxt.ExchangeError(`mexc ${JSON.stringify(body)}`);
+			},
+		} as unknown as Exchange;
+		const { ctx, getError } = createContext(broker, Action.GetOrderDetails, {
+			orderId: "fixture-order",
+		});
+		ctx.cex = exchange;
+		ctx.normalizedCex = exchange;
+		await handleOrders(ctx);
+		expect(getError()?.code).toBe(grpc.status.INTERNAL);
+	});
+
+	test("typed CCXT OrderNotFound becomes GetOrderDetails NOT_FOUND", async () => {
+		const broker = {
+			fetchOrder: async () => {
+				throw new ccxt.OrderNotFound("missing order");
+			},
+		} as unknown as Exchange;
+		const { ctx, getError } = createContext(broker, Action.GetOrderDetails, {
+			orderId: "fixture-order",
+		});
+		await handleOrders(ctx);
+		expect(getError()?.code).toBe(grpc.status.NOT_FOUND);
 	});
 });

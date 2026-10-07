@@ -13,7 +13,7 @@ import {
 import { AccountBalanceArchivePoller } from "./helpers/account-balance-archive-poller";
 import { BalanceUpdateArchiveConsumer } from "./helpers/balance-update-archive-consumer";
 import {
-	type BrokerExecutionArchiver,
+	BrokerExecutionArchiver,
 	createBrokerExecutionArchiverFromEnv,
 	WithdrawalObservationTracker,
 } from "./helpers/broker-execution-archive";
@@ -91,6 +91,7 @@ export default class CEXBroker {
 
 	private server: grpc.Server | null = null;
 	private useVerity: boolean = false;
+	private readonly unaryMarketOnly: boolean;
 	private otelMetrics?: OtelMetrics;
 	private otelLogs?: OtelLogs;
 	private brokerArchiver?: BrokerExecutionArchiver;
@@ -257,9 +258,11 @@ export default class CEXBroker {
 			useVerity?: boolean;
 			verityProverUrl?: string;
 			otelConfig?: OtelConfig;
+			unaryMarketOnly?: boolean;
 		},
 	) {
 		this.useVerity = config?.useVerity || false;
+		this.unaryMarketOnly = config?.unaryMarketOnly ?? false;
 
 		if (typeof policies === "string") {
 			this.#policyFilePath = policies;
@@ -284,10 +287,9 @@ export default class CEXBroker {
 			this.otelMetrics = createOtelMetricsFromEnv();
 			this.otelLogs = createOtelLogsFromEnv();
 		}
-		this.brokerArchiver = createBrokerExecutionArchiverFromEnv(
-			this.otelLogs,
-			this.otelMetrics,
-		);
+		this.brokerArchiver = this.unaryMarketOnly
+			? BrokerExecutionArchiver.disabled()
+			: createBrokerExecutionArchiverFromEnv(this.otelLogs, this.otelMetrics);
 		this.loadExchangeCredentials(apiCredentials);
 		this.whitelistIps = [
 			...((config ?? { whitelistIps: [] }).whitelistIps ?? []),
@@ -418,6 +420,7 @@ export default class CEXBroker {
 			await this.otelMetrics.initialize();
 		}
 		if (
+			!this.unaryMarketOnly &&
 			!this.userDataStreamSupervisor &&
 			Object.keys(this.brokers).length > 0
 		) {
@@ -450,6 +453,7 @@ export default class CEXBroker {
 			undefined,
 			this.userDataStreamSupervisor,
 			this.publicMarketDataFeedSupervisor,
+			!this.unaryMarketOnly,
 		);
 
 		this.server.bindAsync(
@@ -464,17 +468,18 @@ export default class CEXBroker {
 			},
 		);
 
-		// Start the travel-rule deposit auto-clear reconciler. It self-disables when
-		// no exchange has `travelRule.rule[].deposits.enabled` in policy, so this is a
-		// no-op (exact current behavior) unless the feature is turned on.
-		this.depositReconciler = new TravelRuleDepositReconciler({
-			policy: this.policy,
-			brokers: this.brokers,
-			config: loadTravelRuleDepositReconcilerConfigFromEnv(process.env),
-			metrics: this.otelMetrics,
-		});
-		this.depositReconciler.start();
-
+		if (!this.unaryMarketOnly) {
+			// Start the travel-rule deposit auto-clear reconciler. It self-disables when
+			// no exchange has `travelRule.rule[].deposits.enabled` in policy, so this is a
+			// no-op (exact current behavior) unless the feature is turned on.
+			this.depositReconciler = new TravelRuleDepositReconciler({
+				policy: this.policy,
+				brokers: this.brokers,
+				config: loadTravelRuleDepositReconcilerConfigFromEnv(process.env),
+				metrics: this.otelMetrics,
+			});
+			this.depositReconciler.start();
+		}
 		// Fill capture starts only after the archive configuration has passed its
 		// forwarder and durable loss-journal validation.
 		if (this.brokerArchiver?.isEnabled()) {

@@ -1,0 +1,14 @@
+{
+  "source": "mexc-spot-v3-http",
+  "endpoint": "GET /api/v3/order",
+  "captured_at": "2026-10-07",
+  "http_status": 400,
+  "request": {
+    "symbol": "ETHUSDC",
+    "origClientOrderId": "[redacted]"
+  },
+  "body": {
+    "msg": "Order does not exist.",
+    "code": -2013
+  }
+}
