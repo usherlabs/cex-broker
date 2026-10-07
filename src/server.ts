@@ -38,6 +38,7 @@ export function getServer(
 	subscribeBrokerLifecycle?: SubscribeBrokerLifecycle,
 	userDataStreamSupervisor?: UserDataStreamSupervisor,
 	publicMarketDataFeedSupervisor?: PublicMarketDataFeedSupervisor,
+	accountStreamsEnabled = true,
 ) {
 	const server = new grpc.Server();
 
@@ -61,6 +62,7 @@ export function getServer(
 			brokerLifecycle: subscribeBrokerLifecycle,
 			userDataStreamSupervisor,
 			publicMarketDataFeedSupervisor,
+			accountStreamsEnabled,
 		}),
 	});
 	return server;

@@ -60,6 +60,26 @@ for the public assets, strict consumer checks, provenance, and release procedure
 
 ## ⚙️ Configuration
 
+### Unary RPC and public market streams only
+
+Use `--unary-market-only` to retain configured exchange credentials and unary
+RPC access without background account supervision, travel-rule deposit
+reconciliation, or archival. Public ORDERBOOK, TICKER, TRADES and OHLCV
+subscriptions remain available. BALANCE and ORDERS subscriptions return gRPC
+`UNIMPLEMENTED`. This mode does not make unary RPC read-only: financial actions
+still depend on the existing policy and caller authority.
+
+```bash
+bun run start-broker --policy policy/policy.json --unary-market-only
+```
+
+Library callers can pass `{ unaryMarketOnly: true }` as the constructor's third
+argument. The default is `false`, preserving full broker behavior and its archive
+requirements for configured accounts. The explicit mode ignores archive
+configuration, including archive exports; it does not require a forwarder,
+stream-health state or dead-letter journal. Do not select it for consumers that
+require account streams, automatic deposit reconciliation or archive evidence.
+
 ### Environment Variables
 
 The broker loads configuration from environment variables with the `CEX_BROKER_` prefix:
