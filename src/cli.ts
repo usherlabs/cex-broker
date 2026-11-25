@@ -12,6 +12,10 @@ program
 	.requiredOption("-p, --policy <path>", "Policy JSON file")
 	.option("--port <number>", "Port number (default: 8086)", "8086")
 	.option(
+		"--bind-host <ip>",
+		"gRPC bind host (IPv4 or IPv6; overrides CEX_BROKER_GRPC_BIND_HOST; default: 0.0.0.0)",
+	)
+	.option(
 		"-w, --whitelist <addresses...>",
 		"IPv4 address whitelist (space-separated list)",
 	)
@@ -48,6 +52,7 @@ program
 				whitelist, // Pass whitelist to your command,
 				options.verityProverUrl,
 				options.unaryMarketOnly,
+				options.bindHost,
 			);
 			let shutdownPromise: Promise<void> | undefined;
 			const onSignal = (signal: NodeJS.Signals): void => {

@@ -36,3 +36,10 @@
 #### Scenario: Valid action
 - **WHEN** a valid withdrawal to a whitelisted address is validated
 - **THEN** the result carries the normalized action and no refusal reasons, and no withdrawal is made
+
+### Requirement: gRPC bind host is configurable
+The broker SHALL accept a bare IPv4 or IPv6 address as the gRPC bind host through `--bind-host` or `CEX_BROKER_GRPC_BIND_HOST`. The CLI flag SHALL take precedence. The broker SHALL reject an invalid selected value and SHALL default to `0.0.0.0` when neither setting is present. The bind host SHALL NOT change the IP allowlist.
+
+#### Scenario: Bind to loopback only
+- **WHEN** the selected bind host is `127.0.0.1` or `::1`
+- **THEN** the gRPC server listens only on that loopback address

@@ -19,6 +19,7 @@ import {
 } from "./helpers/broker-execution-archive";
 import { DepositArchivePoller } from "./helpers/deposit-archive-poller";
 import { FillArchivePoller } from "./helpers/fill-archive-poller";
+import { grpcBindAddress, resolveGrpcBindHost } from "./helpers/grpc/bind-host";
 import { log } from "./helpers/logger";
 import {
 	assertMarketCaptureArchiveStartable,
@@ -90,6 +91,7 @@ export default class CEXBroker {
 	#policyFilePath?: string;
 	#verityProverUrl: string = "http://localhost:8080";
 	port = 8086;
+	private readonly bindHost: string;
 	private policy: PolicyConfig;
 	private brokers: Record<string, BrokerPoolEntry> = {};
 	private whitelistIps: string[] = [
@@ -262,6 +264,7 @@ export default class CEXBroker {
 		policies: string | PolicyConfig,
 		config?: {
 			port?: number;
+			bindHost?: string;
 			whitelistIps?: string[];
 			useVerity?: boolean;
 			verityProverUrl?: string;
@@ -269,6 +272,10 @@ export default class CEXBroker {
 			unaryMarketOnly?: boolean;
 		},
 	) {
+		this.bindHost = resolveGrpcBindHost(
+			config?.bindHost,
+			process.env.CEX_BROKER_GRPC_BIND_HOST,
+		);
 		this.useVerity = config?.useVerity || false;
 		this.unaryMarketOnly = config?.unaryMarketOnly ?? false;
 
@@ -465,14 +472,16 @@ export default class CEXBroker {
 		);
 
 		this.server.bindAsync(
-			`0.0.0.0:${this.port}`,
+			grpcBindAddress(this.bindHost, this.port),
 			grpc.ServerCredentials.createInsecure(),
 			(err, port) => {
 				if (err) {
 					log.error(err);
 					return;
 				}
-				log.info(`Your server as started on port ${port}`);
+				log.info(
+					`gRPC server listening on ${grpcBindAddress(this.bindHost, port)}`,
+				);
 			},
 		);
 
