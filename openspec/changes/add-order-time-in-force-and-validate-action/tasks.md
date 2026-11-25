@@ -9,6 +9,8 @@
 - [x] 2.2 `GetOrderDetails` by `clientOrderId` with a stable unsupported error (spec: Orders can be found by client order id)
 - [x] 2.3 `ValidateAction` for orders, withdrawals and deposit-address requests, reusing policy and market-rule checks and calling no mutating method (spec: Actions can be validated without being placed)
 
+- [ ] 2.4 Explicit bind host for the gRPC server (environment variable and CLI flag), defaulting to the current behaviour; loopback-only when set to 127.0.0.1 or ::1
+
 ## 3. Checks and docs
 
 - [x] 3.1 Tests: IOC, FOK and PO cases, unsupported combinations, client order id lookup and its unsupported path, validation refusals and a valid case, and a test double that fails on any mutating call
