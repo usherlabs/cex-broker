@@ -10,6 +10,7 @@
 - [x] 2.3 `ValidateAction` for orders, withdrawals and deposit-address requests, reusing policy and market-rule checks and calling no mutating method (spec: Actions can be validated without being placed)
 
 - [ ] 2.4 Explicit bind host for the gRPC server (environment variable and CLI flag), defaulting to the current behaviour; loopback-only when set to 127.0.0.1 or ::1
+  - The bind-host tests pass for both loopback addresses. The full test suite did not pass. It failed in the execution archiver, ClickHouse conformance, and two order book RPC tests. The same failures occurred before the bind-host change.
 
 ## 3. Checks and docs
 
