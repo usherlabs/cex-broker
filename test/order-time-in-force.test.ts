@@ -52,6 +52,40 @@ describe("CreateOrder timeInForce", () => {
 		]);
 	});
 
+	test.each([
+		["IOC", "LIMIT"],
+		["FOK", "LIMIT"],
+		["PO", "LIMIT_MAKER"],
+	] as const)("sends %s through the pinned Binance spot order encoder", async (mode, orderType) => {
+		const exchange = createOfflineExchange();
+		const broker = exchange.broker as unknown as Record<string, unknown>;
+		broker.createOrder = Object.getPrototypeOf(broker).createOrder;
+		broker.fetch = () => {
+			throw new Error("Native endpoint must be stubbed");
+		};
+		const requests: unknown[] = [];
+		broker.privatePostOrder = async (params: unknown) => {
+			requests.push(params);
+			return { orderId: "native-1", symbol: "BTCUSDT", status: "NEW" };
+		};
+		// Binance relies on this exchange-specific metadata in its order encoder.
+		exchange.broker.market("BTC/USDT").info = {
+			orderTypes: ["LIMIT", "LIMIT_MAKER"],
+		};
+		const { getError } = await createOrder(
+			limitSell({ timeInForce: mode }),
+			exchange,
+		);
+		expect(getError()).toBeNull();
+		expect(requests).toEqual([
+			expect.objectContaining({
+				type: orderType,
+				...(mode === "PO" ? {} : { timeInForce: mode }),
+			}),
+		]);
+		if (mode === "PO") expect(requests[0]).not.toHaveProperty("timeInForce");
+	});
+
 	test("normalises a lower-case value", async () => {
 		const { getError, calls } = await createOrder(
 			limitSell({ timeInForce: " ioc " }),
