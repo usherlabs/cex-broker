@@ -127,7 +127,7 @@ describe("CreateOrder timeInForce", () => {
 			limitSell({ timeInForce: "IOC" }),
 			exchange,
 		);
-		expect(getError()?.code).toBe(grpc.status.UNIMPLEMENTED);
+		expect(getError()?.code).toBe(grpc.status.INVALID_ARGUMENT);
 		expect(getError()?.message).toBe(
 			"order_time_in_force_unsupported: binance does not advertise timeInForce IOC for BTC/USDT",
 		);
@@ -141,7 +141,7 @@ describe("CreateOrder timeInForce", () => {
 			limitSell({ timeInForce: "GTC" }),
 			exchange,
 		);
-		expect(getError()?.code).toBe(grpc.status.UNIMPLEMENTED);
+		expect(getError()?.code).toBe(grpc.status.INVALID_ARGUMENT);
 		expect(calls.createOrder).toEqual([]);
 	});
 
@@ -186,10 +186,10 @@ describe("timeInForce helpers", () => {
 			grpc.status.INVALID_ARGUMENT,
 		);
 		expect(stableGrpcErrorCode("order_time_in_force_unsupported: x")).toBe(
-			grpc.status.UNIMPLEMENTED,
+			grpc.status.INVALID_ARGUMENT,
 		);
 		expect(stableGrpcErrorCode("client_order_lookup_unsupported: x")).toBe(
-			grpc.status.UNIMPLEMENTED,
+			grpc.status.FAILED_PRECONDITION,
 		);
 	});
 

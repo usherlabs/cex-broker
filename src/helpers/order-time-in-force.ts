@@ -3,6 +3,7 @@ import type {
 	CreateOrderPayload,
 	OrderTimeInForce,
 } from "../schemas/action-payloads";
+import type { BrokerMarketType } from "./market-type";
 import { isRecord } from "./shared/guards";
 
 export const ORDER_TIME_IN_FORCE_INVALID = "order_time_in_force_invalid";
@@ -32,7 +33,17 @@ export function checkTimeInForceRequest(
 	if (order.orderIntent === "passive_only" && timeInForce !== "PO") {
 		return `${ORDER_TIME_IN_FORCE_INVALID}: passive_only order intent conflicts with timeInForce ${timeInForce}`;
 	}
-	for (const key of ["timeInForce", "postOnly"]) {
+	for (const key of [
+		"timeInForce",
+		"postOnly",
+		"post_only",
+		"time_in_force",
+		"tif",
+		"force",
+		"ordType",
+		"type",
+		"orderType",
+	]) {
 		if (Object.hasOwn(order.params, key)) {
 			return `${ORDER_TIME_IN_FORCE_INVALID}: params.${key} cannot be combined with the timeInForce field`;
 		}
@@ -109,6 +120,36 @@ function marketFeatureContainer(
 	}
 	const bySubType = byType[subType];
 	return isRecord(bySubType) ? bySubType : undefined;
+}
+
+export function precheckTimeInForce(
+	broker: Exchange,
+	marketType: BrokerMarketType,
+	symbol: string,
+	mode: OrderTimeInForce,
+): string | undefined {
+	const subtypes = marketType === "spot" ? [undefined] : ["linear", "inverse"];
+	const supported = subtypes.some((subType) => {
+		const createOrder = marketFeatureContainer(broker.features, {
+			type: marketType,
+			subType,
+		})?.createOrder;
+		return (
+			isRecord(createOrder) &&
+			isRecord(createOrder.timeInForce) &&
+			createOrder.timeInForce[mode] === true
+		);
+	});
+	if (!supported)
+		return (
+			ORDER_TIME_IN_FORCE_UNSUPPORTED +
+			": " +
+			broker.id +
+			" does not advertise timeInForce " +
+			mode +
+			" for " +
+			symbol
+		);
 }
 
 export type TimeInForceSupport =

@@ -18,7 +18,6 @@ export const CLIENT_ORDER_ID_FETCH_ORDER_EXCHANGES: ReadonlySet<string> =
 		"binanceus",
 		"binanceusdm",
 		"bitget",
-		"bithumb",
 		"bitrue",
 		"bitstamp",
 		"bitvavo",
@@ -27,9 +26,7 @@ export const CLIENT_ORDER_ID_FETCH_ORDER_EXCHANGES: ReadonlySet<string> =
 		"delta",
 		"extended",
 		"grvt",
-		"htx",
 		"hyperliquid",
-		"kraken",
 		"kucoin",
 		"kucoinfutures",
 		"mexc",
@@ -39,16 +36,30 @@ export const CLIENT_ORDER_ID_FETCH_ORDER_EXCHANGES: ReadonlySet<string> =
 		"okxus",
 		"paradex",
 		"phemex",
-		"weex",
 		"woo",
 		"woofipro",
 	]);
 
 /** True when the broker can look an order up by its client order id. */
-export function supportsClientOrderLookup(broker: Exchange): boolean {
+// The MEXC and WEEX client ID routes are spot-only.
+export function supportsClientOrderLookup(
+	broker: Exchange,
+	symbol?: string,
+	params: Record<string, unknown> = {},
+): boolean {
+	if (broker.id === "mexc" || broker.id === "weex") {
+		const type = params.type ?? params.marketType ?? params.defaultType;
+		if (
+			!symbol ||
+			symbol.includes(":") ||
+			(type !== undefined && type !== "spot")
+		)
+			return false;
+	}
 	return (
 		broker.has?.fetchOrderWithClientOrderId === true ||
-		CLIENT_ORDER_ID_FETCH_ORDER_EXCHANGES.has(String(broker.id))
+		(broker.has?.fetchOrder === true &&
+			CLIENT_ORDER_ID_FETCH_ORDER_EXCHANGES.has(String(broker.id)))
 	);
 }
 
@@ -69,7 +80,7 @@ export async function fetchOrderByReference(
 	params: Record<string, string | number>,
 ): Promise<Order> {
 	if (reference.clientOrderId !== undefined) {
-		if (!supportsClientOrderLookup(broker)) {
+		if (!supportsClientOrderLookup(broker, symbol, params)) {
 			throw new Error(clientOrderLookupUnsupportedMessage(broker));
 		}
 		return broker.fetchOrderWithClientOrderId(reference.clientOrderId, symbol, {

@@ -159,6 +159,20 @@ export const GetOrderDetailsPayloadSchema = z
 				message: "Provide exactly one of orderId or clientOrderId",
 			});
 		}
+		if (
+			value.clientOrderId !== undefined &&
+			Object.keys(value.params).some((key) =>
+				/^(id|oid|ordid|algoid|userref|txid|uuid|externalid|orderlinkid|.*client.*id|clordid|order_?id)$/i.test(
+					key,
+				),
+			)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["params"],
+				message: "Order ID aliases cannot be combined with clientOrderId",
+			});
+		}
 	});
 
 export const CancelOrderPayloadSchema = z.object({

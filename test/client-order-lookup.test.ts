@@ -82,7 +82,7 @@ describe("GetOrderDetails by clientOrderId", () => {
 			exchange,
 		);
 		expect(getError()).toEqual({
-			code: grpc.status.UNIMPLEMENTED,
+			code: grpc.status.FAILED_PRECONDITION,
 			message:
 				"client_order_lookup_unsupported: gate does not support order lookup by clientOrderId",
 		});

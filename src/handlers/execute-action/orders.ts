@@ -12,6 +12,7 @@ import {
 	supportsClientOrderLookup,
 } from "../../helpers/client-order-lookup";
 import { Action } from "../../helpers/constants";
+import { parseMarketType } from "../../helpers/market-type";
 import { isOrderNotFound } from "../../helpers/order-not-found";
 import {
 	emitOrderExecutionTelemetryInBackground,
@@ -21,6 +22,7 @@ import {
 	buildCreateOrderParams,
 	checkTimeInForceRequest,
 	isPassiveCreateOrder,
+	precheckTimeInForce,
 	resolveTimeInForceSupport,
 } from "../../helpers/order-time-in-force";
 import { classifyPassiveOrderError } from "../../helpers/passive-order";
@@ -105,6 +107,19 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 				null,
 			);
 		}
+		if (orderValue.timeInForce !== undefined) {
+			const error = precheckTimeInForce(
+				broker,
+				parseMarketType(orderValue.marketType),
+				symbol || [orderValue.fromToken, orderValue.toToken].join("/"),
+				orderValue.timeInForce,
+			);
+			if (error)
+				return ctx.wrappedCallback(
+					{ code: grpc.status.INVALID_ARGUMENT, message: error },
+					null,
+				);
+		}
 		const resolution = await resolveOrderExecution(
 			policy,
 			broker,
@@ -135,7 +150,7 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			);
 			if (!support.supported) {
 				return ctx.wrappedCallback(
-					{ code: grpc.status.UNIMPLEMENTED, message: support.message },
+					{ code: grpc.status.INVALID_ARGUMENT, message: support.message },
 					null,
 				);
 			}
@@ -327,11 +342,11 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 		}
 		if (
 			getOrderValue.clientOrderId !== undefined &&
-			!supportsClientOrderLookup(broker)
+			!supportsClientOrderLookup(broker, symbol, getOrderValue.params)
 		) {
 			return ctx.wrappedCallback(
 				{
-					code: grpc.status.UNIMPLEMENTED,
+					code: grpc.status.FAILED_PRECONDITION,
 					message: clientOrderLookupUnsupportedMessage(broker),
 				},
 				null,
