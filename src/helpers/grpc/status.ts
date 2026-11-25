@@ -27,8 +27,15 @@ export function stableGrpcErrorCode(message: string): grpc.status | undefined {
 	if (message.startsWith("deposit_amount_mismatch:")) {
 		return grpc.status.FAILED_PRECONDITION;
 	}
-	if (message.startsWith("passive_order_unsupported:")) {
+	if (message.startsWith("passive_order_unsupported:"))
 		return grpc.status.UNIMPLEMENTED;
+	if (message.startsWith("client_order_lookup_unsupported:"))
+		return grpc.status.FAILED_PRECONDITION;
+	if (
+		message.startsWith("order_time_in_force_invalid:") ||
+		message.startsWith("order_time_in_force_unsupported:")
+	) {
+		return grpc.status.INVALID_ARGUMENT;
 	}
 	if (
 		message.startsWith("passive_order_rejected:") ||

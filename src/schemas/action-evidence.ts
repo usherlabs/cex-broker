@@ -135,6 +135,56 @@ export const BatchResponseEnvelopeSchema = z
 	})
 	.strict();
 
+export const ActionValidationReasonSchema = z
+	.object({
+		code: z.enum([
+			"invalid_request",
+			"time_in_force_invalid",
+			"policy_denied",
+			"travel_rule_denied",
+			"market_unavailable",
+			"market_limit_violated",
+			"network_unavailable",
+			"transfer_limit_violated",
+			"capability_unsupported",
+		]),
+		message: z.string(),
+		field: z.string().optional(),
+	})
+	.strict();
+
+export type ActionValidationReason = z.infer<
+	typeof ActionValidationReasonSchema
+>;
+
+export const ACTION_VALIDATION_SCHEMA_VERSION =
+	"cex-broker-action-validation/v1";
+
+const ActionValidationBaseSchema = z.object({
+	schemaVersion: z.literal(ACTION_VALIDATION_SCHEMA_VERSION),
+	exchange: z.string().min(1),
+	action: z.enum(["CreateOrder", "Withdraw", "FetchDepositAddresses"]),
+	symbol: z.string(),
+	observedAt: z.string().datetime({ offset: true }),
+	checks: z.array(z.string().min(1)).min(1),
+});
+
+/** ValidateAction result: the normalised action, or why it would be refused. */
+export const ActionValidationEnvelopeSchema = z.discriminatedUnion("valid", [
+	ActionValidationBaseSchema.extend({
+		valid: z.literal(true),
+		normalized: z.record(z.string(), z.unknown()),
+		reasons: z.array(ActionValidationReasonSchema).max(0),
+	}).strict(),
+	ActionValidationBaseSchema.extend({
+		valid: z.literal(false),
+		reasons: z.array(ActionValidationReasonSchema).min(1),
+	}).strict(),
+]);
+
+export type ActionValidationEnvelope = z.infer<
+	typeof ActionValidationEnvelopeSchema
+>;
 export type TradingFeeEvidence = z.infer<typeof TradingFeeEvidenceSchema>;
 export type MarketRuleEvidence = z.infer<typeof MarketRuleEvidenceSchema>;
 export type TransferNetworkEvidence = z.infer<

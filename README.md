@@ -250,6 +250,50 @@ On `passive_order_unknown`, look up the order before considering another create.
 Do not treat a missing response as rejection or automatically re-place the order.
 Authentication and insufficient-funds errors retain their own stable prefixes.
 
+#### Time in force and order lookup
+
+Limit orders accept an optional `timeInForce`: `GTC` (good till canceled),
+`IOC` (immediate or cancel), `FOK` (fill or kill), or `PO` (post only).
+The selected exchange and market must advertise the mode. For example, to
+request a limit IOC, include `"orderType": "limit", "timeInForce": "IOC"`
+in the usual CreateOrder payload. `PO` uses CCXT's post-only flag and shares
+its passive-placement outcomes. Do not combine first-class time in force with
+conflicting options in `params`. Invalid or unsupported combinations return
+`INVALID_ARGUMENT`. Omitting the field preserves existing behavior.
+
+`GetOrderDetails` accepts exactly one of `orderId` and `clientOrderId`. Use
+the market symbol for exchanges that require it. If the exchange has no native
+client-ID lookup for that route, the broker returns `FAILED_PRECONDITION`
+with `client_order_lookup_unsupported`; it never scans order history.
+
+#### Validate before acting
+
+Use `Action.ValidateAction` (18) with the same exchange and account metadata
+as execution. Leave the outer symbol empty and set `payload.request` to a
+JSON-encoded object with the inner action, symbol, and string-valued payload:
+
+```ts
+const payload = {
+  request: JSON.stringify({
+    action: Action.CreateOrder,
+    symbol: "BTC/USDT",
+    payload: {
+      fromToken: "BTC", toToken: "USDT", orderType: "limit",
+      amount: "0.01", price: "30000", timeInForce: "IOC",
+    },
+  }),
+};
+```
+
+Supported inner actions are `CreateOrder`, `Withdraw`, and
+`FetchDepositAddresses`. The result is a `cex-broker-action-validation/v1`
+JSON document with the checks applied, a `valid` flag, and either normalized
+values or refusal reasons. Validation uses broker policy and available venue
+metadata without placing an order, withdrawing funds, or fetching or creating a
+deposit address. It does not test account balances, fill probability, or venue
+acceptance and is not a reservation. Arbitrary venue parameters are not echoed
+or fully validated.
+
 #### Perp configuration actions
 
 Two capability-gated actions complement `Action.Call`:
@@ -337,9 +381,23 @@ cex-broker --help
 Options:
   -p, --policy <path>                    Policy JSON file (required)
   --port <number>                        Port number (default: 8086)
+  --bind-host <ip>                       gRPC bind host (default: 0.0.0.0)
   -w, --whitelist <addresses...>         IPv4 address whitelist (space-separated list)
   -vu, --verityProverUrl <url>           Verity Prover URL for zero-knowledge proofs
 ```
+
+### gRPC Bind Host
+
+Set `--bind-host <ip>` or `CEX_BROKER_GRPC_BIND_HOST` to choose the local address on which gRPC listens.
+The CLI flag takes precedence over the environment variable.
+If neither is set, gRPC listens on all IPv4 interfaces (`0.0.0.0`), as before.
+Use `127.0.0.1` for IPv4 loopback only or `::1` for IPv6 loopback only.
+Use a bare IP address without brackets, a port, or a zone ID.
+An invalid value is rejected at startup.
+
+The bind host sets where gRPC listens.
+The IP allowlist (`--whitelist`) controls which client addresses may make RPCs on that listener.
+Changing the bind host does not change the IP allowlist.
 
 ### Available Scripts
 

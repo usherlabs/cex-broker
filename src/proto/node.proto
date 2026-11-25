@@ -9,6 +9,11 @@ message ActionRequest {
   // With amountBase, directional policy limits use base for sells, base*price
   // for buys. Passive timeout/network/unrecognized submission failures return
   // passive_order_unknown; look the order up before considering another create.
+  // Optional timeInForce (GTC, IOC, FOK, PO) applies to limit orders and must be
+  // advertised by the exchange for the market; PO is post-only.
+  // GetOrderDetails: exactly one of orderId or clientOrderId.
+  // ValidateAction: payload.request is a JSON {action, symbol, payload} for
+  // CreateOrder, Withdraw or FetchDepositAddresses; nothing is placed.
   map<string, string> payload = 2;          // Parameters to pass to the CCXT method
   string cex = 3;     // CEX identifier (e.g., "binance", "bybit")
   string symbol = 4;  // Optional: trading pair symbol if needed
@@ -68,4 +73,5 @@ enum Action {
   SetPerpConfigState = 15;
   FetchMarketRules = 16;
   Batch = 17;
+  ValidateAction = 18;
 }

@@ -515,9 +515,17 @@ function getMatchedMarketPatterns(
 	);
 }
 
+/** Why an order resolution failed: broker policy, or the venue's market list. */
+export type OrderExecutionFailure =
+	| "policy_market_denied"
+	| "policy_limit_denied"
+	| "market_unavailable"
+	| "invalid_price";
+
 type OrderExecutionResolution = {
 	valid: boolean;
 	error?: string;
+	failure?: OrderExecutionFailure;
 	symbol?: string;
 	side?: "buy" | "sell";
 	amountBase?: number | string;
@@ -576,6 +584,7 @@ export async function resolveOrderExecution(
 		return {
 			valid: false,
 			error: `Market ${brokerUpper}:${fromUpper}/${toUpper} (${marketType}) is not allowed. Allowed markets: ${policy.order.rule.markets.join(", ")}`,
+			failure: "policy_market_denied",
 			matchedPatterns,
 		};
 	}
@@ -590,6 +599,7 @@ export async function resolveOrderExecution(
 		return {
 			valid: false,
 			error: `Exchange ${brokerUpper} does not support ${fromUpper}/${toUpper} for marketType ${marketType}`,
+			failure: "market_unavailable",
 			matchedPatterns,
 		};
 	}
@@ -612,6 +622,7 @@ export async function resolveOrderExecution(
 			return {
 				valid: false,
 				error: `Conversion from ${fromUpper} to ${toUpper} is not allowed`,
+				failure: "policy_limit_denied",
 				matchedPatterns,
 				limitsApplied: true,
 			};
@@ -625,6 +636,7 @@ export async function resolveOrderExecution(
 			return {
 				valid: false,
 				error: `Amount ${fromAmount ?? amount} is below minimum ${limit.min} for ${fromUpper} to ${toUpper} conversion`,
+				failure: "policy_limit_denied",
 				matchedPatterns,
 				limitsApplied: true,
 			};
@@ -637,6 +649,7 @@ export async function resolveOrderExecution(
 			return {
 				valid: false,
 				error: `Amount ${fromAmount ?? amount} exceeds maximum ${limit.max} for ${fromUpper} to ${toUpper} conversion`,
+				failure: "policy_limit_denied",
 				matchedPatterns,
 				limitsApplied: true,
 			};
@@ -671,6 +684,7 @@ export async function resolveOrderExecution(
 			valid: false,
 			error:
 				"Price must be a finite number greater than 0 to compute base order amount",
+			failure: "invalid_price",
 			matchedPatterns,
 			limitsApplied: limits.length > 0,
 		};

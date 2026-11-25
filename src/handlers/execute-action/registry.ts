@@ -20,6 +20,7 @@ import { handleOrders } from "./orders";
 import { handlePassThrough } from "./pass-through";
 import { handlePerpConfig } from "./perp-config";
 import { handleTreasuryCall } from "./treasury-call";
+import { handleValidateAction } from "./validate";
 import { handleWithdraw } from "./withdraw";
 
 function valid(): ActionRequestValidation {
@@ -192,6 +193,11 @@ export const ACTION_DESCRIPTORS: Partial<Record<ActionType, ActionDescriptor>> =
 		},
 		[Action.Batch]: {
 			handler: (ctx) => handleBatch(ctx, getActionDescriptor),
+			access: "read",
+			batchable: false,
+		},
+		[Action.ValidateAction]: {
+			handler: handleValidateAction,
 			access: "read",
 			batchable: false,
 		},

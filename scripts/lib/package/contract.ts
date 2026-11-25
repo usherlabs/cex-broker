@@ -3,14 +3,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const CONTRACT_PROTO_SHA256 =
-	"cf4b5ea2a35777f2c59ba3543078379bdc412a9a81668cb5b159bb723a62e666";
+	"9ea8b276dd450788e425fea0b8311c3d20afea68972d531541cf8a41c05e4a9c";
 export const EVIDENCE_SCHEMA_IDS = [
 	"cex-trading-fee-evidence/v1",
 	"cex-market-rule-evidence/v1",
 	"cex-transfer-network-evidence/v1",
 	"cex-broker-action-batch/v1",
+	"cex-broker-action-validation/v1",
 ];
 export const CONTRACT_SOURCE_PATHS = [
+	"src/index.ts",
 	"src/proto/node.proto",
 	"src/proto/node.descriptor.ts",
 	"src/helpers/constants.ts",
@@ -26,6 +28,12 @@ export const CONTRACT_SOURCE_PATHS = [
 	"src/handlers/execute-action/registry.ts",
 	"src/handlers/execute-action/venue-evidence.ts",
 	"src/handlers/execute-action/pass-through.ts",
+	"src/handlers/execute-action/validate.ts",
+	"src/helpers/action-validation.ts",
+	"src/helpers/order-time-in-force.ts",
+	"src/helpers/client-order-lookup.ts",
+	"src/helpers/travel-rule.ts",
+	"src/handlers/execute-action/orders.ts",
 ];
 export const REQUIRED_PACKAGE_PATHS = [
 	"dist/index.js",
