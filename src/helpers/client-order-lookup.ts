@@ -3,42 +3,9 @@ import type { Exchange, Order } from "ccxt";
 export const CLIENT_ORDER_LOOKUP_UNSUPPORTED =
 	"client_order_lookup_unsupported";
 
-/**
- * Exchanges whose CCXT `fetchOrder` reads a unified `clientOrderId` param and
- * queries the venue by it. Derived from the pinned CCXT source; the test suite
- * re-checks every entry against the installed CCXT so an upgrade that drops
- * the mapping fails the build instead of silently querying by an empty id.
- */
-export const CLIENT_ORDER_ID_FETCH_ORDER_EXCHANGES: ReadonlySet<string> =
-	new Set([
-		"apex",
-		"aster",
-		"binance",
-		"binancecoinm",
-		"binanceus",
-		"binanceusdm",
-		"bitget",
-		"bitrue",
-		"bitstamp",
-		"bitvavo",
-		"coinbaseexchange",
-		"coinsph",
-		"delta",
-		"extended",
-		"grvt",
-		"hyperliquid",
-		"kucoin",
-		"kucoinfutures",
-		"mexc",
-		"modetrade",
-		"myokx",
-		"okx",
-		"okxus",
-		"paradex",
-		"phemex",
-		"woo",
-		"woofipro",
-	]);
+// Direct spot routes supported by the pinned CCXT fetchOrder implementation
+// even though its capability map may not advertise the unified helper.
+const VERIFIED_SPOT_ROUTES = new Set(["binance", "mexc", "okx"]);
 
 /** True when the broker can look an order up by its client order id. */
 // The MEXC and WEEX client ID routes are spot-only.
@@ -47,7 +14,7 @@ export function supportsClientOrderLookup(
 	symbol?: string,
 	params: Record<string, unknown> = {},
 ): boolean {
-	if (broker.id === "mexc" || broker.id === "weex") {
+	if (VERIFIED_SPOT_ROUTES.has(broker.id) || broker.id === "weex") {
 		const type = params.type ?? params.marketType ?? params.defaultType;
 		if (
 			!symbol ||
@@ -58,8 +25,7 @@ export function supportsClientOrderLookup(
 	}
 	return (
 		broker.has?.fetchOrderWithClientOrderId === true ||
-		(broker.has?.fetchOrder === true &&
-			CLIENT_ORDER_ID_FETCH_ORDER_EXCHANGES.has(String(broker.id)))
+		(broker.has?.fetchOrder === true && VERIFIED_SPOT_ROUTES.has(broker.id))
 	);
 }
 

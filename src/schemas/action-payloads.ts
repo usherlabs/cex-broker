@@ -162,7 +162,7 @@ export const GetOrderDetailsPayloadSchema = z
 		if (
 			value.clientOrderId !== undefined &&
 			Object.keys(value.params).some((key) =>
-				/^(id|oid|ordid|algoid|userref|txid|uuid|externalid|orderlinkid|.*client.*id|clordid|order_?id)$/i.test(
+				/^(id|oid|ordid|algoid|userref|txid|uuid|externalid|orderlinkid|.*client.*id|.*clordid|order[_-]?id)$/i.test(
 					key,
 				),
 			)

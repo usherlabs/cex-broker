@@ -12,6 +12,7 @@ export const EVIDENCE_SCHEMA_IDS = [
 	"cex-broker-action-validation/v1",
 ];
 export const CONTRACT_SOURCE_PATHS = [
+	"src/index.ts",
 	"src/proto/node.proto",
 	"src/proto/node.descriptor.ts",
 	"src/helpers/constants.ts",
@@ -29,6 +30,10 @@ export const CONTRACT_SOURCE_PATHS = [
 	"src/handlers/execute-action/pass-through.ts",
 	"src/handlers/execute-action/validate.ts",
 	"src/helpers/action-validation.ts",
+	"src/helpers/order-time-in-force.ts",
+	"src/helpers/client-order-lookup.ts",
+	"src/helpers/travel-rule.ts",
+	"src/handlers/execute-action/orders.ts",
 ];
 export const REQUIRED_PACKAGE_PATHS = [
 	"dist/index.js",

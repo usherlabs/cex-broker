@@ -118,8 +118,10 @@ describe("CreateOrder timeInForce", () => {
 		expect(calls.createOrder).toEqual([]);
 	});
 
-	test("refuses a value the exchange does not advertise for the market", async () => {
-		const exchange = createOfflineExchange();
+	test("refuses a value the exchange does not advertise before loading markets", async () => {
+		const exchange = createOfflineExchange("binance", {
+			loadMarketsError: new Error("must not load markets"),
+		});
 		(exchange.broker as unknown as { features: unknown }).features = {
 			spot: { createOrder: { timeInForce: { GTC: true, IOC: false } } },
 		};

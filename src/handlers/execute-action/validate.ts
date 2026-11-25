@@ -15,7 +15,6 @@ import {
 } from "../../helpers/constants";
 import { mapCcxtErrorToGrpcStatus } from "../../helpers/grpc/status";
 import { safeLogRedactedError } from "../../helpers/shared/errors";
-import { sanitizeVenueError } from "../../helpers/venue-evidence";
 import { ActionValidationEnvelopeSchema } from "../../schemas/action-evidence";
 import { ValidateActionPayloadSchema } from "../../schemas/action-payloads";
 import type { ExecuteActionContext } from "./context";
@@ -67,6 +66,7 @@ export async function handleValidateAction(
 		);
 	}
 
+	const checks = ["target_action"];
 	let outcome: ActionValidationOutcome;
 	try {
 		outcome = await validator({
@@ -75,6 +75,7 @@ export async function handleValidateAction(
 			cex: ctx.cex,
 			symbol: inner.symbol,
 			payload: inner.payload,
+			checks,
 		});
 	} catch (error) {
 		safeLogRedactedError(
@@ -84,7 +85,7 @@ export async function handleValidateAction(
 		return ctx.wrappedCallback(
 			{
 				code: mapCcxtErrorToGrpcStatus(error) ?? grpc.status.UNAVAILABLE,
-				message: `validation_unavailable: ${sanitizeVenueError(error, ctx.broker)}`,
+				message: "validation_unavailable: Could not read venue rules",
 			},
 			null,
 		);
@@ -96,6 +97,7 @@ export async function handleValidateAction(
 		action: getActionName(innerAction),
 		symbol: inner.symbol,
 		observedAt: new Date().toISOString(),
+		checks,
 		...(outcome.valid
 			? { valid: true, normalized: outcome.normalized, reasons: [] }
 			: { valid: false, reasons: outcome.reasons }),

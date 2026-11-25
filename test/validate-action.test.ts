@@ -91,6 +91,7 @@ describe("ValidateAction CreateOrder", () => {
 				price: "30000.123",
 				timeInForce: "IOC",
 				clientOrderId: "bound-1",
+				params: JSON.stringify({ apiKey: "synthetic-credential" }),
 			}),
 		);
 		expect(envelope).toMatchObject({
@@ -100,6 +101,11 @@ describe("ValidateAction CreateOrder", () => {
 			symbol: "BTC/USDT",
 			valid: true,
 			reasons: [],
+			checks: expect.arrayContaining([
+				"market_limits",
+				"market_precision",
+				"market_time_in_force",
+			]),
 			normalized: {
 				symbol: "BTC/USDT",
 				marketType: "spot",
@@ -110,7 +116,6 @@ describe("ValidateAction CreateOrder", () => {
 				timeInForce: "IOC",
 				postOnly: false,
 				clientOrderId: "bound-1",
-				params: { clientOrderId: "bound-1", timeInForce: "IOC" },
 				adjustments: [
 					{ field: "amount", requested: "0.01234567", normalized: "0.0123" },
 					{ field: "price", requested: "30000.123", normalized: "30000.12" },
@@ -277,7 +282,7 @@ describe("ValidateAction CreateOrder", () => {
 				code: "capability_unsupported",
 				field: "timeInForce",
 				message:
-					"order_time_in_force_unsupported: binance does not advertise timeInForce FOK for BTC/USDT",
+					"order_time_in_force_unsupported: Exchange does not advertise the requested time in force for this market type",
 			},
 		]);
 	});
@@ -327,7 +332,6 @@ describe("ValidateAction Withdraw", () => {
 			normalized: {
 				asset: "USDT",
 				amount: "25",
-				recipientAddress: WHITELISTED_ADDRESS,
 				network: {
 					operatorAlias: "BEP20",
 					brokerNetworkId: "BNB",
@@ -335,7 +339,6 @@ describe("ValidateAction Withdraw", () => {
 				},
 				travelRuleMode: "standard",
 				fee: "0.29",
-				params: { network: "BSC" },
 			},
 		});
 	});
@@ -416,9 +419,24 @@ describe("ValidateAction FetchDepositAddresses", () => {
 				asset: "USDT",
 				network: { brokerNetworkId: "BNB", exchangeNetworkId: "BSC" },
 				method: "fetchDepositAddress",
-				params: { network: "BSC" },
 			},
 		});
+	});
+
+	test("refuses params that would select an unchecked deposit network", async () => {
+		const { envelope } = await validate(
+			depositAddress({
+				params: JSON.stringify({
+					network: "ETH",
+					apiKey: "synthetic-credential",
+				}),
+			}),
+		);
+		expect(envelope?.valid).toBe(false);
+		expect(envelope?.reasons).toContainEqual(
+			expect.objectContaining({ code: "invalid_request", field: "params" }),
+		);
+		expect(JSON.stringify(envelope)).not.toContain("synthetic-credential");
 	});
 
 	test("reports a deposit network that is disabled", async () => {

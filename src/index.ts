@@ -54,6 +54,11 @@ export { Action } from "./helpers/constants";
 export type { ActionRequest } from "./proto/cex_broker/ActionRequest";
 export type { ActionResponse } from "./proto/cex_broker/ActionResponse";
 export {
+	ACTION_VALIDATION_SCHEMA_VERSION,
+	type ActionValidationEnvelope,
+	ActionValidationEnvelopeSchema,
+	type ActionValidationReason,
+	ActionValidationReasonSchema,
 	type BatchResponseEntry,
 	BatchResponseEntrySchema,
 	type BatchResponseEnvelope,
@@ -72,6 +77,9 @@ export {
 	BatchPayloadSchema,
 	MAX_BATCH_CHILDREN,
 	MAX_BATCH_REQUEST_BYTES,
+	OrderTimeInForceSchema,
+	type ValidateActionPayload,
+	ValidateActionPayloadSchema,
 } from "./schemas/action-payloads";
 export type { PolicyConfig } from "./types";
 

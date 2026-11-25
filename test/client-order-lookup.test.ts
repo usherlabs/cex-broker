@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import * as grpc from "@grpc/grpc-js";
-import ccxt from "ccxt";
 import { handleOrders } from "../src/handlers/execute-action/orders";
 import {
-	CLIENT_ORDER_ID_FETCH_ORDER_EXCHANGES,
+	fetchOrderByReference,
 	supportsClientOrderLookup,
 } from "../src/helpers/client-order-lookup";
 import { Action } from "../src/helpers/constants";
@@ -22,32 +21,6 @@ async function getOrderDetails(
 	});
 	await handleOrders(fixture.ctx);
 	return { ...fixture, calls: exchange.calls };
-}
-
-// CCXT's fetchOrder reads the unified param in one of these shapes:
-// safeString(params, 'clientOrderId'), safeString2(params, 'x', 'clientOrderId')
-// or safeStringN(params, ['x', 'clientOrderId']). Bundled sources use either
-// quote style.
-const READS_CLIENT_ORDER_ID =
-	/safe\w*\(\s*\w+,\s*(\[[^\]]*["']clientOrderId["'][^\]]*\]|["']clientOrderId["']|["'][^"']*["'],\s*["']clientOrderId["'])/;
-
-function fetchOrderSource(id: string): string {
-	const ExchangeClass = (ccxt as unknown as Record<string, unknown>)[id] as
-		| { prototype: Record<string, unknown> }
-		| undefined;
-	if (!ExchangeClass) {
-		return "";
-	}
-	const proto = ExchangeClass.prototype;
-	const source = (name: string) =>
-		typeof proto[name] === "function" ? String(proto[name]) : "";
-	let body = source("fetchOrder");
-	for (const [, delegate] of body.matchAll(/this\.(fetch\w*Order)\(/g)) {
-		if (delegate && delegate !== "fetchOrder") {
-			body += source(delegate);
-		}
-	}
-	return body;
 }
 
 describe("GetOrderDetails by clientOrderId", () => {
@@ -108,10 +81,63 @@ describe("GetOrderDetails by clientOrderId", () => {
 		expect(supportsClientOrderLookup(broker)).toBe(true);
 	});
 
-	test("every listed exchange's installed CCXT fetchOrder reads clientOrderId", () => {
-		const unmapped = [...CLIENT_ORDER_ID_FETCH_ORDER_EXCHANGES].filter(
-			(id) => !READS_CLIENT_ORDER_ID.test(fetchOrderSource(id)),
+	test("rejects native ID aliases that could override the first-class ID", async () => {
+		const { getError, calls } = await getOrderDetails({
+			clientOrderId: "client-1",
+			params: JSON.stringify({ origClientOrderId: "other" }),
+		});
+		expect(getError()?.code).toBe(grpc.status.INVALID_ARGUMENT);
+		expect(calls.fetchOrder).toEqual([]);
+	});
+
+	test("refuses derivatives on a spot-only client ID route", () => {
+		const { broker } = createOfflineExchange("mexc");
+		expect(supportsClientOrderLookup(broker, "BTC/USDT")).toBe(true);
+		expect(supportsClientOrderLookup(broker, "BTC/USDT:USDT")).toBe(false);
+		expect(
+			supportsClientOrderLookup(broker, "BTC/USDT", { type: "swap" }),
+		).toBe(false);
+	});
+
+	test.each([
+		[
+			"binance",
+			"privateGetOrder",
+			"origClientOrderId",
+			{ orderId: "native-1", symbol: "BTCUSDT" },
+		],
+		[
+			"mexc",
+			"spotPrivateGetOrder",
+			"origClientOrderId",
+			{ orderId: "native-1", symbol: "BTCUSDT" },
+		],
+		[
+			"okx",
+			"privateGetTradeOrder",
+			"clOrdId",
+			{ data: [{ ordId: "native-1", instId: "BTCUSDT" }] },
+		],
+	] as const)("uses the pinned CCXT %s spot endpoint with the selected ID", async (id, endpoint, nativeKey, response) => {
+		const { broker } = createOfflineExchange(id);
+		const nativeRequests: unknown[] = [];
+		const exchange = broker as unknown as Record<string, unknown>;
+		exchange.fetchOrder = Object.getPrototypeOf(broker).fetchOrder;
+		exchange.fetch = () => {
+			throw new Error("Native endpoint must be stubbed");
+		};
+		exchange[endpoint] = async (params: unknown) => {
+			nativeRequests.push(params);
+			return response;
+		};
+		await fetchOrderByReference(
+			broker,
+			{ clientOrderId: "selected-client-id" },
+			"BTC/USDT",
+			{},
 		);
-		expect(unmapped).toEqual([]);
+		expect(nativeRequests).toEqual([
+			expect.objectContaining({ [nativeKey]: "selected-client-id" }),
+		]);
 	});
 });

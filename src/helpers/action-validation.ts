@@ -15,17 +15,17 @@ import {
 } from "./index";
 import { parseMarketType } from "./market-type";
 import {
-	buildCreateOrderParams,
 	checkTimeInForceRequest,
 	isPassiveCreateOrder,
+	precheckTimeInForce,
 	resolveTimeInForceSupport,
 } from "./order-time-in-force";
-import { sanitizeErrorDetail } from "./shared/errors";
 import { isRecord } from "./shared/guards";
 import {
 	resolveTransferNetwork,
 	type TransferNetworkResolution,
 } from "./transfer-network";
+import { supportsLocalEntityWithdraw } from "./travel-rule";
 import { fetchCurrencyMetadata } from "./treasury-discovery";
 
 /**
@@ -67,6 +67,7 @@ export type ActionValidationInput = {
 	cex: string;
 	symbol: string;
 	payload: Record<string, string>;
+	checks: string[];
 };
 
 type Adjustment = { field: string; requested: string; normalized: string };
@@ -163,11 +164,12 @@ function toVenuePrecision(
 			adjustments.push({ field, requested, normalized });
 		}
 		return normalized;
-	} catch (error) {
+	} catch {
 		reasons.push({
 			code: "market_limit_violated",
 			field,
-			message: sanitizeErrorDetail(error),
+			message:
+				"Order value cannot be represented at the advertised market precision",
 		});
 		return undefined;
 	}
@@ -177,10 +179,12 @@ export async function validateCreateOrderAction(
 	input: ActionValidationInput,
 ): Promise<ActionValidationOutcome> {
 	const { policy, broker, cex } = input;
+	input.checks.push("payload");
 	const parsed = parsePayload(CreateOrderPayloadSchema, input.payload);
 	if (!parsed.success) {
 		return invalidRequest(parsed.message);
 	}
+	input.checks.push("order_type");
 	const order = parsed.data;
 	if (order.orderIntent === "passive_only" && order.orderType !== "limit") {
 		return invalidRequest(
@@ -198,10 +202,30 @@ export async function validateCreateOrderAction(
 		]);
 	}
 
+	input.checks.push("exchange_capability");
+	if (
+		order.timeInForce !== undefined &&
+		precheckTimeInForce(
+			broker,
+			parseMarketType(order.marketType),
+			input.symbol,
+			order.timeInForce,
+		)
+	) {
+		return refuse([
+			{
+				code: "capability_unsupported",
+				field: "timeInForce",
+				message:
+					"order_time_in_force_unsupported: Exchange does not advertise the requested time in force for this market type",
+			},
+		]);
+	}
 	const reasons: ActionValidationReason[] = [];
 	if (broker.has?.createOrder !== true) {
 		reasons.push(capabilityReason(broker, "createOrder"));
 	}
+	input.checks.push("order_policy_and_market_resolution");
 	const resolution = await resolveOrderExecution(
 		policy,
 		broker,
@@ -223,6 +247,7 @@ export async function validateCreateOrderAction(
 		return refuse(reasons);
 	}
 	const symbol = resolution.symbol;
+	input.checks.push("market_status");
 	const market = broker.market(symbol) as unknown as Record<string, unknown>;
 	if (market.active === false) {
 		reasons.push({
@@ -231,6 +256,7 @@ export async function validateCreateOrderAction(
 		});
 	}
 	if (order.timeInForce !== undefined) {
+		input.checks.push("market_time_in_force");
 		const support = resolveTimeInForceSupport(
 			broker,
 			symbol,
@@ -240,11 +266,13 @@ export async function validateCreateOrderAction(
 			reasons.push({
 				code: "capability_unsupported",
 				field: "timeInForce",
-				message: support.message,
+				message:
+					"order_time_in_force_unsupported: Exchange does not advertise the requested time in force for this market",
 			});
 		}
 	}
 
+	input.checks.push("market_precision", "market_limits");
 	const precision = isRecord(market.precision) ? market.precision : {};
 	const limits = isRecord(market.limits) ? market.limits : {};
 	const adjustments: Adjustment[] = [];
@@ -332,7 +360,6 @@ export async function validateCreateOrderAction(
 			...(order.clientOrderId !== undefined && {
 				clientOrderId: order.clientOrderId,
 			}),
-			params: buildCreateOrderParams(order),
 			adjustments,
 		},
 	};
@@ -407,15 +434,14 @@ export async function validateWithdrawAction(
 	if (!symbol.trim()) {
 		return invalidRequest("ValidationError: Symbol required");
 	}
+	input.checks.push("payload");
 	const parsed = parsePayload(WithdrawPayloadSchema, input.payload);
 	if (!parsed.success) {
 		return invalidRequest(parsed.message);
 	}
 	const withdrawal = parsed.data;
 	const reasons: ActionValidationReason[] = [];
-	if (broker.has?.withdraw !== true) {
-		reasons.push(capabilityReason(broker, "withdraw"));
-	}
+	input.checks.push("transfer_network");
 	const networkCheck = await checkTransferNetwork(
 		broker,
 		symbol,
@@ -426,6 +452,12 @@ export async function validateWithdrawAction(
 		return refuse(reasons);
 	}
 	const network = networkCheck.network;
+	input.checks.push(
+		"withdrawal_policy",
+		"travel_rule",
+		"exchange_capability",
+		"address_format",
+	);
 	const policyCheck = validateWithdraw(
 		policy,
 		cex,
@@ -437,7 +469,7 @@ export async function validateWithdrawAction(
 	if (!policyCheck.valid) {
 		reasons.push({
 			code: "policy_denied",
-			message: `policy_withdrawal_denied: ${policyCheck.error}`,
+			message: "policy_withdrawal_denied: Withdrawal refused by broker policy",
 		});
 	}
 	const travelRule = resolveTravelRuleDecision(
@@ -448,15 +480,78 @@ export async function validateWithdrawAction(
 	if (travelRule.mode === "denied") {
 		reasons.push({
 			code: "travel_rule_denied",
-			message: `travel_rule_denied: ${travelRule.error}`,
+			message:
+				"travel_rule_denied: Destination is not configured for travel-rule withdrawals",
 		});
 	}
 
-	const amount = new Precise(String(withdrawal.amount)).toString();
+	if (
+		travelRule.mode === "localentity" &&
+		!supportsLocalEntityWithdraw(broker)
+	) {
+		reasons.push(capabilityReason(broker, "local-entity withdraw"));
+	} else if (travelRule.mode === "standard" && broker.has?.withdraw !== true) {
+		reasons.push(capabilityReason(broker, "withdraw"));
+	}
+	try {
+		broker.checkAddress(withdrawal.recipientAddress);
+	} catch {
+		reasons.push({
+			code: "invalid_request",
+			field: "recipientAddress",
+			message: "Invalid withdrawal address format",
+		});
+	}
+	// Legacy params are forwarded to CCXT and can overwrite native request fields.
+	if (
+		Object.keys(withdrawal.params).some((key) =>
+			/^(amount|address|coin|currency|code|chain|questionnaire|networkcode)$/i.test(
+				key,
+			),
+		)
+	) {
+		reasons.push({
+			code: "invalid_request",
+			field: "params",
+			message:
+				"Withdrawal params cannot override the checked destination, asset, amount or network",
+		});
+	}
+	const requestedAmount = new Precise(String(withdrawal.amount)).toString();
+	let amount = requestedAmount;
 	let fee: string | undefined;
 	const records = await discoveredNetworkRecords(broker, symbol, network);
 	if (records !== undefined) {
+		input.checks.push("network_status", "network_limits");
 		const networkRecord = records.network ?? {};
+		const precision =
+			(travelRule.mode === "localentity"
+				? undefined
+				: networkRecord.precision) ?? records.currency.precision;
+		if (typeof precision === "number") {
+			input.checks.push("withdrawal_precision");
+			try {
+				amount = broker.decimalToPrecision(
+					requestedAmount,
+					broker.safeInteger(
+						broker.options,
+						"currencyToPrecisionRoundingMode",
+						1,
+					),
+					precision,
+					broker.precisionMode,
+					broker.paddingMode,
+				);
+				if (!Precise.stringGt(amount, "0"))
+					throw new Error("Nonpositive amount");
+			} catch {
+				reasons.push({
+					code: "transfer_limit_violated",
+					field: "amount",
+					message: "Withdrawal amount cannot be represented at venue precision",
+				});
+			}
+		}
 		if (
 			records.currency.withdraw === false ||
 			networkRecord.withdraw === false ||
@@ -489,11 +584,14 @@ export async function validateWithdrawAction(
 		normalized: {
 			asset: symbol,
 			amount,
-			recipientAddress: withdrawal.recipientAddress,
 			network: networkSummary(network),
 			travelRuleMode: travelRule.mode,
 			...(fee !== undefined && { fee }),
-			params: { ...withdrawal.params, network: network.exchangeNetworkId },
+			...(amount !== requestedAmount && {
+				adjustments: [
+					{ field: "amount", requested: requestedAmount, normalized: amount },
+				],
+			}),
 		},
 	};
 }
@@ -505,6 +603,7 @@ export async function validateDepositAddressAction(
 	if (!symbol.trim()) {
 		return invalidRequest("ValidationError: Symbol required");
 	}
+	input.checks.push("payload");
 	const parsed = parsePayload(
 		FetchDepositAddressesPayloadSchema,
 		input.payload,
@@ -514,6 +613,7 @@ export async function validateDepositAddressAction(
 	}
 	const request = parsed.data;
 	const reasons: ActionValidationReason[] = [];
+	input.checks.push("exchange_capability", "transfer_network");
 	const method =
 		broker.has?.fetchDepositAddress === true
 			? "fetchDepositAddress"
@@ -538,6 +638,21 @@ export async function validateDepositAddressAction(
 		return refuse(reasons);
 	}
 	const network = networkCheck.network;
+	input.checks.push("deposit_policy", "deposit_params");
+	if (
+		Object.entries(request.params).some(
+			([key, value]) =>
+				/^(network|networkcode|chain|coin|currency)$/i.test(key) &&
+				!(key === "network" && value === network.exchangeNetworkId),
+		)
+	) {
+		reasons.push({
+			code: "invalid_request",
+			field: "params",
+			message:
+				"Deposit address params cannot override the checked network or asset",
+		});
+	}
 	const policyCheck = validateDeposit(
 		policy,
 		cex,
@@ -547,12 +662,13 @@ export async function validateDepositAddressAction(
 	if (!policyCheck.valid) {
 		reasons.push({
 			code: "policy_denied",
-			message: `policy_deposit_denied: ${policyCheck.error}`,
+			message: "policy_deposit_denied: Deposit refused by broker policy",
 		});
 	}
 	const records = await discoveredNetworkRecords(broker, symbol, network);
 	if (records !== undefined) {
 		const networkRecord = records.network ?? {};
+		input.checks.push("network_status");
 		if (
 			records.currency.deposit === false ||
 			networkRecord.deposit === false ||
@@ -574,7 +690,6 @@ export async function validateDepositAddressAction(
 			asset: symbol,
 			network: networkSummary(network),
 			method,
-			params: { network: network.exchangeNetworkId, ...request.params },
 		},
 	};
 }

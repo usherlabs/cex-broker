@@ -301,12 +301,19 @@ type BinanceLocalEntityWithdraw = {
  * is signed over the raw questionnaire JSON; see
  * signBinanceTravelRuleRequestsRaw.
  */
+export function supportsLocalEntityWithdraw(broker: Exchange): boolean {
+	return (
+		typeof (broker as Exchange & BinanceLocalEntityWithdraw)
+			.sapiPostLocalentityWithdrawApply === "function"
+	);
+}
+
 export async function withdrawViaLocalEntity(
 	broker: Exchange,
 	args: LocalEntityWithdrawArgs,
 ) {
 	const exchange = broker as Exchange & BinanceLocalEntityWithdraw;
-	if (typeof exchange.sapiPostLocalentityWithdrawApply !== "function") {
+	if (!supportsLocalEntityWithdraw(broker)) {
 		throw new Error(
 			"binance_localentity_withdraw_unavailable: travel-rule withdraw endpoint is not registered on this exchange instance",
 		);

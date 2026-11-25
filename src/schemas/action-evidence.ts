@@ -159,6 +159,7 @@ const ActionValidationBaseSchema = z.object({
 	action: z.enum(["CreateOrder", "Withdraw", "FetchDepositAddresses"]),
 	symbol: z.string(),
 	observedAt: z.string().datetime({ offset: true }),
+	checks: z.array(z.string().min(1)).min(1),
 });
 
 /** ValidateAction result: the normalised action, or why it would be refused. */
