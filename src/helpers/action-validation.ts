@@ -1,4 +1,5 @@
 import { type Exchange, Precise } from "ccxt";
+import type { ActionValidationReason } from "../schemas/action-evidence";
 import {
 	CreateOrderPayloadSchema,
 	FetchDepositAddressesPayloadSchema,
@@ -36,26 +37,6 @@ import { fetchCurrencyMetadata } from "./treasury-discovery";
  * are returned as reasons; a venue that cannot be read throws, because "could
  * not check" is not "would be refused".
  */
-
-export const ACTION_VALIDATION_SCHEMA_VERSION =
-	"cex-broker-action-validation/v1";
-
-export type ActionValidationReasonCode =
-	| "invalid_request"
-	| "time_in_force_invalid"
-	| "policy_denied"
-	| "travel_rule_denied"
-	| "market_unavailable"
-	| "market_limit_violated"
-	| "network_unavailable"
-	| "transfer_limit_violated"
-	| "capability_unsupported";
-
-export type ActionValidationReason = {
-	code: ActionValidationReasonCode;
-	message: string;
-	field?: string;
-};
 
 export type ActionValidationOutcome =
 	| { valid: true; normalized: Record<string, unknown> }

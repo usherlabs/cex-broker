@@ -1,6 +1,5 @@
 import * as grpc from "@grpc/grpc-js";
 import {
-	ACTION_VALIDATION_SCHEMA_VERSION,
 	type ActionValidationInput,
 	type ActionValidationOutcome,
 	validateCreateOrderAction,
@@ -15,7 +14,10 @@ import {
 } from "../../helpers/constants";
 import { mapCcxtErrorToGrpcStatus } from "../../helpers/grpc/status";
 import { safeLogRedactedError } from "../../helpers/shared/errors";
-import { ActionValidationEnvelopeSchema } from "../../schemas/action-evidence";
+import {
+	ACTION_VALIDATION_SCHEMA_VERSION,
+	ActionValidationEnvelopeSchema,
+} from "../../schemas/action-evidence";
 import { ValidateActionPayloadSchema } from "../../schemas/action-payloads";
 import type { ExecuteActionContext } from "./context";
 import { parsePayloadForAction } from "./context";

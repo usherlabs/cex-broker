@@ -89,7 +89,7 @@ const legacyOrderPriceSchema = z.coerce.number().positive();
 export const ORDER_TIME_IN_FORCE_VALUES = ["GTC", "IOC", "FOK", "PO"] as const;
 export type OrderTimeInForce = (typeof ORDER_TIME_IN_FORCE_VALUES)[number];
 
-const orderTimeInForceSchema = z
+export const OrderTimeInForceSchema = z
 	.string()
 	.trim()
 	.toUpperCase()
@@ -103,7 +103,7 @@ export const CreateOrderPayloadSchema = z
 	.object({
 		orderType: z.enum(["market", "limit"]).default("limit"),
 		orderIntent: z.enum(["passive_only"]).optional(),
-		timeInForce: orderTimeInForceSchema.optional(),
+		timeInForce: OrderTimeInForceSchema.optional(),
 		amount: z.coerce.number().positive(),
 		amountBase: positiveDecimalStringSchema.optional(),
 		fromToken: z.string().min(1),

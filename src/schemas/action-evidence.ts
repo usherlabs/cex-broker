@@ -135,7 +135,7 @@ export const BatchResponseEnvelopeSchema = z
 	})
 	.strict();
 
-const ActionValidationReasonSchema = z
+export const ActionValidationReasonSchema = z
 	.object({
 		code: z.enum([
 			"invalid_request",
@@ -153,8 +153,15 @@ const ActionValidationReasonSchema = z
 	})
 	.strict();
 
+export type ActionValidationReason = z.infer<
+	typeof ActionValidationReasonSchema
+>;
+
+export const ACTION_VALIDATION_SCHEMA_VERSION =
+	"cex-broker-action-validation/v1";
+
 const ActionValidationBaseSchema = z.object({
-	schemaVersion: z.literal("cex-broker-action-validation/v1"),
+	schemaVersion: z.literal(ACTION_VALIDATION_SCHEMA_VERSION),
 	exchange: z.string().min(1),
 	action: z.enum(["CreateOrder", "Withdraw", "FetchDepositAddresses"]),
 	symbol: z.string(),
