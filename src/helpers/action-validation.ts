@@ -112,7 +112,7 @@ function capabilityReason(
 
 const ORDER_FAILURE_CODES: Record<
 	OrderExecutionFailure,
-	ActionValidationReasonCode
+	ActionValidationReason["code"]
 > = {
 	policy_market_denied: "policy_denied",
 	policy_limit_denied: "policy_denied",
