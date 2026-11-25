@@ -84,6 +84,16 @@ const positiveDecimalStringSchema = z
 	.regex(/^[0-9]+(?:\.[0-9]+)?$(?![\s\S])/)
 	.refine((value) => /[1-9]/.test(value), "Must be greater than zero");
 const legacyOrderPriceSchema = z.coerce.number().positive();
+
+/** Time-in-force values the broker accepts as a first-class order field. */
+export const ORDER_TIME_IN_FORCE_VALUES = ["GTC", "IOC", "FOK", "PO"] as const;
+export type OrderTimeInForce = (typeof ORDER_TIME_IN_FORCE_VALUES)[number];
+
+const orderTimeInForceSchema = z
+	.string()
+	.trim()
+	.toUpperCase()
+	.pipe(z.enum(ORDER_TIME_IN_FORCE_VALUES));
 const exactOrderPriceSchema = z.union([
 	positiveDecimalStringSchema,
 	z.number().positive(),
@@ -93,6 +103,7 @@ export const CreateOrderPayloadSchema = z
 	.object({
 		orderType: z.enum(["market", "limit"]).default("limit"),
 		orderIntent: z.enum(["passive_only"]).optional(),
+		timeInForce: orderTimeInForceSchema.optional(),
 		amount: z.coerce.number().positive(),
 		amountBase: positiveDecimalStringSchema.optional(),
 		fromToken: z.string().min(1),
@@ -134,10 +145,21 @@ export const SetPerpConfigStatePayloadSchema = z.object({
 	params: unknownParamsSchema.default({}),
 });
 
-export const GetOrderDetailsPayloadSchema = z.object({
-	orderId: z.string().min(1),
-	params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
-});
+export const GetOrderDetailsPayloadSchema = z
+	.object({
+		orderId: z.string().min(1).optional(),
+		clientOrderId: z.string().min(1).optional(),
+		params: z.preprocess(parseJsonString, stringNumberRecordSchema).default({}),
+	})
+	.superRefine((value, ctx) => {
+		if ((value.orderId === undefined) === (value.clientOrderId === undefined)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["orderId"],
+				message: "Provide exactly one of orderId or clientOrderId",
+			});
+		}
+	});
 
 export const CancelOrderPayloadSchema = z.object({
 	orderId: z.string().min(1),
@@ -175,6 +197,28 @@ export const BatchPayloadSchema = z
 	})
 	.strict();
 
+/** Actions the ValidateAction action can check without carrying them out. */
+export const VALIDATABLE_ACTION_NAMES = [
+	"CreateOrder",
+	"Withdraw",
+	"FetchDepositAddresses",
+] as const;
+export type ValidatableActionName = (typeof VALIDATABLE_ACTION_NAMES)[number];
+
+export const ValidateActionRequestSchema = z
+	.object({
+		action: z.number().int().nonnegative(),
+		symbol: z.string(),
+		payload: z.record(z.string(), z.string()),
+	})
+	.strict();
+
+export const ValidateActionPayloadSchema = z
+	.object({
+		request: z.preprocess(parseJsonString, ValidateActionRequestSchema),
+	})
+	.strict();
+
 export type DepositPayload = z.infer<typeof DepositPayloadSchema>;
 export type CallPayload = z.infer<typeof CallPayloadSchema>;
 export type FetchDepositAddressesPayload = z.infer<
@@ -199,3 +243,5 @@ export type FetchFeesPayload = z.infer<typeof FetchFeesPayloadSchema>;
 export type FetchCurrencyPayload = z.infer<typeof FetchCurrencyPayloadSchema>;
 export type BatchChildRequest = z.infer<typeof BatchChildRequestSchema>;
 export type BatchPayload = z.infer<typeof BatchPayloadSchema>;
+export type ValidateActionRequest = z.infer<typeof ValidateActionRequestSchema>;
+export type ValidateActionPayload = z.infer<typeof ValidateActionPayloadSchema>;

@@ -6,12 +6,23 @@ import {
 	captureMarketMetadataSnapshot,
 	rethrowArchiveDurabilityError,
 } from "../../helpers/broker-execution-archive";
+import {
+	clientOrderLookupUnsupportedMessage,
+	fetchOrderByReference,
+	supportsClientOrderLookup,
+} from "../../helpers/client-order-lookup";
 import { Action } from "../../helpers/constants";
 import { isOrderNotFound } from "../../helpers/order-not-found";
 import {
 	emitOrderExecutionTelemetryInBackground,
 	extractOrderTelemetryIds,
 } from "../../helpers/order-telemetry";
+import {
+	buildCreateOrderParams,
+	checkTimeInForceRequest,
+	isPassiveCreateOrder,
+	resolveTimeInForceSupport,
+} from "../../helpers/order-time-in-force";
 import { classifyPassiveOrderError } from "../../helpers/passive-order";
 import {
 	safeLogError,
@@ -50,8 +61,10 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 
 	const orderValue = parsePayloadForAction(ctx, CreateOrderPayloadSchema);
 	if (orderValue === null) return;
-	const isPassiveOrder = orderValue.orderIntent === "passive_only";
-	if (isPassiveOrder && orderValue.orderType !== "limit") {
+	if (
+		orderValue.orderIntent === "passive_only" &&
+		orderValue.orderType !== "limit"
+	) {
 		return ctx.wrappedCallback(
 			{
 				code: grpc.status.INVALID_ARGUMENT,
@@ -61,13 +74,15 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 			null,
 		);
 	}
-	const createOrderParams = {
-		...orderValue.params,
-		...(orderValue.clientOrderId !== undefined && {
-			clientOrderId: orderValue.clientOrderId,
-		}),
-		...(isPassiveOrder && { postOnly: true }),
-	};
+	const timeInForceError = checkTimeInForceRequest(orderValue);
+	if (timeInForceError !== undefined) {
+		return ctx.wrappedCallback(
+			{ code: grpc.status.INVALID_ARGUMENT, message: timeInForceError },
+			null,
+		);
+	}
+	const isPassiveOrder = isPassiveCreateOrder(orderValue);
+	const createOrderParams = buildCreateOrderParams(orderValue);
 	let resolvedOrderTelemetry: {
 		symbol?: string;
 		side?: string;
@@ -111,6 +126,19 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 				},
 				null,
 			);
+		}
+		if (orderValue.timeInForce !== undefined) {
+			const support = resolveTimeInForceSupport(
+				broker,
+				resolution.symbol,
+				orderValue.timeInForce,
+			);
+			if (!support.supported) {
+				return ctx.wrappedCallback(
+					{ code: grpc.status.UNIMPLEMENTED, message: support.message },
+					null,
+				);
+			}
 		}
 		resolvedOrderTelemetry = {
 			symbol: resolution.symbol,
@@ -249,6 +277,16 @@ async function handleCreateOrder(ctx: ExecuteActionContext): Promise<void> {
 	}
 }
 
+function lookupTelemetryIds(lookup: {
+	clientOrderId?: string;
+	params: Record<string, string | number>;
+}) {
+	const ids = extractOrderTelemetryIds(lookup.params);
+	return lookup.clientOrderId === undefined
+		? ids
+		: { ...ids, clientOrderId: lookup.clientOrderId };
+}
+
 async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 	const {
 		call,
@@ -287,10 +325,23 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 				null,
 			);
 		}
-		const orderDetails = await broker.fetchOrder(
-			getOrderValue.orderId,
+		if (
+			getOrderValue.clientOrderId !== undefined &&
+			!supportsClientOrderLookup(broker)
+		) {
+			return ctx.wrappedCallback(
+				{
+					code: grpc.status.UNIMPLEMENTED,
+					message: clientOrderLookupUnsupportedMessage(broker),
+				},
+				null,
+			);
+		}
+		const orderDetails = await fetchOrderByReference(
+			broker,
+			getOrderValue,
 			symbol,
-			{ ...getOrderValue.params },
+			getOrderValue.params,
 		);
 		if (selectedBrokerAccount?.label && symbol) {
 			orderActivityTracker?.record(cex, selectedBrokerAccount.label, symbol);
@@ -300,7 +351,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 			cex,
 			accountLabel: selectedBrokerAccount?.label,
 			symbol,
-			...extractOrderTelemetryIds(getOrderValue.params),
+			...lookupTelemetryIds(getOrderValue),
 		};
 		emitOrderExecutionTelemetryInBackground(
 			otelMetrics,
@@ -315,6 +366,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 		ctx.wrappedCallback(null, {
 			result: JSON.stringify({
 				orderId: orderDetails.id,
+				clientOrderId: orderDetails.clientOrderId,
 				status: orderDetails.status,
 				amount: orderDetails.amount,
 				filled: orderDetails.filled,
@@ -331,7 +383,7 @@ async function handleGetOrderDetails(ctx: ExecuteActionContext): Promise<void> {
 			cex,
 			accountLabel: selectedBrokerAccount?.label,
 			symbol,
-			...extractOrderTelemetryIds(getOrderValue.params),
+			...lookupTelemetryIds(getOrderValue),
 		};
 		emitOrderExecutionTelemetryInBackground(
 			otelMetrics,

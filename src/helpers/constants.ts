@@ -32,6 +32,7 @@ export const Action = {
 	SetPerpConfigState: 15,
 	FetchMarketRules: 16,
 	Batch: 17,
+	ValidateAction: 18,
 } as const;
 
 export const SubscriptionType = {

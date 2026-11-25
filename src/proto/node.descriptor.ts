@@ -120,7 +120,8 @@ const descriptor = {
             "GetPerpConfigState": 14,
             "SetPerpConfigState": 15,
             "FetchMarketRules": 16,
-            "Batch": 17
+            "Batch": 17,
+            "ValidateAction": 18
           }
         }
       }
